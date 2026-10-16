@@ -62,7 +62,7 @@ pub use invalidate::Invalidate;
 pub use live::Stream;
 pub use merge::Merge;
 pub use patch::Patch;
-pub use query::{BatchItem, BatchQueryType, BatchStream, IntoVariables, ItemStream, Query, QueryStream, StreamItem};
+pub use query::{AdmittedBatchFailure, AdmittedBatchItem, AdmittedBatchStream, BatchItem, BatchQueryType, BatchStream, IngressAdmission, IngressReservation, IngressStage, IntoVariables, ItemStream, Query, QueryStream, QueryStreamOptions, StreamItem, StreamStats};
 pub use run::{IntoFn, Run};
 pub use select::Select;
 pub use set::Set;

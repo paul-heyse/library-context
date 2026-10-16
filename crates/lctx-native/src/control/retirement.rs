@@ -2186,7 +2186,7 @@ mod candidate_page_controls {
     fn terminal_page_projects_complete_incidence_without_retaining_content_bodies() {
         let schema = include_str!("schema.surql");
         let incidence = schema
-            .split("DEFINE FUNCTION fn::native_incidence($row: object) {")
+            .split("DEFINE FUNCTION fn::native_incidence_targets($row: object) {")
             .nth(1)
             .unwrap()
             .split("DEFINE FUNCTION fn::native_backup_clear()")
@@ -2567,5 +2567,159 @@ mod candidate_page_controls {
             std::panic::resume_unwind(panic);
         }
         cleanup.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod backup_gate_controls {
+    use super::*;
+    #[test]
+    fn retirement_backup_gate_is_checked_without_mutation() {
+        let schema = include_str!("schema.surql");
+        let gate = schema
+            .split("DEFINE FUNCTION fn::native_backup_clear() {")
+            .nth(1)
+            .unwrap()
+            .split("\n};")
+            .next()
+            .unwrap();
+        surrealdb_syn::parse(schema).unwrap();
+        assert!(gate.contains("FROM ONLY native_backup_gate:current FOR UPDATE"));
+        assert!(gate.contains("type::is_int($gate.active_count)=false"));
+        assert!(gate.contains("type::is_int($gate.revision)=false"));
+        assert!(!gate.contains("UPDATE "));
+        assert!(!gate.contains("UPSERT "));
+        assert!(
+            !gate.contains("9223372036854775807"),
+            "read-only exclusion still works at the final valid revision"
+        );
+    }
+    // This control deliberately owns the database-wide backup gate and explicit
+    // transaction sessions. Run alone on a task-owned RocksDB campaign; ordinary
+    // shared-service verification must never select it.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB campaign only"]
+    async fn native_backup_gate_checked_observation_commit_orders() {
+        let cfg = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("exclusive owned RocksDB campaign"),
+        ))
+        .unwrap();
+        let client = crate::installation::check_installation(&cfg).await.unwrap();
+        let stop = RetryCancellation::default();
+        let cancel = stop.clone();
+        let signals = cfg
+            .signal_owner("backup gate control writer", move || cancel.cancel())
+            .unwrap();
+        let scope = RecoveryScope::new(
+            client.clone(),
+            lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .unwrap(),
+            stop,
+            signals.pending_recipient().unwrap(),
+            RecoveryTarget {
+                generation: cfg.service_generation,
+                namespace: cfg.namespace.as_str().into(),
+                database: cfg.database.as_str().into(),
+                endpoint: Some(cfg.endpoint.clone()),
+            },
+        )
+        .unwrap();
+        with_recovery_scope(scope.clone(), async {
+            // Two read-only retirement exclusions do not serialize each other's commits.
+            let left = client.as_ref().clone().begin().await.unwrap();
+            let right = client.as_ref().clone().begin().await.unwrap();
+            left.query("fn::native_backup_clear()")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            right
+                .query("fn::native_backup_clear()")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            left.commit().await.unwrap().invalidate().await.unwrap();
+            right.commit().await.unwrap().invalidate().await.unwrap();
+            // A backup writer committed after an older retirement snapshot invalidates
+            // that observation, even though retirement does not write the gate.
+            let retirement = client.as_ref().clone().begin().await.unwrap();
+            retirement
+                .query("fn::native_backup_clear()")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let hold = acquire_backup_hold(&client).await.unwrap();
+            assert!(
+                retirement.commit().await.is_err(),
+                "checked read must refuse a changed gate"
+            );
+            let active = client.as_ref().clone().begin().await.unwrap();
+            assert!(
+                active
+                    .query("fn::native_backup_clear()")
+                    .await
+                    .unwrap()
+                    .check()
+                    .is_err(),
+                "active backup refuses retirement"
+            );
+            active.cancel_ref().await.unwrap();
+            active.invalidate_session().await.unwrap();
+            release_backup_hold(&client, hold).await.unwrap();
+            // Reader-first order succeeds; subsequent acquisition/release remains live.
+            let retirement = client.as_ref().clone().begin().await.unwrap();
+            retirement
+                .query("fn::native_backup_clear()")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            retirement
+                .commit()
+                .await
+                .unwrap()
+                .invalidate()
+                .await
+                .unwrap();
+            let hold = acquire_backup_hold(&client).await.unwrap();
+            release_backup_hold(&client, hold).await.unwrap();
+            // Even repeated release writes its gate; an older checked reader conflicts.
+            let retirement = client.as_ref().clone().begin().await.unwrap();
+            retirement
+                .query("fn::native_backup_clear()")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            release_backup_hold(&client, hold).await.unwrap();
+            assert!(retirement.commit().await.is_err());
+            let retirement = client.as_ref().clone().begin().await.unwrap();
+            retirement
+                .query("fn::native_backup_clear()")
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            retirement
+                .commit()
+                .await
+                .unwrap()
+                .invalidate()
+                .await
+                .unwrap();
+            release_backup_hold(&client, hold).await.unwrap();
+        })
+        .await;
+        assert_eq!(scope.pending_count().unwrap(), 0);
+        client.invalidate().await.unwrap();
+        signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
+            .unwrap();
     }
 }

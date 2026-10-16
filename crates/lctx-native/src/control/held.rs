@@ -702,7 +702,7 @@ pub fn completed_admission_plan(
     variables.insert("completion_logical", data.completed_state.hex());
     variables.insert("admission", admission.record()?);
     let sql = format!(
-        "{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR ($__owner.admitted AND $__owner.completed_admission!=$admission) {{ THROW 'semantic admission physical completion changed'; }}; {row_sql}; {hold_sql}; UPDATE $__attempt SET admitted=true,completed_identity=$completion_identity,completed_state=$completion_logical,completed_admission=$admission RETURN NONE",
+        "{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR ($__owner.admitted AND $__owner.completed_admission!=$admission) {{ THROW 'semantic admission physical completion changed'; }}; {row_sql}; {hold_sql}; fn::native_attempt_cut($__attempt,$__generation,$__era,$__epoch,'admission'); UPDATE $__attempt SET admitted=true,completed_identity=$completion_identity,completed_state=$completion_logical,completed_admission=$admission RETURN NONE",
         frozen::FENCE_GUARD
     );
     Ok((sql, variables, charge))
@@ -1015,6 +1015,15 @@ mod tests {
         let store = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -1174,6 +1183,15 @@ mod tests {
         let store = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();

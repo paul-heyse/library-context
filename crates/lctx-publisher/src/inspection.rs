@@ -206,10 +206,14 @@ async fn audit_owned(
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(
         lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
     )?;
+    let reader_factory =
+        lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding()?, budget.clone())?;
     let reader = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
+        &budget,
+        &reader_factory,
     )
     .await?
     .with_budget(&budget)
@@ -230,6 +234,7 @@ async fn audit_owned(
             config.database.clone(),
             bindings.clone(),
         )?;
+        compiler.bind_recovery_scope(reader.recovery_scope()?)?;
         compiler.set_read_cancellation(cancel.flag())?;
         owner = Some(compiler.clone());
         compiler.register_published_inventory(&completed, &budget)?;

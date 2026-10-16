@@ -816,9 +816,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -874,9 +886,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -1824,8 +1848,22 @@ pub async fn validate_pending<Context>(
     attempt: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    process_pending(reader, attempt, budget, false).await?;
-    process_owned_layouts(reader, attempt, budget, false).await
+    validate_pending_execution(reader, attempt, budget).await
+}
+// Expose the complete read-only execution's Send contract directly, so callers
+// need not infer that property through the replay machinery's future graph.
+// This retains the same client, scope, operation registry and allocation pool;
+// the public generic wrapper preserves its original capture and polling timing.
+fn validate_pending_execution<'a, Context>(
+    reader: &crate::NativeReader<Context>,
+    attempt: ContentHash,
+    budget: &'a ResourceBudget,
+) -> impl std::future::Future<Output = Result<(), ModelError>> + Send + 'a {
+    let reader = reader.transport_reader();
+    async move {
+        process_pending(&reader, attempt, budget, false).await?;
+        process_owned_layouts(&reader, attempt, budget, false).await
+    }
 }
 /// Raw typed ingress owns layouts directly through the attempt, even when the source header
 /// arrived first and no pending rows were needed. Provider contributions complete their own

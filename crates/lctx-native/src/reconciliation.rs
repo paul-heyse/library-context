@@ -266,7 +266,7 @@ pub fn actual_roles<Context>(
     let client = reader.shared_client();
     let cancellation = reader.read_cancellation();
     let budget = budget.clone();
-    crate::reader::NativeRows::owned(move |sender| async move {
+    crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let selection = selection.await?;
         let mut actual = crate::ordered_rows::SortedRows::with_budget(&budget)?;
         let mut external = crate::ordered_rows::SortedRows::with_budget(&budget)?;
@@ -285,7 +285,7 @@ pub fn actual_roles<Context>(
                         "SELECT * FROM {table} WHERE derivation=$lctx_derivation"
                     )],
                 )?
-                .stream_cancellable(&client, cancellation.as_ref())?
+                .stream_cancellable(&client, cancellation.as_ref(), &budget)?
             };
             let result = async {
                 while let Some(row) = rows.next().await? {
@@ -338,7 +338,7 @@ pub fn actual_roles<Context>(
                 vec![],
                 vec!["SELECT * FROM $ids".into()],
             )?
-            .stream_cancellable(&client, cancellation.as_ref())?;
+            .stream_cancellable(&client, cancellation.as_ref(), &budget)?;
             let result = async {
                 while let Some(row) = rows.next().await? {
                     actual.push(row)?;
@@ -352,7 +352,7 @@ pub fn actual_roles<Context>(
         }
         let mut actual = actual.finish()?;
         while let Some(row) = actual.next_row()? {
-            if sender.send(row).await.is_err() {
+            if !sender.send(row).await? {
                 break;
             }
         }

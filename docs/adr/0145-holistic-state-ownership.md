@@ -1,10 +1,10 @@
 ---
 id: ADR-0145
 title: Unify recoverable closure, bounded native lifecycle and charged active state
-status: accepted
+status: superseded
 date: 2026-10-10
 supersedes: [ADR-0143]
-superseded-by: null
+superseded-by: ADR-0173
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§4", "§5", "§6", "§11", "§14.2", "§15"]
 evidence: Proposed
 revisit: A supported consumer cannot preserve coherent selected recovery, permanent delayed-operation fencing or charged borrower lifetime through the owned native service.

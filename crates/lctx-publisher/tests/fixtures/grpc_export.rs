@@ -206,6 +206,7 @@ impl SurrealDbService for Peer {
         Ok(Response::new(rpc::GetCapabilitiesResponse {
             capabilities: Some(rpc::ServerCapabilities {
                 server_version: "3.3.0-injected-export-fixture".into(),
+                capabilities: vec!["QUERY_BATCH_BYTES_V1".into()],
                 ..Default::default()
             }),
         }))

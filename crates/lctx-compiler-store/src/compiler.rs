@@ -218,7 +218,7 @@ pub struct NativeCompilerStore {
     read_only: AtomicBool,
     read_cancellation: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     signal_stop: crate::control::RetryCancellation,
-    signals: Result<lctx_native::signal::SignalRegistration, Arc<ModelError>>,
+    signals: Result<Arc<lctx_native::signal::SignalRegistration>, Arc<ModelError>>,
     owns_session: bool,
     original_ingress: lctx_native::originals::PendingOriginals,
     namespace: d::serving::Name,
@@ -434,6 +434,10 @@ struct OperationAdmission {
     state: Mutex<OperationState>,
     changed: Notify,
     source_finalization: tokio::sync::Mutex<SourceFinalization>,
+    // This owner outlives operation leases and holds exact actions through source
+    // finalization. Actions never retain the compiler, avoiding an ownership cycle.
+    recovery: Mutex<Option<Arc<crate::control::RecoveryScope>>>,
+    factory_lease: Option<lctx_native::control::FactoryLease>,
 }
 #[derive(Default)]
 struct SourceFinalization {
@@ -684,18 +688,47 @@ impl OperationLease {
         &'a self,
         future: impl std::future::Future<Output = T> + Send + 'a,
     ) -> BoxFuture<'a, T> {
-        Box::pin(DESCENDANT_WORK.scope(self.binding(), future))
+        let recovery = self
+            .owner
+            .recovery
+            .lock()
+            .ok()
+            .and_then(|owner| owner.clone());
+        Box::pin(DESCENDANT_WORK.scope(self.binding(), async move {
+            match recovery {
+                Some(owner) => crate::control::with_recovery_scope(owner, future).await,
+                None => future.await,
+            }
+        }))
     }
     // ProducingScope::run also supports caller futures confined to one task.
     async fn within_local<T>(&self, future: impl std::future::Future<Output = T>) -> T {
-        DESCENDANT_WORK.scope(self.binding(), future).await
+        let recovery = self
+            .owner
+            .recovery
+            .lock()
+            .ok()
+            .and_then(|owner| owner.clone());
+        DESCENDANT_WORK
+            .scope(self.binding(), async move {
+                match recovery {
+                    Some(owner) => crate::control::with_recovery_scope(owner, future).await,
+                    None => future.await,
+                }
+            })
+            .await
     }
     fn finish(mut self) {
         self.finished = true;
     }
     fn observe_result<T>(&self, result: Result<T, ModelError>) -> Result<T, ModelError> {
         result.map_err(|error| {
-            let uncertain = !error.permits_storage_cleanup();
+            let pending = self.owner.recovery.lock().map_or(true, |owner| {
+                owner
+                    .as_ref()
+                    .is_some_and(|scope| scope.pending_count().unwrap_or(1) != 0)
+            });
+            let uncertain = pending || !error.permits_storage_cleanup();
             if self.poison_on_error || uncertain {
                 let error = match error {
                     ModelError::SharedCause(error) => error,
@@ -801,23 +834,34 @@ impl std::fmt::Debug for NativeCompilerStore {
 struct NativeSignalOwners {
     cancellation: crate::control::RetryCancellation,
     reads: Arc<Mutex<Option<Arc<AtomicBool>>>>,
-    registration: Result<lctx_native::signal::SignalRegistration, Arc<ModelError>>,
+    registration: Result<Arc<lctx_native::signal::SignalRegistration>, Arc<ModelError>>,
 }
-fn native_signal_owners() -> NativeSignalOwners {
+/// Explicit factory capability; callers retain it across construction and failures.
+pub fn recovery_factory(
+    config: &RuntimeConfig,
+    budget: ResourceBudget,
+) -> Result<Arc<lctx_native::control::RecoveryFactoryOwner>, ModelError> {
+    lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding()?, budget)
+}
+fn native_signal_owners(config: Option<&RuntimeConfig>) -> NativeSignalOwners {
     let cancellation = crate::control::RetryCancellation::default();
     let reads = Arc::new(Mutex::new(Some(Arc::new(AtomicBool::new(false)))));
     let token = cancellation.clone();
     let read_owner = reads.clone();
-    let signals =
-        lctx_native::signal::SignalRegistration::new("native compiler store", move || {
-            token.cancel();
-            if let Ok(flag) = read_owner.lock()
-                && let Some(flag) = &*flag
-            {
-                flag.store(true, Ordering::Release);
-            }
-        })
-        .map_err(Arc::new);
+    let cancel = move || {
+        token.cancel();
+        if let Ok(flag) = read_owner.lock()
+            && let Some(flag) = &*flag
+        {
+            flag.store(true, Ordering::Release);
+        }
+    };
+    let signals = match config {
+        Some(config) => config.signal_owner("native compiler store", cancel),
+        None => lctx_native::signal::SignalRegistration::new("native compiler store", cancel),
+    }
+    .map(Arc::new)
+    .map_err(Arc::new);
     NativeSignalOwners {
         cancellation,
         reads,
@@ -825,6 +869,97 @@ fn native_signal_owners() -> NativeSignalOwners {
     }
 }
 impl NativeCompilerStore {
+    /// Attach the reader/source owner for this exact session before asynchronous preparation.
+    /// A borrowed publication owner must not invent a separate recovery recipient.
+    pub fn bind_recovery_scope(
+        &self,
+        scope: Arc<crate::control::RecoveryScope>,
+    ) -> Result<(), ModelError> {
+        if !Arc::ptr_eq(scope.client(), &self.client)
+            || scope.target().namespace != self.namespace.as_str()
+            || scope.target().database != self.database.as_str()
+        {
+            return Err(ModelError::Conflict(
+                "native source recovery session correspondence",
+            ));
+        }
+        let mut owner = self
+            .admission
+            .recovery
+            .lock()
+            .map_err(|_| ModelError::Conflict("native source recovery owner"))?;
+        if let Some(current) = owner.as_ref()
+            && !Arc::ptr_eq(current, &scope)
+            && (current.pending_count()? != 0 || Arc::strong_count(current) != 1)
+        {
+            return Err(ModelError::Conflict("native source recovery owner is live"));
+        }
+        *owner = Some(scope);
+        Ok(())
+    }
+    /// Bind compact recovery metadata to the actual caller/service resource pool.
+    /// Construction may replace an unused binding; live actions retain their pool.
+    pub fn bind_recovery_budget(
+        &self,
+        budget: &ResourceBudget,
+    ) -> Result<Arc<crate::control::RecoveryScope>, ModelError> {
+        let mut owner = self
+            .admission
+            .recovery
+            .lock()
+            .map_err(|_| ModelError::Conflict("native source recovery owner"))?;
+        if let Some(scope) = owner.as_ref() {
+            if scope.budget().shares_pool(budget) {
+                return Ok(scope.clone());
+            }
+            if scope.pending_count()? != 0 {
+                return Err(ModelError::Conflict(
+                    "native recovery cannot change a live resource pool",
+                ));
+            }
+            if Arc::strong_count(scope) != 1 {
+                return Err(ModelError::Conflict(
+                    "native recovery cannot change a borrowed resource pool",
+                ));
+            }
+        }
+        if let Some(scope) = crate::control::capture_recovery_scope()
+            && Arc::ptr_eq(scope.client(), &self.client)
+            && scope.budget().shares_pool(budget)
+        {
+            *owner = Some(scope.clone());
+            return Ok(scope);
+        }
+        let recipient = self
+            .signals
+            .as_ref()
+            .map_err(|error| ModelError::SharedCause(error.clone()))?
+            .pending_recipient()?;
+        let scope = crate::control::RecoveryScope::new(
+            self.client.clone(),
+            budget.clone(),
+            self.signal_stop.clone(),
+            recipient.clone(),
+            crate::control::RecoveryTarget {
+                generation: recipient.generation(),
+                namespace: self.namespace.as_str().into(),
+                database: self.database.as_str().into(),
+                endpoint: self.endpoint.clone(),
+            },
+        )?;
+        *owner = Some(scope.clone());
+        Ok(scope)
+    }
+    pub fn recovery_scope(&self) -> Result<Arc<crate::control::RecoveryScope>, ModelError> {
+        self.admission
+            .recovery
+            .lock()
+            .map_err(|_| ModelError::Conflict("native source recovery owner"))?
+            .clone()
+            .ok_or(ModelError::Conflict(
+                "native source recovery requires its caller resource pool",
+            ))
+    }
     /// Read-only exact publication context. This imports no runtime attempt ownership and
     /// creates no database or schema; pins belong to the published reader owner.
     pub async fn from_publication(
@@ -1152,6 +1287,7 @@ impl NativeCompilerStore {
         budget: &'a ResourceBudget,
     ) -> BoxFuture<'a, Result<AuditCapture, ModelError>> {
         Box::pin(async move {
+            self.bind_recovery_budget(budget)?;
             let lease = self.admit(false, "capture_audit", false)?;
             let result = lease.within(self.capture_state(budget)).await;
             lease.finish_with(result)
@@ -1254,9 +1390,9 @@ impl NativeCompilerStore {
         }
         if table == "compiler_alias" {
             let mut cursor = selection.payloads.aliases()?;
-            return NativeRows::owned(move |sender| async move {
+            return NativeRows::owned(selection.budget.clone(), move |sender| async move {
                 while let Some(row) = cursor.next_row()? {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -1282,7 +1418,7 @@ impl NativeCompilerStore {
         let table = table.to_owned();
         let cancellation = self.read_cancellation()?;
         let budget = selection.budget.clone();
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(budget.clone(), move |sender| async move {
             for roots in roots.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
                 if sender.is_closed() {
                     break;
@@ -1304,11 +1440,11 @@ impl NativeCompilerStore {
                     vec![],
                     vec![sql.into()],
                 )?
-                .stream_cancellable(&client, cancellation.as_ref())?
+                .stream_cancellable(&client, cancellation.as_ref(), &budget)?
                 .with_row_bytes(d::resources::MAX_ROW_BYTES);
                 let result = async {
                     while let Some(row) = source.next().await? {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             break;
                         }
                     }
@@ -1898,8 +2034,34 @@ impl NativeCompilerStore {
         view: &CompletedView,
         budget: &ResourceBudget,
     ) -> Result<Arc<lctx_native::installed_view::HeldInstalledView>, ModelError> {
-        let _root_gate = self.root_gates([view.identity], budget).await?;
-        self.install_view_under_gate(view, budget).await
+        self.prepare_install_view_execution(view, budget)?.await
+    }
+    // One admitted, concrete earning execution keeps worker task-local adapters
+    // independent of the native installation future's composition during codegen.
+    // Admission and all gates/effects still begin when install_view_inner is polled.
+    fn prepare_install_view_execution<'a>(
+        self: &'a Arc<Self>,
+        view: &'a CompletedView,
+        budget: &'a ResourceBudget,
+    ) -> Result<
+        BoxFuture<'a, Result<Arc<lctx_native::installed_view::HeldInstalledView>, ModelError>>,
+        ModelError,
+    > {
+        let body = async move {
+            let _root_gate = self.root_gates([view.identity], budget).await?;
+            self.install_view_under_gate(view, budget).await
+        };
+        let bytes = std::mem::size_of_val(&body)
+            .checked_add(std::mem::size_of::<Box<dyn Reservation>>())
+            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+            .ok_or(ModelError::Schema(
+                "installed view earning continuation size",
+            ))?;
+        let grant = budget.reserve("installed view earning continuation", bytes)?;
+        Ok(Box::pin(async move {
+            let _grant = grant;
+            body.await
+        }))
     }
     async fn install_view_under_gate(
         self: &Arc<Self>,
@@ -3602,34 +3764,56 @@ impl NativeCompilerStore {
     pub async fn begin(
         config: &RuntimeConfig,
         frontier: Frontier,
+        factory: &Arc<lctx_native::control::RecoveryFactoryOwner>,
     ) -> Result<Arc<Self>, ModelError> {
         let phase = crate::phase::Phase::begin("native_setup");
-        let result = Self::begin_inner(config, frontier).await;
+        let result = Self::begin_inner(config, frontier, factory).await;
         phase.finish_result(&result);
-        result
+        result.map_err(|error| factory.handback(error))
     }
     async fn begin_inner(
         config: &RuntimeConfig,
         frontier: Frontier,
+        factory: &Arc<lctx_native::control::RecoveryFactoryOwner>,
     ) -> Result<Arc<Self>, ModelError> {
-        let NativeSignalOwners {
-            cancellation: signal_stop,
-            reads: read_cancellation,
-            registration: signals,
-        } = native_signal_owners();
-        signals
-            .as_ref()
-            .map_err(|error| ModelError::SharedCause(error.clone()))?;
-        if signal_stop.stopped() {
-            return Err(ModelError::Invalid("native operation cancelled".into()));
-        }
         let database = config.database.clone();
-        let client = check_installation(config).await?;
-        let attempt = crate::control::with_retry_cancellation(
-            signal_stop.clone(),
-            crate::control::issue_attempt(&client, config.service_generation),
+        let (client, factory_lease) = reader::connect_owned(
+            &config.endpoint,
+            &config.writer_credentials(),
+            config.namespace.as_str(),
+            database.as_str(),
+            factory,
         )
         .await?;
+        let recovery = factory_lease.recovery_scope().clone();
+        let signal_stop = recovery.cancellation().clone();
+        let read_cancellation = Arc::new(Mutex::new(Some(signal_stop.flag())));
+        let signals = Ok(factory_lease.signals());
+        crate::control::with_recovery_scope(
+            recovery.clone(),
+            crate::control::check_installation(&client, config.service_generation),
+        )
+        .await?;
+        let admission = Arc::new(OperationAdmission {
+            recovery: Mutex::new(Some(recovery.clone())),
+            factory_lease: Some(factory_lease.clone()),
+            ..Default::default()
+        });
+        let attempt = crate::control::fresh_identity("compiler-attempt")?;
+        let issuance = crate::control::with_recovery_scope(
+            recovery.clone(),
+            crate::control::IssuanceEra::capture(&client),
+        )
+        .await?;
+        if issuance.generation != config.service_generation {
+            return Err(ModelError::Conflict(
+                "native compiler allocation generation",
+            ));
+        }
+        let allocation = crate::control::prepare_attempt_allocation(attempt, issuance)?;
+        factory_lease.register_attempt(attempt, allocation.request)?;
+        crate::control::with_recovery_scope(recovery, allocation.issue(&client)).await?;
+        factory_lease.source_ready()?;
         Ok(Arc::new(Self {
             client,
             database,
@@ -3662,7 +3846,7 @@ impl NativeCompilerStore {
             membership_preparations: Mutex::default(),
             membership_join_failures: Mutex::default(),
             producing_scopes: Mutex::default(),
-            admission: Arc::new(OperationAdmission::default()),
+            admission,
             runtime: tokio::runtime::Handle::current(),
             frontier: Mutex::new(frontier),
         }))
@@ -3678,7 +3862,7 @@ impl NativeCompilerStore {
             cancellation: signal_stop,
             reads: read_cancellation,
             registration: signals,
-        } = native_signal_owners();
+        } = native_signal_owners(None);
         Arc::new(Self {
             client,
             database,
@@ -4621,8 +4805,16 @@ impl NativeCompilerStore {
             && completion.remote == d::completion::RemoteState::Confirmed
             && completion.failures.is_empty()
         {
-            let closed =
-                crate::control::close_attempt(&self.client, self.attempt, "abandoned").await;
+            let closed = match self.recovery_scope() {
+                Ok(owner) => {
+                    crate::control::with_recovery_scope(
+                        owner,
+                        crate::control::close_attempt(&self.client, self.attempt, "abandoned"),
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
+            };
             if closed.is_ok() {
                 source.attempt_closed = true;
             }
@@ -4634,7 +4826,10 @@ impl NativeCompilerStore {
             && completion.failures.is_empty()
             && let Some(session) = session
         {
-            let closed = session.close().await;
+            let closed = match &self.admission.factory_lease {
+                Some(lease) => lease.close_session().await,
+                None => session.close().await,
+            };
             if closed.is_ok() {
                 source.session_closed = true;
             }
@@ -4659,7 +4854,10 @@ impl NativeCompilerStore {
             && completion.failures.is_empty()
             && let Ok(signals) = &self.signals
         {
-            let finality = signals.complete(completion).await;
+            let finality = match &self.admission.factory_lease {
+                Some(lease) => lease.complete().await,
+                None => signals.complete(completion).await,
+            };
             completion.step("native compiler signal owner", finality);
         }
     }
@@ -4708,6 +4906,20 @@ impl NativeCompilerStore {
     // An acknowledged operation failure remains the caller's result, but is not
     // a failure to join that operation or finalize its actual native owner.
     async fn drain_finality(&self) -> d::completion::Completion {
+        let owner = self
+            .admission
+            .recovery
+            .lock()
+            .ok()
+            .and_then(|owner| owner.clone());
+        match owner {
+            Some(owner) => {
+                crate::control::with_recovery_scope(owner, self.drain_finality_inner()).await
+            }
+            None => self.drain_finality_inner().await,
+        }
+    }
+    async fn drain_finality_inner(&self) -> d::completion::Completion {
         let mut completion = d::completion::Completion::default();
         match self.admission.state.lock() {
             Ok(mut state) => state.closed = true,
@@ -4725,6 +4937,20 @@ impl NativeCompilerStore {
         if let Err(error) = self.wait_operations(false).await {
             completion.local = d::completion::LocalState::Outstanding;
             completion.step("native operation drainage", Err(error));
+        }
+        let recovery_owner = self
+            .admission
+            .recovery
+            .lock()
+            .ok()
+            .and_then(|owner| owner.clone());
+        if let Some(owner) = recovery_owner {
+            let recovery = crate::control::resume_recovery_scope(&owner).await;
+            if recovery.is_err() || owner.pending_count().unwrap_or(1) != 0 {
+                completion.local = d::completion::LocalState::Outstanding;
+                completion.remote = d::completion::RemoteState::Unknown;
+            }
+            completion.step("native source recovery handback", recovery);
         }
         // Root admission is closed and accepted parent leases are now quiescent.
         // No later descendant can register a new preparation behind this join pass.
@@ -5909,7 +6135,7 @@ impl NativeCompilerStore {
             let fields=projected_fields(relation,&fields)?.join(",").replace("body.","node.body.");
             let mut variables=Variables::new();variables.insert("owner",candidate.expected.record().clone());variables.insert("relation",relation.name().to_owned());
             let query=format!("SELECT {fields} FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation ORDER BY semantic_key");
-            let mut rows=self.track_rows(prepared_rows(&self.client,query,variables,1,self.read_cancellation()?.as_ref())?)?;
+            let mut rows=self.track_rows(prepared_rows(&self.client,query,variables,1,self.read_cancellation()?.as_ref(),budget)?)?;
             rows.source_hold=Some(candidate.completed.clone());
             crate::compiler_provider::batches_from_rows(rows,relation.clone(),schema,budget,batch_rows)
         }).await;
@@ -8433,6 +8659,7 @@ impl NativeCompilerStore {
                         bindings,
                         2,
                         self.read_cancellation()?.as_ref(),
+                        budget,
                     )?)?;
                     rows.installed=Some(installed.clone());
                     while let Some(row) = rows.next_native().await? {
@@ -8534,9 +8761,10 @@ fn prepared_rows(
     bindings: Variables,
     statements: usize,
     cancellation: Option<&Arc<AtomicBool>>,
+    budget: &ResourceBudget,
 ) -> Result<NativeRows, ModelError> {
     crate::prepared::PreparedQuery::from_sql(sql, bindings, statements, vec![statements - 1])?
-        .stream_cancellable(client, cancellation)
+        .stream_cancellable(client, cancellation, budget)
 }
 
 type ReadSetupCharge = Arc<Box<dyn Reservation>>;
@@ -9101,6 +9329,7 @@ impl SelectedRows {
                     bindings,
                     statements,
                     self.store.read_cancellation()?.as_ref(),
+                    &self.budget,
                 )?
                 .with_row_bytes(64 << 20),
             )?
@@ -9566,9 +9795,21 @@ mod completion_tests {
                 .expect("owned schema8 validation runtime"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let observer = reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -9610,7 +9851,7 @@ mod completion_tests {
             drop(source);
             let response = store.client.query("INFO FOR DB").await;
             assert!(
-                response.and_then(|response| response.check()).is_err(),
+                response.map_or(true, |response| response.check().is_err()),
                 "original compiler session must no longer authenticate database inspection"
             );
             let mut response = observer
@@ -9775,6 +10016,32 @@ mod completion_tests {
         assert_eq!(terminal.local, d::completion::LocalState::Terminal);
         assert!(store.membership_preparations.lock().unwrap().is_empty());
         assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn view_earning_continuation_admits_before_gates_and_releases_on_unpolled_drop() {
+        let store = local_store();
+        let view = CompletedView::new(
+            "packages".into(),
+            [ContentHash::of(b"view producer")].into(),
+            0,
+        )
+        .unwrap();
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            store.prepare_install_view_execution(&view, &tiny),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(tiny.reserved(), 0);
+        assert!(store.product_retention_gates.lock().unwrap().is_empty());
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let pending = store
+            .prepare_install_view_execution(&view, &budget)
+            .unwrap();
+        assert!(budget.reserved() > 0);
+        assert!(store.product_retention_gates.lock().unwrap().is_empty());
+        drop(pending);
+        assert_eq!(budget.reserved(), 0);
+        assert!(store.product_retention_gates.lock().unwrap().is_empty());
     }
     #[tokio::test]
     async fn view_final_drain_is_retryable_and_foreign_pool_keeps_original_join_owner() {
@@ -10109,15 +10376,51 @@ mod completion_tests {
                 .expect("owned schema8 validation runtime"),
         ))
         .unwrap();
-        let receiver = NativeCompilerStore::begin(&config, Frontier::Normalized)
-            .await
-            .unwrap();
-        let equal = NativeCompilerStore::begin(&config, Frontier::Normalized)
-            .await
-            .unwrap();
-        let unequal = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let receiver = NativeCompilerStore::begin(
+            &config,
+            Frontier::Normalized,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
+        let equal = NativeCompilerStore::begin(
+            &config,
+            Frontier::Normalized,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
+        let unequal = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let result=async {
             let relation=Relation::of::<d::value::Place>();let nonce=receiver.attempt();
             let place=d::value::Place{root:serde_json::from_value(serde_json::to_value(<[u8;16]>::try_from(&nonce.0[..16]).map_err(ModelError::codec)?).map_err(ModelError::codec)?).map_err(ModelError::codec)?,path:serde_json::from_value(serde_json::to_value(<[u8;16]>::try_from(&nonce.0[16..]).map_err(ModelError::codec)?).map_err(ModelError::codec)?).map_err(ModelError::codec)?};
@@ -11172,7 +11475,8 @@ mod completion_tests {
                 Ok(lctx_native::signal::SignalRegistration::process(move || {
                     observed.store(true, Ordering::Release);
                 })
-                .unwrap());
+                .unwrap()
+                .into());
             let mut source = SourceFinalization {
                 attempt_closed: true,
                 session_closed: false,
@@ -11217,7 +11521,8 @@ mod completion_tests {
         owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
             observed.store(true, Ordering::Release);
         })
-        .unwrap());
+        .unwrap()
+        .into());
         // Model the two already received native acknowledgements. The unconnected
         // SDK below makes any accidental repeated remote work fail this control.
         {
@@ -11294,7 +11599,8 @@ mod completion_tests {
         owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
             observed.store(true, Ordering::Release);
         })
-        .unwrap());
+        .unwrap()
+        .into());
         let finality = store.abandon_finality_report().await;
         assert_eq!(finality.local, d::completion::LocalState::Outstanding);
         assert_eq!(finality.remote, d::completion::RemoteState::Unknown);
@@ -11345,7 +11651,8 @@ mod completion_tests {
         owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
             observed.store(true, Ordering::Release);
         })
-        .unwrap());
+        .unwrap()
+        .into());
         // Poison the actual admission lock, rather than constructing a failed report.
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -11826,9 +12133,21 @@ mod compiler_scope_tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
         ))
         .unwrap();
-        let native = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let native = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = check_installation(&config).await.unwrap();
         let reader =
             crate::NativeReader::private(client.clone()).with_budget(&native_operation_budget);
@@ -12077,12 +12396,36 @@ mod compiler_scope_tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
         ))
         .unwrap();
-        let source = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
-        let target = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let source = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
+        let target = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = check_installation(&config).await.unwrap();
         let reader =
             crate::NativeReader::private(client.clone()).with_budget(&native_operation_budget);

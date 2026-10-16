@@ -12,7 +12,7 @@ remote certainty and private/committed effects while workflow owners execute cle
 The [correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) owns the
 complete contracts and current migration; acceptance remains with its coordinator.
 
-> Decision: ADR-0145
+> Decision: ADR-0173
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0162).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
 
@@ -56,7 +56,7 @@ receipts bound that implementation only. The coordinator records native
 runtime evidence separately; real-library acceptance and Measured performance do not follow
 from this architectural decision.
 
-> Decision: ADR-0150, ADR-0145, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
+> Decision: ADR-0150, ADR-0173, ADR-0085, ADR-0088, ADR-0117, ADR-0121, ADR-0126, ADR-0087, ADR-0092, ADR-0094, ADR-0095, ADR-0096, ADR-0097, ADR-0098, ADR-0099, ADR-0100
 
 <a id="section-15-1"></a>
 
@@ -154,7 +154,7 @@ serialization is implied. Source acceptance and focused native/diagnostic contro
 foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
 in the [Catalog completion coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
 
-> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0151, ADR-0168, ADR-0108, ADR-0165, ADR-0166
+> Decision: ADR-0173, ADR-0139, ADR-0085, ADR-0117, ADR-0151, ADR-0168, ADR-0108, ADR-0166
 
 <a id="section-15-2"></a>
 
@@ -184,7 +184,7 @@ analyses after normalization. The companion is an identity alias, without qualif
 normalization evidence. Facts retain their actual vocabulary without normalized records. Detached import retains the actual
 records and requires complete endpoint membership; it never synthesizes missing companions.
 
-> Decision: ADR-0145, ADR-0085
+> Decision: ADR-0173, ADR-0085
 
 <a id="section-15-3"></a>
 
@@ -826,7 +826,7 @@ materialization identity binds the retained schedule to its exact graph without 
 model/runtime owner shares interned programs across attempts. This does not imply whole-graph
 hydration, general value-cutoff scheduling or measured benefit.
 
-> Decision: ADR-0145, ADR-0139
+> Decision: ADR-0173, ADR-0139
 
 **Compiler projection realization (Implemented / user-accepted, 2026-10-05).**
 Typed endpoint roles and named projection policies supply structure. Independent vertex inventories
@@ -913,6 +913,13 @@ completed-view membership resolves selected keys without global nominal lookup. 
 backing inventory includes originals, projection chunks and nongraph intermediates. View-local
 conflicting payloads are refused; independent cold reconstruction compares complete envelopes.
 
+**Accepted native refinement / implementation in progress, 2026-10-15 (ADR-0173).** Exact
+attempt effect participants share one operation stripe per bounded window; complete eligibility cuts
+fence delayed intent/payload across freeze, admission, close and maintenance. Protected recovery
+belongs to source finalization, with durable exact pending requests and committed knowledge retained
+before outcome release. This physical refinement preserves semantic admission, binding revision and
+completed identity meanings. Ingress admission and actual physical finality remain distinct contracts.
+
 Final admission closes current content mutation and checks descriptors and frozen bindings against
 the Workspace. Core privately constructs the store/manifest-bound admission owners. Only admitted
 retained products may attach without canonical replay; their exact request and current producer
@@ -937,7 +944,7 @@ attributed outcomes. The execution plan owns current focused evidence for this c
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
-> Decision: ADR-0141, ADR-0145, ADR-0089, ADR-0168, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0141, ADR-0173, ADR-0089, ADR-0168, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 
@@ -960,7 +967,7 @@ The pivot removes PostgreSQL-serving effects. The accepted shared-content target
 schemas and serialization remain the wire authority. Native querying is selected; efficient operation design
 uses library capabilities and first principles. Metrics and query plans are optional diagnostics.
 
-> Decision: ADR-0141, ADR-0145, ADR-0114, ADR-0116
+> Decision: ADR-0141, ADR-0173, ADR-0114, ADR-0116
 
 <a id="section-15-13"></a>
 

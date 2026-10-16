@@ -98,18 +98,20 @@ impl ImmutableWindow {
             // Declaration and logical layout ownership have one atomic outcome. Completion
             // is mutable, while immutable declaration fields and exact header shape collide.
             sql = format!(
-                "FOR $i IN 0..array::len($original_blobs) {{ LET $row=$original_blobs[$i]; LET $blob=$row.id; fn::native_incidence_insert($row); LET $prior=SELECT * FROM ONLY $blob FOR UPDATE; IF $prior=NONE {{ CREATE $blob CONTENT $row RETURN NONE; }} ELSE {{ IF $prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is_bool($prior.completed)=false OR array::len(object::keys($prior))!=5 {{ THROW 'original blob declaration collision'; }}; }}; }}; {sql}"
+                "FOR $i IN 0..array::len($original_blobs) {{ LET $row=$original_blobs[$i]; LET $blob=$row.id; fn::native_incidence_insert_admitted($row,$__attempt_context); LET $prior=SELECT * FROM ONLY $blob FOR UPDATE; IF $prior=NONE {{ CREATE $blob CONTENT $row RETURN NONE; }} ELSE {{ IF $prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is_bool($prior.completed)=false OR array::len(object::keys($prior))!=5 {{ THROW 'original blob declaration collision'; }}; }}; }}; {sql}"
             );
         }
-        if let Some((hold_owner, hold_sql, holds)) = hold_plan(attempt, references)? {
+        if let Some((hold_owner, _, holds)) = hold_plan(attempt, references)? {
             if !matches!(
                 hold_owner,
                 EffectOwner::OpenAttempt(_) | EffectOwner::Installation
             ) {
                 return Err(ModelError::Conflict("native immutable window authority"));
             }
-            sql.push(';');
-            sql.push_str(&hold_sql);
+            sql = sql.replace(
+                "fn::native_immutable_install($rows,[],$__attempt_context);",
+                "fn::native_immutable_install($rows,$holds,$__attempt_context);",
+            );
             merge_plan_bindings(&mut bindings, holds)?;
         }
         let bytes = plan_bytes(&sql, &bindings)?;
@@ -134,6 +136,36 @@ impl ImmutableWindow {
             rows: row_count,
             charges: charge.into_iter().collect(),
         })
+    }
+    fn coalesce(mut self) -> Result<Self, ModelError> {
+        // Units merge their already-admitted plans without rebuilding the growing
+        // window. Compact once at emission, while all construction charges remain.
+        if let Some(Value::Array(rows)) = self.bindings.remove("rows") {
+            self.bindings.insert(
+                "rows".into(),
+                Value::Array(coalesce_immutable_rows(rows.into_iter().collect())?.into()),
+            );
+        }
+        for key in [
+            "__guard_records",
+            "__immutable_creations",
+            "guards",
+            "__write_guards",
+            "original_blobs",
+            "holds",
+            "hold_guards",
+        ] {
+            if let Some(Value::Array(values)) = self.bindings.get_mut(key) {
+                let mut unique = Vec::with_capacity(values.len());
+                for value in std::mem::take(values).into_iter() {
+                    if !unique.contains(&value) {
+                        unique.push(value);
+                    }
+                }
+                *values = unique.into();
+            }
+        }
+        Ok(self)
     }
     fn append(&mut self, other: Self) -> Result<(), ModelError> {
         if self.sql != other.sql {
@@ -275,7 +307,7 @@ impl Iterator for ImmutableWindows<'_> {
                     None => output = Some(unit),
                 }
             }
-            Ok(output)
+            output.map(ImmutableWindow::coalesce).transpose()
         })();
         match result {
             Ok(Some(window)) => Some(Ok(window)),
@@ -376,6 +408,33 @@ mod tests {
         );
         Value::Object(row)
     }
+    fn exact_control_recovery(
+        client: Arc<Surreal<Client>>,
+        label: &'static str,
+    ) -> (Arc<RecoveryScope>, crate::signal::SignalRegistration) {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("owned native control runtime"),
+        ))
+        .unwrap();
+        let stop = RetryCancellation::default();
+        let cancel = stop.clone();
+        let signals = config.signal_owner(label, move || cancel.cancel()).unwrap();
+        let scope = RecoveryScope::new(
+            client,
+            ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap(),
+            stop,
+            signals.pending_recipient().unwrap(),
+            RecoveryTarget {
+                generation: config.service_generation,
+                namespace: config.namespace.as_str().into(),
+                database: config.database.as_str().into(),
+                endpoint: Some(config.endpoint.clone()),
+            },
+        )
+        .unwrap();
+        (scope, signals)
+    }
     #[test]
     fn windows_account_for_guards_and_holds_and_bound_complete_units() {
         let attempt = ContentHash::of(b"window owner");
@@ -400,6 +459,411 @@ mod tests {
             assert_eq!(rows.len(), holds.len());
             assert!(window.bytes > serde_json::to_vec(&window.bindings).unwrap().len());
         }
+    }
+    #[test]
+    fn grouped_window_coalesces_equal_rows_holds_and_guards_and_refuses_unequal() {
+        let attempt = ContentHash::of(b"grouped window control");
+        let owner = RecordId::new("native_attempt", attempt.hex());
+        let row = immutable_control_row("equal-window", 0);
+        let window = ImmutableWindows::new(
+            vec![row.clone(), row.clone()],
+            Some(attempt),
+            None,
+            Some(owner.clone()),
+        )
+        .next()
+        .unwrap()
+        .unwrap();
+        for key in ["rows", "holds", "guards", "__immutable_creations"] {
+            let Some(Value::Array(values)) = window.bindings.get(key) else {
+                panic!("{key}")
+            };
+            assert_eq!(values.len(), 1, "exact duplicate {key} coalesces");
+        }
+        assert_eq!(
+            window
+                .sql
+                .matches("fn::native_immutable_install($rows,$holds,$__attempt_context)")
+                .count(),
+            1
+        );
+        assert!(!window.sql.contains("UPSERT"));
+        assert!(matches!(
+            ImmutableWindows::new(
+                vec![row, immutable_control_row("equal-window", 1)],
+                Some(attempt),
+                None,
+                Some(owner)
+            )
+            .next()
+            .unwrap(),
+            Err(ModelError::Conflict("native immutable address collision"))
+        ));
+    }
+    #[test]
+    fn grouped_immutable_and_hold_sql_parses_with_actual_schema() {
+        surrealdb_syn::parse(include_str!("schema.surql")).unwrap();
+        let (sql, _) =
+            immutable_row_plan(None, None, vec![immutable_control_row("parse-group", 0)])
+                .unwrap()
+                .unwrap();
+        surrealdb_syn::parse(&format!("BEGIN; {sql} COMMIT;")).unwrap();
+        let owner = RecordId::new("native_attempt", "parse-owner");
+        let target = RecordId::new("external", "parse-target");
+        let (_, sql, variables) =
+            hold_plan(None, vec![(owner.clone(), target.clone()), (owner, target)])
+                .unwrap()
+                .unwrap();
+        surrealdb_syn::parse(&format!("BEGIN; {sql} COMMIT;")).unwrap();
+        let Some(Value::Array(holds)) = variables.get("holds") else {
+            panic!("holds")
+        };
+        assert_eq!(holds.len(), 1);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn native_grouped_window_mixed_rows_relations_and_repeated_blob_parent() {
+        let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned RocksDB campaign"),
+        ))
+        .unwrap();
+        let store = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+            &config,
+            lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
+        let client = lctx_compiler_store::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            store.namespace().as_str(),
+            store.database().as_str(),
+        )
+        .await
+        .unwrap();
+        let local_config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").unwrap(),
+        ))
+        .unwrap();
+        let stop = RetryCancellation::default();
+        let cancel = stop.clone();
+        let signals = local_config
+            .signal_owner("grouped immutable control writer", move || cancel.cancel())
+            .unwrap();
+        let scope = RecoveryScope::new(
+            client.clone(),
+            ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap(),
+            stop,
+            signals.pending_recipient().unwrap(),
+            RecoveryTarget {
+                generation: local_config.service_generation,
+                namespace: local_config.namespace.as_str().into(),
+                database: local_config.database.as_str().into(),
+                endpoint: Some(local_config.endpoint.clone()),
+            },
+        )
+        .unwrap();
+        let nonce = store.attempt().hex();
+        let owner = RecordId::new("native_attempt", nonce.clone());
+        let external = immutable_control_row(&format!("{nonce}-mixed"), 0);
+        let external_id = external.as_object().unwrap().get("id").unwrap().clone();
+        let anchor = RecordId::new("entity_anchor", format!("{nonce}-entity"));
+        let entity = RecordId::new("entity", format!("{nonce}-entity"));
+        let mut row = Object::new();
+        row.insert("id", entity.clone());
+        row.insert("anchor", anchor);
+        row.insert("semantic_type", "grouped-control");
+        row.insert("semantic_key", nonce.clone());
+        row.insert("kind", 0i64);
+        row.insert("subtype", Value::Null);
+        row.insert("content", nonce.clone());
+        row.insert("canonical", surrealdb::types::Bytes::from(Vec::<u8>::new()));
+        row.insert("body", Object::new());
+        row.insert("scope_keys", Vec::<String>::new());
+        let mut relation = Object::new();
+        relation.insert("id", RecordId::new("reference", format!("{nonce}-edge")));
+        relation.insert("in", entity);
+        relation.insert("out", external_id);
+        relation.insert("derivation", "grouped-control");
+        relation.insert("field", "control");
+        relation.insert("role", 0i64);
+        relation.insert("position", Value::Null);
+        let result: Result<(), ModelError> = with_recovery_scope(scope.clone(), async {
+            let rows = vec![
+                Value::Object(row),
+                external.clone(),
+                Value::Object(relation.clone()),
+                external,
+            ];
+            let mut windows = ImmutableWindows::new(rows, Some(store.attempt()), None, Some(owner));
+            let window = windows.next().unwrap()?;
+            assert!(windows.next().is_none());
+            install_window(&client, Some(store.attempt()), window, None).await?;
+            let edge = relation.get("id").unwrap().clone();
+            let mut response = client
+                .query("SELECT * FROM $edge")
+                .bind(("edge", edge))
+                .await
+                .map_err(ModelError::codec)?
+                .check()
+                .map_err(ModelError::codec)?;
+            let actual: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+            assert_eq!(actual, vec![Value::Object(relation)]);
+            let bytes = vec![17u8; 2 * crate::originals::CHUNK_BYTES];
+            let blob = crate::originals::Blob::new(ContentHash::of(&bytes), bytes.len() as u64)?;
+            ensure_rows(&client, Some(store.attempt()), vec![blob.value(false)]).await?;
+            let pieces = vec![
+                blob.piece(0, &bytes[..crate::originals::CHUNK_BYTES])?,
+                blob.piece(
+                    crate::originals::CHUNK_BYTES as u64,
+                    &bytes[crate::originals::CHUNK_BYTES..],
+                )?,
+            ];
+            let mut windows =
+                ImmutableWindows::new(pieces.clone(), Some(store.attempt()), None, None);
+            let window = windows.next().unwrap()?;
+            assert!(
+                windows.next().is_none(),
+                "both valid pieces share one parent preparation"
+            );
+            install_window(&client, Some(store.attempt()), window, None).await?;
+            let mut response = client
+                .query("SELECT VALUE revision FROM ONLY type::record('native_predicate',[$blob])")
+                .bind(("blob", blob.id()))
+                .await
+                .map_err(ModelError::codec)?
+                .check()
+                .map_err(ModelError::codec)?;
+            let revision: Option<i64> = response.take(0).map_err(ModelError::codec)?;
+            assert_eq!(
+                revision,
+                Some(2),
+                "one declaration and one grouped child/hold incidence"
+            );
+            let mut vars = Variables::new();
+            vars.insert("blob", blob.id());
+            guarded_effect(
+                &client,
+                Some(store.attempt()),
+                vec![blob.id()],
+                "UPDATE $blob SET completed=true RETURN NONE",
+                vars,
+            )
+            .await?;
+            ensure_rows(&client, Some(store.attempt()), pieces).await?;
+            let mut missing = blob
+                .piece(0, &bytes[..crate::originals::CHUNK_BYTES])?
+                .as_object()
+                .unwrap()
+                .clone();
+            missing.insert(
+                "id",
+                RecordId::new("original_chunk", format!("{nonce}-forbidden")),
+            );
+            let error = ensure_rows(&client, Some(store.attempt()), vec![Value::Object(missing)])
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("completed original blob refuses missing or changed piece"),
+                "{error}"
+            );
+            Ok(())
+        })
+        .await;
+        assert_eq!(
+            scope.pending_count().unwrap(),
+            0,
+            "unsettled recovery protects this exact test client"
+        );
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step(
+            "grouped control session close",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        completion.step("grouped control owner abandon", store.abandon().await);
+        let finality = signals.complete(&completion).await;
+        completion.step("grouped control signal owner", finality);
+        lctx_model::domain::completion::complete(result, completion).unwrap();
+    }
+    fn control_address(row: &Value) -> RecordId {
+        let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id")) else {
+            panic!("control row address")
+        };
+        id.clone()
+    }
+    async fn control_guard(client: &Surreal<Client>, record: &RecordId) -> Object {
+        let guard = guard_id(&Value::RecordId(record.clone())).unwrap();
+        let mut response = client
+            .query("SELECT * FROM $guard")
+            .bind(("guard", guard))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let rows: Vec<Object> = response.take(0).unwrap();
+        assert_eq!(rows.len(), 1);
+        rows.into_iter().next().unwrap()
+    }
+    async fn control_packet(
+        client: &Surreal<Client>,
+        attempt: ContentHash,
+        sql: &str,
+        mut bindings: Variables,
+        avoid: Option<i64>,
+    ) -> (NativeRequest, authorization::OwnerEffectPlan) {
+        coordination::prepare_expectations(client, &mut bindings)
+            .await
+            .unwrap();
+        let digest = ContentHash::of(&serde_json::to_vec(&(sql, &bindings)).unwrap());
+        let mut request = NativeRequest::issue(client, digest).await.unwrap();
+        while avoid == Some(coordination::attempt_slot(request.operation)) {
+            request.operation = fresh_identity("immutable-overlap-distinct-slot").unwrap();
+        }
+        let plan = authorization::owner_effect_plan(
+            request,
+            &EffectOwner::OpenAttempt(attempt),
+            sql,
+            bindings,
+            false,
+        )
+        .unwrap();
+        (request, plan)
+    }
+    // Explicit transactions establish both payload snapshots before either commit.
+    // There is no wall-clock threshold: a shared attempt guard write makes one commit
+    // fail, while independent participant stripes permit both complete row/hold effects.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB protocol campaign: direct commit-order packets also touch installation admission stripes"]
+    async fn native_attempt_immutable_rows_and_hold_only_windows_overlap_both_commit_orders() {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("native control runtime"),
+        ))
+        .unwrap();
+        let client = crate::installation::check_installation(&config)
+            .await
+            .unwrap();
+        let (scope, signals) =
+            exact_control_recovery(client.clone(), "immutable actual overlap control");
+        with_recovery_scope(scope.clone(),async {
+            let era=IssuanceEra::capture(&client).await.unwrap();
+            for hold_only in [false,true] {
+                for reverse in [false,true] {
+                    let attempt=fresh_identity("immutable-overlap-attempt").unwrap();
+                    authorization::begin_attempt_in(&client,attempt,era).await.unwrap();
+                    let owner=RecordId::new("native_attempt",attempt.hex());
+                    let rows=[immutable_control_row(&format!("{}-left",attempt.hex()),0),immutable_control_row(&format!("{}-right",attempt.hex()),0)];
+                    let ids=rows.iter().map(control_address).collect::<Vec<_>>();
+                    if hold_only { ensure_rows(&client,Some(attempt),rows.to_vec()).await.unwrap(); }
+                    let before=control_guard(&client,&owner).await;
+                    let target_before=if hold_only { Some([control_guard(&client,&ids[0]).await,control_guard(&client,&ids[1]).await]) } else { None };
+                    let mut packets=Vec::new();
+                    for (index,row) in rows.iter().enumerate() {
+                        let (sql,bindings)=if hold_only {
+                            let (_,sql,bindings)=hold_plan(Some(attempt),vec![(owner.clone(),ids[index].clone())]).unwrap().unwrap();
+                            (sql,bindings)
+                        } else {
+                            let window=ImmutableWindows::new(vec![row.clone()],Some(attempt),None,Some(owner.clone())).next().unwrap().unwrap();
+                            (window.sql,window.bindings.into())
+                        };
+                        let avoid=packets.first().map(|(request,_):&(NativeRequest,authorization::OwnerEffectPlan)|coordination::attempt_slot(request.operation));
+                        packets.push(control_packet(&client,attempt,&sql,bindings,avoid).await);
+                    }
+                    for (_,plan) in &packets { checked_transaction(client.query(plan.intent.clone()).bind(plan.intent_bindings.clone()).await.unwrap()).unwrap(); }
+                    assert_eq!(control_guard(&client,&owner).await,before,"intent participation leaves attempt physical guard unchanged");
+                    let body=|query:&str|query.strip_prefix("BEGIN;").unwrap().strip_suffix("COMMIT;").unwrap().to_owned();
+                    let left=client.as_ref().clone().begin().await.unwrap();
+                    let right=client.as_ref().clone().begin().await.unwrap();
+                    checked_transaction(left.query(body(&packets[0].1.query)).bind(packets[0].1.bindings.clone()).await.unwrap()).unwrap();
+                    checked_transaction(right.query(body(&packets[1].1.query)).bind(packets[1].1.bindings.clone()).await.unwrap()).unwrap();
+                    if reverse {
+                        right.commit().await.unwrap().invalidate().await.unwrap();
+                        left.commit().await.unwrap().invalidate().await.unwrap();
+                    } else {
+                        left.commit().await.unwrap().invalidate().await.unwrap();
+                        right.commit().await.unwrap().invalidate().await.unwrap();
+                    }
+                    assert_eq!(control_guard(&client,&owner).await,before,"ordinary same-attempt row/hold payloads do not serialize on its physical guard");
+                    for (index,id) in ids.iter().enumerate() {
+                        let mut response=client.query("SELECT * FROM $record; SELECT * FROM $hold").bind(("record",id.clone())).bind(("hold",hold_record_id(&owner,id).unwrap())).await.unwrap().check().unwrap();
+                        let actual:Vec<Value>=response.take(0).unwrap(); let holds:Vec<Object>=response.take(1).unwrap();
+                        assert_eq!(actual,vec![rows[index].clone()]); assert_eq!(holds.len(),1);
+                        assert_eq!(holds[0].get("owner"),Some(&Value::RecordId(owner.clone())));
+                        assert_eq!(holds[0].get("object"),Some(&Value::RecordId(id.clone())));
+                        if let Some(target_before)=&target_before {
+                            let after=control_guard(&client,id).await;
+                            assert_eq!(authorization::int_field(&after,"revision").unwrap(),authorization::int_field(&target_before[index],"revision").unwrap()+1,"non-attempt hold endpoint still advances exact guard revision");
+                            assert_eq!(after.get("incarnation"),target_before[index].get("incarnation"));
+                        }
+                    }
+                    for (request,_) in packets { super::super::history::release_outcome(&client,request,&request.operation.hex(),"recovery").await.unwrap(); }
+                    close_attempt(&client,attempt,"abandoned").await.unwrap();
+                }
+            }
+        }).await;
+        assert_eq!(scope.pending_count().unwrap(), 0);
+        client.invalidate().await.unwrap();
+        signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
+            .unwrap();
+    }
+    // These exact logical attempts are intentionally corrupted. The owning disposable
+    // campaign must discard them after native/session drainage; never select on shared
+    // validation or repair a damaged incarnation backwards merely for test cleanup.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB campaign only"]
+    async fn native_attempt_immutable_guard_refusals_leave_rows_and_holds_absent() {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
+        ))
+        .unwrap();
+        let client = crate::installation::check_installation(&config)
+            .await
+            .unwrap();
+        let (scope, signals) =
+            exact_control_recovery(client.clone(), "immutable guard refusal control");
+        with_recovery_scope(scope.clone(),async {
+            let era=IssuanceEra::capture(&client).await.unwrap();
+            for damage in ["missing","retiring","incarnation","stale_owner"] {
+                let attempt=fresh_identity("immutable-guard-refusal").unwrap();
+                authorization::begin_attempt_in(&client,attempt,era).await.unwrap();
+                let owner=RecordId::new("native_attempt",attempt.hex());
+                let row=immutable_control_row(&format!("{}-{damage}",attempt.hex()),0); let id=control_address(&row);
+                let mut window=ImmutableWindows::new(vec![row],Some(attempt),None,Some(owner.clone())).next().unwrap().unwrap();
+                let mut bindings:Variables=window.bindings.into(); coordination::prepare_expectations(&client,&mut bindings).await.unwrap(); window.bindings=bindings.into_iter().collect();
+                let guard=guard_id(&Value::RecordId(owner.clone())).unwrap();
+                let mutation=match damage {
+                    "missing"=>"DELETE $guard RETURN NONE;",
+                    "retiring"=>"UPDATE $guard SET phase='retiring' RETURN NONE;",
+                    "incarnation"=>"UPDATE $guard SET incarnation+=1 RETURN NONE;",
+                    "stale_owner"=>"fn::native_attempt_cut($owner,$generation,$era,1,'close'); UPDATE $owner SET state='closing',revision+=1 RETURN NONE;",
+                    _=>unreachable!(),
+                };
+                client.query(format!("BEGIN; {mutation} COMMIT;")).bind(("guard",guard)).bind(("owner",owner.clone())).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
+                let error=install_window(&client,Some(attempt),window,None).await.unwrap_err();
+                assert!(error.to_string().contains(if damage=="stale_owner" {"native owner fenced"} else {"native expected active incarnation changed"}),"{damage}: {error}");
+                assert!(error.permits_storage_cleanup(),"acknowledged refusal must settle exact request: {error}");
+                let mut response=client.query("SELECT * FROM $record; SELECT * FROM $hold").bind(("record",id.clone())).bind(("hold",hold_record_id(&owner,&id).unwrap())).await.unwrap().check().unwrap();
+                let rows:Vec<Value>=response.take(0).unwrap(); let holds:Vec<Value>=response.take(1).unwrap();
+                assert!(rows.is_empty() && holds.is_empty(),"{damage} refuses before rows/holds commit");
+            }
+        }).await;
+        assert_eq!(scope.pending_count().unwrap(), 0);
+        client.invalidate().await.unwrap();
+        signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
+            .unwrap();
     }
     #[tokio::test]
     async fn budget_refusal_precedes_native_effect_and_releases_reservation() {
@@ -455,12 +919,30 @@ mod tests {
         let first = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();
         let second = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -472,6 +954,7 @@ mod tests {
         )
         .await
         .unwrap();
+        let (scope, signals) = exact_control_recovery(client.clone(), "immutable creation control");
         async fn freeze(
             client: &Surreal<Client>,
             mut window: ImmutableWindow,
@@ -489,7 +972,7 @@ mod tests {
         }
         let owner1 = RecordId::new("native_attempt", first.attempt().hex());
         let owner2 = RecordId::new("native_attempt", second.attempt().hex());
-        let result:Result<(),ModelError>=async {
+        let result:Result<(),ModelError>=with_recovery_scope(scope.clone(),async {
             for retired in [false,true] {
                 let row=immutable_control_row(&format!("{}-equal-{retired}",first.attempt().hex()),0);let record=address(&row);
                 if retired {ensure_rows(&client,None,vec![row.clone()]).await?;retire(&client,record.clone()).await?;}
@@ -523,7 +1006,12 @@ mod tests {
             let error=effect(&client,None,&sql,vars).await.unwrap_err();assert!(error.to_string().contains("native expected vacant guard changed"),"generic mutable writes cannot adopt immutable alternatives: {error}");assert!(error.permits_storage_cleanup(),"{error}");
             let mut response=client.query("SELECT * FROM $record").bind(("record",record)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;assert_eq!(rows,vec![row],"refused mutable request has no payload effect");
             Ok(())
-        }.await;
+        }).await;
+        assert_eq!(
+            scope.pending_count().unwrap(),
+            0,
+            "unsettled recovery retains the exact creation-control session"
+        );
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step(
             "creation control session close",
@@ -531,6 +1019,8 @@ mod tests {
         );
         completion.step("first creation owner abandon", first.abandon().await);
         completion.step("second creation owner abandon", second.abandon().await);
+        let finality = signals.complete(&completion).await;
+        completion.step("creation control signal owner", finality);
         lctx_model::domain::completion::complete(result, completion).unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
@@ -542,6 +1032,15 @@ mod tests {
         let store = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -553,53 +1052,67 @@ mod tests {
         )
         .await
         .unwrap();
-        let attempt = store.attempt();
-        let owner = RecordId::new("native_attempt", attempt.hex());
-        let existing = format!("{}-existing", attempt.hex());
-        let absent = format!("{}-absent", attempt.hex());
-        let first = ImmutableWindows::new(
-            vec![immutable_control_row(&existing, 0)],
-            Some(attempt),
-            None,
-            Some(owner.clone()),
-        )
-        .next()
-        .unwrap()
-        .unwrap();
-        install_window(&client, Some(attempt), first, None)
-            .await
-            .unwrap();
-        let mut windows = ImmutableWindows::new(
-            vec![
-                immutable_control_row(&absent, 0),
-                immutable_control_row(&existing, 1),
-            ],
-            Some(attempt),
-            None,
-            Some(owner),
-        );
-        let collision = windows.next().unwrap().unwrap();
-        assert!(windows.next().is_none());
-        let result = install_window(&client, Some(attempt), collision, None).await;
-        assert!(result.is_err(), "full-value collision must refuse");
-        let mut response = client
-            .query("SELECT * FROM $absent; SELECT * FROM native_hold WHERE object=$absent")
-            .bind((
-                "absent",
-                match immutable_control_row(&absent, 0) {
-                    Value::Object(row) => row.get("id").unwrap().clone(),
-                    _ => unreachable!(),
-                },
-            ))
-            .await
+        let (scope, signals) =
+            exact_control_recovery(client.clone(), "immutable late collision control");
+        with_recovery_scope(scope.clone(), async {
+            let attempt = store.attempt();
+            let owner = RecordId::new("native_attempt", attempt.hex());
+            let existing = format!("{}-existing", attempt.hex());
+            let absent = format!("{}-absent", attempt.hex());
+            let first = ImmutableWindows::new(
+                vec![immutable_control_row(&existing, 0)],
+                Some(attempt),
+                None,
+                Some(owner.clone()),
+            )
+            .next()
             .unwrap()
-            .check()
             .unwrap();
-        let rows: Vec<Value> = response.take(0).unwrap();
-        let holds: Vec<Value> = response.take(1).unwrap();
-        assert!(rows.is_empty());
-        assert!(holds.is_empty());
+            install_window(&client, Some(attempt), first, None)
+                .await
+                .unwrap();
+            let mut windows = ImmutableWindows::new(
+                vec![
+                    immutable_control_row(&absent, 0),
+                    immutable_control_row(&existing, 1),
+                ],
+                Some(attempt),
+                None,
+                Some(owner),
+            );
+            let collision = windows.next().unwrap().unwrap();
+            assert!(windows.next().is_none());
+            let result = install_window(&client, Some(attempt), collision, None).await;
+            assert!(result.is_err(), "full-value collision must refuse");
+            let mut response = client
+                .query("SELECT * FROM $absent; SELECT * FROM native_hold WHERE object=$absent")
+                .bind((
+                    "absent",
+                    match immutable_control_row(&absent, 0) {
+                        Value::Object(row) => row.get("id").unwrap().clone(),
+                        _ => unreachable!(),
+                    },
+                ))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let rows: Vec<Value> = response.take(0).unwrap();
+            let holds: Vec<Value> = response.take(1).unwrap();
+            assert!(rows.is_empty());
+            assert!(holds.is_empty());
+        })
+        .await;
+        assert_eq!(
+            scope.pending_count().unwrap(),
+            0,
+            "unsettled recovery retains the exact late-collision session"
+        );
         client.invalidate().await.unwrap();
         store.abandon().await.unwrap();
+        signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
+            .unwrap();
     }
 }

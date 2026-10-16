@@ -17,6 +17,15 @@ DEFINE FIELD admitted ON native_attempt TYPE bool;
 DEFINE FIELD admitted_view ON native_attempt TYPE option<string>;
 DEFINE FIELD epoch ON native_attempt TYPE int;
 DEFINE INDEX live_attempts ON native_attempt FIELDS state,id;
+DEFINE TABLE native_attempt_stripe SCHEMAFULL;
+DEFINE FIELD format ON native_attempt_stripe TYPE int;
+DEFINE FIELD attempt ON native_attempt_stripe TYPE record<native_attempt>;
+DEFINE FIELD generation ON native_attempt_stripe TYPE string;
+DEFINE FIELD era ON native_attempt_stripe TYPE int;
+DEFINE FIELD epoch ON native_attempt_stripe TYPE int;
+DEFINE FIELD slot ON native_attempt_stripe TYPE int;
+DEFINE FIELD revision ON native_attempt_stripe TYPE int;
+DEFINE INDEX attempt_stripes ON native_attempt_stripe FIELDS attempt,slot UNIQUE;
 DEFINE TABLE native_effect SCHEMAFULL;
 DEFINE FIELD id ON native_effect TYPE string;
 DEFINE FIELD attempt ON native_effect TYPE option<record<native_attempt>>;
@@ -29,6 +38,7 @@ DEFINE FIELD committed ON native_effect TYPE bool;
 DEFINE FIELD resolved ON native_effect TYPE bool;
 DEFINE FIELD revision ON native_effect TYPE int;
 DEFINE FIELD epoch ON native_effect TYPE int;
+DEFINE FIELD attempt_slot ON native_effect TYPE option<int>;
 DEFINE FIELD original_completion_outcome ON native_effect TYPE option<string> ASSERT $value=NONE OR $value IN ['applied','premise_changed'];
 DEFINE INDEX live_effects ON native_effect FIELDS resolved,id;
 DEFINE INDEX attempt_effects ON native_effect FIELDS attempt,id;
@@ -155,28 +165,32 @@ DEFINE INDEX cleanup_predecessor ON native_cleanup FIELDS predecessor;
 DEFINE INDEX cleanup_successor ON native_cleanup FIELDS successor;
 // Exact native IDs are array keys: no string encoding or content-hash correspondence.
 DEFINE FUNCTION fn::native_touch($record: option<record>) {
-    IF $record != NONE { LET $guard=type::record('native_predicate',[$record]); IF (SELECT VALUE revision FROM ONLY $guard)>=9223372036854775807 { THROW 'native predicate revision exhausted'; }; UPSERT $guard SET revision=(revision ?? 0)+1 RETURN NONE; };
+    IF $record != NONE { IF record::table($record)='native_attempt' { LET $owner=SELECT * FROM ONLY $record; IF $owner=NONE { THROW 'native attempt incidence owner missing'; }; fn::native_attempt_cut($record,$owner.generation,$owner.era,$owner.epoch,'incidence'); }; LET $guard=type::record('native_predicate',[$record]); IF (SELECT VALUE revision FROM ONLY $guard)>=9223372036854775807 { THROW 'native predicate revision exhausted'; }; UPSERT $guard SET revision=(revision ?? 0)+1 RETURN NONE; };
     RETURN NONE;
 };
 // Every incidence writer/remover and collector calls this on the same exact target.
+DEFINE FUNCTION fn::native_incidence_targets($row: object) {
+    RETURN array::distinct(array::flatten([
+        [$row.id],
+        IF record::table($row.id) IN ['compiler_contribution','compiler_binding','native_effect','native_cleanup','native_pending_original','native_publication_staging'] { [$row.attempt] } ELSE { [] },
+        IF record::table($row.id) IN ['native_effect','native_hold'] { [$row.owner] } ELSE { [] },
+        IF record::table($row.id) IN ['native_hold','native_outcome_ref'] { [$row.object] } ELSE { [] },
+        IF record::table($row.id)='native_outcome_ref' { [$row.effect] } ELSE { [] },
+        IF record::table($row.id)='compiler_membership' { [$row.contribution] } ELSE { [] },
+        IF record::table($row.id) IN ['native_completed_view','native_completed_contributor'] { [$row.completion] } ELSE { [] },
+        IF record::table($row.id)='native_retirement_item' { [$row.job] } ELSE { [] },
+        IF record::table($row.id)='native_product' { [$row.contribution,$row.release_job] } ELSE { [] },
+        IF record::table($row.id) IN ['native_retirement','native_cleanup'] { [$row.lineage,$row.predecessor,$row.successor,$row.recovery_source] } ELSE { [] }
+    ])).filter(|$record| $record!=NONE);
+};
 DEFINE FUNCTION fn::native_incidence($row: object) {
-    fn::native_touch($row.id);
-    IF record::table($row.id) IN ['compiler_contribution','compiler_binding','native_effect','native_cleanup','native_pending_original','native_publication_staging'] { fn::native_touch($row.attempt); };
-    IF record::table($row.id) IN ['native_effect','native_hold'] { fn::native_touch($row.owner); };
-    IF record::table($row.id) IN ['native_hold','native_outcome_ref'] { fn::native_touch($row.object); };
-    IF record::table($row.id)='native_outcome_ref' { fn::native_touch($row.effect); };
-    IF record::table($row.id)='compiler_membership' { fn::native_touch($row.contribution); };
-    IF record::table($row.id) IN ['native_completed_view','native_completed_contributor'] { fn::native_touch($row.completion); };
-    IF record::table($row.id)='native_retirement_item' { fn::native_touch($row.job); };
-    IF record::table($row.id)='native_product' { fn::native_touch($row.contribution); fn::native_touch($row.release_job); };
-    IF record::table($row.id) IN ['native_retirement','native_cleanup'] { fn::native_touch($row.lineage); fn::native_touch($row.predecessor); fn::native_touch($row.successor); fn::native_touch($row.recovery_source); };
+    FOR $record IN fn::native_incidence_targets($row) { fn::native_touch($record); };
     RETURN NONE;
 };
 
 DEFINE FUNCTION fn::native_backup_clear() {
     LET $gate=SELECT * FROM ONLY native_backup_gate:current FOR UPDATE;
-    IF $gate=NONE OR $gate.active_count!=0 OR $gate.revision>=9223372036854775807 { THROW 'native retirement backup hold'; };
-    UPDATE native_backup_gate:current SET revision+=1 RETURN NONE;
+    IF $gate=NONE OR type::is_int($gate.active_count)=false OR $gate.active_count!=0 OR type::is_int($gate.revision)=false OR $gate.revision<0 { THROW 'native retirement backup hold'; };
     RETURN NONE;
 };
 
@@ -206,5 +220,107 @@ DEFINE FUNCTION fn::native_completed_incidence($completion: record<native_comple
     LET $parent=SELECT * FROM ONLY $completion FOR UPDATE;
     IF $parent=NONE OR type::is_bool($parent.completed)=false { THROW 'native completed boundary parent missing'; };
     IF $parent.completed AND (SELECT * FROM ONLY $row.id)!=$row { THROW 'native completed boundary refuses changed inventory'; };
+    RETURN NONE;
+};
+
+// One bounded immutable effect prepares exact existing values and distinct parent
+// predicates once. Holds share incidence admission but retain their owner/target
+// existence checks after new rows are installed in the same transaction.
+DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array<object>, $context: option<object>) {
+    LET $all=array::concat($rows,$holds);
+    LET $blobs=array::distinct($rows.filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob));
+    LET $targets=array::distinct(array::concat(array::flatten($all.map(|$row| fn::native_incidence_targets($row))),$blobs));
+    FOR $target IN $targets { fn::native_touch_admitted($target,$context); };
+    LET $prepared=$all.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
+    LET $attempts=array::distinct($rows.filter(|$row| record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging']).map(|$row| $row.attempt));
+    FOR $attempt IN $attempts { IF $attempt=NONE OR (SELECT VALUE id FROM ONLY $attempt)=NONE { THROW 'native incidence attempt missing'; }; };
+    LET $contributions=array::distinct(array::concat($rows.filter(|$row| record::table($row.id)='compiler_membership').map(|$row| $row.contribution),$all.filter(|$row| record::table($row.id)='native_hold' AND record::table($row.owner)='compiler_contribution').map(|$row| $row.owner)));
+    FOR $contribution IN $contributions {
+        LET $stored=SELECT * FROM ONLY $contribution FOR UPDATE;
+        LET $parent=IF $stored=NONE { $rows.filter(|$row| $row.id=$contribution)[0] ?? NONE } ELSE { $stored };
+        IF $parent=NONE OR type::is_bool($parent.completed)=false { THROW 'native contribution incidence parent missing'; };
+        IF $parent.completed AND array::len($prepared.filter(|$entry| ($entry.row.contribution=$contribution OR $entry.row.owner=$contribution) AND $entry.existing!=$entry.row))>0 { THROW 'native completed contribution refuses changed incidence'; };
+    };
+    LET $completions=array::distinct(array::concat($rows.filter(|$row| record::table($row.id) IN ['native_completed_view','native_completed_contributor']).map(|$row| $row.completion),$all.filter(|$row| record::table($row.id)='native_hold' AND record::table($row.owner)='native_completed_state').map(|$row| $row.owner)));
+    FOR $completion IN $completions {
+        LET $stored=SELECT * FROM ONLY $completion FOR UPDATE;
+        LET $parent=IF $stored=NONE { $rows.filter(|$row| $row.id=$completion)[0] ?? NONE } ELSE { $stored };
+        IF $parent=NONE OR type::is_bool($parent.completed)=false { THROW 'native completed boundary parent missing'; };
+        IF $parent.completed AND array::len($prepared.filter(|$entry| ($entry.row.completion=$completion OR $entry.row.owner=$completion) AND $entry.existing!=$entry.row))>0 { THROW 'native completed boundary refuses changed inventory'; };
+    };
+    LET $jobs=array::distinct($rows.filter(|$row| record::table($row.id)='native_retirement_item').map(|$row| $row.job));
+    FOR $job IN $jobs { IF (SELECT VALUE id FROM ONLY $job)=NONE { THROW 'native incidence parent missing'; }; };
+    FOR $blob IN $blobs {
+        LET $stored=SELECT * FROM ONLY $blob FOR UPDATE;
+        LET $parent=IF $stored=NONE { $rows.filter(|$row| $row.id=$blob)[0] ?? NONE } ELSE { $stored };
+        IF $parent=NONE OR type::is_bool($parent.completed)=false { THROW 'native original blob declaration missing'; };
+        IF $parent.completed AND array::len($prepared.filter(|$entry| $entry.row.blob=$blob AND $entry.existing!=$entry.row))>0 { THROW 'completed original blob refuses missing or changed piece'; };
+    };
+    FOR $entry IN $prepared { IF $entry.existing!=NONE AND $entry.existing!=$entry.row { THROW 'native immutable address collision'; }; };
+    LET $new=$prepared.filter(|$entry| $entry.existing=NONE AND record::table($entry.row.id)!='native_hold').map(|$entry| $entry.row);
+    LET $ordinary=$new.filter(|$row| record::table($row.id) NOT IN ['participant','reference','lex_occurs','vec_occurs']);
+    LET $relations=$new.filter(|$row| record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs']);
+    IF array::len($ordinary)>0 { INSERT $ordinary RETURN NONE; };
+    IF array::len($relations)>0 { INSERT RELATION $relations RETURN NONE; };
+    LET $owners=array::distinct($holds.map(|$row| $row.owner));
+    FOR $owner IN $owners { IF (SELECT VALUE id FROM ONLY $owner)=NONE { THROW 'native attachment owner missing'; }; };
+    LET $objects=array::distinct($holds.map(|$row| $row.object));
+    FOR $object IN $objects { IF (SELECT VALUE id FROM ONLY $object)=NONE { THROW 'native attachment target missing'; }; };
+    LET $new_holds=$prepared.filter(|$entry| $entry.existing=NONE AND record::table($entry.row.id)='native_hold').map(|$entry| $entry.row);
+    IF array::len($new_holds)>0 { INSERT $new_holds RETURN NONE; };
+    RETURN NONE;
+};
+
+// Complete attempt cuts are conservative for explicit recovery/cleanup/history
+// incidence. They grant no production eligibility; each caller retains its own
+// owner/state/incarnation checks. Ordinary windows use admitted context instead.
+DEFINE FUNCTION fn::native_attempt_initialize($attempt: record<native_attempt>, $generation: string, $era: int, $epoch: int) {
+    IF $era<=0 OR $epoch<=0 { THROW 'native attempt stripe initial identity'; };
+    FOR $slot IN 0..64 { LET $id=type::record('native_attempt_stripe',[$attempt,$slot]); CREATE $id SET format=1,attempt=$attempt,generation=$generation,era=$era,epoch=$epoch,slot=$slot,revision=0 RETURN NONE; };
+    RETURN NONE;
+};
+DEFINE FUNCTION fn::native_attempt_validate($attempt: record<native_attempt>, $generation: string, $era: int, $epoch: int) {
+    LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE;
+    IF $owner=NONE OR $owner.generation!=$generation OR $owner.era!=$era OR $owner.epoch!=$epoch OR $era<=0 OR $epoch<=0 { THROW 'native attempt cut owner identity'; };
+    IF array::len(SELECT VALUE id FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$attempt LIMIT 65)!=64 { THROW 'native attempt stripe set width'; };
+    LET $ids=array::range(0,64).map(|$slot| type::record('native_attempt_stripe',[$attempt,$slot]));
+    LET $rows=$ids.map(|$id| (SELECT * FROM ONLY $id FOR UPDATE));
+    FOR $slot IN 0..64 { LET $row=$rows[$slot]; IF $row=NONE OR $row.id!=$ids[$slot] OR $row.format!=1 OR $row.attempt!=$attempt OR $row.generation!=$generation OR $row.era!=$era OR $row.epoch!=$epoch OR $row.slot!=$slot OR type::is_int($row.revision)=false OR $row.revision<0 OR $row.revision>9223372036854775807 { THROW 'native attempt stripe set authority'; }; };
+    RETURN $rows;
+};
+DEFINE FUNCTION fn::native_attempt_cut($attempt: record<native_attempt>, $generation: string, $era: int, $epoch: int, $purpose: string) {
+    IF $purpose NOT IN ['freeze','close','admission','completion','maintenance','incidence','history'] { THROW 'native attempt cut purpose'; };
+    LET $rows=fn::native_attempt_validate($attempt,$generation,$era,$epoch);
+    FOR $row IN $rows { IF $row.revision>=9223372036854775807 { THROW 'native attempt stripe revision exhausted'; }; UPDATE $row.id SET revision+=1 RETURN NONE; };
+    RETURN NONE;
+};
+DEFINE FUNCTION fn::native_attempt_participate($context: object) {
+    // FOR UPDATE rejects field idioms before evaluating their record-id value.
+    // Bind that exact witness to a parameter; the lock and all checks stay intact.
+    LET $effect_id=$context.effect;
+    LET $effect=SELECT * FROM ONLY $effect_id FOR UPDATE;
+    LET $owner=SELECT * FROM ONLY $context.attempt;
+    IF $effect=NONE OR $effect.resolved OR $effect.attempt!=$context.attempt OR $effect.owner!=$context.attempt OR $effect.owner_kind NOT IN ['attempt','frozen_attempt','terminal_attempt'] OR $effect.generation!=$context.generation OR $effect.era!=$context.era OR $effect.epoch!=$context.epoch OR $effect.request!=$context.request OR $effect.attempt_slot!=$context.slot OR $context.slot<0 OR $context.slot>=64 OR $owner=NONE OR $owner.generation!=$context.generation OR $owner.era!=$context.era OR $owner.epoch!=$context.epoch OR $context.epoch<=0 { THROW 'native attempt participant correspondence'; };
+    LET $id=type::record('native_attempt_stripe',[$context.attempt,$context.slot]);
+    LET $row=SELECT * FROM ONLY $id FOR UPDATE;
+    IF $row=NONE OR $row.format!=1 OR $row.attempt!=$context.attempt OR $row.generation!=$context.generation OR $row.era!=$context.era OR $row.epoch!=$context.epoch OR $row.slot!=$context.slot OR type::is_int($row.revision)=false OR $row.revision<0 OR $row.revision>=9223372036854775807 { THROW 'native attempt participant stripe'; };
+    UPDATE $id SET revision+=1 RETURN NONE;
+    RETURN NONE;
+};
+DEFINE FUNCTION fn::native_touch_admitted($record: option<record>, $context: option<object>) {
+    IF $record!=NONE { IF $context!=NONE AND record::table($record)='native_attempt' { IF $record!=$context.attempt { THROW 'native unrelated attempt incidence'; }; } ELSE { fn::native_touch($record); }; };
+    RETURN NONE;
+};
+DEFINE FUNCTION fn::native_incidence_admitted($row: object, $context: option<object>) {
+    FOR $record IN fn::native_incidence_targets($row) { fn::native_touch_admitted($record,$context); };
+    RETURN NONE;
+};
+DEFINE FUNCTION fn::native_incidence_insert_admitted($row: object, $context: option<object>) {
+    fn::native_incidence_admitted($row,$context);
+    IF record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging'] { IF $row.attempt=NONE OR (SELECT VALUE id FROM ONLY $row.attempt)=NONE { THROW 'native incidence attempt missing'; }; };
+    IF record::table($row.id)='compiler_membership' { fn::native_contribution_incidence($row.contribution,$row); };
+    IF record::table($row.id) IN ['native_completed_view','native_completed_contributor'] { fn::native_completed_incidence($row.completion,$row); };
+    IF record::table($row.id)='native_hold' AND record::table($row.owner)='native_completed_state' { fn::native_completed_incidence($row.owner,$row); };
+    IF record::table($row.id)='native_retirement_item' { IF (SELECT VALUE id FROM ONLY $row.job)=NONE { THROW 'native incidence parent missing'; }; };
     RETURN NONE;
 };

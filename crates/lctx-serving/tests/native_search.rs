@@ -278,8 +278,20 @@ async fn member_fixture(
         stages::{Profile, ProviderOutcome},
     };
     use std::collections::{BTreeMap, BTreeSet};
-    let store =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(config, Frontier::Facts).await?;
+    let store = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+        config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await?;
     let budget = ResourceBudget::fixed(64 << 20)?;
     let result: Result<_, ModelError> = async {
         let model = model()?;

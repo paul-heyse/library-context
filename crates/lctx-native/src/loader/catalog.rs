@@ -130,7 +130,7 @@ impl InstallationCatalog {
             .client
             .query(sql)
             .await
-            .map_err(ModelError::codec)?
+            .map_err(write_failure)?
             .check()
             .map_err(ModelError::codec)?;
         let value: Value = response.take(0).map_err(ModelError::codec)?;
@@ -186,9 +186,16 @@ impl InstallationCatalog {
     }
     pub async fn install(&mut self, blueprint: &str) -> Result<(), ModelError> {
         let physical = physical_native_definitions(blueprint)?;
-        self.apply(&crate::schema::canonical_schema(), "canonical schema")
-            .await?;
-        self.apply(&physical, "native physical definitions").await
+        let phase = crate::phase::Phase::begin("native_installation_canonical_schema");
+        let applied = self
+            .apply(&crate::schema::canonical_schema(), "canonical schema")
+            .await;
+        phase.finish_result(&applied);
+        applied?;
+        let phase = crate::phase::Phase::begin("native_installation_physical_schema");
+        let applied = self.apply(&physical, "native physical definitions").await;
+        phase.finish_result(&applied);
+        applied
     }
     /// Apply missing declarations only. A conflicting existing name refuses before effects.
     /// This method never silently replaces pinned meaning during ordinary installation.
@@ -230,13 +237,17 @@ impl InstallationCatalog {
                 .collect::<Vec<_>>()
                 .join(";")
                 + ";";
+            tracing::info!(target: "lctx_phase", observation="installation_declaration_window",
+                schema=phase, window=window + 1, declarations=chunk.len());
+            let observation = crate::phase::Phase::begin("native_installation_ddl_window");
             let result = self
                 .client
                 .query(sql)
                 .await
-                .and_then(|response| response.check())
-                .map(|_| ())
-                .map_err(write_failure);
+                .map_err(write_failure)
+                .and_then(|response| response.check().map_err(write_failure))
+                .map(|_| ());
+            observation.finish_result(&result);
             let result = completion(result).await;
             if let Err(error) = result {
                 let primary = installation_failure(
@@ -246,7 +257,10 @@ impl InstallationCatalog {
                 // A lost acknowledgement is resolved against precisely the affected catalog
                 // groups. Partial or differing application remains a failure, never replay.
                 let mut completion = lctx_model::domain::completion::Completion::default();
+                let observation =
+                    crate::phase::Phase::begin("native_installation_ddl_reconciliation");
                 let refreshed = self.refresh(&groups).await;
+                observation.finish_result(&refreshed);
                 let reconciled = refreshed.is_ok()
                     && chunk
                         .iter()
@@ -264,36 +278,70 @@ impl InstallationCatalog {
                 }
             }
         }
-        self.refresh(&affected).await?;
-        if declarations
-            .iter()
-            .any(|item| self.actual.get(&item.key) != Some(&item.sql))
-        {
-            return Err(installation_failure(
-                format!("{phase} declaration readback"),
-                ModelError::Conflict("installed native declaration readback"),
-            ));
+        tracing::info!(target: "lctx_phase", observation="installation_declaration_readback",
+            schema=phase, groups=affected.len());
+        let observation = crate::phase::Phase::begin("native_installation_ddl_readback");
+        let readback = async {
+            self.refresh(&affected).await?;
+            if declarations
+                .iter()
+                .any(|item| self.actual.get(&item.key) != Some(&item.sql))
+            {
+                return Err(installation_failure(
+                    format!("{phase} declaration readback"),
+                    ModelError::Conflict("installed native declaration readback"),
+                ));
+            }
+            Ok::<(), ModelError>(())
         }
+        .await;
+        observation.finish_result(&readback);
+        readback?;
         let mut pending = declarations
             .into_iter()
-            .filter_map(|item| item.index)
+            .filter_map(|item| item.index.map(|index| (index, None::<String>)))
             .collect::<Vec<_>>();
+        let observation = (!pending.is_empty())
+            .then(|| crate::phase::Phase::begin("native_installation_index_readiness"));
+        let indexes_ready = async {
         while !pending.is_empty() {
             let mut remaining = Vec::new();
-            for index in pending {
+            for (index, mut previous_status) in pending {
+                if previous_status.is_none() {
+                    tracing::info!(target: "lctx_phase", observation="installation_index_status",
+                        schema=phase, index=%index.label, status="awaiting_information");
+                }
                 let mut response = self
                     .client
                     .query(index.information.clone())
                     .await
-                    .map_err(ModelError::codec)?
+                    .map_err(write_failure)?
                     .check()
                     .map_err(ModelError::codec)?;
                 let value: Value = response.take(0).map_err(ModelError::codec)?;
                 let value = readiness(value)?;
-                if !installation_index_ready(&value).map_err(|error| {
+                let ready = installation_index_ready(&value).map_err(|error| {
                     installation_failure(format!("{phase} index {} readiness", index.label), error)
-                })? {
-                    remaining.push(index);
+                })?;
+                // The shared validator above owns the grammar; observation reads only
+                // its validated status and never emits SQL or one event per poll.
+                let status = match &value {
+                    Value::Object(info) => match info.get("building") {
+                        Some(Value::Object(building)) => match building.get("status") {
+                            Some(Value::String(status)) => status.as_str(),
+                            _ => unreachable!("validated installation index status"),
+                        },
+                        _ => unreachable!("validated installation index build information"),
+                    },
+                    _ => unreachable!("validated installation index information"),
+                };
+                if previous_status.as_deref() != Some(status) {
+                    tracing::info!(target: "lctx_phase", observation="installation_index_status",
+                        schema=phase, index=%index.label, status);
+                    previous_status = Some(status.to_owned());
+                }
+                if !ready {
+                    remaining.push((index, previous_status));
                 }
             }
             pending = remaining;
@@ -301,7 +349,12 @@ impl InstallationCatalog {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         }
-        Ok(())
+        Ok::<(), ModelError>(())
+        }.await;
+        if let Some(observation) = observation {
+            observation.finish_result(&indexes_ready);
+        }
+        indexes_ready
     }
 }
 

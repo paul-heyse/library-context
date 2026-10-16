@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "upstream_commit": "238bfeb11f5725bebed370167656748df8067595",
+  "requires": "grpc-execution-drain.patch",
+  "name": "grpc-query-bytes",
+  "capability": "QUERY_BATCH_BYTES_V1",
+  "protocol_package": "surrealdb-protocol 0.13.1 + max_batch_bytes tag 6",
+  "patch_file": "grpc-query-bytes.patch",
+  "patch_sha256": "85e366a19247f56ba0aa92209c7acbfe68a8d2eb63bc2c7a83d46f228289edd4",
+  "files": [
+    {
+      "path": "surrealdb/server/src/rpc/grpc.rs",
+      "original_sha256": "2142b58e1299576f81fd85bab80c6eaf060885abfe326e5e9ed5fb32e47d4615",
+      "patched_sha256": "e31e3a2b798364880564e07ab485d822b8360a59ef4b0d26df6e0e1f4d79fc7e"
+    },
+    {
+      "path": "surrealdb/server/tests/grpc.rs",
+      "original_sha256": "2d2efc5c0945a4ef44982b2510796d629966239dbfed4311523287928a724bd2",
+      "patched_sha256": "24a07309ee012b7d24970d879b2bf52d46bcb6390b878005ee2200446a156dc3"
+    },
+    {
+      "path": "surrealdb/src/engine/remote/grpc.rs",
+      "original_sha256": "3b0c6403861555164240eba5b24b9577d661c5ae9fa320063e72c4c19a855d58",
+      "patched_sha256": "e8d7f1736e00ec8e456799cbb6f2c41af14d41588a4c87a6ea442228a72ec23a"
+    }
+  ],
+  "build_metadata": "lctx.timeout-stack.grpc-drain.query-ingress.1",
+  "cli_version": "3.3.0+lctx.timeout-stack.grpc-drain.query-ingress.1 for linux on x86_64",
+  "http_version": "surrealdb-3.3.0+lctx.timeout-stack.grpc-drain.query-ingress.1"
+}

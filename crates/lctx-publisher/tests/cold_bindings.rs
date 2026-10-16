@@ -91,9 +91,21 @@ async fn write<R: Record>(
 }
 
 async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
-    let native = NativeCompilerStore::begin(config, Frontier::Facts)
-        .await
-        .unwrap();
+    let native = NativeCompilerStore::begin(
+        config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions::default(),
@@ -382,9 +394,21 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     .unwrap();
     // Invalid transport is refused by native ingress before semantic restoration;
     // own that actual component rather than creating an unused workspace owner.
-    let refused = NativeCompilerStore::begin(&config, Frontier::Catalog)
-        .await
-        .unwrap();
+    let refused = NativeCompilerStore::begin(
+        &config,
+        Frontier::Catalog,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let error = refused
         .import_state(obsolete.path(), &state, &native_operation_budget)
         .await

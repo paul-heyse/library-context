@@ -8,7 +8,7 @@ use std::{
 
 #[derive(Default)]
 struct State {
-    stopped: AtomicBool,
+    stopped: Arc<AtomicBool>,
     changed: tokio::sync::Notify,
 }
 #[derive(Clone, Default)]
@@ -20,6 +20,10 @@ impl RetryCancellation {
     }
     pub fn stopped(&self) -> bool {
         self.0.stopped.load(Ordering::Acquire)
+    }
+    /// The same actual stop bit can govern progressive read delivery.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.0.stopped.clone()
     }
     pub async fn cancelled(&self) {
         loop {
@@ -35,6 +39,11 @@ impl RetryCancellation {
 }
 #[derive(Clone, Default)]
 pub struct RetryCancellationContext(Vec<RetryCancellation>);
+pub(super) fn recovery_admission_context(
+    admission: &RetryCancellation,
+) -> RetryCancellationContext {
+    RetryCancellationContext(vec![admission.clone()])
+}
 tokio::task_local! { static CANCELLATION: RetryCancellationContext; }
 pub fn capture_retry_cancellation() -> RetryCancellationContext {
     CANCELLATION.try_with(Clone::clone).unwrap_or_default()
@@ -147,11 +156,11 @@ pub(super) async fn transaction_named(
     recover: bool,
     stage: &'static str,
 ) -> Result<(), ModelError> {
-    let cancellation = if recover {
-        RetryCancellationContext::default()
-    } else {
-        capture_retry_cancellation()
-    };
+    // Recovery changes the durable action, never the authority to issue forever.
+    // Its owning scope installs an independent stop context and retains any
+    // unsettled action before returning. Await the submitted terminal below;
+    // only subsequent issuance/backoff observes this capability.
+    let cancellation = capture_retry_cancellation();
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     // Identifies generated SQL shape and exact operation/stage without logging
@@ -176,6 +185,19 @@ pub(super) async fn transaction_named(
                 "native transaction retry cancelled".into(),
             ));
         }
+        let _recovery_owner = if recover {
+            let owner = capture_recovery_scope().ok_or(ModelError::Conflict(
+                "native recovery requires its actual owning scope",
+            ))?;
+            if cancellation.0.is_empty() || !std::ptr::eq(owner.client().as_ref(), client) {
+                return Err(ModelError::Conflict(
+                    "native recovery issuance owner correspondence",
+                ));
+            }
+            Some(owner)
+        } else {
+            None
+        };
         // Await actual response/terminal before observing cancellation. Dropping delivery
         // or a retry wait is never used as evidence that this effect did not commit.
         let result = match client.query(sql.to_owned()).bind(bindings.clone()).await {
@@ -262,16 +284,19 @@ mod tests {
     }
     #[tokio::test]
     async fn already_cancelled_retry_refuses_without_contacting_native() {
-        let cancellation = RetryCancellation::default();
-        cancellation.cancel();
-        let result = with_retry_cancellation(
-            cancellation,
-            transaction(&Surreal::init(), "RETURN true", Variables::new(), false),
-        )
-        .await;
-        assert!(
-            matches!(result, Err(ModelError::Invalid(message)) if message == "native transaction retry cancelled")
-        );
+        for recovery in [false, true] {
+            let cancellation = RetryCancellation::default();
+            cancellation.cancel();
+            let result = with_retry_cancellation(
+                cancellation,
+                transaction(&Surreal::init(), "RETURN true", Variables::new(), recovery),
+            )
+            .await;
+            assert!(
+                matches!(result, Err(ModelError::Invalid(message)) if message == "native transaction retry cancelled"),
+                "recovery must retain its actual owner's stop authority"
+            );
+        }
     }
     #[tokio::test]
     async fn nested_scopes_and_spawned_context_retain_every_cancellation_owner() {

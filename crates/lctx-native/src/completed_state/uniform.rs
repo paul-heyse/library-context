@@ -50,7 +50,10 @@ impl PublishedCompletedState {
             let relation = model
                 .relation(source.relation())
                 .ok_or(ModelError::Schema("published compact metadata relation"))?;
-            let reader = self.inner.reader.transport_reader().with_budget(budget);
+            let reader = self
+                .retained_reader()
+                .transport_reader()
+                .with_budget(budget);
             let selected = crate::selection::SelectedPayloads::for_published_session(
                 reader.shared_client(),
                 self,
@@ -59,7 +62,7 @@ impl PublishedCompletedState {
                 budget,
             )
             .await?
-            .with_reader_owner(reader);
+            .with_reader_owner(reader)?;
             let mut variables = surrealdb::types::Variables::new();
             variables.insert("type", source.relation().to_owned());
             let mut rows = selected.rows_with_budget(
@@ -117,7 +120,7 @@ impl PublishedCompletedState {
             d::completion::complete(result, completion)?;
             loaded.insert(&mut charge, source.view())?;
         }
-        self.inner.reader.ensure_scope_live()?;
+        self.retained_reader().ensure_scope_live()?;
         Ok(inputs)
     }
     pub async fn admit_uniform_owners(
@@ -145,7 +148,10 @@ impl PublishedCompletedState {
             ));
         }
         let mappings = self.inventory().contributors(binding.view.identity)?;
-        let reader = self.inner.reader.transport_reader().with_budget(budget);
+        let reader = self
+            .retained_reader()
+            .transport_reader()
+            .with_budget(budget);
         let mut completed = Vec::new();
         let mut completed_charge =
             d::charged::StateCharge::new(budget, "published compact producer decode");
@@ -223,7 +229,7 @@ impl PublishedCompletedState {
             }
             owners.push(&mut charge, owner)?;
         }
-        self.inner.reader.check_read_admission()?;
+        self.retained_reader().check_read_admission()?;
         Ok(PublishedUniformOwners {
             owners,
             _charge: charge,

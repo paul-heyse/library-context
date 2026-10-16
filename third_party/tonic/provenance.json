@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "package": "tonic",
+  "version": "0.14.6",
+  "archive_sha256": "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "6cb6056b5a748bc5a29bd48f4602dbc4e552bb7d"
+    },
+    "path_in_vcs": "tonic"
+  },
+  "local_overrides": {
+    "Cargo.toml": {
+      "source_sha256": "cf05cc546c97782621e82affe1882ed8cf93b747ea8f714d5f70606cf5f23539",
+      "patched_sha256": "8c646bdd4c8c5c0ebf5206bc4fb37968594810e222e8d7e1826eb5dea36b9793"
+    },
+    "src/codec/admission.rs": {
+      "source_sha256": null,
+      "patched_sha256": "d991d73af5eebb7d19f04f8ec23b0faf03276aa94ebd517399944b3f33be9397"
+    },
+    "src/codec/admitted_compression.rs": {
+      "source_sha256": null,
+      "patched_sha256": "5944cb18ec459d38d6d180d1ba2c1a8699d5345341adb872653a0662f7c5f04b"
+    },
+    "src/codec/decode.rs": {
+      "source_sha256": "433ce180e5ee34a271f352ecad70aec31f87b5827ec31292d6a727004e6fe518",
+      "patched_sha256": "efa44134dc600aefd3a0d4a73929f7440d937e71a24e7c51b667cd1f2e4d536b"
+    },
+    "src/codec/mod.rs": {
+      "source_sha256": "75fce3c65ce80d41bae1a61a8656ac077e908805c7f6a36e8610e98fe0bac99c",
+      "patched_sha256": "5b025e0c41a5c1b0b0cbd1b501cbd758d58ddbbbc799dd7facfd096b7d6db498"
+    }
+  }
+}

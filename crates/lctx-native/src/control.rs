@@ -114,7 +114,7 @@ fn keyset_range_source(
     Ok(format!("type::record({})", range.to_sql()))
 }
 
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 mod coordination;
 pub use coordination::{ADMISSION_STRIPES, ExpectedObject};
 pub(crate) use coordination::{
@@ -133,6 +133,20 @@ pub mod staging;
 #[doc(hidden)]
 pub use immutable_window::{ImmutableWindows, install_window};
 mod receipts;
+mod recovery_execution;
+pub use recovery_execution::{
+    RecoverySettlement, SourceRecoverySettlement, recover_pending_request_file,
+    recover_pin_finalization_file, recover_source_finalization_file,
+};
+mod recovery;
+pub use recovery::{
+    FactoryHandback, FactoryLease, PendingRecovery, PendingRecoveryEnvelope, PinFinalizationMarker,
+    PinMarkerKind, ReadPinFinalizationMarker, ReadRecoveryEnvelope, ReadSourceFinalizationMarker,
+    RecoveryAction, RecoveryFactoryOwner, RecoveryOwner, RecoveryReferencePolicy, RecoveryScope,
+    RecoveryTarget, SourceFinalizationMarker, SourceFinalizationPhase, SourceMarkerKind,
+    capture_recovery_scope, read_pin_finalization_marker, read_recovery_envelope,
+    read_source_finalization_marker, with_recovery_scope,
+};
 mod retry;
 use cleanup::CleanupHolds;
 pub use cleanup::{recover_cleanup, resume_cleanup};
@@ -145,7 +159,11 @@ pub use retry::{
 
 pub use authorization::{
     EffectDisposition, IssuanceEra, NativeAttemptError, NativeLifecycleError, NativeRequest,
-    NativeRequestError,
+    NativeRequestError, PinFinalizationAuthority, PreparedAttemptAllocation, PreparedPinAllocation,
+    allocation_outcome_reference, finalize_factory_pin_admitted, finalize_factory_source_admitted,
+    prepare_attempt_allocation, prepare_pin_allocation, release_factory_pin_references_admitted,
+    release_factory_source_references_admitted, resume_recovery_scope,
+    resume_recovery_scope_admitted, source_attempt_reference, source_pin_reference,
 };
 pub use history::{
     HistoryCompaction, compact_history, cut_era, qualify_history_inventory, release_outcome,
@@ -166,7 +184,7 @@ pub async fn check_installation(
     let mut response = client
         .query("SELECT * FROM native_installation:current; SELECT * FROM native_admission_stripe LIMIT 65; SELECT * FROM native_backup_gate:current")
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::loader::write_failure)?
         .check()
         .map_err(ModelError::codec)?;
     let actual: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
@@ -216,13 +234,6 @@ pub(crate) use held::{
 pub use held::{inspect_expected_window_read, inspect_hold_window_read};
 pub(crate) mod completed;
 pub mod validation_premise;
-async fn run_transaction(
-    client: &Surreal<Client>,
-    sql: &str,
-    bindings: Variables,
-) -> Result<(), ModelError> {
-    retry::transaction(client, sql, bindings, false).await
-}
 async fn run_recovery_transaction(
     client: &Surreal<Client>,
     sql: &str,
@@ -315,12 +326,12 @@ fn guarded_effect_plan(
     bindings.insert("__guard_records", guard_records(objects.iter())?);
     bindings.insert("__write_guards", guards);
     let incidence = if matches!(bindings.get("row"), Some(Value::Object(_))) {
-        "fn::native_incidence_insert($row);"
+        "fn::native_incidence_insert_admitted($row,$__attempt_context);"
     } else {
         ""
     };
     Ok(format!(
-        "{incidence} FOR $__target IN $__guard_records {{ fn::native_touch($__target.record); }}; {sql}"
+        "{incidence} FOR $__target IN $__guard_records {{ fn::native_touch_admitted($__target.record,$__attempt_context); }}; {sql}"
     ))
 }
 
@@ -349,6 +360,7 @@ fn immutable_row_plan(
     contribution: Option<ContentHash>,
     rows: Vec<Value>,
 ) -> Result<Option<(String, Variables)>, ModelError> {
+    let rows = coalesce_immutable_rows(rows)?;
     if rows.is_empty() {
         return Ok(None);
     }
@@ -379,6 +391,10 @@ fn immutable_row_plan(
             blob_guards.push(guard_id(&Value::RecordId(blob.clone()))?);
         }
     }
+    records.sort();
+    records.dedup();
+    blob_guards.sort();
+    blob_guards.dedup();
     let mut bindings = Variables::new();
     // Creation may join only the exact successor incarnation this request planned.
     // These full values remain in the frozen payload, separate from ordinary holds.
@@ -413,10 +429,29 @@ fn immutable_row_plan(
     } else {
         ""
     };
-    let sql = format!(
-        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; IF record::table($row.id)='original_chunk' {{ fn::native_touch($row.blob); LET $blob_header=SELECT * FROM ONLY $row.blob; IF $blob_header=NONE OR type::is_bool($blob_header.completed)=false {{ THROW 'native original blob declaration missing'; }}; IF $blob_header.completed AND (SELECT * FROM ONLY $row.id)!=$row {{ THROW 'completed original blob refuses missing or changed piece'; }}; }}; fn::native_incidence_insert($row); LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }};"
-    );
+    let sql = format!("{fence} fn::native_immutable_install($rows,[],$__attempt_context);");
     Ok(Some((sql, bindings)))
+}
+/// Keep the first exact row ordering, coalescing only complete equal values. The
+/// bounded window owns this preparation before any native effect can be issued.
+fn coalesce_immutable_rows(rows: Vec<Value>) -> Result<Vec<Value>, ModelError> {
+    let mut seen: std::collections::BTreeMap<RecordId, usize> = std::collections::BTreeMap::new();
+    let mut unique: Vec<Value> = Vec::with_capacity(rows.len());
+    for row in rows {
+        crate::loader::validate_native_row(&row)?;
+        let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id")) else {
+            return Err(ModelError::Schema("native immutable record identity"));
+        };
+        if let Some(&position) = seen.get(id) {
+            if unique[position] != row {
+                return Err(ModelError::Conflict("native immutable address collision"));
+            }
+        } else {
+            seen.insert(id.clone(), unique.len());
+            unique.push(row);
+        }
+    }
+    Ok(unique)
 }
 /// Compose immutable rows and holds without replacing an earlier exact record map.
 /// Shared by immutable windows and internal completed-state staging.
@@ -528,7 +563,7 @@ fn hold_plan(
         ));
     }
     let mut bindings = Variables::new();
-    bindings.insert("holds", rows);
+    bindings.insert("holds", coalesce_immutable_rows(rows)?);
     bindings.insert("hold_guards", guards);
     bindings.insert("__guard_records", guard_records(records.iter())?);
     let owner = if let Some(attempt) = attempt {
@@ -539,7 +574,11 @@ fn hold_plan(
             .map(EffectOwner::Pin)
             .unwrap_or(EffectOwner::Installation)
     };
-    Ok(Some((owner,"FOR $row IN $holds { IF record::table($row.owner)='compiler_contribution' { fn::native_contribution_incidence($row.owner,$row); }; IF record::table($row.owner)='native_completed_state' { fn::native_completed_incidence($row.owner,$row); }; IF (SELECT VALUE id FROM ONLY $row.owner)=NONE { THROW 'native attachment owner missing'; }; IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; fn::native_incidence($row); UPSERT $row.id CONTENT $row RETURN NONE; }".to_owned(),bindings)))
+    Ok(Some((
+        owner,
+        "fn::native_immutable_install([],$holds,$__attempt_context);".to_owned(),
+        bindings,
+    )))
 }
 
 /// The exact physical incidence address shared by creation and observation.
@@ -556,47 +595,6 @@ pub fn hold_record_id(owner: &RecordId, object: &RecordId) -> Result<RecordId, M
     Ok(RecordId::new("native_hold", sink.finish().hex()))
 }
 
-pub async fn pin_views(
-    client: &Surreal<Client>,
-    views: &[ContentHash],
-) -> Result<ContentHash, ModelError> {
-    let issuance = IssuanceEra::capture(client).await?;
-    let pin = fresh_identity("reader-pin")?;
-    let owner = RecordId::new("native_pin", pin.hex());
-    let objects = views
-        .iter()
-        .map(|view| RecordId::new("compiler_view", view.hex()))
-        .collect::<Vec<_>>();
-    let mut bindings = Variables::new();
-    bindings.insert("pin", owner.clone());
-    bindings.insert("issuance", issuance.era);
-    bindings.insert("views", objects.clone());
-    bindings.insert("guard", guard_id(&Value::RecordId(owner.clone()))?);
-    let result=async {
-        effect(client,None,"IF !$__admission.admission_open OR $__era!=$issuance { THROW 'native reader admission closed'; }; fn::native_touch($pin); LET $prior=SELECT * FROM ONLY $pin FOR UPDATE; IF $prior!=NONE { THROW 'native pin identity collision'; }; CREATE $guard SET revision=1,retired=false,phase='active',incarnation=1,tombstone_revision=0 RETURN NONE; CREATE $pin SET views=$views,released=false,epoch=$__epoch,generation=$__generation,era=$__era RETURN NONE",bindings).await?;
-        hold(client,None,owner,objects).await?;
-        Ok(pin)
-    }.await;
-    match result {
-        Ok(pin) => Ok(pin),
-        Err(error) => {
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step(
-                "native pin acquisition cleanup",
-                release_pin(client, pin).await,
-            );
-            lctx_model::domain::completion::complete(
-                Err(authorization::lifecycle_error(
-                    "reader pin",
-                    pin,
-                    issuance,
-                    error,
-                )),
-                completion,
-            )
-        }
-    }
-}
 pub async fn release_pin(client: &Surreal<Client>, pin: ContentHash) -> Result<(), ModelError> {
     release_pin_checked(client, pin, false).await
 }
@@ -640,7 +638,7 @@ pub async fn close_attempt(
     // Fence ordinary effects first. The terminal attempt and remaining ownership rows
     // are durable progress. The indexed closing state blocks era cuts until exact
     // cleanup is complete; interruption cannot strand scope before its obligation exists.
-    effect(client,None,"fn::native_touch($attempt); LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE { THROW 'native cleanup attempt missing'; }; IF $owner.state IN ['open','frozen'] { UPDATE $attempt SET state='closing',revision+=1 RETURN NONE; } ELSE IF $owner.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] { THROW 'native cleanup attempt state'; };",bindings.clone()).await?;
+    effect(client,None,"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE { THROW 'native cleanup attempt missing'; }; fn::native_attempt_cut($attempt,$owner.generation,$owner.era,$owner.epoch,'close'); IF $owner.state IN ['open','frozen'] { UPDATE $attempt SET state='closing',revision+=1 RETURN NONE; } ELSE IF $owner.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] { THROW 'native cleanup attempt state'; };",bindings.clone()).await?;
     let mut response = client.query("SELECT VALUE admitted FROM $attempt; SELECT VALUE epoch FROM $attempt; SELECT VALUE state FROM $attempt").bind(bindings.clone()).await.map_err(crate::reader::sdk_error)?.check().map_err(crate::reader::sdk_error)?;
     let admitted: Vec<bool> = response.take(0).map_err(ModelError::codec)?;
     let epochs: Vec<i64> = response.take(1).map_err(ModelError::codec)?;
@@ -700,7 +698,7 @@ async fn finish_attempt_close(
 ) -> Result<(), ModelError> {
     let mut bindings = Variables::new();
     bindings.insert("state", state.to_owned());
-    effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$__attempt LIMIT 1)>0 { THROW 'native attempt cleanup incomplete'; }; IF $__owner.state='closing' { UPDATE $__attempt SET state=$state,revision+=1 RETURN NONE; };",bindings).await
+    effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$__attempt LIMIT 1)>0 { THROW 'native attempt cleanup incomplete'; }; IF $__owner.state='closing' { fn::native_attempt_cut($__attempt,$__generation,$__era,$__epoch,'close'); UPDATE $__attempt SET state=$state,revision+=1 RETURN NONE; };",bindings).await
 }
 
 async fn release_cleanup_holds(
@@ -713,13 +711,16 @@ async fn release_cleanup_holds(
     while !cleanup.step(client).await? {}
     Ok(())
 }
+/// Public database-wide backup exclusion. Acquisition and release write the exact
+/// gate; retirement only validates it at commit. Selected publication backup pins
+/// remain a separate contract and do not replace callers of this explicit API.
 pub async fn acquire_backup_hold(client: &Surreal<Client>) -> Result<ContentHash, ModelError> {
     let issuance = IssuanceEra::capture(client).await?;
     let id = fresh_identity("database-backup-hold")?;
     let mut bindings = Variables::new();
     bindings.insert("hold", RecordId::new("native_backup_hold", id.hex()));
     bindings.insert("issuance", issuance.era);
-    effect(client,None,"IF !$__admission.admission_open OR $__era!=$issuance { THROW 'native backup admission closed'; }; LET $gate=SELECT * FROM ONLY native_backup_gate:current FOR UPDATE; IF $gate=NONE OR $gate.active_count<0 OR $gate.active_count>=9223372036854775807 OR $gate.revision>=9223372036854775807 { THROW 'native backup gate missing'; }; UPDATE native_backup_gate:current SET revision+=1,active_count+=1 RETURN NONE; fn::native_touch($hold); CREATE $hold SET active=true,generation=$__generation,era=$__era,epoch=$__epoch RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("backup hold",id,issuance,error))?;
+    effect(client,None,"IF !$__admission.admission_open OR $__era!=$issuance { THROW 'native backup admission closed'; }; LET $gate=SELECT * FROM ONLY native_backup_gate:current FOR UPDATE; IF $gate=NONE OR type::is_int($gate.active_count)=false OR type::is_int($gate.revision)=false OR $gate.revision<0 OR $gate.active_count<0 OR $gate.active_count>=9223372036854775807 OR $gate.revision>=9223372036854775807 { THROW 'native backup gate missing'; }; UPDATE native_backup_gate:current SET revision+=1,active_count+=1 RETURN NONE; fn::native_touch($hold); CREATE $hold SET active=true,generation=$__generation,era=$__era,epoch=$__epoch RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("backup hold",id,issuance,error))?;
     Ok(id)
 }
 pub async fn release_backup_hold(
@@ -736,7 +737,7 @@ pub async fn release_backup_hold_checked(
     let mut bindings = Variables::new();
     bindings.insert("hold", RecordId::new("native_backup_hold", id.hex()));
     bindings.insert("maintenance", maintenance);
-    effect(client,None,"IF $maintenance { IF $__installation.admission_open { THROW 'maintenance admission must remain closed'; }; IF (SELECT VALUE id FROM ONLY $hold)=NONE { THROW 'maintenance backup identity missing'; }; }; LET $before=SELECT * FROM ONLY $hold FOR UPDATE; IF $before=NONE OR $before.generation!=$__generation { THROW 'native backup release identity'; }; fn::native_touch($hold); LET $gate=SELECT * FROM ONLY native_backup_gate:current FOR UPDATE; IF $gate=NONE OR $gate.active_count<0 OR $gate.revision>=9223372036854775807 OR ($before.active AND $gate.active_count=0) { THROW 'native backup gate corrupt'; }; UPDATE native_backup_gate:current SET revision+=1,active_count-=IF $before.active { 1 } ELSE { 0 } RETURN NONE; UPDATE $hold SET active=false RETURN NONE",bindings).await
+    effect(client,None,"IF $maintenance { IF $__installation.admission_open { THROW 'maintenance admission must remain closed'; }; IF (SELECT VALUE id FROM ONLY $hold)=NONE { THROW 'maintenance backup identity missing'; }; }; LET $before=SELECT * FROM ONLY $hold FOR UPDATE; IF $before=NONE OR $before.generation!=$__generation { THROW 'native backup release identity'; }; fn::native_touch($hold); LET $gate=SELECT * FROM ONLY native_backup_gate:current FOR UPDATE; IF $gate=NONE OR type::is_int($gate.active_count)=false OR type::is_int($gate.revision)=false OR $gate.revision<0 OR $gate.active_count<0 OR $gate.revision>=9223372036854775807 OR ($before.active AND $gate.active_count=0) { THROW 'native backup gate corrupt'; }; UPDATE native_backup_gate:current SET revision+=1,active_count-=IF $before.active { 1 } ELSE { 0 } RETURN NONE; UPDATE $hold SET active=false RETURN NONE",bindings).await
 }
 
 pub async fn retirement_eligibility(
@@ -763,14 +764,23 @@ pub async fn retirement_eligibility(
 /// Arc ownership ensures a pin is shared by cloned readers, rather than reacquired per clone.
 pub struct ReaderPin {
     pub identity: ContentHash,
+    state: Arc<ReaderPinState>,
+}
+pub(crate) struct ReaderPinState {
+    identity: ContentHash,
     client: Arc<Surreal<Client>>,
-    runtime: tokio::runtime::Handle,
     released: std::sync::atomic::AtomicBool,
     uncertain: std::sync::atomic::AtomicBool,
+    borrowed: std::sync::atomic::AtomicBool,
+    recovery: Option<Arc<RecoveryScope>>,
+    _charge: Option<Box<dyn lctx_model::domain::resources::Reservation>>,
 }
 impl ReaderPin {
+    pub(crate) fn client(&self) -> &Arc<Surreal<Client>> {
+        &self.state.client
+    }
     pub(crate) fn require_client(&self, client: &Arc<Surreal<Client>>) -> Result<(), ModelError> {
-        if Arc::ptr_eq(&self.client, client) {
+        if Arc::ptr_eq(&self.state.client, client) {
             Ok(())
         } else {
             Err(ModelError::Conflict("native pin foreign client"))
@@ -780,17 +790,43 @@ impl ReaderPin {
         client: Arc<Surreal<Client>>,
         views: &[ContentHash],
     ) -> Result<Arc<Self>, ModelError> {
-        let identity = pin_views(&client, views).await?;
-        Ok(Arc::new(Self {
+        let recovery = capture_recovery_scope().ok_or(ModelError::Conflict(
+            "native pin requires its recovery owner",
+        ))?;
+        if !Arc::ptr_eq(recovery.client(), &client) {
+            return Err(ModelError::Conflict(
+                "native pin recovery session correspondence",
+            ));
+        }
+        let lease = recovery.factory_lease()?;
+        let issuance = IssuanceEra::capture(&client).await?;
+        let identity = fresh_identity("reader-pin")?;
+        let allocation = prepare_pin_allocation(identity, issuance, views)?;
+        lease.register_pin(identity, allocation.request)?;
+        allocation.issue(&client).await?;
+        let charge = recovery.budget().reserve(
+            "native reader pin owner",
+            size_of::<Self>() + size_of::<ReaderPinState>() + 4 * size_of::<usize>(),
+        )?;
+        let pin = Arc::new(Self {
             identity,
-            client,
-            runtime: tokio::runtime::Handle::current(),
-            released: std::sync::atomic::AtomicBool::new(false),
-            uncertain: std::sync::atomic::AtomicBool::new(false),
-        }))
+            state: Arc::new(ReaderPinState {
+                identity,
+                client,
+                released: std::sync::atomic::AtomicBool::new(false),
+                uncertain: std::sync::atomic::AtomicBool::new(false),
+                borrowed: std::sync::atomic::AtomicBool::new(true),
+                recovery: Some(recovery),
+                _charge: Some(charge),
+            }),
+        });
+        lease.pin_ready(pin.clone())?;
+        Ok(pin)
     }
     pub(crate) fn ensure_live(&self) -> Result<(), ModelError> {
-        if self.released.load(Ordering::Acquire) || self.uncertain.load(Ordering::Acquire) {
+        if self.state.released.load(Ordering::Acquire)
+            || self.state.uncertain.load(Ordering::Acquire)
+        {
             return Err(ModelError::Conflict(
                 "native reader pin is released or uncertain",
             ));
@@ -798,30 +834,63 @@ impl ReaderPin {
         Ok(())
     }
     pub async fn protect(&self, object: RecordId) -> Result<(), ModelError> {
-        hold(
-            &self.client,
-            None,
-            RecordId::new("native_pin", self.identity.hex()),
-            vec![object],
+        let recovery = self
+            .state
+            .recovery
+            .clone()
+            .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
+        with_recovery_scope(
+            recovery,
+            hold(
+                &self.state.client,
+                None,
+                RecordId::new("native_pin", self.identity.hex()),
+                vec![object],
+            ),
         )
         .await
     }
     pub fn retain_unknown(&self) {
-        self.uncertain.store(true, Ordering::Release);
+        self.state.uncertain.store(true, Ordering::Release);
     }
     #[cfg(test)]
     pub(crate) fn test_detached(released: bool) -> Arc<Self> {
         Arc::new(Self {
             identity: ContentHash([0; 32]),
-            client: Arc::new(Surreal::init()),
-            runtime: tokio::runtime::Handle::current(),
-            released: std::sync::atomic::AtomicBool::new(released),
-            uncertain: std::sync::atomic::AtomicBool::new(false),
+            state: Arc::new(ReaderPinState {
+                identity: ContentHash([0; 32]),
+                client: Arc::new(Surreal::init()),
+                released: std::sync::atomic::AtomicBool::new(released),
+                uncertain: std::sync::atomic::AtomicBool::new(false),
+                borrowed: std::sync::atomic::AtomicBool::new(true),
+                recovery: None,
+                _charge: None,
+            }),
         })
     }
     #[cfg(test)]
     pub(crate) fn test_uncertain(&self) -> bool {
+        self.state.uncertain.load(Ordering::Acquire)
+    }
+    pub(crate) fn factory_state(&self) -> Arc<ReaderPinState> {
+        self.state.clone()
+    }
+    pub async fn release(&self) -> Result<(), ModelError> {
+        self.state.release().await
+    }
+}
+impl ReaderPinState {
+    pub(crate) fn has_borrower(&self) -> bool {
+        self.borrowed.load(Ordering::Acquire)
+    }
+    pub(crate) fn factory_uncertain(&self) -> bool {
         self.uncertain.load(Ordering::Acquire)
+    }
+    pub(crate) fn factory_released(&self) {
+        self.released.store(true, Ordering::Release);
+    }
+    pub(crate) fn is_released(&self) -> bool {
+        self.released.load(Ordering::Acquire)
     }
     pub async fn release(&self) -> Result<(), ModelError> {
         if self.uncertain.load(Ordering::Acquire) {
@@ -831,7 +900,11 @@ impl ReaderPin {
             ));
         }
         if !self.released.load(Ordering::Acquire) {
-            release_pin(&self.client, self.identity).await?;
+            let recovery = self
+                .recovery
+                .clone()
+                .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
+            with_recovery_scope(recovery, release_pin(&self.client, self.identity)).await?;
             self.released.store(true, Ordering::Release);
         }
         Ok(())
@@ -839,19 +912,11 @@ impl ReaderPin {
 }
 impl Drop for ReaderPin {
     fn drop(&mut self) {
-        if self.released.load(Ordering::Acquire) || self.uncertain.load(Ordering::Acquire) {
-            return;
-        }
-        let client = self.client.clone();
-        let pin = self.identity;
-        self.runtime.spawn(async move {
-            if let Err(error) = release_pin(&client, pin).await {
-                tracing::warn!(%error,"native reader pin release remains unresolved");
-            }
-        });
+        // This follows the actual capability through Arc::try_unwrap/rewrap.
+        // It never issues remote work or claims native cleanup.
+        self.state.borrowed.store(false, Ordering::Release);
     }
 }
-
 /// Shared by private original staging and publication staging. Each caller validates
 /// its own fixed envelope, then proves exact bytes/incarnation and either its still-live
 /// attempt hold or an already durable retirement obligation before any hold is released.

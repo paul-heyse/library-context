@@ -24,9 +24,8 @@ pub struct HeldTerminalProduct {
     validity_epoch: i64,
     views: BTreeMap<ContentHash, Arc<HeldInstalledView>>,
     contributors: BTreeMap<ContentHash, CompletedContribution>,
-    session: Arc<crate::reader::SessionFinalizationGuard>,
+    factory_lease: FactoryLease,
     closed: bool,
-    signals: Arc<crate::signal::SignalRegistration>,
     cancellation: Arc<std::sync::atomic::AtomicBool>,
     retry: RetryCancellation,
     _charge: StateCharge,
@@ -85,6 +84,12 @@ impl HeldTerminalProduct {
     /// Consume the source owner only after every borrowed cap/reader and accepted
     /// query has drained. A failed or interrupted close preserves exact ownership.
     pub async fn close(self: Arc<Self>) -> Result<(), ModelError> {
+        let factory = self.factory_lease.factory().clone();
+        self.close_inner()
+            .await
+            .map_err(|error| factory.handback(error))
+    }
+    async fn close_inner(self: Arc<Self>) -> Result<(), ModelError> {
         let mut owner = match Arc::try_unwrap(self) {
             Ok(owner) => owner,
             Err(owner) => {
@@ -123,11 +128,11 @@ impl HeldTerminalProduct {
             };
             return complete(Err(error), completion);
         }
-        owner.session.close().await?;
+        owner.factory_lease.close_session().await?;
         owner.closed = true;
         // Only actual joined pin and session completion may finish this source's
         // independent process receipt. Drop/Unknown leaves it started.
-        owner.signals.complete(&Completion::default()).await
+        owner.factory_lease.complete().await
     }
     pub fn descriptor(&self) -> &CompletedContribution {
         &self.descriptor
@@ -356,43 +361,54 @@ pub async fn hold_terminal_product(
     }
     let retry = RetryCancellation::default();
     let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let parent = capture_recovery_scope().ok_or(ModelError::Conflict(
+        "terminal product requires source recovery owner",
+    ))?;
+    if !Arc::ptr_eq(parent.client(), &client) {
+        return Err(ModelError::Conflict(
+            "terminal product source session differs",
+        ));
+    }
+    let factory = parent.factory()?;
     let (stop, reads) = (retry.clone(), cancellation.clone());
-    let signals = Arc::new(crate::signal::SignalRegistration::new(
+    let signals = Arc::new(crate::signal::SignalRegistration::with_receipt(
         "native terminal product source",
         move || {
             stop.cancel();
             reads.store(true, std::sync::atomic::Ordering::Release);
         },
+        factory.binding().clone(),
     )?);
     // SDK clone creates a distinct authenticated session. Receiver abandonment
     // cannot invalidate this source owner while a scanner/candidate retains it.
-    let client = Arc::new(client.as_ref().clone());
-    let session = Arc::new(crate::reader::SessionFinalizationGuard::new(client.clone()));
-    let pin = match with_retry_cancellation(retry.clone(), ReaderPin::acquire(client.clone(), &[]))
+    let (recovery, _signals, lease) =
+        parent.fork_session_with_signals(budget, retry.clone(), signals)?;
+    let client = recovery.client().clone();
+    let pin = match with_recovery_scope(recovery.clone(), ReaderPin::acquire(client.clone(), &[]))
         .await
     {
         Ok(pin) => pin,
         Err(error) => {
             if !error.permits_storage_cleanup() {
-                return Err(error);
+                return Err(factory.handback(error));
             }
             let mut terminal = Completion::default();
-            let closed = session.close().await;
+            let closed = lease.close_session().await;
             if closed.is_ok() {
                 terminal.step(
                     "terminal failed acquisition source receipt",
-                    signals.complete(&Completion::default()).await,
+                    lease.complete().await,
                 );
             }
             terminal.step("terminal acquisition session close", closed);
-            return complete(Err(error), terminal);
+            return complete(Err(error), terminal).map_err(|error| factory.handback(error));
         }
     };
     let mut pin_terminal = RecoveryPinTerminal::new(pin.clone());
     let reader = crate::NativeReader::private_pinned(client.clone(), pin.clone())
         .with_budget(budget)
         .with_read_cancellation(cancellation.clone());
-    let result=with_retry_cancellation(retry.clone(),async {
+    let result=with_recovery_scope(recovery.clone(),async {
         pin.protect(product.clone()).await?;
         let product=held::inspect_expected_read(&reader,product,budget).await?
             .ok_or(ModelError::Conflict("terminal product disappeared before protection"))?;
@@ -479,7 +495,7 @@ pub async fn hold_terminal_product(
         }
         check_installation(&reader,generation,validity_epoch).await?;
         Ok(HeldTerminalProduct{client:client.clone(),pin:Some(pin.clone()),product,contribution,descriptor,
-            generation,validity_epoch,views,contributors,session:session.clone(),signals:signals.clone(),cancellation:cancellation.clone(),retry:retry.clone(),closed:false,_charge:charge})
+            generation,validity_epoch,views,contributors,factory_lease:lease.clone(),cancellation:cancellation.clone(),retry:retry.clone(),closed:false,_charge:charge})
     }).await;
     let mut terminal = Completion::default();
     terminal.step(
@@ -502,21 +518,21 @@ pub async fn hold_terminal_product(
         let can_close = released.is_ok();
         terminal.step("failed terminal acquisition pin release", released);
         if can_close {
-            let closed = session.close().await;
+            let closed = lease.close_session().await;
             if closed.is_ok() {
                 terminal.step(
                     "terminal rejected acquisition source receipt",
-                    signals.complete(&Completion::default()).await,
+                    lease.complete().await,
                 );
             }
             terminal.step("failed terminal acquisition session close", closed);
         }
         let result = complete(result, terminal);
         pin_terminal.observe(&result);
-        result
+        result.map_err(|error| factory.handback(error))
     } else {
         pin_terminal.observe(&result);
-        result
+        result.map_err(|error| factory.handback(error))
     }
 }
 #[cfg(test)]

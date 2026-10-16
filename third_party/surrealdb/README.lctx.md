@@ -43,3 +43,25 @@ transport errors. `BatchItem` preserves Rows, Value, EmptyValue and Finished; th
 payload remains Rows, and the gRPC End result count is checked. The existing `stream_items`
 mapping still suppresses empty rows and EmptyValue. Streaming registers no LIVE subscriptions;
 finite generated read consumers drain this owner and retain the original borrowed session.
+
+The catalog-efficiency admission adapter adds library-neutral `IngressAdmission` owners,
+per-query `QueryStreamOptions::max_batch_bytes`, retained admitted batch/failure values,
+and configured bootstrap/control reply admission. `QUERY_BATCH_BYTES_V1` is required before
+issuing a byte-framed query; an older server is refused rather than silently receiving an
+unbounded fallback. The root patch set also pins the protocol, RPC, engine-api, types and
+Tonic source seams at their existing exact versions; each new vendor owner has its own
+archive and changed-file provenance. Server framing is an opt-in owned generation recipe.
+
+Configured raw query responses keep an `AdmittedQueryResults` owner through engine and
+SDK indexing. Bare extracted SDK values require an application owner before the response
+is dropped. The native adapter transfers backing under its actual ResourceBudget and
+materializes shared Bytes before source reservations release. Native owned row delivery
+retains queue and current-row reservations through separate acknowledgments. Compiled
+Regex needs an explicit qualified compiler hook; the catalog profile refuses it.
+
+The admission claim covers the selected owned framing, decompression, generated Prost,
+conversion, queue and retained-value buffers, including their coexistence. It does not
+claim a bound on process RSS, shared H2/TLS/network/runtime scheduler allocation, arbitrary
+external bare SDK outputs or legacy-zstd peers. Configured gzip and modern zstd use admitted
+workspaces. Current acceptance belongs to the catalog-efficiency coordinator; old physical-
+terminal controls do not qualify these new seams.

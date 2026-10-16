@@ -3,13 +3,13 @@
 //! remote finality; only the enclosing owner's typed Completion can settle it.
 use crate::control::RetryCancellation;
 use lctx_model::domain::{
-    ModelError,
+    ContentHash, ModelError,
     completion::{Completion, LocalState, RemoteState, StorageState},
 };
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
@@ -17,9 +17,203 @@ use std::{
 };
 use tokio::{sync::Notify, task::JoinHandle};
 
+/// Explicit existing run/storage owner binding for bare product entrypoints.
+/// The caller owns the directory through actual native cleanup; no temp fallback.
+#[derive(Clone)]
+pub struct NativeReceiptBinding {
+    pub directory: PathBuf,
+    pub attachment: String,
+    pub generation: ContentHash,
+}
+
+/// Authentication facts of the exact host which published an outstanding request.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingRequestHostOwner {
+    pub receipt: PathBuf,
+    pub pid: u32,
+    pub start_ticks: u64,
+    pub boot_id: String,
+    pub pid_namespace: u64,
+}
+impl PendingRequestHostOwner {
+    pub(crate) fn heap_bytes(&self) -> usize {
+        self.receipt.capacity() + self.boot_id.capacity()
+    }
+}
+/// A child capability of an actual started native process receipt, not a result.
+#[derive(Clone)]
+pub struct PendingRequestRecipient {
+    directory: PathBuf,
+    generation: ContentHash,
+    host_owner: PendingRequestHostOwner,
+    attachment: Option<String>,
+    admission: Arc<Mutex<bool>>,
+}
+impl PendingRequestRecipient {
+    /// Offline caller must separately authenticate original host drainage and
+    /// exclusive maintenance. This capability grants only exact sidecar updates.
+    pub(crate) fn for_recovery(
+        host_owner: PendingRequestHostOwner,
+        generation: ContentHash,
+    ) -> Result<Self, ModelError> {
+        let parent = host_owner
+            .receipt
+            .parent()
+            .ok_or(ModelError::Conflict("native recovery receipt parent"))?;
+        let stem = host_owner
+            .receipt
+            .file_stem()
+            .ok_or(ModelError::Conflict("native recovery receipt name"))?;
+        let directory = parent.with_extension("requests").join(stem);
+        Ok(Self {
+            directory,
+            generation,
+            host_owner,
+            attachment: None,
+            admission: Arc::new(Mutex::new(true)),
+        })
+    }
+    pub(crate) fn binding(&self) -> Result<NativeReceiptBinding, ModelError> {
+        if *self
+            .admission
+            .lock()
+            .map_err(|_| ModelError::Conflict("native recovery recipient"))?
+        {
+            return Err(ModelError::Conflict(
+                "native recovery recipient admission closed",
+            ));
+        }
+        Ok(NativeReceiptBinding {
+            directory: self
+                .host_owner
+                .receipt
+                .parent()
+                .ok_or(ModelError::Conflict("native owner receipt parent"))?
+                .to_path_buf(),
+            attachment: self.attachment.clone().ok_or(ModelError::Conflict(
+                "offline recovery recipient cannot admit owners",
+            ))?,
+            generation: self.generation,
+        })
+    }
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+    pub fn generation(&self) -> ContentHash {
+        self.generation
+    }
+    pub fn host_owner(&self) -> &PendingRequestHostOwner {
+        &self.host_owner
+    }
+    pub(crate) fn heap_bytes(&self) -> usize {
+        self.directory.capacity()
+            + self.host_owner.heap_bytes()
+            + self.attachment.as_ref().map_or(0, String::capacity)
+    }
+    pub(crate) fn write(&self, name: &str, bytes: &[u8], replace: bool) -> Result<(), ModelError> {
+        let closed = self
+            .admission
+            .lock()
+            .map_err(|_| ModelError::Conflict("native recovery recipient"))?;
+        if *closed && !replace {
+            return Err(ModelError::Conflict("native recovery admission closed"));
+        }
+        if name.len() != 64 || !name.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(ModelError::Conflict("native pending request name"));
+        }
+        let parent = self
+            .directory
+            .parent()
+            .ok_or(ModelError::Conflict("native recovery parent"))?;
+        for directory in [parent, self.directory.as_path()] {
+            let mut builder = fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(ModelError::codec(error)),
+            }
+            if directory.canonicalize().map_err(ModelError::codec)? != directory {
+                return Err(ModelError::Conflict("native recovery directory redirected"));
+            }
+        }
+        if self.directory.canonicalize().map_err(ModelError::codec)? != self.directory {
+            return Err(ModelError::Conflict("native recovery directory redirected"));
+        }
+        let final_path = self.directory.join(format!("{name}.json"));
+        let mut file =
+            tempfile::NamedTempFile::new_in(&self.directory).map_err(ModelError::codec)?;
+        file.write_all(bytes).map_err(ModelError::codec)?;
+        file.as_file().sync_all().map_err(ModelError::codec)?;
+        if replace {
+            file.persist(&final_path).map_err(ModelError::codec)?;
+        } else {
+            file.persist_noclobber(&final_path)
+                .map_err(ModelError::codec)?;
+        }
+        fs::File::open(&self.directory)
+            .and_then(|file| file.sync_all())
+            .map_err(ModelError::codec)?;
+        // Also persist newly created directories in their existing storage owner.
+        let mut parent = self.directory.parent();
+        for _ in 0..2 {
+            if let Some(directory) = parent {
+                fs::File::open(directory)
+                    .and_then(|file| file.sync_all())
+                    .map_err(ModelError::codec)?;
+                parent = directory.parent();
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn remove(&self, name: &str) -> Result<(), ModelError> {
+        let _closed = self
+            .admission
+            .lock()
+            .map_err(|_| ModelError::Conflict("native recovery recipient"))?;
+        match fs::remove_file(self.directory.join(format!("{name}.json"))) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(ModelError::codec(error)),
+        }
+        fs::File::open(&self.directory)
+            .and_then(|file| file.sync_all())
+            .map_err(ModelError::codec)
+    }
+    fn close_admission(&self) -> Result<(), ModelError> {
+        let mut closed = self
+            .admission
+            .lock()
+            .map_err(|_| ModelError::Conflict("native recovery recipient"))?;
+        *closed = true;
+        match fs::read_dir(&self.directory) {
+            Ok(mut entries) => {
+                if entries
+                    .next()
+                    .transpose()
+                    .map_err(ModelError::codec)?
+                    .is_some()
+                {
+                    return Err(ModelError::Conflict(
+                        "native owner still has pending recovery requests",
+                    ));
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(ModelError::codec(error)),
+        }
+        Ok(())
+    }
+}
 struct Receipt {
     path: PathBuf,
     body: serde_json::Value,
+    pending: PendingRequestRecipient,
 }
 struct Listener {
     stop: Arc<Notify>,
@@ -77,12 +271,44 @@ impl SignalRegistration {
         owner: &'static str,
         cancel: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self, ModelError> {
-        Self::start(owner, cancel, true)
+        Self::start(owner, cancel, true, None)
     }
     /// CLI fence installed before synchronous capture/preparation. Actual native
     /// owners report their own receipts; this listener claims no native finality.
     pub fn process(cancel: impl Fn() + Send + Sync + 'static) -> Result<Self, ModelError> {
-        Self::start("CLI process signal fence", cancel, false)
+        Self::start("CLI process signal fence", cancel, false, None)
+    }
+    pub fn with_receipt(
+        owner: &'static str,
+        cancel: impl Fn() + Send + Sync + 'static,
+        binding: NativeReceiptBinding,
+    ) -> Result<Self, ModelError> {
+        Self::start(owner, cancel, true, Some(binding))
+    }
+    pub fn new_bound(
+        owner: &'static str,
+        cancel: impl Fn() + Send + Sync + 'static,
+        directory: PathBuf,
+        attachment: String,
+        generation: ContentHash,
+    ) -> Result<Self, ModelError> {
+        Self::with_receipt(
+            owner,
+            cancel,
+            NativeReceiptBinding {
+                directory,
+                attachment,
+                generation,
+            },
+        )
+    }
+    pub fn pending_recipient(&self) -> Result<PendingRequestRecipient, ModelError> {
+        self.receipt
+            .as_ref()
+            .map(|receipt| receipt.pending.clone())
+            .ok_or(ModelError::Conflict(
+                "native recovery requires an explicit receipt owner",
+            ))
     }
     pub fn process_stopped() -> bool {
         PROCESS_STOPPED.load(Ordering::Acquire)
@@ -91,6 +317,7 @@ impl SignalRegistration {
         owner: &'static str,
         cancel: impl Fn() + Send + Sync + 'static,
         record: bool,
+        binding: Option<NativeReceiptBinding>,
     ) -> Result<Self, ModelError> {
         let runtime = tokio::runtime::Handle::try_current().map_err(ModelError::codec)?;
         // Synchronous installation precedes the first native admission/query. Each
@@ -107,7 +334,11 @@ impl SignalRegistration {
         return Err(ModelError::Invalid(
             "native process signals require Unix".into(),
         ));
-        let receipt = if record { Receipt::begin(owner)? } else { None };
+        let receipt = if record {
+            Receipt::begin(owner, binding)?
+        } else {
+            None
+        };
         let cancel: Arc<Cancellation> = Arc::new(cancel);
         let stopped = {
             let mut registrations = CANCELLATIONS
@@ -161,6 +392,9 @@ impl SignalRegistration {
     /// Record actual owner finality after owned work, remote reconciliation and
     /// permitted cleanup; signals and process exit are separate observations.
     pub async fn complete(&self, completion: &Completion) -> Result<(), ModelError> {
+        if let Some(receipt) = &self.receipt {
+            receipt.pending.close_admission()?;
+        }
         self.completed
             .get_or_init(|| async {
                 self.listener.stop.notify_one();
@@ -202,25 +436,42 @@ impl Drop for SignalRegistration {
     }
 }
 impl Receipt {
-    fn begin(owner: &'static str) -> Result<Option<Self>, ModelError> {
-        let Some(directory) = std::env::var_os("LCTX_NATIVE_DRAIN_DIRECTORY") else {
-            return Ok(None);
+    fn begin(
+        owner: &'static str,
+        explicit: Option<NativeReceiptBinding>,
+    ) -> Result<Option<Self>, ModelError> {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        Self::begin_with_sequence(owner, explicit, &SEQUENCE)
+    }
+    fn begin_with_sequence(
+        owner: &'static str,
+        explicit: Option<NativeReceiptBinding>,
+        sequence: &AtomicU64,
+    ) -> Result<Option<Self>, ModelError> {
+        let (directory, attachment, generation) = if let Some(binding) = explicit {
+            (binding.directory, binding.attachment, binding.generation)
+        } else {
+            let Some(directory) = std::env::var_os("LCTX_NATIVE_DRAIN_DIRECTORY") else {
+                return Ok(None);
+            };
+            let attachment = std::env::var("LCTX_FIXTURE_ATTACHMENT").map_err(ModelError::codec)?;
+            let generation = std::env::var("LCTX_SURREAL_GENERATION").map_err(ModelError::codec)?;
+            let bytes: [u8; 32] = hex::decode(generation)
+                .map_err(ModelError::codec)?
+                .try_into()
+                .map_err(|_| ModelError::Conflict("native completion receipt generation"))?;
+            (PathBuf::from(directory), attachment, ContentHash(bytes))
         };
-        let directory = PathBuf::from(directory);
         if !directory.is_absolute()
             || directory.canonicalize().map_err(ModelError::codec)? != directory
             || !directory.is_dir()
         {
             return Err(ModelError::Conflict("native completion receipt directory"));
         }
-        let attachment = std::env::var("LCTX_FIXTURE_ATTACHMENT").map_err(ModelError::codec)?;
-        let generation = std::env::var("LCTX_SURREAL_GENERATION").map_err(ModelError::codec)?;
         if attachment.is_empty()
             || !attachment
                 .bytes()
                 .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
-            || generation.len() != 64
-            || !generation.bytes().all(|c| c.is_ascii_hexdigit())
         {
             return Err(ModelError::Conflict("native completion receipt binding"));
         }
@@ -232,15 +483,63 @@ impl Receipt {
             .ok_or(ModelError::Conflict("native process start identity"))?
             .parse::<u64>()
             .map_err(ModelError::codec)?;
-        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = directory.join(format!("{pid}-{start_ticks}-{sequence}.json"));
-        let body = serde_json::json!({"schema":1,"kind":"native-process-owner","owner":owner,
-            "attachment":attachment,"generation":generation,"process":{"pid":pid,"start_ticks":start_ticks},
-            "registration":sequence,"state":"started","signal":null,"completion":null});
-        let receipt = Self { path, body };
-        receipt.write(&receipt.body, false)?;
-        Ok(Some(receipt))
+        let boot_id = fs::read_to_string("/proc/sys/kernel/random/boot_id")
+            .map_err(ModelError::codec)?
+            .trim()
+            .to_owned();
+        #[cfg(unix)]
+        let pid_namespace = {
+            use std::os::unix::fs::MetadataExt;
+            fs::metadata("/proc/self/ns/pid")
+                .map_err(ModelError::codec)?
+                .ino()
+        };
+        #[cfg(not(unix))]
+        let pid_namespace = 0;
+        loop {
+            let registration = sequence
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                    value.checked_add(1)
+                })
+                .map_err(|_| ModelError::Conflict("native receipt registration exhausted"))?;
+            let path = directory.join(format!("{pid}-{start_ticks}-{registration}.json"));
+            let pending = PendingRequestRecipient {
+                directory: directory.with_extension("requests").join(
+                    path.file_stem()
+                        .ok_or(ModelError::Conflict("native owner receipt name"))?,
+                ),
+                generation,
+                host_owner: PendingRequestHostOwner {
+                    receipt: path.clone(),
+                    pid,
+                    start_ticks,
+                    boot_id: boot_id.clone(),
+                    pid_namespace,
+                },
+                attachment: Some(attachment.clone()),
+                admission: Arc::new(Mutex::new(false)),
+            };
+            let body = serde_json::json!({"schema":1,"kind":"native-process-owner","owner":owner,
+            "attachment":attachment,"generation":generation.hex(),"process":{"pid":pid,"start_ticks":start_ticks},
+            "registration":registration,"state":"started","signal":null,"completion":null,
+            "pending_requests":pending.directory,"host_boot_id":boot_id,"host_pid_namespace":pid_namespace});
+            let receipt = Self {
+                path,
+                body,
+                pending,
+            };
+            // A process may load independently linked copies of this crate, each
+            // with its own counter. The filesystem's create-new claim is the shared
+            // allocation authority. Only an unclaimed candidate name is retried;
+            // never replace/adopt an existing receipt or retry after publication.
+            let file = match Self::create(&receipt.path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(ModelError::codec(error)),
+            };
+            receipt.write_created(&receipt.body, file, false)?;
+            return Ok(Some(receipt));
+        }
     }
     fn finish(&self, completion: &Completion, signal: Option<&str>) -> Result<(), ModelError> {
         let mut body = self.body.clone();
@@ -264,6 +563,10 @@ impl Receipt {
         } else {
             self.path.clone()
         };
+        let file = Self::create(&path).map_err(ModelError::codec)?;
+        self.write_created(body, file, replace)
+    }
+    fn create(path: &Path) -> std::io::Result<fs::File> {
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -271,12 +574,20 @@ impl Receipt {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&path).map_err(ModelError::codec)?;
+        options.open(path)
+    }
+    fn write_created(
+        &self,
+        body: &serde_json::Value,
+        mut file: fs::File,
+        replace: bool,
+    ) -> Result<(), ModelError> {
         let bytes = serde_json::to_vec(body).map_err(ModelError::codec)?;
         file.write_all(&bytes).map_err(ModelError::codec)?;
         file.sync_all().map_err(ModelError::codec)?;
         if replace {
-            fs::rename(&path, &self.path).map_err(ModelError::codec)?;
+            fs::rename(self.path.with_extension("pending"), &self.path)
+                .map_err(ModelError::codec)?;
         }
         fs::File::open(
             self.path
@@ -295,6 +606,117 @@ mod tests {
         process::{Command, Stdio},
         time::{Duration, Instant},
     };
+
+    fn local_binding(directory: &Path) -> NativeReceiptBinding {
+        NativeReceiptBinding {
+            directory: directory.to_path_buf(),
+            attachment: "registration-control".into(),
+            generation: ContentHash::of(b"registration control"),
+        }
+    }
+
+    #[test]
+    fn independent_registration_allocators_claim_names_without_replacing_receipts() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = Receipt::begin_with_sequence(
+            "existing owner",
+            Some(local_binding(directory.path())),
+            &AtomicU64::new(0),
+        )
+        .unwrap()
+        .unwrap();
+        let original_bytes = fs::read(&original.path).unwrap();
+        // Model independently linked crate copies: each starts its own counter
+        // at zero, but both must claim the same authenticated process namespace.
+        let left = AtomicU64::new(0);
+        let right = AtomicU64::new(0);
+        let barrier = std::sync::Barrier::new(2);
+        let (first, second) = std::thread::scope(|threads| {
+            let first = threads.spawn(|| {
+                barrier.wait();
+                Receipt::begin_with_sequence(
+                    "first independent owner",
+                    Some(local_binding(directory.path())),
+                    &left,
+                )
+                .unwrap()
+                .unwrap()
+            });
+            let second = threads.spawn(|| {
+                barrier.wait();
+                Receipt::begin_with_sequence(
+                    "second independent owner",
+                    Some(local_binding(directory.path())),
+                    &right,
+                )
+                .unwrap()
+                .unwrap()
+            });
+            (first.join().unwrap(), second.join().unwrap())
+        });
+        assert_ne!(first.path, second.path);
+        assert_eq!(fs::read(&original.path).unwrap(), original_bytes);
+        let registrations = [&original, &first, &second].map(|receipt| {
+            let body: serde_json::Value =
+                serde_json::from_slice(&fs::read(&receipt.path).unwrap()).unwrap();
+            assert_eq!(body["process"], original.body["process"]);
+            assert_eq!(body["attachment"], original.body["attachment"]);
+            assert_eq!(body["generation"], original.body["generation"]);
+            assert_eq!(body["state"], "started");
+            let registration = body["registration"].as_u64().unwrap();
+            assert_eq!(
+                receipt.path.file_name().unwrap().to_str().unwrap(),
+                format!(
+                    "{}-{}-{registration}.json",
+                    body["process"]["pid"], body["process"]["start_ticks"]
+                )
+            );
+            registration
+        });
+        assert_eq!(
+            registrations
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            [0, 1, 2].into_iter().collect()
+        );
+    }
+
+    #[test]
+    fn finish_collision_is_not_registration_retry_or_completion() {
+        let directory = tempfile::tempdir().unwrap();
+        let receipt = Receipt::begin_with_sequence(
+            "finish collision owner",
+            Some(local_binding(directory.path())),
+            &AtomicU64::new(0),
+        )
+        .unwrap()
+        .unwrap();
+        let original = fs::read(&receipt.path).unwrap();
+        let pending = receipt.path.with_extension("pending");
+        fs::write(&pending, b"unresolved prior publication").unwrap();
+        assert!(receipt.finish(&Completion::default(), None).is_err());
+        assert_eq!(fs::read(&receipt.path).unwrap(), original);
+        assert_eq!(fs::read(&pending).unwrap(), b"unresolved prior publication");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn registration_exhaustion_refuses_without_wrapping_or_writing() {
+        let directory = tempfile::tempdir().unwrap();
+        let counter = AtomicU64::new(u64::MAX);
+        assert!(matches!(
+            Receipt::begin_with_sequence(
+                "exhausted owner",
+                Some(local_binding(directory.path())),
+                &counter
+            ),
+            Err(ModelError::Conflict(
+                "native receipt registration exhausted"
+            ))
+        ));
+        assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
 
     fn diagnostic_completion() -> Completion {
         use crate::control::{IssuanceEra, NativeAttemptError, NativeRequest, NativeRequestError};

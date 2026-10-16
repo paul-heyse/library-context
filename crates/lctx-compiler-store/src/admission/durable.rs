@@ -285,9 +285,21 @@ mod controls {
         let model = model(changed);
         let request = request(seed.spec, &model);
         let cfg = config();
-        let receiver = NativeCompilerStore::begin(&cfg, Frontier::Facts)
-            .await
-            .unwrap();
+        let receiver = NativeCompilerStore::begin(
+            &cfg,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &cfg,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = crate::compiler::check_installation(&cfg).await.unwrap();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let mut executed = None;
@@ -360,9 +372,21 @@ mod controls {
             outputs: [InputRevision::NAME.into()].into(),
         };
         let request = request(spec.clone(), &model);
-        let source = NativeCompilerStore::begin(&cfg, Frontier::Facts)
-            .await
-            .unwrap();
+        let source = NativeCompilerStore::begin(
+            &cfg,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &cfg,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = crate::compiler::check_installation(&cfg).await.unwrap();
         let directory = tempfile::tempdir().unwrap();
         let seed_path = directory.path().join("seed.json");

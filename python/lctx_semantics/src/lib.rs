@@ -150,6 +150,7 @@ fn wire_capability_resource(py: Python<'_>, raw: &str) -> PyResult<String> {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("NativeFailure", m.py().get_type::<NativeFailure>())?;
     m.add_class::<session::NativeSession>()?;
+    m.add_class::<session::NativeRecoveryOwner>()?;
     m.add_class::<session::NativeRequest>()?;
     m.add_function(wrap_pyfunction!(wire_capability_resource, m)?)?;
     m.add_function(wrap_pyfunction!(canonical_embedding_spec, m)?)?;

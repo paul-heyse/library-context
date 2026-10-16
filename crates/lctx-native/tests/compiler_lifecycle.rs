@@ -34,9 +34,21 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let specification = ContributionSpec {
         captured_binding: None,
@@ -137,9 +149,21 @@ async fn final_content_freeze_preserves_reads_and_reuses_complete_canonical_runs
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let spec = ContributionSpec {
         captured_binding: None,
@@ -239,9 +263,21 @@ async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     store
         .begin_contribution(ContributionSpec {
@@ -336,9 +372,21 @@ async fn acknowledged_setup_authentication_failure_has_a_failed_phase_terminal()
             .with_writer(move || writer.clone())
             .finish(),
     );
-    let result = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .with_subscriber(dispatch)
-        .await;
+    let result = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .with_subscriber(dispatch)
+    .await;
     assert!(result.is_err());
     let retained = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
     let lines = retained
@@ -360,9 +408,21 @@ async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_re
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let mut specification = ContributionSpec {
         captured_binding: None,

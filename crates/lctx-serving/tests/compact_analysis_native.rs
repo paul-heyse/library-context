@@ -267,9 +267,20 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         .transpose()
         .map_err(ModelError::codec)?;
     config.selection = scratch.path().join("unused-selection.json");
-    let native =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
-            .await?;
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+        &config,
+        Frontier::Catalog,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await?;
     let mut workspace_owner = None;
     let mut handle = None;
     let mut reader = None;
@@ -310,7 +321,7 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         let admitted=artifact::admit(&workspace,&captured,Frontier::Catalog,Profile::Catalog,settings).await?;
         if queries{eprintln!("native linked-analysis control: actual unselected publication");}
         handle=Some(lctx_publisher::seal_completed(&admitted,&config,&lctx_serving::native_definitions()).await?);
-        reader=Some(NativeReader::connect(&config.endpoint,&config.writer_credentials(),handle.as_ref().unwrap().clone()).await?);
+        reader=Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle.as_ref().unwrap().clone(), &reader_budget, &reader_factory).await }.await?);
         let current=reader.as_ref().unwrap();
         let inputs=current.records::<input::InputRevision>(RecordSelection::Keys(vec![*captured.inputs()[0].captured().revision().id().bytes()])).await?;
         require(inputs.len()==1,"publication must retain the actual captured input")?;

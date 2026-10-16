@@ -35,15 +35,54 @@ use uuid::Uuid;
 
 use crate::types::prost::Message;
 use crate::types::{
-	Action, Array, Notification, Object, SerializationError, ValidationError, Value, Variables,
+	Action, Array, Notification, Object, ValidationError, Value, Variables,
 };
 use crate::{Error, ExtraFeatures, SessionId};
 
 type EngineResult<T> = crate::Result<T>;
+mod ingress;
+mod buffered;
+use buffered::MAX_STATEMENTS;
+use ingress::{deserialization_error, kind_str};
+
+fn validate_query_byte_capability(supported: bool, bytes: u32) -> EngineResult<()> {
+	if bytes != 0 && !supported {
+		return Err(Error::configuration("The server does not advertise QUERY_BATCH_BYTES_V1; explicit query framing cannot be guaranteed".to_owned(), None));
+	}
+	Ok(())
+}
+
+enum AdmittedDelivery<'a> {
+    Stream(Sender<surrealdb_rpc::AdmittedQueryStreamEvent>),
+    Buffered(&'a mut buffered::BufferedResults),
+}
+impl AdmittedDelivery<'_> {
+    async fn send(&mut self, event: surrealdb_rpc::AdmittedQueryStreamEvent) -> Result<(), ()> {
+        match self {
+            Self::Stream(sender) => sender.send(event).await.map_err(|_| ()),
+            Self::Buffered(buffer) => { buffer.ingest(event); Ok(()) },
+        }
+    }
+}
+
+enum QueryDelivery {
+	Plain(Sender<QueryStreamItem>),
+	Admitted(Sender<surrealdb_rpc::AdmittedQueryStreamEvent>),
+}
+
+impl QueryDelivery {
+	async fn send(&self, item: QueryStreamItem) -> Result<(), ()> {
+		match self {
+			Self::Plain(sender) => sender.send(item).await.map_err(|_| ()),
+			Self::Admitted(sender) => sender.send(surrealdb_rpc::AdmittedQueryStreamEvent::Item(surrealdb_rpc::AdmittedQueryStreamItem::new(item, Vec::new()))).await.map_err(|_| ()),
+		}
+	}
+}
 
 /// An application end frame precedes the gRPC status and HTTP/2 terminal.
-/// Keep the physical stream until checked EOF, preserving late errors and
-/// refusing further payload rather than silently discarding it as trailers.
+/// Keep polling the receive stream through reported termination, preserving
+/// late errors and refusing further payload. Local decode/admission refusal
+/// can terminate tonic before physical body EOF and proves no remote finality.
 async fn drain_after_end<T>(
 	stream: &mut (impl futures::Stream<Item = Result<T, tonic::Status>> + Unpin),
 	late_frame_error: impl FnOnce(T) -> Error,
@@ -73,15 +112,9 @@ async fn drain_query_terminal(
 	mut failure: Option<Error>,
 ) -> EngineResult<()> {
 	use futures::StreamExt;
-	fn append(primary: Error, late: Error) -> Error {
-		match primary.cause().cloned() {
-			Some(cause) => primary.with_cause(append(cause, late)),
-			None => primary.with_cause(late),
-		}
-	}
 	while let Some(item) = stream.next().await {
 		let error = match item { Ok(frame) => late_query_frame(frame), Err(status) => status_to_error(status) };
-		failure = Some(match failure { Some(primary) => append(primary, error), None => error });
+		failure = Some(match failure { Some(primary) => primary.append_cause(error), None => error });
 	}
 	failure.map_or(Ok(()), Err)
 }
@@ -97,6 +130,22 @@ pub struct Grpcs;
 /// A gRPC client for communicating with the server over `SurrealDBService`.
 #[derive(Debug, Clone)]
 pub struct Client(());
+
+impl crate::Surreal<Client> {
+    /// Connect an already owned initialized client, matching the HTTP/WS route.
+    /// Sharing Inner here never clones an authenticated Surreal session.
+    pub fn connect<P>(
+        &self,
+        address: impl crate::opt::IntoEndpoint<P, Client = Client>,
+    ) -> crate::Connect<Client, ()> {
+        crate::Connect {
+            surreal: Arc::clone(&self.inner).into(),
+            address: address.into_endpoint(),
+            capacity: 0,
+            response_type: std::marker::PhantomData,
+        }
+    }
+}
 
 impl crate::Connection for Client {}
 impl crate::conn::Sealed for Client {
@@ -125,6 +174,16 @@ pub(crate) async fn connect_engine(
 	address: &crate::opt::Endpoint,
 	session_rx: async_channel::Receiver<SessionId>,
 ) -> crate::Result<(Arc<dyn SurrealEngine>, std::collections::HashSet<ExtraFeatures>)> {
+	let mut connection_reservations = Vec::new();
+	if let Some(owner) = &address.config.grpc.ingress_admission {
+		// Explicit SDK-owned layouts and endpoint text copies; underlying
+		// HTTP/2/TLS runtimes retain their independently owned workspace.
+		let bytes = std::mem::size_of::<GrpcEngine>()
+			+ std::mem::size_of::<rpc::GetCapabilitiesRequest>()
+			+ 4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>()
+			+ address.url.as_str().len().checked_mul(2).ok_or_else(|| Error::configuration("Endpoint workspace size overflow".to_owned(), None))?;
+		connection_reservations.push(owner.reserve(surrealdb_rpc::IngressStage::Connection, bytes)?);
+	}
 	// tonic speaks HTTP/2 and does not recognise the `grpc`/`grpcs` schemes
 	// this SDK exposes to callers.
 	//
@@ -186,7 +245,7 @@ pub(crate) async fn connect_engine(
 	})?;
 	// Advertise what this client can decode, which is what lets the server
 	// compress its responses -- the direction an export travels.
-	let mut client = SurrealDbServiceClient::new(channel)
+	let mut client = SurrealDbServiceClient::new(channel.clone())
 		.accept_compressed(CompressionEncoding::Zstd)
 		.accept_compressed(CompressionEncoding::Gzip);
 	// A caller's own limit governs the handshake as well. It is the first
@@ -197,7 +256,11 @@ pub(crate) async fn connect_engine(
 	if let Some(limit) = address.config.grpc.max_message_size {
 		client = client.max_decoding_message_size(limit).max_encoding_message_size(limit);
 	}
-	let capabilities = fetch_capabilities(&mut client).await?;
+	let capabilities = if let Some(owner) = &address.config.grpc.ingress_admission {
+		let response = fetch_admitted_capabilities(channel.clone(), address.config.grpc.max_message_size, owner.clone()).await?;
+		connection_reservations.extend(response.leases);
+		response.response.capabilities.ok_or_else(|| Error::internal("Server did not report its capabilities".to_owned()))?
+	} else { fetch_capabilities(&mut client).await? };
 	// The other direction has no negotiation of its own: a client compresses
 	// unconditionally, and a server that cannot decode the encoding rejects the
 	// call. The handshake says which codecs it can decode, so an upload can be
@@ -234,9 +297,14 @@ pub(crate) async fn connect_engine(
 	let features = extra_features(&capabilities);
 	let engine = Arc::new(GrpcEngine {
 		client,
+		channel,
+		max_response_size: max_response_size(configured, advertised),
+		_connection_reservations: connection_reservations,
+        connection_admission: address.config.grpc.ingress_admission.clone(),
 		compress_requests,
 		max_request_size,
 		server_version: capabilities.server_version,
+		query_batch_bytes: capabilities.capabilities.iter().any(|name| name == "QUERY_BATCH_BYTES_V1"),
 		sessions: SessionRegistry::default(),
 		query_timeout: address
 			.config
@@ -314,6 +382,25 @@ async fn fetch_capabilities(
 			crate::types::ConnectionError::ConnectionFailed,
 		)
 	})
+}
+
+async fn fetch_admitted_capabilities(
+	channel: Channel,
+	limit: Option<usize>,
+	owner: Arc<dyn surrealdb_rpc::IngressAdmission>,
+) -> EngineResult<ingress::CapabilitiesResponse> {
+	let mut client = tonic::client::Grpc::new(channel)
+		.accept_compressed(CompressionEncoding::Zstd).accept_compressed(CompressionEncoding::Gzip);
+	if let Some(limit) = limit { client = client.max_decoding_message_size(limit).max_encoding_message_size(limit); }
+	client.ready().await.map_err(|error| admitted_display_error("gRPC service unavailable: ", &error, owner.as_ref()))?;
+	let request = rpc::GetCapabilitiesRequest { context: None, client: Some(rpc::ClientInfo {
+		name: "surrealdb-rust".to_owned(), version: env!("CARGO_PKG_VERSION").to_owned(), platform: "rust".to_owned(), metadata: Vec::new(),
+	}) };
+	let path = tonic::codegen::http::uri::PathAndQuery::from_static("/surrealdb.protocol.rpc.v1.SurrealDBService/GetCapabilities");
+	let mut request = tonic::Request::new(request);
+    request.extensions_mut().insert(tonic::GrpcMethod::new("surrealdb.protocol.rpc.v1.SurrealDBService", "GetCapabilities"));
+    client.unary(request, path, ingress::CapabilitiesCodec(owner.clone())).await
+		.map(tonic::Response::into_inner).map_err(|status| connection_status_error(status, owner.as_ref()))
 }
 
 /// The handshake, keeping the `Status` so a caller can tell *why* it failed.
@@ -428,6 +515,17 @@ impl Replayable {
 struct GrpcSession {
 	server: Uuid,
 	replay: Mutex<Vec<Replayable>>,
+    ingress: Mutex<SessionIngress>,
+}
+
+// Fixed slots retain bootstrap outputs for qualified native callers. A new
+// auth/use action acknowledges the prior bare output was dropped or independently
+// admitted. External Tokens/Strings escaping that acknowledgment are outside this
+// retained-allocation contract; ordinary unconfigured SDK behavior is unchanged.
+#[derive(Debug, Default)]
+struct SessionIngress {
+    auth: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+    selection: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
 }
 
 impl GrpcSession {
@@ -435,6 +533,7 @@ impl GrpcSession {
 		Arc::new(Self {
 			server,
 			replay: Mutex::new(Vec::new()),
+            ingress: Mutex::new(SessionIngress::default()),
 		})
 	}
 
@@ -477,12 +576,18 @@ type SessionRegistry = surrealdb_engine_api::SessionRegistry<Arc<GrpcSession>, E
 
 struct GrpcEngine {
 	client: SurrealDbServiceClient<Channel>,
+	channel: Channel,
+	max_response_size: Option<usize>,
+	_connection_reservations: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+    connection_admission: Option<Arc<dyn surrealdb_rpc::IngressAdmission>>,
 	/// Whether the server accepted a compressed request during the handshake.
 	/// Only the uploads large enough to pay for it consult this.
 	compress_requests: bool,
 	/// Reported once at connect; `version` answers from it rather than
 	/// spending a round trip, as the protocol intends.
 	server_version: String,
+	/// Explicit support, never inferred from an absent capability list.
+	query_batch_bytes: bool,
 	sessions: SessionRegistry,
 	/// The largest request this client will send, which is the smaller of what
 	/// the server said it accepts and what the caller configured, paired with
@@ -511,6 +616,34 @@ impl GrpcEngine {
 	fn client(&self) -> SurrealDbServiceClient<Channel> {
 		self.client.clone()
 	}
+
+    async fn lifecycle_unary<Q, R>(&self, request: Q, path: &'static str) -> EngineResult<ingress::UnaryResponse<R>>
+    where Q: Message + Send + Sync + 'static, R: ingress::UnaryMessage {
+        let mut client = tonic::client::Grpc::new(self.channel.clone())
+            .accept_compressed(CompressionEncoding::Zstd).accept_compressed(CompressionEncoding::Gzip);
+        if let Some(limit) = self.max_response_size { client = client.max_decoding_message_size(limit); }
+        if let Some((limit, _)) = self.max_request_size { client = client.max_encoding_message_size(limit); }
+        client.ready().await.map_err(|error| match &self.connection_admission {
+            Some(owner) => admitted_display_error("gRPC service unavailable: ", &error, owner.as_ref()),
+            None => Error::internal(format!("gRPC service unavailable: {error}")),
+        })?;
+        let method = path.rsplit('/').next().expect("static RPC path");
+        let path = tonic::codegen::http::uri::PathAndQuery::from_static(path);
+        let mut request = tonic::Request::new(request);
+        request.extensions_mut().insert(tonic::GrpcMethod::new("surrealdb.protocol.rpc.v1.SurrealDBService", method));
+        let result = if let Some(owner) = &self.connection_admission {
+            client.unary(request, path, ingress::UnaryCodec::<Q, R>::new(owner.clone())).await.map(tonic::Response::into_inner)
+        } else {
+            client.unary(request, path, ingress::UnaryCodec::<Q, R>::unadmitted()).await.map(tonic::Response::into_inner)
+        };
+        result.map_err(|status| {
+            if let Some(owner) = &self.connection_admission {
+                let mut leases = Vec::new();
+                let error = admitted_status_error(status, owner.as_ref(), &mut leases);
+                ingress::retain_error(error, leases)
+            } else { status_to_error(status) }
+        })
+    }
 
 	/// Hands back `request` once it is known to encode within the size this
 	/// connection may send, refusing it with the limit and the setting that
@@ -580,7 +713,7 @@ impl GrpcEngine {
 	async fn establish_clone(&self, log: Vec<Replayable>) -> EngineResult<Arc<GrpcSession>> {
 		let session = GrpcSession::new(self.attach().await?);
 		for op in log {
-			self.apply(self.context(session.server, None), op.clone()).await?;
+			self.apply(self.context(session.server, None), op.clone(), &session).await?;
 			session.record(op);
 		}
 		Ok(session)
@@ -597,13 +730,13 @@ impl GrpcEngine {
 		self.sessions.entry(id).publish(established);
 	}
 
-	async fn apply(&self, context: rpc::RequestContext, op: Replayable) -> EngineResult<()> {
+	async fn apply(&self, context: rpc::RequestContext, op: Replayable, session: &GrpcSession) -> EngineResult<()> {
 		match op {
 			Replayable::Use {
 				namespace,
 				database,
 			} => {
-				self.use_ns_db_inner(context, namespace, database).await?;
+				self.use_ns_db_inner(context, namespace, database, &session).await?;
 			}
 			Replayable::Set {
 				key,
@@ -613,13 +746,13 @@ impl GrpcEngine {
 				key,
 			} => self.unset_inner(context, key).await?,
 			Replayable::Signin(credentials) => {
-				self.signin_inner(context, credentials).await?;
+				self.signin_inner(context, credentials, session).await?;
 			}
 			Replayable::Signup(credentials) => {
-				self.signup_inner(context, credentials).await?;
+				self.signup_inner(context, credentials, session).await?;
 			}
 			Replayable::Authenticate(token) => {
-				self.authenticate_inner(context, token).await?;
+				self.authenticate_inner(context, token, &session).await?;
 			}
 			Replayable::Invalidate => self.invalidate_inner(context).await?,
 		}
@@ -633,14 +766,9 @@ impl GrpcEngine {
 	/// or pre-created. The id it answers with is what every subsequent request
 	/// on this session carries.
 	async fn attach(&self) -> EngineResult<Uuid> {
-		let response = self
-			.client()
-			.attach_session(self.checked(rpc::AttachSessionRequest {
+		let ingress::UnaryResponse { response, leases: _leases } = self.lifecycle_unary::<_, rpc::AttachSessionResponse>(self.checked(rpc::AttachSessionRequest {
 				context: None,
-			})?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
+			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/AttachSession").await?;
 		response
 			.session
 			.ok_or_else(|| Error::internal("Server did not allocate a session".to_string()))?
@@ -649,12 +777,9 @@ impl GrpcEngine {
 	}
 
 	async fn detach(&self, session: Uuid) -> EngineResult<()> {
-		self.client()
-			.detach_session(self.checked(rpc::DetachSessionRequest {
+		self.lifecycle_unary::<_, rpc::DetachSessionResponse>(self.checked(rpc::DetachSessionRequest {
 				context: Some(self.context(session, None)),
-			})?)
-			.await
-			.map_err(status_to_error)?;
+			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/DetachSession").await?;
 		Ok(())
 	}
 
@@ -666,17 +791,14 @@ impl GrpcEngine {
 		context: rpc::RequestContext,
 		namespace: Option<String>,
 		database: Option<String>,
+        session: &GrpcSession,
 	) -> EngineResult<(Option<String>, Option<String>)> {
-		let response = self
-			.client()
-			.r#use(self.checked(rpc::UseRequest {
+		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::UseResponse>(self.checked(rpc::UseRequest {
 				context: Some(context),
 				namespace: namespace.map(nullable),
 				database: database.map(nullable),
-			})?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
+			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Use").await?;
+        session.ingress.lock().expect("session ingress poisoned").selection = leases;
 		// The protocol reports an empty string for "nothing selected".
 		let opt = |s: String| (!s.is_empty()).then_some(s);
 		Ok((opt(response.namespace), opt(response.database)))
@@ -693,18 +815,15 @@ impl GrpcEngine {
 			name: key,
 			value: Some(to_proto_value(value)?),
 		};
-		self.client().set_variable(self.checked(request)?).await.map_err(status_to_error)?;
+		self.lifecycle_unary::<_, rpc::SetVariableResponse>(self.checked(request)?, "/surrealdb.protocol.rpc.v1.SurrealDBService/SetVariable").await?;
 		Ok(())
 	}
 
 	async fn unset_inner(&self, context: rpc::RequestContext, key: String) -> EngineResult<()> {
-		self.client()
-			.unset_variable(self.checked(rpc::UnsetVariableRequest {
+		self.lifecycle_unary::<_, rpc::UnsetVariableResponse>(self.checked(rpc::UnsetVariableRequest {
 				context: Some(context),
 				name: key,
-			})?)
-			.await
-			.map_err(status_to_error)?;
+			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/UnsetVariable").await?;
 		Ok(())
 	}
 
@@ -712,17 +831,14 @@ impl GrpcEngine {
 		&self,
 		context: rpc::RequestContext,
 		credentials: Object,
+        session: &GrpcSession,
 	) -> EngineResult<Token> {
 		let request = rpc::SigninRequest {
 			context: Some(context),
 			access_method: Some(access_method(credentials)?),
 		};
-		let response = self
-			.client()
-			.signin(self.checked(request)?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
+		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::SigninResponse>(self.checked(request)?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Signin").await?;
+        session.ingress.lock().expect("session ingress poisoned").auth = leases;
 		tokens_to_token(response.tokens)
 	}
 
@@ -730,17 +846,14 @@ impl GrpcEngine {
 		&self,
 		context: rpc::RequestContext,
 		credentials: Object,
+        session: &GrpcSession,
 	) -> EngineResult<Token> {
 		let request = rpc::SignupRequest {
 			context: Some(context),
 			credentials: Some(record_credentials(credentials)?),
 		};
-		let response = self
-			.client()
-			.signup(self.checked(request)?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
+		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::SignupResponse>(self.checked(request)?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Signup").await?;
+        session.ingress.lock().expect("session ingress poisoned").auth = leases;
 		tokens_to_token(response.tokens)
 	}
 
@@ -748,6 +861,7 @@ impl GrpcEngine {
 		&self,
 		context: rpc::RequestContext,
 		token: Token,
+        session: &GrpcSession,
 	) -> EngineResult<Token> {
 		let access = match &token {
 			Token::Access(access) => access.clone(),
@@ -756,15 +870,11 @@ impl GrpcEngine {
 				..
 			} => access.clone(),
 		};
-		let response = self
-			.client()
-			.authenticate(self.checked(rpc::AuthenticateRequest {
+		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::AuthenticateResponse>(self.checked(rpc::AuthenticateRequest {
 				context: Some(context),
 				token: access,
-			})?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
+			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Authenticate").await?;
+        session.ingress.lock().expect("session ingress poisoned").auth = leases;
 		// A server may authenticate the session with a token other than the one
 		// presented, so what it reports wins. Only a server that reports none
 		// leaves the supplied token as the one in effect.
@@ -775,12 +885,9 @@ impl GrpcEngine {
 	}
 
 	async fn invalidate_inner(&self, context: rpc::RequestContext) -> EngineResult<()> {
-		self.client()
-			.invalidate(self.checked(rpc::InvalidateRequest {
+		self.lifecycle_unary::<_, rpc::InvalidateResponse>(self.checked(rpc::InvalidateRequest {
 				context: Some(context),
-			})?)
-			.await
-			.map_err(status_to_error)?;
+			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Invalidate").await?;
 		Ok(())
 	}
 
@@ -796,7 +903,12 @@ impl GrpcEngine {
 		query: String,
 		variables: Variables,
 		max_batch_records: u32,
+		max_batch_bytes: u32,
 	) -> EngineResult<tonic::Streaming<rpc::QueryResponse>> {
+		let max_batch_bytes = if max_batch_bytes == 0 { 0 } else {
+			self.max_response_size.map_or(max_batch_bytes, |limit| max_batch_bytes.min(limit.min(u32::MAX as usize) as u32))
+		};
+		validate_query_byte_capability(self.query_batch_bytes, max_batch_bytes)?;
 		let request = rpc::QueryRequest {
 			context: Some(context),
 			query,
@@ -805,8 +917,39 @@ impl GrpcEngine {
 			// engine can decode.
 			accepted_encodings: Vec::new(),
 			max_batch_records,
+			max_batch_bytes,
 		};
-		Ok(self.client().query(self.checked(request)?).await.map_err(status_to_error)?.into_inner())
+		let mut client = self.client();
+		Ok(client.query(self.checked(request)?).await.map_err(status_to_error)?.into_inner())
+	}
+
+	async fn open_admitted_query(
+		&self,
+		context: rpc::RequestContext,
+		query: String,
+		variables: Variables,
+		bytes: u32,
+		admission: Arc<dyn surrealdb_rpc::IngressAdmission>,
+	) -> EngineResult<tonic::Streaming<ingress::Response>> {
+		let bytes = if bytes == 0 { 0 } else {
+			self.max_response_size.map_or(bytes, |limit| bytes.min(limit.min(u32::MAX as usize) as u32))
+		};
+		validate_query_byte_capability(self.query_batch_bytes, bytes)?;
+		let request = self.checked(rpc::QueryRequest {
+			context: Some(context), query, variables: Some(to_proto_variables(variables)?),
+			accepted_encodings: Vec::new(), max_batch_records: 0, max_batch_bytes: bytes,
+		})?;
+		let mut client = tonic::client::Grpc::new(self.channel.clone())
+			.accept_compressed(CompressionEncoding::Zstd)
+			.accept_compressed(CompressionEncoding::Gzip);
+		if let Some(limit) = self.max_response_size { client = client.max_decoding_message_size(limit); }
+		if let Some((limit, _)) = self.max_request_size { client = client.max_encoding_message_size(limit); }
+		client.ready().await.map_err(|error| admitted_display_error("gRPC service unavailable: ", &error, admission.as_ref()))?;
+		let path = tonic::codegen::http::uri::PathAndQuery::from_static("/surrealdb.protocol.rpc.v1.SurrealDBService/Query");
+		let mut request = tonic::Request::new(request);
+        request.extensions_mut().insert(tonic::GrpcMethod::new("surrealdb.protocol.rpc.v1.SurrealDBService", "Query"));
+        client.server_streaming(request, path, ingress::QueryCodec(admission.clone(), (bytes != 0).then_some(bytes as usize)))
+			.await.map_err(|status| connection_status_error(status, admission.as_ref())).map(tonic::Response::into_inner)
 	}
 
 	/// Run a query and assemble one result per statement.
@@ -819,7 +962,7 @@ impl GrpcEngine {
 		query: String,
 		variables: Variables,
 	) -> EngineResult<Vec<QueryResult>> {
-		let mut stream = self.open_query(context, query, variables, 0).await?;
+		let mut stream = self.open_query(context, query, variables, 0, 0).await?;
 
 		// `None` marks an index that has produced no frame. `Begin` only sizes
 		// this: its `statement_count` counts statements the query PARSED into,
@@ -890,9 +1033,7 @@ impl GrpcEngine {
 }
 
 /// Reports a value that arrived in a shape this build cannot decode.
-fn deserialization_error(error: impl std::fmt::Display) -> Error {
-	Error::serialization(error.to_string(), SerializationError::Deserialization)
-}
+
 
 /// The most statements one query stream may report.
 ///
@@ -900,7 +1041,6 @@ fn deserialization_error(error: impl std::fmt::Display) -> Error {
 /// peer, and both size an allocation. A query is a `;`-separated script, so
 /// this is far above anything a caller can write while still refusing a count
 /// that would size an allocation by itself.
-const MAX_STATEMENTS: usize = 1 << 20;
 
 /// Grows the per-statement accumulators to `len`, refusing a length no query
 /// could legitimately produce.
@@ -930,9 +1070,10 @@ async fn stream_query(
 	query: String,
 	variables: Variables,
 	max_batch_records: u32,
-	items: Sender<QueryStreamItem>,
+	max_batch_bytes: u32,
+	items: QueryDelivery,
 ) -> EngineResult<()> {
-	let mut stream = engine.open_query(context, query, variables, max_batch_records).await?;
+	let mut stream = engine.open_query(context, query, variables, max_batch_records, max_batch_bytes).await?;
 	let mut ended = false;
 	let mut finished = 0usize;
 	use futures::StreamExt;
@@ -991,11 +1132,149 @@ async fn stream_query(
 }
 
 /// The items one batch frame carries.
+async fn stream_admitted_query(
+	engine: &GrpcEngine,
+	context: rpc::RequestContext,
+	query: String,
+	variables: Variables,
+	bytes: u32,
+	admission: Arc<dyn surrealdb_rpc::IngressAdmission>,
+	mut items: AdmittedDelivery<'_>,
+) -> EngineResult<()> {
+	use futures::StreamExt;
+	let terminal_lease = admission.reserve(surrealdb_rpc::IngressStage::ValueConversion,
+		std::mem::size_of::<Error>() + surrealdb_rpc::AdmittedQueryFailure::boxed_error_allocation_size()
+        + Error::resource_allocation_size() + 4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>() + 512)?;
+	let mut stream = engine.open_admitted_query(context, query, variables, bytes, admission.clone()).await?;
+	let mut finished = 0usize;
+	while let Some(response) = stream.next().await {
+		let response = match response {
+			Ok(response) => response,
+			Err(status) => {
+				let mut leases = vec![terminal_lease.clone()];
+				let error = admitted_status_error(status, admission.as_ref(), &mut leases);
+				return drain_admitted_terminal(&mut stream, Some(error), leases, admission.as_ref(), &mut items).await;
+			}
+		};
+		let ingress::Response { frame: response, mut leases } = response;
+		leases.push(terminal_lease.clone());
+		let mut batch = match response.frame {
+			Some(rpc::query_response::Frame::Begin(_)) => continue,
+			Some(rpc::query_response::Frame::End(end)) => {
+				let failure = (finished != end.result_count as usize).then(|| Error::internal("Query stream terminal count differs from End".to_owned()));
+				return drain_admitted_terminal(&mut stream, failure, leases, admission.as_ref(), &mut items).await;
+			}
+			Some(rpc::query_response::Frame::Batch(batch)) => batch,
+			Some(rpc::query_response::Frame::Error(error)) => {
+				let error = ingress::convert_error(error, admission.as_ref(), &mut leases).unwrap_or_else(|error| error);
+				return drain_admitted_terminal(&mut stream, Some(error), leases, admission.as_ref(), &mut items).await;
+			}
+			None => return drain_admitted_terminal(&mut stream, Some(Error::internal("Query stream carried an unrecognised frame".to_owned())), leases, admission.as_ref(), &mut items).await,
+		};
+		let converted = if let Some(error) = batch.error.take() {
+			ingress::convert_error(error, admission.as_ref(), &mut leases).map(|error| vec![QueryStreamItem::Finished {
+				index: batch.query_index as usize, time: batch_duration(batch.stats.as_ref()), query_type: statement_query_type(batch.statement_kind), error: Some(error),
+			}])
+		} else {
+			batch_items_with(batch, &mut |value| ingress::convert_value(value, admission.as_ref(), &mut leases))
+		};
+		let batch = match converted {
+			Ok(batch) => batch,
+			Err(error) => return drain_admitted_terminal(&mut stream, Some(error), leases, admission.as_ref(), &mut items).await,
+		};
+		for item in batch {
+			if matches!(item, QueryStreamItem::Finished { .. }) { finished += 1; }
+			if items.send(surrealdb_rpc::AdmittedQueryStreamEvent::Item(surrealdb_rpc::AdmittedQueryStreamItem::new(item, leases.clone()))).await.is_err() { return Ok(()); }
+		}
+	}
+	let failure = surrealdb_rpc::AdmittedQueryFailure::new(Error::connection("The query ended before it was complete".to_owned(), crate::types::ConnectionError::ConnectionFailed), vec![terminal_lease]);
+	let _ = items.send(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(failure)).await;
+	Ok(())
+}
+
+async fn drain_admitted_terminal(
+	stream: &mut tonic::Streaming<ingress::Response>,
+	mut failure: Option<Error>,
+	mut leases: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+	admission: &dyn surrealdb_rpc::IngressAdmission,
+	items: &mut AdmittedDelivery<'_>,
+) -> EngineResult<()> {
+	use futures::StreamExt;
+	while let Some(item) = stream.next().await {
+		let error = match item {
+			Ok(response) => {
+				leases.extend(response.leases);
+				match response.frame.frame {
+					Some(rpc::query_response::Frame::Error(error)) => ingress::convert_error(error, admission, &mut leases).unwrap_or_else(|error| error),
+					Some(rpc::query_response::Frame::Batch(batch)) if batch.error.is_some() => ingress::convert_error(batch.error.expect("guarded error"), admission, &mut leases).unwrap_or_else(|error| error),
+					_ => Error::internal("Query stream carried a frame after its end".to_owned()),
+				}
+			}
+			Err(status) => admitted_status_error(status, admission, &mut leases),
+		};
+		failure = Some(match failure { Some(primary) => primary.append_cause(error), None => error });
+	}
+	// Leases include all late typed frames until their errors reach the owner.
+	// A locally failed tonic decoder can report None before body EOF: this is
+	// receive-stream termination, not independent proof of remote finality.
+	// Error returns retain independent finalization ownership at the caller.
+	if let Some(error) = failure {
+		let _ = items.send(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(surrealdb_rpc::AdmittedQueryFailure::new(error, leases))).await;
+	}
+	Ok(())
+}
+
+fn admitted_display_error(prefix: &str, source: &impl std::fmt::Display, owner: &dyn surrealdb_rpc::IngressAdmission) -> Error {
+    struct Count(usize);
+    impl std::fmt::Write for Count {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            self.0 = self.0.checked_add(value.len()).ok_or(std::fmt::Error)?;
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    if std::fmt::write(&mut count, format_args!("{prefix}{source}")).is_err() {
+        return Error::internal("Transport diagnostic size overflow".to_owned());
+    }
+    let bytes = count.0.saturating_mul(2).saturating_add(8)
+        .saturating_add(std::mem::size_of::<Error>())
+        .saturating_add(Error::resource_allocation_size())
+        .saturating_add(4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>())
+        .saturating_add(std::mem::size_of::<Vec<Arc<dyn surrealdb_rpc::IngressReservation>>>())
+        .saturating_add(2 * std::mem::size_of::<usize>());
+    match owner.reserve(surrealdb_rpc::IngressStage::Connection, bytes) {
+        Ok(lease) => ingress::retain_error(Error::internal(format!("{prefix}{source}")), vec![lease]),
+        Err(error) => error,
+    }
+}
+fn connection_status_error(status: tonic::Status, owner: &dyn surrealdb_rpc::IngressAdmission) -> Error {
+    let mut leases = Vec::new();
+    let error = admitted_status_error(status, owner, &mut leases);
+    ingress::retain_error(error, leases)
+}
+
+fn admitted_status_error(status: tonic::Status, owner: &dyn surrealdb_rpc::IngressAdmission, leases: &mut Vec<Arc<dyn surrealdb_rpc::IngressReservation>>) -> Error {
+	let bytes = status.message().len().saturating_add(std::mem::size_of::<Error>())
+        .saturating_add(Error::resource_allocation_size())
+        .saturating_add(4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>())
+        .saturating_add(std::mem::size_of::<Vec<Arc<dyn surrealdb_rpc::IngressReservation>>>())
+        .saturating_add(2 * std::mem::size_of::<usize>());
+	match owner.reserve(surrealdb_rpc::IngressStage::ValueConversion, bytes) {
+		Ok(lease) => { leases.push(lease); status_to_error(status) },
+		Err(error) => error,
+	}
+}
+
+/// The items one batch frame carries.
 ///
 /// A terminal frame contributes its statement's `Finished` item as well as
 /// whatever rows it carries, in that order — rows first, so a consumer never
 /// sees a statement finish before the rows that belong to it.
 fn batch_items(batch: rpc::QueryBatchFrame) -> EngineResult<Vec<QueryStreamItem>> {
+	batch_items_with(batch, &mut |value| Value::try_from(value).map_err(deserialization_error))
+}
+
+fn batch_items_with(batch: rpc::QueryBatchFrame, convert: &mut dyn FnMut(proto::Value) -> EngineResult<Value>) -> EngineResult<Vec<QueryStreamItem>> {
 	let index = batch.query_index as usize;
 	let single = batch.kind == rpc::QueryResponseKind::Single as i32;
 	let terminal = single || batch.kind == rpc::QueryResponseKind::BatchedFinal as i32;
@@ -1017,7 +1296,7 @@ fn batch_items(batch: rpc::QueryBatchFrame) -> EngineResult<Vec<QueryStreamItem>
 		Some(rpc::query_batch_frame::Payload::Values(values)) => values
 			.values
 			.into_iter()
-			.map(|value| Value::try_from(value).map_err(deserialization_error))
+			.map(convert)
 			.collect::<EngineResult<Vec<Value>>>()?,
 		Some(rpc::query_batch_frame::Payload::Arrow(_)) => {
 			return Err(Error::internal(
@@ -1137,6 +1416,22 @@ impl SurrealEngine for GrpcEngine {
 		})
 	}
 
+    fn query_with_resources(
+        &self, ctx: EngineContext, query: std::borrow::Cow<'static, str>, variables: Variables,
+    ) -> EngineFuture<'_, surrealdb_rpc::AdmittedQueryResults> {
+        Box::pin(async move {
+            let Some(owner) = &self.connection_admission else {
+                return self.query(ctx, query, variables).await.map(surrealdb_rpc::AdmittedQueryResults::unadmitted);
+            };
+            let context = self.ready(ctx).await?;
+            let mut buffer = buffered::BufferedResults::new(owner.clone())?;
+            if let Err(error) = stream_admitted_query(self, context, query.into_owned(), variables, 0, owner.clone(), AdmittedDelivery::Buffered(&mut buffer)).await {
+                buffer.fail(error);
+            }
+            buffer.finish()
+        })
+    }
+
 	/// Unlike the default, this forwards results as the server produces them
 	/// rather than replaying them once the query has finished.
 	fn query_stream(
@@ -1154,7 +1449,29 @@ impl SurrealEngine for GrpcEngine {
 			// starts each statement small and ramps up to its own maximum --
 			// which is exactly the first-row-then-throughput shape a streaming
 			// caller wants.
-			stream_query(self, context, query.into_owned(), variables, 0, items).await
+			stream_query(self, context, query.into_owned(), variables, 0, 0, QueryDelivery::Plain(items)).await
+		})
+	}
+
+	fn query_stream_with_options(
+		&self,
+		ctx: EngineContext,
+		query: std::borrow::Cow<'static, str>,
+		variables: Variables,
+		options: surrealdb_rpc::QueryStreamOptions,
+		items: Sender<surrealdb_rpc::AdmittedQueryStreamEvent>,
+	) -> EngineFuture<'_, ()> {
+		Box::pin(async move {
+			// Encoded framing and decoded allocation admission are distinct.
+			// The admitted codec handles supported structural allocations;
+			// compiled regex additionally requires the caller's qualified hook.
+			let bytes = options.max_batch_bytes.map_or(0, std::num::NonZeroU32::get);
+			validate_query_byte_capability(self.query_batch_bytes, bytes)?;
+			let context = self.ready(ctx).await?;
+			if let Some(admission) = options.admission {
+				return stream_admitted_query(self, context, query.into_owned(), variables, bytes, admission, AdmittedDelivery::Stream(items)).await;
+			}
+			stream_query(self, context, query.into_owned(), variables, 0, bytes, QueryDelivery::Admitted(items)).await
 		})
 	}
 
@@ -1197,7 +1514,7 @@ impl SurrealEngine for GrpcEngine {
 		Box::pin(async move {
 			let (context, session) = self.ready_session(ctx).await?;
 			let selection =
-				self.use_ns_db_inner(context, namespace.clone(), database.clone()).await?;
+				self.use_ns_db_inner(context, namespace.clone(), database.clone(), &session).await?;
 			session.record(Replayable::Use {
 				namespace,
 				database,
@@ -1232,7 +1549,7 @@ impl SurrealEngine for GrpcEngine {
 	fn signup(&self, ctx: EngineContext, credentials: Object) -> EngineFuture<'_, Token> {
 		Box::pin(async move {
 			let (context, session) = self.ready_session(ctx).await?;
-			let token = self.signup_inner(context, credentials.clone()).await?;
+			let token = self.signup_inner(context, credentials.clone(), &session).await?;
 			session.record(Replayable::Signup(credentials));
 			Ok(token)
 		})
@@ -1241,7 +1558,7 @@ impl SurrealEngine for GrpcEngine {
 	fn signin(&self, ctx: EngineContext, credentials: Object) -> EngineFuture<'_, Token> {
 		Box::pin(async move {
 			let (context, session) = self.ready_session(ctx).await?;
-			let token = self.signin_inner(context, credentials.clone()).await?;
+			let token = self.signin_inner(context, credentials.clone(), &session).await?;
 			session.record(Replayable::Signin(credentials));
 			Ok(token)
 		})
@@ -1250,7 +1567,7 @@ impl SurrealEngine for GrpcEngine {
 	fn authenticate(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, Token> {
 		Box::pin(async move {
 			let (context, session) = self.ready_session(ctx).await?;
-			let token = self.authenticate_inner(context, token).await?;
+			let token = self.authenticate_inner(context, token, &session).await?;
 			session.record(Replayable::Authenticate(token.clone()));
 			Ok(token)
 		})
@@ -1258,7 +1575,7 @@ impl SurrealEngine for GrpcEngine {
 
 	fn refresh(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, Token> {
 		Box::pin(async move {
-			let context = self.ready(ctx).await?;
+			let (context, session) = self.ready_session(ctx).await?;
 			let Token::WithRefresh {
 				access,
 				refresh,
@@ -1272,16 +1589,12 @@ impl SurrealEngine for GrpcEngine {
 			// Both halves travel: the exchange reads the expired access token's
 			// claims to recover the namespace, database and access method the
 			// new pair is minted for.
-			let response = self
-				.client()
-				.refresh_tokens(self.checked(rpc::RefreshTokensRequest {
+			let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::RefreshTokensResponse>(self.checked(rpc::RefreshTokensRequest {
 					context: Some(context),
 					access,
 					refresh,
-				})?)
-				.await
-				.map_err(status_to_error)?
-				.into_inner();
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/RefreshTokens").await?;
+        session.ingress.lock().expect("session ingress poisoned").auth = leases;
 			tokens_to_token(response.tokens)
 		})
 	}
@@ -1296,14 +1609,11 @@ impl SurrealEngine for GrpcEngine {
 					refresh,
 				} => (access, refresh),
 			};
-			self.client()
-				.revoke_tokens(self.checked(rpc::RevokeTokensRequest {
+			self.lifecycle_unary::<_, rpc::RevokeTokensResponse>(self.checked(rpc::RevokeTokensRequest {
 					context: Some(context),
 					access,
 					refresh,
-				})?)
-				.await
-				.map_err(status_to_error)?;
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/RevokeTokens").await?;
 			Ok(())
 		})
 	}
@@ -1320,14 +1630,9 @@ impl SurrealEngine for GrpcEngine {
 	fn begin(&self, ctx: EngineContext) -> EngineFuture<'_, Uuid> {
 		Box::pin(async move {
 			let context = self.ready(ctx).await?;
-			let response = self
-				.client()
-				.begin_transaction(self.checked(rpc::BeginTransactionRequest {
+			let ingress::UnaryResponse { response, leases: _leases } = self.lifecycle_unary::<_, rpc::BeginTransactionResponse>(self.checked(rpc::BeginTransactionRequest {
 					context: Some(context),
-				})?)
-				.await
-				.map_err(status_to_error)?
-				.into_inner();
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/BeginTransaction").await?;
 			response
 				.transaction
 				.ok_or_else(|| {
@@ -1344,12 +1649,9 @@ impl SurrealEngine for GrpcEngine {
 			// by a parameter, so it is threaded in here.
 			let context =
 				self.ready(EngineContext::with_transaction(ctx.session, Some(txn))).await?;
-			self.client()
-				.commit_transaction(self.checked(rpc::CommitTransactionRequest {
+			self.lifecycle_unary::<_, rpc::CommitTransactionResponse>(self.checked(rpc::CommitTransactionRequest {
 					context: Some(context),
-				})?)
-				.await
-				.map_err(status_to_error)?;
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/CommitTransaction").await?;
 			Ok(())
 		})
 	}
@@ -1360,12 +1662,9 @@ impl SurrealEngine for GrpcEngine {
 			// by a parameter, so it is threaded in here.
 			let context =
 				self.ready(EngineContext::with_transaction(ctx.session, Some(txn))).await?;
-			self.client()
-				.cancel_transaction(self.checked(rpc::CancelTransactionRequest {
+			self.lifecycle_unary::<_, rpc::CancelTransactionResponse>(self.checked(rpc::CancelTransactionRequest {
 					context: Some(context),
-				})?)
-				.await
-				.map_err(status_to_error)?;
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/CancelTransaction").await?;
 			Ok(())
 		})
 	}
@@ -1373,12 +1672,9 @@ impl SurrealEngine for GrpcEngine {
 	fn health(&self, ctx: EngineContext) -> EngineFuture<'_, ()> {
 		Box::pin(async move {
 			let context = self.ready(ctx).await?;
-			self.client()
-				.health(self.checked(rpc::HealthRequest {
+			self.lifecycle_unary::<_, rpc::HealthResponse>(self.checked(rpc::HealthRequest {
 					context: Some(context),
-				})?)
-				.await
-				.map_err(status_to_error)?;
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Health").await?;
 			Ok(())
 		})
 	}
@@ -1390,13 +1686,10 @@ impl SurrealEngine for GrpcEngine {
 	fn kill(&self, ctx: EngineContext, uuid: Uuid) -> EngineFuture<'_, ()> {
 		Box::pin(async move {
 			let context = self.ready(ctx).await?;
-			self.client()
-				.kill(self.checked(rpc::KillRequest {
+			self.lifecycle_unary::<_, rpc::KillResponse>(self.checked(rpc::KillRequest {
 					context: Some(context),
 					live_query_id: Some(proto::Uuid::from_uuid(uuid)),
-				})?)
-				.await
-				.map_err(status_to_error)?;
+				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Kill").await?;
 			Ok(())
 		})
 	}
@@ -2331,22 +2624,7 @@ fn check_message_size<M: Message>(
 /// than a mapping that can lose anything. `Unspecified` cannot reach here --
 /// `kind_or_internal` has already degraded it -- and is spelled with `Internal`
 /// because that is the behaviour both ends assign it.
-fn kind_str(kind: proto::ErrorKind) -> &'static str {
-	use proto::ErrorKind;
-	match kind {
-		ErrorKind::Validation => "Validation",
-		ErrorKind::Configuration => "Configuration",
-		ErrorKind::Query => "Query",
-		ErrorKind::Serialization => "Serialization",
-		ErrorKind::NotAllowed => "NotAllowed",
-		ErrorKind::NotFound => "NotFound",
-		ErrorKind::AlreadyExists => "AlreadyExists",
-		ErrorKind::Connection => "Connection",
-		ErrorKind::Thrown => "Thrown",
-		ErrorKind::Context => "Context",
-		ErrorKind::Internal | ErrorKind::Unspecified => "Internal",
-	}
-}
+
 
 /// Rebuilds the value a typed detail deserializes from.
 ///
@@ -2746,6 +3024,7 @@ mod tests {
 			variables: None,
 			accepted_encodings: Vec::new(),
 			max_batch_records: 0,
+			max_batch_bytes: 0,
 		};
 		let error = check_message_size(Some((64, LimitSource::Server)), &request)
 			.expect_err("above the limit");

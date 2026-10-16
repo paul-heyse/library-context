@@ -1,0 +1,25 @@
+diff --git a/gen/rust/proto/surrealdb/protocol/rpc/v1/surrealdb.protocol.rpc.v1.rs b/gen/rust/proto/surrealdb/protocol/rpc/v1/surrealdb.protocol.rpc.v1.rs
+index 06882d4..95c4e5e 100644
+--- a/gen/rust/proto/surrealdb/protocol/rpc/v1/surrealdb.protocol.rpc.v1.rs
++++ b/gen/rust/proto/surrealdb/protocol/rpc/v1/surrealdb.protocol.rpc.v1.rs
+@@ -1021,6 +1021,13 @@ pub struct QueryRequest {
+     /// that asks for more than the server allows still gets results.
+     #[prost(uint32, tag = "5")]
+     pub max_batch_records: u32,
++    /// Maximum complete uncompressed encoded QueryResponse bytes, including
++    /// control/error/terminal frames. Zero retains the server's default.
++    /// Requires the QUERY_BATCH_BYTES_V1 server capability. A single wider
++    /// value is refused rather than split into a different semantic value.
++    #[prost(uint32, tag = "6")]
++    #[serde(default)]
++    pub max_batch_bytes: u32,
+ }
+ impl ::prost::Name for QueryRequest {
+ const NAME: &'static str = "QueryRequest";
+@@ -2369,4 +2376,4 @@ impl ExportCompression {
+     }
+ }
+ include!("surrealdb.protocol.rpc.v1.tonic.rs");
+-// @@protoc_insertion_point(module)
+\ No newline at end of file
++// @@protoc_insertion_point(module)

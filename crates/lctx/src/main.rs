@@ -234,6 +234,15 @@ enum StoreCommand {
     },
     /// Claim distinct maintenance successors for exact interrupted obligations.
     Recover {
+        /// Exact pending-request envelope of an authenticated, no-longer-live host owner.
+        #[arg(long)]
+        request: Vec<PathBuf>,
+        /// Exact compiler source finalization marker after authenticated host loss.
+        #[arg(long)]
+        source: Vec<PathBuf>,
+        /// Exact reader-pin finalization marker after authenticated host loss.
+        #[arg(long)]
+        pin_source: Vec<PathBuf>,
         #[arg(long, value_parser=content_hash)]
         cleanup: Vec<lctx_model::domain::ContentHash>,
         #[arg(long, value_parser=content_hash)]
@@ -500,9 +509,11 @@ fn flow_file(
         .map(PathBuf::from)
         .unwrap_or_else(crate::newnative::default_config);
     let native_config = crate::newnative::config(&native_path)?;
+    let factory = lctx_compiler_store::compiler::recovery_factory(&native_config, budget.clone())?;
     let native = runtime.block_on(lctx_compiler_store::compiler::NativeCompilerStore::begin(
         &native_config,
         lctx_model::domain::admission::Frontier::Facts,
+        &factory,
     ))?;
     let (model, workspace) = match runtime.block_on(cpg_core::facts::inspect(
         captured,
@@ -984,51 +995,52 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                 StoreCommand::Schema => unreachable!("metadata command returned above"),
                 StoreCommand::History { command } => {
                     let receipt = runtime.block_on(async {
-                        use lctx_model::domain::{
-                            ModelError,
-                            completion::{Completion, complete},
-                        };
-                        let client = lctx_native::maintenance::maintenance_client(&config).await?;
-                        let result = async {
-                            match command {
-                                HistoryCommand::Qualify { evidence } => {
-                                    lctx_native::control::qualify_history_inventory(
-                                        &client, evidence,
+                        use lctx_model::domain::ModelError;
+                        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                        )?;
+                        let owner =
+                            lctx_native::maintenance::MaintenanceOwner::connect(&config, &budget)
+                                .await?;
+                        let client = owner.client().clone();
+                        let result =
+                            lctx_native::control::with_recovery_scope(owner.scope(), async {
+                                owner.require_drained_maintenance().await?;
+                                match command {
+                                    HistoryCommand::Qualify { evidence } => {
+                                        lctx_native::control::qualify_history_inventory(
+                                            &client, evidence,
+                                        )
+                                        .await?;
+                                        Ok(serde_json::json!({"inventory":evidence.hex()}))
+                                    }
+                                    HistoryCommand::Cut => serde_json::to_value(
+                                        lctx_native::control::cut_era(&client).await?,
                                     )
-                                    .await?;
-                                    Ok(serde_json::json!({"inventory":evidence.hex()}))
-                                }
-                                HistoryCommand::Cut => serde_json::to_value(
-                                    lctx_native::control::cut_era(&client).await?,
-                                )
-                                .map_err(ModelError::codec),
-                                HistoryCommand::Compact { limit } => serde_json::to_value(
-                                    lctx_native::control::compact_history(&client, limit).await?,
-                                )
-                                .map_err(ModelError::codec),
-                                HistoryCommand::Resume {
-                                    identity,
-                                    expected_revision,
-                                    limit,
-                                } => serde_json::to_value(
-                                    lctx_native::control::resume_history_compaction(
-                                        &client,
+                                    .map_err(ModelError::codec),
+                                    HistoryCommand::Compact { limit } => serde_json::to_value(
+                                        lctx_native::control::compact_history(&client, limit)
+                                            .await?,
+                                    )
+                                    .map_err(ModelError::codec),
+                                    HistoryCommand::Resume {
                                         identity,
                                         expected_revision,
                                         limit,
+                                    } => serde_json::to_value(
+                                        lctx_native::control::resume_history_compaction(
+                                            &client,
+                                            identity,
+                                            expected_revision,
+                                            limit,
+                                        )
+                                        .await?,
                                     )
-                                    .await?,
-                                )
-                                .map_err(ModelError::codec),
-                            }
-                        }
-                        .await;
-                        let mut completion = Completion::default();
-                        completion.step(
-                            "history maintenance session invalidation",
-                            client.invalidate().await.map_err(ModelError::codec),
-                        );
-                        complete(result, completion)
+                                    .map_err(ModelError::codec),
+                                }
+                            })
+                            .await;
+                        owner.finish(result).await
                     })?;
                     println!(
                         "{}",
@@ -1039,16 +1051,43 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                     return Ok(());
                 }
                 StoreCommand::Recover {
+                    request,
+                    source,
+                    pin_source,
                     cleanup,
                     retirement,
                     limit,
                 } => {
                     let receipts = runtime.block_on(async {
-                        use lctx_model::domain::{ModelError, completion::{Completion, complete}};
-                        anyhow::ensure!(!cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
-                        let client = lctx_native::maintenance::maintenance_client(&config).await?;
-                        let result = async {
-                            let mut receipts=Vec::new();
+                        use lctx_model::domain::ModelError;
+                        anyhow::ensure!(!request.is_empty() || !source.is_empty() || !pin_source.is_empty() || !cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
+                        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                        )?;
+                        let mut receipts = Vec::new();
+                        for path in request {
+                            let receipt = lctx_native::control::recover_pending_request_file(&config, &path, &budget).await?;
+                            let receipt = serde_json::to_value(receipt).map_err(ModelError::codec)?;
+                            println!("{}", serde_json::json!({"request_settlement":receipt}));
+                            receipts.push(receipt);
+                        }
+                        for path in source {
+                            let receipt = lctx_native::control::recover_source_finalization_file(&config, &path, &budget).await?;
+                            let receipt = serde_json::to_value(receipt).map_err(ModelError::codec)?;
+                            println!("{}", serde_json::json!({"source_settlement":receipt}));
+                            receipts.push(receipt);
+                        }
+                        for path in pin_source {
+                            let receipt = lctx_native::control::recover_pin_finalization_file(&config, &path, &budget).await?;
+                            let receipt = serde_json::to_value(receipt).map_err(ModelError::codec)?;
+                            println!("{}", serde_json::json!({"pin_settlement":receipt}));
+                            receipts.push(receipt);
+                        }
+                        if cleanup.is_empty() && retirement.is_empty() { return Ok::<_, anyhow::Error>(receipts); }
+                        let owner = lctx_native::maintenance::MaintenanceOwner::connect(&config, &budget).await?;
+                        let client = owner.client().clone();
+                        let result = lctx_native::control::with_recovery_scope(owner.scope(), async {
+                            owner.require_drained_maintenance().await?;
                             for predecessor in cleanup {
                                 let successor=lctx_native::control::recover_cleanup(&client, predecessor).await?;
                                 // Emit the durable identity before continuing: a later error cannot hide it.
@@ -1062,10 +1101,8 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                                 receipts.push(serde_json::to_value(lctx_native::control::resume_retirement(&client,successor,limit).await?).map_err(ModelError::codec)?);
                             }
                             Ok::<_, ModelError>(receipts)
-                        }.await;
-                        let mut completion = Completion::default();
-                        completion.step("recovery maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
-                        Ok::<_, anyhow::Error>(complete(result,completion)?)
+                        }).await;
+                        Ok::<_, anyhow::Error>(owner.finish(result).await?)
                     })?;
                     println!("{}", serde_json::json!({"ready":false,"receipts":receipts}));
                     return Ok(());
@@ -1410,9 +1447,12 @@ mod tests {
             std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler fixture"),
         );
         let config = lctx_native::RuntimeConfig::read(&path).unwrap();
+        let factory =
+            lctx_compiler_store::compiler::recovery_factory(&config, budget.clone()).unwrap();
         let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
+            &factory,
         )
         .await
         .unwrap();

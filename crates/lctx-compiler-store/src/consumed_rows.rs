@@ -2176,9 +2176,21 @@ mod nominal_closure_controls {
         use lctx_model::domain::{
             admission::Frontier, completed::ContributionSpec, stages::Profile,
         };
-        let native = crate::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
-            .await
-            .unwrap();
+        let native = crate::compiler::NativeCompilerStore::begin(
+            config,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let model = Arc::new(lctx_model::domain::model().unwrap());
         let relations = vec![Relation::of::<Package>(), Relation::of::<Release>()];

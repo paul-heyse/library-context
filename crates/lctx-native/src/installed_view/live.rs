@@ -185,29 +185,30 @@ impl HeldInstalledView {
         let keys = keys.to_vec();
         // The native driver owns the cap, reader, requested keys and reservations until
         // every accepted response is terminal, even when its caller drops delivery.
-        let mut stream = crate::reader::NativeRows::owned(move |sender| async move {
-            let _setup = setup;
-            let mut lifetime = InstalledMemberLifetime {
-                owner: owner.clone(),
-                confirmed: false,
-            };
-            let result = owner.members_inner(&reader, &keys, &driver_budget).await;
-            lifetime.confirmed = result
-                .as_ref()
-                .err()
-                .is_none_or(ModelError::permits_storage_cleanup);
-            let selected = result?;
-            for member in selected.rows() {
-                let mut value = Object::new();
-                value.insert("semantic_key", hex::encode(member.key));
-                value.insert("node", member.node.clone());
-                value.insert("content", member.content.hex());
-                if sender.send(Value::Object(value)).await.is_err() {
-                    break;
+        let mut stream =
+            crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
+                let _setup = setup;
+                let mut lifetime = InstalledMemberLifetime {
+                    owner: owner.clone(),
+                    confirmed: false,
+                };
+                let result = owner.members_inner(&reader, &keys, &driver_budget).await;
+                lifetime.confirmed = result
+                    .as_ref()
+                    .err()
+                    .is_none_or(ModelError::permits_storage_cleanup);
+                let selected = result?;
+                for member in selected.rows() {
+                    let mut value = Object::new();
+                    value.insert("semantic_key", hex::encode(member.key));
+                    value.insert("node", member.node.clone());
+                    value.insert("content", member.content.hex());
+                    if !sender.send(Value::Object(value)).await? {
+                        break;
+                    }
                 }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            })?;
         let result = async {
             let mut charge = StateCharge::new(budget, "delivered compact installed members");
             let mut rows = Vec::new();

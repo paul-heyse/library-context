@@ -1,10 +1,10 @@
 //! Mechanical native request preparation. Callers own eligibility, order and residual policy.
+#[cfg(test)]
 use futures::{Stream, StreamExt};
 use lctx_model::domain::ModelError;
-use surrealdb::{
-    method::StreamItem,
-    types::{ToSql, Value, Variables},
-};
+#[cfg(test)]
+use surrealdb::method::StreamItem;
+use surrealdb::types::{ToSql, Value, Variables};
 pub fn check_read_cancellation(
     flag: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<(), ModelError> {
@@ -83,6 +83,7 @@ impl PreparedQuery {
     pub fn stream(
         self,
         client: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+        budget: &lctx_model::domain::resources::ResourceBudget,
     ) -> Result<crate::reader::NativeRows, ModelError> {
         let Self {
             sql,
@@ -96,10 +97,10 @@ impl PreparedQuery {
         let stream = client
             .query(sql)
             .bind(bindings)
-            .stream_items()
+            .stream_batches_with_options(crate::reader::ingress::options(budget)?)
             .map_err(crate::reader::sdk_error)?;
         Ok(
-            crate::reader::NativeRows::new(selected_rows(stream, results, terminals), terminals)?
+            crate::reader::NativeRows::new_admitted(stream, terminals, results)?
                 .with_client(client.clone()),
         )
     }
@@ -107,9 +108,10 @@ impl PreparedQuery {
         self,
         client: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
         flag: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        budget: &lctx_model::domain::resources::ResourceBudget,
     ) -> Result<crate::reader::NativeRows, ModelError> {
         check_read_cancellation(flag)?;
-        self.stream(client)
+        self.stream(client, budget)
     }
     /// The caller owns explicit cancellation of this external transaction after checked EOF.
     pub fn stream_transaction(
@@ -117,19 +119,26 @@ impl PreparedQuery {
         transaction: &std::sync::Arc<
             surrealdb::method::Transaction<surrealdb::engine::remote::grpc::Client>,
         >,
+        budget: &lctx_model::domain::resources::ResourceBudget,
     ) -> Result<crate::reader::NativeRows, ModelError> {
         let terminals = self.expected_terminals();
-        let (sql, bindings) = self.clone().into_request();
+        let Self {
+            sql,
+            bindings,
+            results,
+            ..
+        } = self;
         let stream = transaction
             .query(sql)
             .bind(bindings)
-            .stream_items()
+            .stream_batches_with_options(crate::reader::ingress::options(budget)?)
             .map_err(crate::reader::sdk_error)?;
         Ok(
-            crate::reader::NativeRows::new(self.select_rows(stream), terminals)?
+            crate::reader::NativeRows::new_admitted(stream, terminals, results)?
                 .with_transaction(transaction.clone()),
         )
     }
+    #[cfg(test)]
     pub fn select_rows(
         &self,
         stream: impl Stream<Item = surrealdb::Result<StreamItem>> + Send + 'static,
@@ -137,6 +146,7 @@ impl PreparedQuery {
         selected_rows(stream, self.results.clone(), self.terminals)
     }
 }
+#[cfg(test)]
 fn selected_rows(
     stream: impl Stream<Item = surrealdb::Result<StreamItem>> + Send + 'static,
     results: Vec<usize>,

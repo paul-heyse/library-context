@@ -885,9 +885,21 @@ mod controls {
                 .expect("explicitly owned native control campaign"),
         ))
         .unwrap();
-        let native = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let native = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let cancellation = Cancellation::default();
         let calls = Arc::new(crate::native_calls::NativeCalls::new(
@@ -1074,9 +1086,21 @@ mod controls {
                 .expect("explicitly owned native control campaign"),
         ))
         .unwrap();
-        let native = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let native = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let cancellation = Cancellation::default();
         let calls = Arc::new(crate::native_calls::NativeCalls::new(

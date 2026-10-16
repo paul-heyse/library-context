@@ -32,57 +32,75 @@ pub struct NativeProductCache {
     partition: String,
 }
 struct CacheSession {
-    session: lctx_native::reader::SessionFinalizationGuard,
-    signals: lctx_native::signal::SignalRegistration,
+    lease: lctx_native::control::FactoryLease,
     retry: crate::control::RetryCancellation,
     uncertain: AtomicBool,
 }
 impl CacheSession {
     async fn open(
         runtime: &RuntimeConfig,
+        factory: &Arc<lctx_native::control::RecoveryFactoryOwner>,
     ) -> Result<(Arc<Surreal<Client>>, Arc<Self>), ModelError> {
-        let retry = crate::control::RetryCancellation::default();
-        let signals = lctx_native::signal::SignalRegistration::retry(
-            "native product cache session",
-            retry.clone(),
-        )?;
-        let checked = crate::control::with_retry_cancellation(
-            retry.clone(),
-            crate::compiler::check_installation(runtime),
+        if factory.binding().generation != runtime.service_generation {
+            return Err(ModelError::Conflict(
+                "product cache factory generation differs",
+            ));
+        }
+        let (client, lease) = lctx_native::reader::connect_owned(
+            &runtime.endpoint,
+            &runtime.writer_credentials(),
+            runtime.namespace.as_str(),
+            runtime.database.as_str(),
+            factory,
         )
-        .await;
-        let client = match checked {
-            Ok(client) => client,
-            Err(error) => {
-                if !error.permits_storage_cleanup() {
-                    return Err(error);
-                }
-                let mut terminal = lctx_model::domain::completion::Completion::default();
-                terminal.step(
-                    "product cache failed setup receipt",
-                    signals
-                        .complete(&lctx_model::domain::completion::Completion::default())
-                        .await,
-                );
-                return lctx_model::domain::completion::complete(Err(error), terminal);
-            }
-        };
+        .await?;
+        let retry = lease.recovery_scope().cancellation().clone();
         let owner = Arc::new(Self {
-            session: lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
-            signals,
+            lease,
             retry,
             uncertain: AtomicBool::new(false),
         });
+        let checked = owner
+            .run(lctx_native::control::check_installation(
+                &client,
+                runtime.service_generation,
+            ))
+            .await;
+        if let Err(error) = checked {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            if error.permits_storage_cleanup() {
+                completion.step("product cache failed setup session", owner.close().await);
+            } else {
+                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+            }
+            return lctx_model::domain::completion::complete(Err(error), completion)
+                .map_err(|error| factory.handback(error));
+        }
         Ok((client, owner))
     }
     async fn run<T>(
         &self,
         work: impl std::future::Future<Output = Result<T, ModelError>>,
     ) -> Result<T, ModelError> {
-        let mut operation = CacheOperation::new(self)?;
-        let result = crate::control::with_retry_cancellation(self.retry.clone(), work).await;
+        let mut operation = CacheOperation::new(self).map_err(|error| {
+            if error.permits_storage_cleanup() {
+                error
+            } else {
+                self.lease.factory().handback(error)
+            }
+        })?;
+        let result =
+            lctx_native::control::with_recovery_scope(self.lease.recovery_scope().clone(), work)
+                .await;
         operation.finish(&result);
-        result
+        result.map_err(|error| {
+            if error.permits_storage_cleanup() {
+                error
+            } else {
+                self.lease.factory().handback(error)
+            }
+        })
     }
     fn observe(&self, error: &ModelError) {
         if !error.permits_storage_cleanup() {
@@ -91,15 +109,12 @@ impl CacheSession {
     }
     async fn close(&self) -> Result<(), ModelError> {
         if self.uncertain.load(Ordering::Acquire) {
-            return Err(cache_unfinished(
+            return Err(self.lease.factory().handback(cache_unfinished(
                 "product cache has an unconfirmed operation",
                 true,
-            ));
+            )));
         }
-        self.session.close().await?;
-        self.signals
-            .complete(&lctx_model::domain::completion::Completion::default())
-            .await
+        self.lease.complete().await
     }
 }
 fn cache_unfinished(message: &'static str, unknown: bool) -> ModelError {
@@ -428,13 +443,16 @@ fn encoded_size(value: &PortableProduct) -> Result<usize, ModelError> {
 }
 impl NativeProductCache {
     /// Installer-only physical schema. Logical cache partitions share these stable tables.
-    pub async fn install(runtime: &RuntimeConfig) -> Result<Option<Self>, ModelError> {
+    pub async fn install(
+        runtime: &RuntimeConfig,
+        factory: &Arc<lctx_native::control::RecoveryFactoryOwner>,
+    ) -> Result<Option<Self>, ModelError> {
         if !matches!(runtime.authentication, crate::AuthenticationScope::Root) {
             return Err(ModelError::Invalid(
                 "product schema installation requires maintenance authority".into(),
             ));
         }
-        let (client, session) = CacheSession::open(runtime).await?;
+        let (client, session) = CacheSession::open(runtime, factory).await?;
         let installed = session
             .run(async {
                 crate::Loader::new(client)
@@ -455,15 +473,19 @@ impl NativeProductCache {
         let mut terminal = lctx_model::domain::completion::Completion::default();
         terminal.step("product schema session close", session.close().await);
         lctx_model::domain::completion::complete(installed, terminal)?;
-        Self::attach_partition(runtime, true).await
+        Self::attach_partition(runtime, true, factory).await
     }
     /// Ordinary attachment may create an owned logical partition; it never executes DDL.
-    pub async fn connect(runtime: &RuntimeConfig) -> Result<Option<Self>, ModelError> {
-        Self::attach_partition(runtime, false).await
+    pub async fn connect(
+        runtime: &RuntimeConfig,
+        factory: &Arc<lctx_native::control::RecoveryFactoryOwner>,
+    ) -> Result<Option<Self>, ModelError> {
+        Self::attach_partition(runtime, false, factory).await
     }
     async fn attach_partition(
         runtime: &RuntimeConfig,
         maintenance: bool,
+        factory: &Arc<lctx_native::control::RecoveryFactoryOwner>,
     ) -> Result<Option<Self>, ModelError> {
         let Some(config) = &runtime.reuse else {
             return Ok(None);
@@ -481,7 +503,7 @@ impl NativeProductCache {
             directory.to_string_lossy(),
         ))?)
         .hex();
-        let (client, session) = CacheSession::open(runtime).await?;
+        let (client, session) = CacheSession::open(runtime, factory).await?;
         let mut this = Self {
             client,
             session: session.clone(),
@@ -508,7 +530,7 @@ impl NativeProductCache {
             .client
             .select::<Option<CoordinationOwner>>(this.partition_id("product_owner"))
             .await
-            .map_err(ModelError::codec)?
+            .map_err(lctx_native::loader::write_failure)?
             .ok_or(ModelError::Schema("product partition owner"))?;
         if owner.directory != this.directory.to_string_lossy() {
             return Err(ModelError::Conflict("product cache coordination directory"));
@@ -517,7 +539,7 @@ impl NativeProductCache {
             .client
             .select(this.partition_id("product_header"))
             .await
-            .map_err(ModelError::codec)?;
+            .map_err(lctx_native::loader::write_failure)?;
         let compatible = header.as_ref().is_some_and(|header| {
             header.version == VERSION && header.directory == this.directory.to_string_lossy()
         });
@@ -553,7 +575,7 @@ impl NativeProductCache {
             .client
             .select::<Option<Header>>(this.partition_id("product_header"))
             .await
-            .map_err(ModelError::codec)?
+            .map_err(lctx_native::loader::write_failure)?
             .ok_or(ModelError::Schema("product partition header"))?;
         this.generation = header.generation;
         reconcile_acknowledgments(&this.directory, &this.generation)?;
@@ -579,10 +601,19 @@ impl NativeProductCache {
     /// Join every caller/task first. Atomic consumption refuses a still-live
     /// clone before invalidating the independent authenticated session.
     pub async fn close(self: Arc<Self>) -> Result<(), ModelError> {
-        let owner = Arc::try_unwrap(self)
-            .map_err(|_| cache_unfinished("product cache still has live callers", false))?;
-        let session = Arc::try_unwrap(owner.session)
-            .map_err(|_| cache_unfinished("product cache still has live tasks", false))?;
+        let factory = self.session.lease.factory().clone();
+        let owner = Arc::try_unwrap(self).map_err(|_| {
+            factory.handback(cache_unfinished(
+                "product cache still has live callers",
+                false,
+            ))
+        })?;
+        let session = Arc::try_unwrap(owner.session).map_err(|_| {
+            factory.handback(cache_unfinished(
+                "product cache still has live tasks",
+                false,
+            ))
+        })?;
         session.close().await
     }
     pub fn retain_unknown(&self) {
@@ -1796,6 +1827,10 @@ mod tests {
             }],
         }
     }
+    fn factory(runtime: &RuntimeConfig) -> Arc<lctx_native::control::RecoveryFactoryOwner> {
+        crate::compiler::recovery_factory(runtime, ResourceBudget::fixed(32 << 20).unwrap())
+            .unwrap()
+    }
     async fn fixture(capacity: u64) -> (NativeProductCache, RuntimeConfig, tempfile::TempDir) {
         let path = std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
             .expect("owned native fixture required");
@@ -1813,7 +1848,7 @@ mod tests {
             capacity_bytes: capacity,
             lease_directory: scratch.path().to_path_buf(),
         });
-        let cache = NativeProductCache::connect(&runtime)
+        let cache = NativeProductCache::connect(&runtime, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -1911,7 +1946,7 @@ mod tests {
         );
         assert!(cache.insert(&product, &budget).await.unwrap());
         assert_eq!(budget.reserved(), 0);
-        let reopened = NativeProductCache::connect(&runtime)
+        let reopened = NativeProductCache::connect(&runtime, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -1940,7 +1975,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        let next = NativeProductCache::connect(&runtime)
+        let next = NativeProductCache::connect(&runtime, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -1996,7 +2031,7 @@ mod tests {
         drop(borrowed);
         retire.await.unwrap().unwrap();
         assert_eq!(budget.reserved(), 0);
-        let reopened = NativeProductCache::connect(&runtime)
+        let reopened = NativeProductCache::connect(&runtime, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -2422,7 +2457,7 @@ mod tests {
             .unwrap()
             .check()
             .unwrap();
-        let rebuilt = NativeProductCache::attach_partition(&runtime, true)
+        let rebuilt = NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -2460,7 +2495,7 @@ mod tests {
             .unwrap();
         mark_administration(&rebuilt.directory).unwrap();
         assert!(
-            NativeProductCache::connect(&runtime)
+            NativeProductCache::connect(&runtime, &factory(&runtime))
                 .await
                 .unwrap()
                 .is_none(),
@@ -2473,7 +2508,7 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        let current = NativeProductCache::attach_partition(&runtime, true)
+        let current = NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -2518,7 +2553,7 @@ mod tests {
             .check()
             .unwrap();
         assert!(old_ack.exists());
-        let recovered = NativeProductCache::attach_partition(&runtime, true)
+        let recovered = NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -2562,16 +2597,17 @@ mod tests {
         delayed.query(cache.scope_sql("IF (SELECT VALUE generation FROM product_header:current FOR UPDATE)[0] != $generation { THROW 'retired'; }; UPDATE product_quota:current SET used=used+3; CREATE $late SET partition=$partition,staging=$late_name,bytes=3")).bind(vars).await.unwrap().check().unwrap();
         let foreign = tempfile::tempdir_in(cache.directory.parent().unwrap()).unwrap();
         runtime.reuse.as_mut().unwrap().lease_directory = foreign.path().into();
-        let foreign_cache = NativeProductCache::connect(&runtime)
+        let foreign_cache = NativeProductCache::connect(&runtime, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
         assert_ne!(foreign_cache.partition, cache.partition);
         assert!(foreign_cache.insert(&product, &budget).await.unwrap());
-        let foreign_reset = NativeProductCache::attach_partition(&runtime, true)
-            .await
-            .unwrap()
-            .unwrap();
+        let foreign_reset =
+            NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
+                .await
+                .unwrap()
+                .unwrap();
         assert!(
             cache
                 .entry(&product.request.identity().unwrap().hex())
@@ -2581,7 +2617,7 @@ mod tests {
             "foreign logical partition cannot discard incompatible owned state"
         );
         runtime.reuse.as_mut().unwrap().lease_directory = cache.directory.clone();
-        let reset = NativeProductCache::attach_partition(&runtime, true)
+        let reset = NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -2616,10 +2652,11 @@ mod tests {
             .check()
             .unwrap();
         runtime.reuse.as_mut().unwrap().lease_directory = foreign.path().into();
-        let foreign_current = NativeProductCache::attach_partition(&runtime, true)
-            .await
-            .unwrap()
-            .unwrap();
+        let foreign_current =
+            NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
+                .await
+                .unwrap()
+                .unwrap();
         assert_eq!(foreign_current.partition, foreign_reset.partition);
         assert!(
             foreign_current
@@ -2629,7 +2666,7 @@ mod tests {
                 .is_some()
         );
         runtime.reuse.as_mut().unwrap().lease_directory = cache.directory.clone();
-        let recovered = NativeProductCache::attach_partition(&runtime, true)
+        let recovered = NativeProductCache::attach_partition(&runtime, true, &factory(&runtime))
             .await
             .unwrap()
             .unwrap();
@@ -2657,25 +2694,115 @@ mod window_controls {
     #[tokio::test]
     async fn cache_session_cancellation_retains_actual_client_and_unknown_disposition() {
         let client = Arc::new(Surreal::init());
+        let weak_client = Arc::downgrade(&client);
+        let scratch = tempfile::tempdir().unwrap();
+        let receipts = scratch.path().join("native-drain");
+        std::fs::create_dir(&receipts).unwrap();
+        let generation = lctx_model::domain::ContentHash::of(b"cache session pure control");
+        let binding = lctx_native::signal::NativeReceiptBinding {
+            directory: receipts,
+            attachment: "cache-session-control".into(),
+            generation,
+        };
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let factory =
+            lctx_native::control::RecoveryFactoryOwner::new(binding.clone(), budget.clone())
+                .unwrap();
         let retry = crate::control::RetryCancellation::default();
+        let stop = retry.clone();
+        let signals = Arc::new(
+            lctx_native::signal::SignalRegistration::with_receipt(
+                "cache session pure control",
+                move || stop.cancel(),
+                binding,
+            )
+            .unwrap(),
+        );
+        let scope = lctx_native::control::RecoveryScope::new(
+            client.clone(),
+            budget.clone(),
+            retry.clone(),
+            signals.pending_recipient().unwrap(),
+            lctx_native::control::RecoveryTarget {
+                generation,
+                namespace: "control".into(),
+                database: "validation".into(),
+                endpoint: None,
+            },
+        )
+        .unwrap();
+        let lease = factory.attach(scope.clone(), signals).unwrap();
         let session = CacheSession {
-            session: lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
-            signals: lctx_native::signal::SignalRegistration::process(|| {}).unwrap(),
+            lease,
             retry,
             uncertain: AtomicBool::new(false),
         };
+        // Before any effect, run must install this exact actual session and pool.
+        session
+            .run(async {
+                let captured = lctx_native::control::capture_recovery_scope()
+                    .expect("cache operation must carry its recovery owner");
+                assert!(Arc::ptr_eq(&captured, &scope));
+                assert!(Arc::ptr_eq(captured.client(), &client));
+                assert!(captured.budget().shares_pool(&budget));
+                Ok(())
+            })
+            .await
+            .unwrap();
+        // The optional-cache fallback inspects the original known refusal.
+        // A recovery handback must not hide its Codec/Resource category.
+        let malformed = session
+            .run::<()>(async { Err(ModelError::codec("malformed optional product")) })
+            .await
+            .unwrap_err();
+        assert!(matches!(malformed, ModelError::Codec(_)));
+        assert!(optional_refusal(&malformed));
+        let refused = session
+            .run::<()>(async {
+                Err(budget
+                    .reserve("cache optional refusal control", 1 << 20)
+                    .unwrap_err())
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(refused, ModelError::Resource { .. }));
+        assert!(optional_refusal(&refused));
+        let conflict = session
+            .run::<()>(async { Err(ModelError::Conflict("canonical mismatch")) })
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            conflict,
+            ModelError::Conflict("canonical mismatch")
+        ));
+        assert!(!optional_refusal(&conflict));
+        assert!(!session.uncertain.load(Ordering::Acquire));
         drop(CacheOperation::new(&session).unwrap());
         let error = session.close().await.unwrap_err();
         assert!(!error.permits_storage_cleanup());
-        assert!(matches!(error,ModelError::Completion(ref outcome)
+        let ModelError::Cause(ref cause) = error else {
+            panic!("actual factory handback required");
+        };
+        let handback = cause
+            .downcast_ref::<lctx_native::control::FactoryHandback>()
+            .unwrap();
+        assert!(Arc::ptr_eq(handback.factory(), &factory));
+        let primary = std::error::Error::source(handback)
+            .unwrap()
+            .downcast_ref::<ModelError>()
+            .unwrap();
+        assert!(matches!(primary,ModelError::Completion(outcome)
             if outcome.completion.local==lctx_model::domain::completion::LocalState::Outstanding
                 && outcome.completion.remote==lctx_model::domain::completion::RemoteState::Unknown));
         drop(session);
-        assert_eq!(
-            Arc::strong_count(&client),
-            2,
-            "abandonment retains the actual session handle"
+        drop(scope);
+        drop(client);
+        assert_eq!(factory.pending_count().unwrap(), 1);
+        assert!(
+            weak_client.upgrade().is_some(),
+            "actual factory retains unconfirmed session"
         );
+        // This initialized-only control has no native session or drainage claim.
     }
     #[test]
     fn transfers_preserve_cross_product_order_at_byte_and_row_boundaries() {

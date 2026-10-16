@@ -137,6 +137,29 @@ where
 		Ok(BatchStream { items: Box::pin(receiver), execution: Some(execution), outcome: None })
 	}
 
+	/// Finite gRPC streaming with explicit per-query framing/admission options.
+	/// Unsupported transports refuse before issuing the query. Reservation leases
+	/// travel with each item and must outlive the allocations they cover.
+	pub fn stream_batches_with_options(self, options: QueryStreamOptions) -> Result<AdmittedBatchStream> {
+		let Self { txn, client, queries, variables } = self;
+		let engine = Arc::clone(&client.inner.router.extract()?.engine);
+		let query = join_queries(&queries);
+		let variables = variables?;
+		let ctx = ctx_txn(client.session_id, txn);
+		let keepalive = match client { Cow::Owned(client) => Some(client), Cow::Borrowed(_) => None };
+        let queue_storage = options.admission.as_ref().map(|owner|
+            owner.reserve(IngressStage::ValueConversion, admitted_queue_storage())
+        ).transpose()?;
+        let producer_storage = queue_storage.clone();
+		let (sender, receiver) = crate::channel::bounded(QUERY_STREAM_BUFFER);
+		let execution = Box::pin(async move {
+			let _keepalive = keepalive;
+            let _queue_storage = producer_storage;
+			engine.query_stream_with_options(ctx, Cow::Owned(query), variables, options, sender).await
+		});
+		Ok(AdmittedBatchStream { items: Box::pin(receiver), execution: Some(execution), outcome: None, _queue_storage: queue_storage })
+	}
+
 
 	/// Run the query and receive its results as they are produced, rather than
 	/// waiting for all of them.
@@ -386,7 +409,78 @@ impl Drop for ItemStream {
 }
 
 /// Exact engine item; Rows and Value are deliberately distinct.
-pub use surrealdb_rpc::{QueryStreamItem as BatchItem, QueryType as BatchQueryType};
+pub use surrealdb_rpc::{QueryStreamItem as BatchItem, QueryType as BatchQueryType, DbResultStats as StreamStats};
+pub use surrealdb_rpc::{AdmittedQueryFailure as AdmittedBatchFailure, AdmittedQueryStreamItem as AdmittedBatchItem, QueryStreamOptions};
+pub use surrealdb_rpc::{IngressAdmission, IngressReservation, IngressStage};
+
+// Fixed SDK delivery storage, admitted before async_channel::bounded creates
+// its queue. Exact sources: async-channel 2.5.0 Channel, concurrent-queue 2.5.0
+// Single/Bounded/Unbounded variants, crossbeam-utils 0.8.21 CachePadded, and
+// event-listener 5.4.2 Event/Inner/InnerListener (std intrusive-list backend).
+// Runtime task/waker implementation backing is independently scheduler-owned.
+fn admitted_queue_storage() -> usize {
+    use std::mem::{align_of, size_of};
+    type Item = surrealdb_rpc::AdmittedQueryStreamEvent;
+    let word = size_of::<usize>();
+    // Largest supported CachePadded alignment is 256 (s390x), 128 on x86_64.
+    // Include enum-tag and final alignment in addition to both padded fields.
+    let cache = 256usize;
+    let bounded = 2 * cache + 4 * word;
+    let single = word + size_of::<Item>() + align_of::<Item>();
+    let queue = bounded.max(single) + 2 * cache;
+    // Channel adds four Event atomic pointers, two reference counters, its own
+    // final alignment and Arc's two counters rounded to that same alignment.
+    let channel = queue + 6 * word + 2 * cache;
+    let slots = QUERY_STREAM_BUFFER * (word + size_of::<Item>() + align_of::<Item>());
+    // Each lazily allocated Event Inner owns a notified counter and a mutex
+    // over five pointer-sized intrusive-list fields, plus Arc counters.
+    let event = size_of::<std::sync::Mutex<[usize; 5]>>() + 3 * word + 2 * align_of::<usize>();
+    // Exactly one producer and one receiver are owned by this stream. Each
+    // can hold one boxed listener: event Arc, optional Link, state/Task enum,
+    // Waker, prev/next links; allowance covers each discriminant/alignment.
+    let listener = size_of::<std::task::Waker>() + 6 * word + 4 * align_of::<usize>();
+    // The receiver itself is boxed by AdmittedBatchStream after this charge.
+    channel + slots + 4 * event + 2 * listener
+        + size_of::<crate::channel::Receiver<Item>>()
+        + AdmittedBatchFailure::boxed_error_allocation_size()
+        + size_of::<Arc<dyn IngressReservation>>()
+}
+
+/// Finite stream whose items retain ingress reservations through delivery.
+/// EOF joins execution and delivery just as [`BatchStream`] does.
+#[must_use = "streams do nothing unless you poll them"]
+pub struct AdmittedBatchStream {
+	items: Pin<Box<crate::channel::Receiver<surrealdb_rpc::AdmittedQueryStreamEvent>>>,
+	execution: Option<Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'static>>>,
+	outcome: Option<Result<()>>,
+    _queue_storage: Option<Arc<dyn IngressReservation>>,
+}
+
+impl futures::Stream for AdmittedBatchStream {
+	type Item = std::result::Result<AdmittedBatchItem, AdmittedBatchFailure>;
+	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+		if let Some(execution) = &mut self.execution {
+			if let Poll::Ready(outcome) = execution.as_mut().poll(cx) {
+				self.execution = None;
+				self.outcome = Some(outcome);
+			}
+		}
+		match self.items.as_mut().poll_next(cx) {
+			Poll::Ready(Some(surrealdb_rpc::AdmittedQueryStreamEvent::Item(item))) => Poll::Ready(Some(Ok(item))),
+			Poll::Ready(Some(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(failure))) => Poll::Ready(Some(Err(failure))),
+			Poll::Ready(None) if self.execution.is_none() => match self.outcome.take() {
+				Some(Err(error)) => {
+                    // An error before a framed receive still owns its cold Box
+                    // after this stream is dropped; transfer the queue guard.
+                    let resources = self._queue_storage.iter().cloned().collect();
+                    Poll::Ready(Some(Err(AdmittedBatchFailure::new(error, resources))))
+                },
+				_ => Poll::Ready(None),
+			},
+			_ => Poll::Pending,
+		}
+	}
+}
 
 /// A finite query owner. EOF means both the engine future and its delivery queue ended.
 /// There is no detached execution task. Owners that need cancellation finality must drain
@@ -479,11 +573,24 @@ where
 			let query = join_queries(&queries);
 
 			let results = router
-				.query_results(ctx_txn(client.session_id, txn), Cow::Owned(query), variables?)
+				.query_results_with_resources(ctx_txn(client.session_id, txn), Cow::Owned(query), variables?)
 				.await?;
 
-			let mut indexed_results = IndexedResults::new();
+            let map_charge = results.admission.as_ref().map(|owner| {
+                let bytes = indexed_result_storage(results.results.len())?;
+                owner.reserve(IngressStage::ValueConversion, bytes)
+            }).transpose()?;
+            let surrealdb_rpc::AdmittedQueryResults { results, reservations, admission: _ } = results;
+            let resources = if reservations.is_some() || map_charge.is_some() {
+                Some(Arc::new(IndexedResources { _query: reservations, _index: map_charge }) as Arc<dyn IngressReservation>)
+            } else { None };
+            let mut indexed_results = IndexedResults::new();
+            indexed_results.results = IndexMap::with_capacity(results.len());
+            indexed_results._resources = resources;
 
+            // On a conversion failure, the remaining iterator is destroyed
+            // before this guard releases the original buffered payload leases.
+            let _conversion_owner = indexed_results._resources.clone();
 			for (index, result) in results.into_iter().enumerate() {
 				let stats = DbResultStats::default()
 					.with_execution_time(result.time)
@@ -612,6 +719,34 @@ where
 pub struct IndexedResults {
 	pub(crate) results: IndexMap<usize, (DbResultStats, std::result::Result<Value, TypesError>)>,
 	pub(crate) live_queries: IndexMap<usize, Result<Stream<Value>>>,
+    // Declared after results: release allocation authority only after values
+    // and the actual indexing storage are destroyed.
+    _resources: Option<Arc<dyn IngressReservation>>,
+}
+
+#[derive(Debug)]
+struct IndexedResources {
+    _query: Option<Arc<dyn IngressReservation>>,
+    _index: Option<Arc<dyn IngressReservation>>,
+}
+impl IngressReservation for IndexedResources {}
+
+// Source-qualified indexmap 2.14.2 / hashbrown 0.17.1 storage: dense
+// {hash:usize,key:usize,value} buckets plus one HashTable<usize>. Padding is
+// bounded per field by the largest alignment. The hash table uses a power-of-
+// two bucket count, 7/8 occupancy and <=16-byte SIMD control groups.
+fn indexed_result_storage(len: usize) -> Result<usize> {
+    if len == 0 { return Ok(std::mem::size_of::<IndexedResources>() + 2 * std::mem::size_of::<usize>()); }
+    type EntryValue = (DbResultStats, std::result::Result<Value, TypesError>);
+    let entry = std::mem::size_of::<EntryValue>() + 2 * std::mem::size_of::<usize>() + 3 * std::mem::align_of::<EntryValue>();
+    let buckets = if len < 4 { 4 } else if len < 8 { 8 } else if len < 15 { 16 } else {
+        (len.checked_mul(8).ok_or_else(|| Error::internal("Result index size overflow".to_owned()))? / 7)
+            .checked_next_power_of_two().ok_or_else(|| Error::internal("Result index size overflow".to_owned()))?
+    };
+    len.checked_mul(entry).and_then(|dense| {
+        buckets.checked_mul(std::mem::size_of::<usize>() + 1).and_then(|hash| dense.checked_add(hash))
+    }).and_then(|bytes| bytes.checked_add(32 + std::mem::size_of::<IndexedResources>()))
+        .ok_or_else(|| Error::internal("Result index size overflow".to_owned()))
 }
 
 /// A `LIVE SELECT` stream from the `query` method
@@ -643,6 +778,7 @@ impl IndexedResults {
 		Self {
 			results: Default::default(),
 			live_queries: Default::default(),
+            _resources: None,
 		}
 	}
 
@@ -662,7 +798,11 @@ impl IndexedResults {
 		}
 	}
 
-	/// Takes and returns records returned from the database
+    /// Takes and returns records returned from the database.
+    /// With configured ingress admission, this response retains source leases
+    /// through conversion. The caller must drop extracted values or acquire
+    /// replacement admission before dropping the response; escaped bare values
+    /// do not carry the response's allocation authority.
 	///
 	/// A query that only returns one result can be deserialized into an
 	/// `Option<T>`, while those that return multiple results should be

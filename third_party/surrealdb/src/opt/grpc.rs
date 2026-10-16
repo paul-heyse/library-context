@@ -46,6 +46,7 @@ pub struct GrpcConfig {
 	/// advertises during the capability handshake, which is the limit the
 	/// operator configured.
 	pub(crate) max_message_size: Option<usize>,
+	pub(crate) ingress_admission: Option<std::sync::Arc<dyn surrealdb_rpc::IngressAdmission>>,
 }
 
 impl GrpcConfig {
@@ -87,6 +88,21 @@ impl GrpcConfig {
 	/// ```
 	pub fn max_message_size(mut self, max_message_size: usize) -> Self {
 		self.max_message_size = Some(max_message_size);
+		self
+	}
+
+	/// Own SDK connection structures and capability-response ingress separately
+	/// from per-query budgets. The connection retains the handshake leases.
+	///
+	/// This covers the named SDK/tonic receive allocation boundaries. Shared
+	/// HTTP/2/TLS runtime allocations need their independently owned workspace;
+	/// this callback does not claim to intercept those libraries' allocators.
+    /// Qualified native bootstrap consumers discard auth/use outputs before the
+    /// next action on that session. Their latest response leases remain with the
+    /// session; bare external Tokens/Strings surviving that acknowledgment need
+    /// independent caller admission. This is not a process RSS/H2/TLS bound.
+	pub fn ingress_admission(mut self, owner: std::sync::Arc<dyn surrealdb_rpc::IngressAdmission>) -> Self {
+		self.ingress_admission = Some(owner);
 		self
 	}
 }

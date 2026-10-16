@@ -205,188 +205,209 @@ async fn prepare_transport_copy(
         },
     ))
 }
-async fn selected_inventory(
-    reader: &NativeReader<()>,
-    roots: &[(CompletedView, Vec<ContributorRealization>)],
+fn selected_inventory<'a>(
+    reader: &'a NativeReader<()>,
+    roots: &'a [(CompletedView, Vec<ContributorRealization>)],
     include_memberships: bool,
-    budget: &d::resources::ResourceBudget,
-) -> Result<SelectionInventory, ModelError> {
-    let audit = InstallationAudit::new(reader.shared_client(), budget).await?;
-    let result = async {
-        let SelectedRequests {
-            copies: requests,
-            labels,
-            dependency_views: views,
-            charge: _requests,
-        } = selected_requests(roots, budget)?;
-        let mut result = SelectionInventory {
-            roots: vec![],
-            copies: vec![],
-            prepared: vec![],
-            _charge: StateCharge::new(budget, "portable root-qualified correspondence"),
-        };
-        let mut descriptors = BTreeMap::new();
-        let mut offset = 0;
-        let mut width = crate::loader::NATIVE_WINDOW_ROWS;
-        while offset < requests.len() {
-            let count = width.min(requests.len() - offset);
-            let _page = match if count > 1 {
-                budget
-                    .reserve(
-                        "transport exact copy page identities",
-                        count.saturating_mul(512),
-                    )
-                    .map(Some)
-            } else {
-                Ok(None)
-            } {
-                Err(ModelError::Resource { .. }) if count > 1 => {
-                    width = (count / 2).max(1);
-                    continue;
-                }
-                other => other?,
+    budget: &'a d::resources::ResourceBudget,
+) -> Result<futures::future::BoxFuture<'a, Result<SelectionInventory, ModelError>>, ModelError> {
+    let body = async move {
+        let audit = InstallationAudit::new(reader.shared_client(), budget).await?;
+        let result = async {
+            let SelectedRequests {
+                copies: requests,
+                labels,
+                dependency_views: views,
+                charge: _requests,
+            } = selected_requests(roots, budget)?;
+            let mut result = SelectionInventory {
+                roots: vec![],
+                copies: vec![],
+                prepared: vec![],
+                _charge: StateCharge::new(budget, "portable root-qualified correspondence"),
             };
-            let ids = requests[offset..offset + count]
-                .iter()
-                .map(|request| RecordId::new("compiler_contribution", request.physical.hex()))
-                .collect::<Vec<_>>();
-            let mut observed =
-                match crate::control::inspect_expected_window_read(reader, &ids, budget).await {
+            let mut descriptors = BTreeMap::new();
+            let mut offset = 0;
+            let mut width = crate::loader::NATIVE_WINDOW_ROWS;
+            while offset < requests.len() {
+                let count = width.min(requests.len() - offset);
+                let _page = match if count > 1 {
+                    budget
+                        .reserve(
+                            "transport exact copy page identities",
+                            count.saturating_mul(512),
+                        )
+                        .map(Some)
+                } else {
+                    Ok(None)
+                } {
                     Err(ModelError::Resource { .. }) if count > 1 => {
                         width = (count / 2).max(1);
                         continue;
                     }
                     other => other?,
                 };
-            let start = offset;
-            let mut retry = false;
-            for (index, id) in ids.iter().enumerate() {
-                let expected = observed.take_required(id)?;
-                let retained = result._charge.reserved();
-                let prepared = prepare_transport_copy(
-                    reader,
-                    requests[start + index],
-                    expected,
-                    include_memberships,
-                    &audit,
-                    &mut result._charge,
-                    budget,
+                let ids = requests[offset..offset + count]
+                    .iter()
+                    .map(|request| RecordId::new("compiler_contribution", request.physical.hex()))
+                    .collect::<Vec<_>>();
+                let mut observed = match crate::control::inspect_expected_window_read(
+                    reader, &ids, budget,
                 )
-                .await;
-                match prepared {
-                    Ok((copy, prepared)) => {
-                        result.copies.push(copy);
-                        result.prepared.push(prepared);
-                        offset += 1;
-                    }
-                    Err(ModelError::Resource { .. }) if count > 1 => {
-                        result
-                            ._charge
-                            .release(result._charge.reserved().saturating_sub(retained));
-                        width = (count / 2).max(1);
-                        retry = true;
-                        break;
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            if retry {
-                continue;
-            }
-            observed.finish()?;
-            width = crate::loader::NATIVE_WINDOW_ROWS;
-        }
-        offset = 0;
-        width = crate::loader::NATIVE_WINDOW_ROWS;
-        while offset < views.len() {
-            let count = width.min(views.len() - offset);
-            let _page = match if count > 1 {
-                budget
-                    .reserve(
-                        "transport exact view page identities",
-                        count.saturating_mul(512),
-                    )
-                    .map(Some)
-            } else {
-                Ok(None)
-            } {
-                Err(ModelError::Resource { .. }) if count > 1 => {
-                    width = (count / 2).max(1);
-                    continue;
-                }
-                other => other?,
-            };
-            let ids = views[offset..offset + count]
-                .iter()
-                .map(|view| RecordId::new("compiler_view", view.hex()))
-                .collect::<Vec<_>>();
-            let mut observed =
-                match crate::control::inspect_expected_window_read(reader, &ids, budget).await {
+                .await
+                {
                     Err(ModelError::Resource { .. }) if count > 1 => {
                         width = (count / 2).max(1);
                         continue;
                     }
                     other => other?,
                 };
-            let mut retry = false;
-            for id in &ids {
-                let expected = observed.take_required(id)?;
-                let bytes = crate::loader::native_bytes(expected.row())
-                    .saturating_mul(32)
-                    .saturating_add(2048);
-                match result._charge.grow(bytes) {
+                let start = offset;
+                let mut retry = false;
+                for (index, id) in ids.iter().enumerate() {
+                    let expected = observed.take_required(id)?;
+                    let retained = result._charge.reserved();
+                    let prepared = prepare_transport_copy(
+                        reader,
+                        requests[start + index],
+                        expected,
+                        include_memberships,
+                        &audit,
+                        &mut result._charge,
+                        budget,
+                    )
+                    .await;
+                    match prepared {
+                        Ok((copy, prepared)) => {
+                            result.copies.push(copy);
+                            result.prepared.push(prepared);
+                            offset += 1;
+                        }
+                        Err(ModelError::Resource { .. }) if count > 1 => {
+                            result
+                                ._charge
+                                .release(result._charge.reserved().saturating_sub(retained));
+                            width = (count / 2).max(1);
+                            retry = true;
+                            break;
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                if retry {
+                    continue;
+                }
+                observed.finish()?;
+                width = crate::loader::NATIVE_WINDOW_ROWS;
+            }
+            offset = 0;
+            width = crate::loader::NATIVE_WINDOW_ROWS;
+            while offset < views.len() {
+                let count = width.min(views.len() - offset);
+                let _page = match if count > 1 {
+                    budget
+                        .reserve(
+                            "transport exact view page identities",
+                            count.saturating_mul(512),
+                        )
+                        .map(Some)
+                } else {
+                    Ok(None)
+                } {
                     Err(ModelError::Resource { .. }) if count > 1 => {
                         width = (count / 2).max(1);
-                        retry = true;
-                        break;
+                        continue;
                     }
                     other => other?,
+                };
+                let ids = views[offset..offset + count]
+                    .iter()
+                    .map(|view| RecordId::new("compiler_view", view.hex()))
+                    .collect::<Vec<_>>();
+                let mut observed = match crate::control::inspect_expected_window_read(
+                    reader, &ids, budget,
+                )
+                .await
+                {
+                    Err(ModelError::Resource { .. }) if count > 1 => {
+                        width = (count / 2).max(1);
+                        continue;
+                    }
+                    other => other?,
+                };
+                let mut retry = false;
+                for id in &ids {
+                    let expected = observed.take_required(id)?;
+                    let bytes = crate::loader::native_bytes(expected.row())
+                        .saturating_mul(32)
+                        .saturating_add(2048);
+                    match result._charge.grow(bytes) {
+                        Err(ModelError::Resource { .. }) if count > 1 => {
+                            width = (count / 2).max(1);
+                            retry = true;
+                            break;
+                        }
+                        other => other?,
+                    }
+                    let view: CompletedView =
+                        crate::installed_view::audit::descriptor(expected.row())?;
+                    view.validate()?;
+                    if view.identity != views[offset] {
+                        return Err(ModelError::Conflict("transport dependency view descriptor"));
+                    }
+                    descriptors.insert(view.identity, view);
+                    offset += 1;
                 }
-                let view: CompletedView = crate::installed_view::audit::descriptor(expected.row())?;
-                view.validate()?;
-                if view.identity != views[offset] {
-                    return Err(ModelError::Conflict("transport dependency view descriptor"));
+                if retry {
+                    continue;
                 }
-                descriptors.insert(view.identity, view);
-                offset += 1;
+                observed.finish()?;
+                width = crate::loader::NATIVE_WINDOW_ROWS;
             }
-            if retry {
-                continue;
-            }
-            observed.finish()?;
-            width = crate::loader::NATIVE_WINDOW_ROWS;
-        }
-        for (root, mappings) in roots {
-            let mut slots = vec![];
-            let mut dependencies = BTreeMap::new();
-            result._charge.grow(view_heap(root))?;
-            for mapping in mappings {
-                result._charge.grow(2048)?;
-                let label = labels[&mapping.physical];
-                if mapping.view != root.identity && !dependencies.contains_key(&mapping.view) {
-                    let view = &descriptors[&mapping.view];
-                    result._charge.grow(view_heap(view))?;
-                    dependencies.insert(mapping.view, view.clone());
+            for (root, mappings) in roots {
+                let mut slots = vec![];
+                let mut dependencies = BTreeMap::new();
+                result._charge.grow(view_heap(root))?;
+                for mapping in mappings {
+                    result._charge.grow(2048)?;
+                    let label = labels[&mapping.physical];
+                    if mapping.view != root.identity && !dependencies.contains_key(&mapping.view) {
+                        let view = &descriptors[&mapping.view];
+                        result._charge.grow(view_heap(view))?;
+                        dependencies.insert(mapping.view, view.clone());
+                    }
+                    slots.push(TransportSlot {
+                        view: mapping.view,
+                        logical: mapping.logical,
+                        copy: label,
+                    });
                 }
-                slots.push(TransportSlot {
-                    view: mapping.view,
-                    logical: mapping.logical,
-                    copy: label,
+                result.roots.push(TransportRoot {
+                    view: root.clone(),
+                    dependencies: dependencies.into_values().collect(),
+                    slots,
                 });
             }
-            result.roots.push(TransportRoot {
-                view: root.clone(),
-                dependencies: dependencies.into_values().collect(),
-                slots,
-            });
+            Ok(result)
         }
-        Ok(result)
-    }
-    .await;
-    let mut terminal = d::completion::Completion::default();
-    terminal.step("transport local inventory audit close", audit.close().await);
-    d::completion::complete(result, terminal)
+        .await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step("transport local inventory audit close", audit.close().await);
+        d::completion::complete(result, terminal)
+    };
+    // One complete inventory operation owns its continuation through audit cleanup.
+    // Admit the concrete execution body before allocation or the first native read.
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema("selected inventory continuation size"))?;
+    let grant = budget.reserve("native selected inventory continuation", bytes)?;
+    Ok(Box::pin(async move {
+        let _grant = grant;
+        body.await
+    }))
 }
+
 pub async fn prepare_selected(
     client: Arc<Surreal<Client>>,
     roots: &[Arc<HeldInstalledView>],
@@ -414,7 +435,7 @@ pub async fn prepare_selected(
             ));
         }
         selected.sort_by_key(|root| root.0.identity);
-        let prepared = selected_inventory(&reader, &selected, true, budget).await?;
+        let prepared = selected_inventory(&reader, &selected, true, budget)?.await?;
         for root in roots {
             root.ensure_current(&reader, budget).await?;
         }
@@ -465,7 +486,7 @@ pub async fn eligibility_selected(
             ));
         }
         selected.sort_by_key(|root| root.0.identity);
-        let prepared = selected_inventory(&reader, &selected, false, budget).await?;
+        let prepared = selected_inventory(&reader, &selected, false, budget)?.await?;
         for root in roots {
             root.ensure_current(&reader, budget).await?;
         }
@@ -499,7 +520,7 @@ async fn inventory_projection(
         let root = inventory.installed(reference.logical_view)?;
         selected.push((root.view.clone(), root.mappings.clone()));
     }
-    selected_inventory(reader, &selected, include_memberships, budget).await
+    selected_inventory(reader, &selected, include_memberships, budget)?.await
 }
 pub async fn eligibility_frozen(
     client: Arc<Surreal<Client>>,

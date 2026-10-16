@@ -6,7 +6,6 @@ use lctx_serving::{NativeService, TransportRequest};
 use pyo3::prelude::*;
 use std::{
     collections::BTreeMap,
-    future::IntoFuture,
     sync::{Arc, Mutex},
 };
 
@@ -24,10 +23,73 @@ struct Shared {
     reader: NativeReader,
     finalization: Mutex<Option<lctx_native::reader::ReadFinalizationGuard>>,
     signal: lctx_native::signal::SignalRegistration,
+    factory: Arc<lctx_native::control::RecoveryFactoryOwner>,
 }
 #[pyclass(module = "lctx_semantics", frozen)]
 pub struct NativeSession {
     shared: Arc<Shared>,
+}
+/// An exception retains this concrete Rust recipient when native setup cannot
+/// settle. Calling resume explicitly admits a separately signalled recovery turn.
+#[pyclass(module = "lctx_semantics", frozen)]
+pub struct NativeRecoveryOwner {
+    factory: Arc<lctx_native::control::RecoveryFactoryOwner>,
+}
+#[pymethods]
+impl NativeRecoveryOwner {
+    fn pending_count(&self) -> PyResult<usize> {
+        self.factory.pending_count().map_err(crate::model_error)
+    }
+    fn resume(&self, py: Python<'_>) -> PyResult<()> {
+        let factory = self.factory.clone();
+        py.detach(move || {
+            let runtime = pyo3_async_runtimes::tokio::get_runtime();
+            let cancellation = RetryCancellation::default();
+            let stop = cancellation.clone();
+            let signal = {
+                let _entered = runtime.enter();
+                lctx_native::signal::SignalRegistration::with_receipt(
+                    "Python native recovery resumption",
+                    move || stop.cancel(),
+                    factory.binding().clone(),
+                )
+                .map_err(crate::model_error)?
+            };
+            let result = runtime.block_on(factory.drain(&cancellation));
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            if factory.pending_count().map_err(crate::model_error)? != 0 {
+                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+            }
+            if result
+                .as_ref()
+                .is_err_and(|error| !error.permits_storage_cleanup())
+            {
+                completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+            }
+            completion.step(
+                "Python native recovery owner receipt",
+                runtime.block_on(signal.complete(&completion)),
+            );
+            lctx_model::domain::completion::complete(result, completion)
+                .map_err(|error| recovery_error(factory, error))
+        })
+    }
+}
+fn recovery_error(
+    factory: Arc<lctx_native::control::RecoveryFactoryOwner>,
+    error: ModelError,
+) -> PyErr {
+    let error = crate::model_error(error);
+    Python::attach(|py| {
+        let recovery = match Py::new(py, NativeRecoveryOwner { factory }) {
+            Ok(owner) => owner,
+            Err(error) => return error,
+        };
+        match error.value(py).setattr("recovery", recovery) {
+            Ok(()) => error,
+            Err(error) => error,
+        }
+    })
 }
 /// One accepted request owns preparation bytes before any embedding await. Its
 /// Active moves into the Rust task; dropping a Python future cannot release it.
@@ -46,6 +108,22 @@ impl NativeSession {
             let config = ViewerConfig::read(std::path::Path::new(&serving_config))
                 .map_err(crate::model_error)?;
             let selected = config.selected().map_err(crate::model_error)?;
+            let limits = config.serving_limits.clone().unwrap_or_default();
+            limits.validate().map_err(crate::model_error)?;
+            let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                limits
+                    .shared_bytes
+                    .try_into()
+                    .map_err(|error| crate::model_error(ModelError::codec(error)))?,
+            )
+            .map_err(crate::model_error)?;
+            let factory = lctx_native::control::RecoveryFactoryOwner::new(
+                config
+                    .receipt_binding(selected.service_generation)
+                    .map_err(crate::model_error)?,
+                budget.clone(),
+            )
+            .map_err(crate::model_error)?;
             // The bridge owns this process runtime; requests and close tasks can
             // finish even after their Python delivery future has disappeared.
             let runtime = pyo3_async_runtimes::tokio::get_runtime();
@@ -79,8 +157,14 @@ impl NativeSession {
                 return Err(crate::unavailable());
             }
             let opened = runtime.block_on(lctx_native::control::with_retry_cancellation(
-                cancellation,
-                NativeReader::connect(&config.endpoint, &config.credentials(), selected),
+                cancellation.clone(),
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.credentials(),
+                    selected,
+                    &budget,
+                    &factory,
+                ),
             ));
             let reader = match opened {
                 Ok(reader) => reader,
@@ -88,19 +172,20 @@ impl NativeSession {
                     let error = Arc::new(error);
                     let mut completion = lctx_model::domain::completion::Completion::default();
                     completion.step("native session setup", Err(ModelError::SharedCause(error)));
+                    completion.step(
+                        "native session failed factory drainage",
+                        runtime.block_on(factory.drain(&cancellation)),
+                    );
                     let observation = runtime.block_on(signal.complete(&completion));
                     completion.step("native signal receipt", observation);
                     let failure =
                         lctx_model::domain::completion::complete::<()>(Ok(()), completion)
                             .unwrap_err();
-                    return Err(crate::model_error(failure));
+                    return Err(recovery_error(factory, failure));
                 }
             };
             let mut finalization = reader.protect_terminal_close();
-            let service = match NativeService::new(
-                reader.clone(),
-                config.serving_limits.clone().unwrap_or_default(),
-            ) {
+            let service = match NativeService::new(reader.clone(), limits) {
                 Ok(service) => Arc::new(service),
                 Err(error) => {
                     let mut completion = lctx_model::domain::completion::Completion::default();
@@ -108,18 +193,12 @@ impl NativeSession {
                         "native session setup reader close",
                         runtime.block_on(finalization.close(&reader)),
                     );
-                    completion.step(
-                        "native session setup client invalidation",
-                        runtime
-                            .block_on(reader.client().invalidate().into_future())
-                            .map_err(ModelError::codec),
-                    );
                     let observation = runtime.block_on(signal.complete(&completion));
                     completion.step("native signal receipt", observation);
                     let failure =
                         lctx_model::domain::completion::complete::<()>(Err(error), completion)
                             .unwrap_err();
-                    return Err(crate::model_error(failure));
+                    return Err(recovery_error(factory, failure));
                 }
             };
             state.lock().map_err(|_| crate::unavailable())?.service = Some(service);
@@ -129,6 +208,7 @@ impl NativeSession {
                     drained: tokio::sync::Notify::new(),
                     reader,
                     signal,
+                    factory,
                     finalization: Mutex::new(Some(finalization)),
                 }),
             })
@@ -228,18 +308,23 @@ impl NativeSession {
     /// sole reader pin before invalidating its native client.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
         py.detach(|| pyo3_async_runtimes::tokio::get_runtime().block_on(self.shared.close()))
-            .map_err(|_| crate::unavailable())
+            .map_err(|error| {
+                recovery_error(self.shared.factory.clone(), ModelError::SharedCause(error))
+            })
     }
     fn close_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.stop_accepting()?;
         let shared = self.shared.clone();
+        let factory = shared.factory.clone();
         let owner =
             pyo3_async_runtimes::tokio::get_runtime().spawn(async move { shared.close().await });
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             owner
                 .await
-                .map_err(|_| crate::unavailable())?
-                .map_err(|_| crate::unavailable())
+                .map_err(|error| {
+                    recovery_error(factory.clone(), ModelError::Cause(Box::new(error)))
+                })?
+                .map_err(|error| recovery_error(factory, ModelError::SharedCause(error)))
         })
     }
 }
@@ -500,14 +585,6 @@ impl Shared {
                 )),
             ),
         }
-        completion.step(
-            "native session client invalidation",
-            self.reader
-                .client()
-                .invalidate()
-                .await
-                .map_err(ModelError::codec),
-        );
         let observation = self.signal.complete(&completion).await;
         completion.step("native signal receipt", observation);
         let result = lctx_model::domain::completion::complete(Ok(()), completion).map_err(Arc::new);

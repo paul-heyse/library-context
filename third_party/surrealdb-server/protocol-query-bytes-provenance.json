@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "name": "surrealdb-protocol",
+  "version": "0.13.1",
+  "override": "paths",
+  "archive_url": "https://static.crates.io/crates/surrealdb-protocol/surrealdb-protocol-0.13.1.crate",
+  "archive_sha256": "d53501c853fe88d5ead8e50612d310b43389f3c66fda7ef323a1af6c393809c6",
+  "manifest_sha256": "059534047a3eb75937085a5b91a06cdfa0e6c67359a35322a6a772f1aded2372",
+  "patch_file": "protocol-query-bytes.patch",
+  "patch_sha256": "3162f8003bdaf799d23778e7a9fc337da56353be157b67491217052098e32891",
+  "patched_file": "gen/rust/proto/surrealdb/protocol/rpc/v1/surrealdb.protocol.rpc.v1.rs",
+  "original_file_sha256": "434448c5b26ff3df2f86df8e6471c1301bf0b53e6492ebebcbc2ecfb3bcd1586",
+  "patched_file_sha256": "6c7c10d5fddb470d6a0e9ba796128c1011439a075d8fc962923536b47257c54f",
+  "capability": "QUERY_BATCH_BYTES_V1",
+  "query_request_tag": 6
+}

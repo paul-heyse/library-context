@@ -336,7 +336,7 @@ pub fn lexical_occurrences<Context>(
     let owner = reader.transport_reader();
     let predicate = format!("derivation=$lctx_derivation AND ({predicate})");
     let budget_copy = budget.clone();
-    let nominations = crate::reader::NativeRows::owned(move |sender| async move {
+    let nominations = crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let mut documents = owner.stream_prepared(crate::prepared::PreparedQuery::new(
             bindings.clone(),
             vec![],
@@ -356,7 +356,7 @@ pub fn lexical_occurrences<Context>(
                 if ids.is_empty() { break; }
                 let mut vars = bindings.clone(); vars.insert("documents", ids);
                 let mut rows = owner.stream_prepared(crate::prepared::PreparedQuery::new(vars, vec![], vec![format!("SELECT id,derivation,unit_payload,dependencies FROM lex_occurs WITH INDEX document_occurrences WHERE in IN $documents AND ({predicate})")])?)?;
-                let result = async { while let Some(row) = rows.next().await? { if sender.send(row).await.is_err() { rows.cancel_delivery(); break; } } Ok(()) }.await;
+                let result = async { while let Some(row) = rows.next().await? { if !sender.send(row).await? { rows.cancel_delivery(); break; } } Ok(()) }.await;
                 let mut terminal = completion::Completion::default(); terminal.step("lexical document occurrences drainage", rows.drain_transport().await); completion::complete(result, terminal)?;
             }
             Ok(())
@@ -374,7 +374,7 @@ pub fn lexical_occurrences<Context>(
             let mut rows = owner.stream_prepared(crate::prepared::PreparedQuery::new(bindings.clone(), vec![], vec![format!("SELECT id,derivation,unit_payload,dependencies FROM lex_occurs WITH INDEX {field} WHERE {field}=$query AND ({predicate})")])?)?;
             let result = async {
                 while let Some(row) = rows.next().await? {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         rows.cancel_delivery();
                         break;
                     }
@@ -439,7 +439,7 @@ fn hydrate_occurrence_nominations<Context>(
     let retention = reader.transport_reader();
     let reader = reader.transport_reader().with_request_budget(budget);
     let budget = budget.clone();
-    let rows = crate::reader::NativeRows::owned(move |sender| async move {
+    let rows = crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let mut sorted = SortedRows::with_budget(&budget)?;
         let result = async {
             loop {
@@ -553,7 +553,7 @@ fn hydrate_occurrence_nominations<Context>(
         while sorted.next_row()?.is_some() {}
         sorted.rewind()?;
         while let Some(row) = sorted.next_row()? {
-            if sender.send(row).await.is_err() {
+            if !sender.send(row).await? {
                 break;
             }
         }
@@ -583,7 +583,7 @@ fn occurrence_rows<Context>(
     let bindings = exact_bindings;
     let predicate = format!("derivation=$lctx_derivation AND ({predicate})");
     let budget = budget.clone();
-    crate::reader::NativeRows::owned(move |sender| async move {
+    crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let mut sorted = SortedRows::with_budget(&budget)?;
         let _input = budget.reserve("selected occurrence input", BATCH_BYTES)?;
         let selected = selection.await?;
@@ -638,7 +638,7 @@ fn occurrence_rows<Context>(
                 return Ok(());
             }
             let mut rows = crate::prepared::PreparedQuery::new(vars, vec![], vec![sql])?
-                .stream_cancellable(&client, cancellation.as_ref())?;
+                .stream_cancellable(&client, cancellation.as_ref(), &budget)?;
             let result = async {
                 let mut context = Vec::new();
                 let mut context_charge =
@@ -705,7 +705,7 @@ fn occurrence_rows<Context>(
         }
         let mut rows = sorted.finish()?;
         while let Some(row) = rows.next_row()? {
-            if sender.send(row).await.is_err() {
+            if !sender.send(row).await? {
                 break;
             }
         }
@@ -828,19 +828,13 @@ mod occurrence_budget_tests {
         let baseline_handles = std::sync::Arc::strong_count(&client);
         let (entered, started) = tokio::sync::oneshot::channel();
         let (release, gate) = tokio::sync::oneshot::channel();
-        let input = crate::reader::NativeRows::owned(move |sender| async move {
+        let input = crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
             // Empty dependencies deliberately avoid native access. The second send
             // establishes that the actual driver has consumed and charged the first.
             let mut row = Object::new();
             row.insert("dependencies", Vec::<RecordId>::new());
-            sender
-                .send(Value::Object(row.clone()))
-                .await
-                .map_err(ModelError::codec)?;
-            sender
-                .send(Value::Object(row))
-                .await
-                .map_err(ModelError::codec)?;
+            sender.send(Value::Object(row.clone())).await?;
+            sender.send(Value::Object(row)).await?;
             entered
                 .send(())
                 .map_err(|_| ModelError::Conflict("occurrence gate receiver"))?;
@@ -892,9 +886,21 @@ mod occurrence_budget_tests {
         .unwrap();
         assert_eq!(config.database.as_str(), "validation");
         let fixture_budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
-        let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let nonce = store.attempt().hex();
         // A partial typed domain fixture, not publication admission. Only this
         // completed Unit is selected; every mutation below owns a nonce occurrence.
@@ -1094,12 +1100,13 @@ mod occurrence_budget_tests {
                 "DELETE ONLY $node RETURN NONE"
             };
             reader.query_native::<Value>(mutation, vars).await.unwrap();
-            let nominations = crate::reader::NativeRows::owned(move |sender| async move {
-                sender.send(nomination).await.map_err(ModelError::codec)?;
-                Ok(())
-            })
-            .unwrap();
             let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
+            let nominations =
+                crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
+                    sender.send(nomination).await?;
+                    Ok(())
+                })
+                .unwrap();
             let mut rows = hydrate_occurrence_nominations(&reader, nominations, &budget).unwrap();
             let error = rows.next().await.unwrap_err();
             assert!(error.to_string().contains(expected), "{error}");
@@ -1290,10 +1297,10 @@ pub(crate) fn retain_expected_until_drained(
     )?;
     let runs = runs.collect::<Vec<_>>();
     let mut actual = actual()?;
-    crate::reader::NativeRows::owned(move |sender| async move {
+    crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let result = async {
             while let Some(row) = actual.next().await? {
-                if sender.send(row).await.is_err() {
+                if !sender.send(row).await? {
                     break;
                 }
             }
@@ -1326,7 +1333,7 @@ pub fn actual_search_rows<Context>(
         selected_occurrences(reader, "vec_occurs", "true", Variables::new(), &budget)?;
     let client = reader.shared_client();
     let cancellation = reader.read_cancellation();
-    crate::reader::NativeRows::owned(move |sender| async move {
+    crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let mut actual = SortedRows::with_budget(&budget)?;
         let mut documents = SortedRows::with_budget(&budget)?;
         for rows in [&mut lexical, &mut vectors] {
@@ -1387,7 +1394,7 @@ pub fn actual_search_rows<Context>(
                 vec![],
                 vec!["SELECT * FROM $ids".into()],
             )?
-            .stream_cancellable(&client, cancellation.as_ref())?;
+            .stream_cancellable(&client, cancellation.as_ref(), &budget)?;
             let result = async {
                 while let Some(row) = rows.next().await? {
                     let Value::Object(object) = &row else {
@@ -1408,7 +1415,7 @@ pub fn actual_search_rows<Context>(
         }
         let mut actual = actual.finish()?;
         while let Some(row) = actual.next_row()? {
-            if sender.send(row).await.is_err() {
+            if !sender.send(row).await? {
                 break;
             }
         }
@@ -2601,10 +2608,14 @@ mod prepared_expectation_tests {
         row.insert("text", text.to_owned());
         Value::Object(row)
     }
-    fn input(values: Vec<Value>, late_failure: bool) -> crate::reader::NativeRows {
-        crate::reader::NativeRows::owned(move |sender| async move {
+    fn input(
+        values: Vec<Value>,
+        late_failure: bool,
+        budget: &resources::ResourceBudget,
+    ) -> crate::reader::NativeRows {
+        crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
             for value in values {
-                if sender.send(value).await.is_err() {
+                if !sender.send(value).await? {
                     break;
                 }
             }
@@ -2639,7 +2650,7 @@ mod prepared_expectation_tests {
         let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
         for _ in 0..2 {
             expected
-                .reconcile_actual(|| Ok(input(original.clone(), false)))
+                .reconcile_actual(|| Ok(input(original.clone(), false, &budget)))
                 .await
                 .unwrap();
         }
@@ -2663,23 +2674,23 @@ mod prepared_expectation_tests {
         ] {
             assert!(
                 expected
-                    .reconcile_actual(|| Ok(input(values, false)))
+                    .reconcile_actual(|| Ok(input(values, false, &budget)))
                     .await
                     .is_err()
             );
             expected
-                .reconcile_actual(|| Ok(input(original.clone(), false)))
+                .reconcile_actual(|| Ok(input(original.clone(), false, &budget)))
                 .await
                 .unwrap();
         }
         assert!(
             expected
-                .reconcile_actual(|| Ok(input(original.clone(), true)))
+                .reconcile_actual(|| Ok(input(original.clone(), true, &budget)))
                 .await
                 .is_err()
         );
         expected
-            .reconcile_actual(|| Ok(input(original, false)))
+            .reconcile_actual(|| Ok(input(original, false, &budget)))
             .await
             .unwrap();
         // Inventory receives independent full runs after every successful/failed comparison.
@@ -2707,11 +2718,8 @@ mod prepared_expectation_tests {
         let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
         let (release, gate) = tokio::sync::oneshot::channel();
         let actual = || {
-            crate::reader::NativeRows::owned(move |sender| async move {
-                sender
-                    .send(row("search_source", "a", "changed"))
-                    .await
-                    .map_err(ModelError::codec)?;
+            crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
+                sender.send(row("search_source", "a", "changed")).await?;
                 gate.await.map_err(ModelError::codec)?;
                 Err(ModelError::Conflict("late failed drainage"))
             })
@@ -2742,7 +2750,7 @@ mod prepared_expectation_tests {
         let run = sort.finish().unwrap().into_prepared();
         let (release, gate) = tokio::sync::oneshot::channel();
         let actual = || {
-            crate::reader::NativeRows::owned(move |_sender| async move {
+            crate::reader::NativeRows::owned(budget.clone(), move |_sender| async move {
                 gate.await.map_err(ModelError::codec)?;
                 Ok(())
             })
@@ -2778,9 +2786,10 @@ mod prepared_expectation_tests {
         let admitted = std::sync::Arc::new(AtomicBool::new(false));
         let actual_admitted = admitted.clone();
         let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let factory_budget = budget.clone();
         let factory = move || {
             actual_admitted.store(true, Ordering::Release);
-            crate::reader::NativeRows::owned(move |_sender| async move {
+            crate::reader::NativeRows::owned(factory_budget.clone(), move |_sender| async move {
                 gate.await.map_err(ModelError::codec)?;
                 Ok(())
             })
@@ -2812,8 +2821,9 @@ mod prepared_expectation_tests {
         let runs = prepared(&budget);
         let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
         let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let factory_budget = budget.clone();
         let factory = move || {
-            crate::reader::NativeRows::owned(move |_sender| async move {
+            crate::reader::NativeRows::owned(factory_budget.clone(), move |_sender| async move {
                 gate.await.map_err(ModelError::codec)?;
                 Ok(())
             })

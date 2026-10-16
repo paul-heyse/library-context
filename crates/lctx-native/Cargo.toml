@@ -28,11 +28,13 @@ tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true
 
 [dev-dependencies]
+surrealdb-rpc = "=3.3.0"
 datafusion.workspace = true
 lctx-compiler-store = { path = "../lctx-compiler-store" }
 tracing-subscriber.workspace = true
 insta.workspace = true
 tonic = { version = "=0.14.6", features = ["transport"] }
+http-body-util = "=0.1.5"
 
 
 # Used by scripts/producer_fingerprint.rs included through build.rs's #[path],

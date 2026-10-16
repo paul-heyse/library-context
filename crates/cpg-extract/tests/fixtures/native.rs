@@ -17,7 +17,19 @@ pub async fn create_native() -> Result<Arc<NativeCompilerStore>, ModelError> {
             .unwrap()
     });
     tokio::task::spawn_blocking(move || {
-        runtime.block_on(NativeCompilerStore::begin(&config, Frontier::Catalog))
+        runtime.block_on(NativeCompilerStore::begin(
+            &config,
+            Frontier::Catalog,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        ))
     })
     .await
     .map_err(ModelError::codec)?

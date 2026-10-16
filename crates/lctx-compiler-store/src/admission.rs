@@ -3588,10 +3588,21 @@ mod reference_empty_controls {
             ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
                 .unwrap(),
         );
-        let native =
-            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-                .await
-                .unwrap();
+        let native = NativeCompilerStore::begin(
+            &config,
+            lctx_model::domain::admission::Frontier::Facts,
+            &crate::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let runtime = runtime(model.clone(), Some(native.clone()));
         let outcome = std::panic::AssertUnwindSafe(async {
             let relations = [Relation::of::<Package>(), Relation::of::<Release>()];

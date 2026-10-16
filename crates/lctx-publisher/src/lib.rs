@@ -181,9 +181,21 @@ mod publication_completion_controls {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
         ))
         .unwrap();
-        let native = NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let native = NativeCompilerStore::begin(
+            &config,
+            Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::compiler::check_installation(&config)
             .await
             .unwrap();

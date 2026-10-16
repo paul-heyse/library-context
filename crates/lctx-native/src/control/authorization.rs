@@ -190,11 +190,148 @@ pub async fn issue_attempt(
     begin_attempt_in(client, attempt, era).await?;
     Ok(attempt)
 }
-pub async fn begin_attempt_in(
-    client: &Surreal<Client>,
+/// Exact lifecycle witness held from allocation commit until durable source terminal knowledge.
+pub fn source_attempt_reference(attempt: ContentHash) -> RecordId {
+    let mut bytes = b"native-attempt-source-reference/v1".to_vec();
+    bytes.extend_from_slice(&attempt.0);
+    RecordId::new("native_outcome_ref", ContentHash::of(&bytes).hex())
+}
+pub fn request_outcome_reference(
+    request: NativeRequest,
+    policy: RecoveryReferencePolicy,
+) -> Result<RecordId, ModelError> {
+    Ok(RecordId::new(
+        "native_outcome_ref",
+        ContentHash::of(
+            &serde_json::to_vec(&(request.operation, request.operation.hex(), policy.kind()))
+                .map_err(ModelError::codec)?,
+        )
+        .hex(),
+    ))
+}
+pub fn allocation_outcome_reference(request: NativeRequest) -> Result<RecordId, ModelError> {
+    request_outcome_reference(request, RecoveryReferencePolicy::RetainCaller)
+}
+pub fn source_pin_reference(pin: ContentHash) -> RecordId {
+    let mut bytes = b"native-pin-source-reference/v1".to_vec();
+    bytes.extend_from_slice(&pin.0);
+    RecordId::new("native_outcome_ref", ContentHash::of(&bytes).hex())
+}
+/// One exact pin allocation followed by its bounded view holds. The factory
+/// registers the identity/request before either effect is submitted.
+pub struct PreparedPinAllocation {
+    pub pin: ContentHash,
+    pub request: NativeRequest,
+    payload: PreparedNativePayload<'static>,
+    objects: Vec<RecordId>,
+}
+impl PreparedPinAllocation {
+    pub async fn issue(self, client: &Surreal<Client>) -> Result<(), ModelError> {
+        let result = async {
+            execute_recorded(
+                client,
+                self.request,
+                EffectOwner::Installation,
+                self.payload,
+                true,
+            )
+            .await?;
+            super::hold(
+                client,
+                None,
+                RecordId::new("native_pin", self.pin.hex()),
+                self.objects,
+            )
+            .await
+        }
+        .await;
+        result.map_err(|source| {
+            lifecycle_error("reader pin", self.pin, self.request.issuance, source)
+        })
+    }
+}
+pub fn prepare_pin_allocation(
+    pin: ContentHash,
+    issuance: IssuanceEra,
+    views: &[ContentHash],
+) -> Result<PreparedPinAllocation, ModelError> {
+    let owner = RecordId::new("native_pin", pin.hex());
+    let objects = views
+        .iter()
+        .map(|view| RecordId::new("compiler_view", view.hex()))
+        .collect::<Vec<_>>();
+    let mut bindings = Variables::new();
+    bindings.insert("pin", owner.clone());
+    bindings.insert("issuance", issuance.era);
+    bindings.insert("views", objects.clone());
+    bindings.insert("guard", super::guard_id(&Value::RecordId(owner))?);
+    bindings.insert("source_reference", source_pin_reference(pin));
+    bindings.insert("source_consumer", pin.hex());
+    let payload = PreparedNativePayload::new(
+        "IF !$__admission.admission_open OR $__era!=$issuance { THROW 'native reader admission closed'; }; fn::native_touch($pin); LET $prior=SELECT * FROM ONLY $pin FOR UPDATE; IF $prior!=NONE { THROW 'native pin identity collision'; }; CREATE $guard SET revision=1,retired=false,phase='active',incarnation=1,tombstone_revision=0 RETURN NONE; CREATE $pin SET views=$views,released=false,epoch=$__epoch,generation=$__generation,era=$__era RETURN NONE; fn::native_touch($source_reference); IF (SELECT VALUE id FROM ONLY $source_reference)!=NONE { THROW 'native pin source retention collision'; }; CREATE $source_reference SET object=$pin,owner=$source_consumer,kind='caller' RETURN NONE;",
+        bindings,
+    )?;
+    let request = NativeRequest {
+        issuance,
+        operation: fresh_identity("pin-allocation")?,
+        request: payload.digest,
+    };
+    request.validate()?;
+    Ok(PreparedPinAllocation {
+        pin,
+        request,
+        payload,
+        objects,
+    })
+}
+/// Producer-owned prepared allocation; durable recovery stores only request and source identities.
+pub struct PreparedAttemptAllocation {
+    pub attempt: ContentHash,
+    pub request: NativeRequest,
+    payload: PreparedNativePayload<'static>,
+}
+impl PreparedAttemptAllocation {
+    pub async fn issue(self, client: &Surreal<Client>) -> Result<(), ModelError> {
+        execute_recorded(
+            client,
+            self.request,
+            EffectOwner::Installation,
+            self.payload,
+            true,
+        )
+        .await
+        .map_err(|source| {
+            ModelError::Cause(Box::new(NativeAttemptError {
+                attempt: self.attempt,
+                issuance: self.request.issuance,
+                source,
+            }))
+        })
+    }
+}
+pub fn prepare_attempt_allocation(
     attempt: ContentHash,
     era: IssuanceEra,
-) -> Result<(), ModelError> {
+) -> Result<PreparedAttemptAllocation, ModelError> {
+    let (query, mut bindings) = attempt_allocation_payload(attempt, era)?;
+    bindings.insert("source_reference", source_attempt_reference(attempt));
+    let payload = PreparedNativePayload::new(query, bindings)?;
+    let request = NativeRequest {
+        issuance: era,
+        operation: fresh_identity("attempt-allocation")?,
+        request: payload.digest,
+    };
+    request.validate()?;
+    Ok(PreparedAttemptAllocation {
+        attempt,
+        request,
+        payload,
+    })
+}
+fn attempt_allocation_payload(
+    attempt: ContentHash,
+    era: IssuanceEra,
+) -> Result<(&'static str, Variables), ModelError> {
     let mut bindings = Variables::new();
     bindings.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
     bindings.insert(
@@ -204,14 +341,22 @@ pub async fn begin_attempt_in(
             attempt.hex(),
         )))?,
     );
-    bindings.insert("__generation", era.generation.hex());
-    bindings.insert("__era", era.era);
-    coordination::bind_stripe(&mut bindings, attempt);
-    let query = format!(
-        "BEGIN; {ERA_GUARD} LET $existing=SELECT * FROM ONLY $attempt FOR UPDATE; IF $existing!=NONE {{ IF $existing.generation!=$__generation OR $existing.era!=$__era OR $existing.epoch<=0 {{ THROW 'native attempt identity collision'; }}; }} ELSE {{ IF !$__admission.admission_open {{ THROW 'native installation admission closed'; }}; IF (SELECT VALUE id FROM ONLY $attempt_guard)!=NONE {{ THROW 'native attempt guard identity collision'; }}; fn::native_touch($attempt); CREATE $attempt_guard SET phase='active',incarnation=1,tombstone_revision=0,revision=1,retired=false,retiring_item=NONE RETURN NONE; CREATE $attempt SET generation=$__generation,era=$__era,state='open',revision=0,admitted=false,epoch=1 RETURN NONE; }}; COMMIT;"
-    );
-    coordination::preflight(&query, &bindings)?;
-    super::run_transaction(client, &query, bindings)
+    bindings.insert("attempt_generation", era.generation.hex());
+    bindings.insert("attempt_era", era.era);
+    bindings.insert("source_reference", Value::None);
+    bindings.insert("source_consumer", attempt.hex());
+    Ok((
+        "IF $__generation!=$attempt_generation OR $__era!=$attempt_era { THROW 'native attempt original issuance changed'; }; LET $existing=SELECT * FROM ONLY $attempt FOR UPDATE; IF $existing!=NONE { IF $existing.generation!=$__generation OR $existing.era!=$__era OR $existing.epoch<=0 { THROW 'native attempt identity collision'; }; fn::native_attempt_validate($attempt,$__generation,$__era,$existing.epoch); } ELSE { IF !$__admission.admission_open { THROW 'native installation admission closed'; }; IF (SELECT VALUE id FROM ONLY $attempt_guard)!=NONE { THROW 'native attempt guard identity collision'; }; LET $predicate=type::record('native_predicate',[$attempt]); IF (SELECT VALUE id FROM ONLY $predicate)!=NONE { THROW 'native attempt predicate identity collision'; }; CREATE $predicate SET revision=1 RETURN NONE; CREATE $attempt_guard SET phase='active',incarnation=1,tombstone_revision=0,revision=1,retired=false,retiring_item=NONE RETURN NONE; CREATE $attempt SET generation=$__generation,era=$__era,state='open',revision=0,admitted=false,epoch=1 RETURN NONE; fn::native_attempt_initialize($attempt,$__generation,$__era,1); }; IF $source_reference!=NONE { fn::native_touch($source_reference); LET $prior_source=SELECT * FROM ONLY $source_reference FOR UPDATE; IF $prior_source!=NONE AND ($prior_source.object!=$attempt OR $prior_source.owner!=$source_consumer OR $prior_source.kind!='caller') { THROW 'native source retention collision'; }; UPSERT $source_reference SET object=$attempt,owner=$source_consumer,kind='caller' RETURN NONE; };",
+        bindings,
+    ))
+}
+pub async fn begin_attempt_in(
+    client: &Surreal<Client>,
+    attempt: ContentHash,
+    era: IssuanceEra,
+) -> Result<(), ModelError> {
+    let (query, bindings) = attempt_allocation_payload(attempt, era)?;
+    effect_for_owner(client, EffectOwner::Installation, query, bindings)
         .await
         .map_err(|source| {
             ModelError::Cause(Box::new(NativeAttemptError {
@@ -405,6 +550,7 @@ fn intent_bindings(payload: &Variables) -> Result<Variables, ModelError> {
         "__attempt",
         "__owner_id",
         "__owner_kind",
+        "__attempt_slot",
         "__stripe",
     ] {
         controls.insert(
@@ -533,7 +679,10 @@ pub(super) async fn execute_prepared_owner_effect(
     let PreparedOwnerEffect { request, plan } = prepared;
     // Sizing did not accept a receipt. Register only the exact already prepared request.
     super::receipts::accepted(request).map_err(|error| request.error(error))?;
-    let result = execute_owner_plan(client, request, plan).await;
+    let result = match execute_owner_plan(client, request, plan) {
+        Ok(run) => run.await,
+        Err(error) => Err(error),
+    };
     let disposition = if result.is_ok() {
         Some(EffectDisposition::Committed)
     } else if super::receipts::active() {
@@ -631,12 +780,13 @@ async fn execute_recorded(
     result
 }
 pub(super) struct OwnerEffectPlan {
-    query: String,
-    intent: String,
-    intent_bindings: Variables,
-    bindings: Variables,
+    pub(super) query: String,
+    pub(super) intent: String,
+    pub(super) intent_bindings: Variables,
+    pub(super) bindings: Variables,
     reference: RecordId,
     retain: bool,
+    recovery_owner: RecoveryOwner,
 }
 /// Pure shared protocol lowering: sizing and execution use precisely the same wrappers.
 pub(super) fn owner_effect_plan(
@@ -650,14 +800,14 @@ pub(super) fn owner_effect_plan(
     request.bind(&mut bindings);
     let reference_owner = request.operation.hex();
     let reference_kind = if retain { "caller" } else { "recovery" };
-    let reference = RecordId::new(
-        "native_outcome_ref",
-        ContentHash::of(
-            &serde_json::to_vec(&(request.operation, &reference_owner, reference_kind))
-                .map_err(ModelError::codec)?,
-        )
-        .hex(),
-    );
+    let reference = request_outcome_reference(
+        request,
+        if retain {
+            RecoveryReferencePolicy::RetainCaller
+        } else {
+            RecoveryReferencePolicy::ReleaseRecovery
+        },
+    )?;
     bindings.insert("__outcome_ref", reference.clone());
     bindings.insert("__reference_owner", reference_owner);
     bindings.insert("__reference_kind", reference_kind);
@@ -683,24 +833,50 @@ pub(super) fn owner_effect_plan(
         owner_id.clone().map(Value::RecordId).unwrap_or(Value::None),
     );
     bindings.insert("__owner_kind", owner.kind());
+    bindings.insert(
+        "__attempt_slot",
+        attempt
+            .map(|_| {
+                surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(
+                    request.operation,
+                ))
+            })
+            .unwrap_or(Value::None),
+    );
     if let EffectOwner::TerminalAttempt(owner) = &owner {
         bindings.insert("__expected_epoch", owner.epoch);
     }
     let predicate = owner.predicate();
-    let authorization = if !installation_owner {
+    let authorization = if attempt.is_some() {
+        format!(
+            "LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.generation!=$__generation OR $__owner.era!=$__era OR !({predicate}) {{ THROW 'native owner fenced'; }}; LET $__epoch=$__owner.epoch;"
+        )
+    } else if !installation_owner {
         format!(
             "fn::native_touch($__owner_id); LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.generation!=$__generation OR $__owner.era!=$__era OR !({predicate}) {{ THROW 'native owner fenced'; }}; fn::native_incidence($__owner); LET $__epoch=$__owner.epoch;"
         )
     } else {
         "fn::native_touch($__owner_id); LET $__local=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__local=NONE { CREATE $__owner_id SET generation=$__generation,era=$__era,epoch=1,operation=$__reference_owner,state='open' RETURN NONE; } ELSE IF $__local.generation!=$__generation OR $__local.era!=$__era OR $__local.operation!=$__reference_owner OR $__local.epoch!=1 { THROW 'native installation operation owner collision'; }; LET $__epoch=1;".into()
     };
+    let context = "{attempt:$__attempt,effect:$__effect,generation:$__generation,era:$__era,epoch:$__epoch,request:$__request,slot:$__attempt_slot}";
+    let participation = if attempt.is_some() {
+        format!(
+            "LET $__attempt_context={context}; fn::native_attempt_participate($__attempt_context);"
+        )
+    } else {
+        "LET $__attempt_context=NONE;".to_owned()
+    };
     let intent = format!(
-        "BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); fn::native_touch($__attempt); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch RETURN NONE; CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind {{ THROW 'native operation identity collision'; }}; }}; COMMIT;"
+        "BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch,attempt_slot=$__attempt_slot RETURN NONE; {participation} CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind OR $__prior.attempt!=$__attempt OR $__prior.attempt_slot!=$__attempt_slot {{ THROW 'native operation identity collision'; }}; }}; COMMIT;"
     );
     // Intent persists authorization and outcome identity, never the payload's row
     // bindings. The full payload remains owned for its one later execution.
     let intent_bindings = intent_bindings(&bindings)?;
-    let fence = if !installation_owner {
+    let fence = if attempt.is_some() {
+        format!(
+            "LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }};"
+        )
+    } else if !installation_owner {
         format!(
             "fn::native_touch($__owner_id); LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }}; fn::native_incidence($__owner);"
         )
@@ -710,7 +886,7 @@ pub(super) fn owner_effect_plan(
     // A payload RETURN belongs to that payload, never the outer transaction.
     // The closure catches RETURN while errors still abort payload and receipt together.
     let query = format!(
-        "BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; fn::native_touch($__effect); fn::native_touch($__attempt); {fence} {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; IF $__operation.owner_kind='installation' {{ UPDATE $__owner_id SET state='done' RETURN NONE; }}; }}; COMMIT;",
+        "BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; fn::native_touch($__effect); {fence} {participation} {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; IF $__operation.owner_kind='installation' {{ UPDATE $__owner_id SET state='done' RETURN NONE; }}; }}; COMMIT;",
         coordination::EXPECTED_OBJECT_GUARD
     );
     coordination::preflight(&query, &bindings)?;
@@ -722,6 +898,7 @@ pub(super) fn owner_effect_plan(
         bindings,
         reference,
         retain,
+        recovery_owner: RecoveryOwner::from_effect(owner),
     })
 }
 async fn execute_owner(
@@ -732,74 +909,771 @@ async fn execute_owner(
     retain: bool,
 ) -> Result<(), ModelError> {
     let plan = owner_effect_plan(request, &owner, payload.sql, payload.bindings, retain)?;
-    execute_owner_plan(client, request, plan).await
+    execute_owner_plan(client, request, plan)?.await
 }
-async fn execute_owner_plan(
-    client: &Surreal<Client>,
+fn execute_owner_plan<'a>(
+    client: &'a Surreal<Client>,
     request: NativeRequest,
     plan: OwnerEffectPlan,
-) -> Result<(), ModelError> {
-    let OwnerEffectPlan {
-        query,
-        intent,
-        intent_bindings,
-        bindings,
-        reference,
-        retain,
-    } = plan;
-    if let Err(error) =
-        super::retry::transaction_named(client, &intent, intent_bindings, false, "intent").await
-    {
-        let mut completion = lctx_model::domain::completion::Completion::default();
-        completion.step(
-            "native intent reconciliation",
-            reconcile_request(client, request).await.map(|_| ()),
-        );
-        return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
+) -> Result<futures::future::BoxFuture<'a, Result<(), ModelError>>, ModelError> {
+    use futures::FutureExt;
+    use lctx_model::domain::completion::{Completion, LocalState, RemoteState, complete};
+    let scope = capture_recovery_scope().ok_or_else(|| {
+        request.error(ModelError::Conflict(
+            "native effect requires its owning recovery scope",
+        ))
+    })?;
+    if !std::ptr::eq(scope.client().as_ref(), client) {
+        return Err(request.error(ModelError::Conflict(
+            "native recovery session correspondence",
+        )));
     }
-    let result =
-        match super::retry::transaction_named(client, &query, bindings, false, "payload").await {
-            Ok(()) => Ok(()),
-            Err(error) => match reconcile_request(client, request).await {
-                Ok(EffectDisposition::Committed) => Ok(()),
-                Ok(_) => Err(request.error(error)),
-                Err(reconciliation) => {
-                    let mut completion = lctx_model::domain::completion::Completion::default();
-                    completion.step("native effect reconciliation", Err(reconciliation));
-                    lctx_model::domain::completion::complete(Err(request.error(error)), completion)
-                }
-            },
+    let budget = scope.budget().clone();
+    let body = async move {
+        let OwnerEffectPlan {
+            query,
+            intent,
+            intent_bindings,
+            bindings,
+            reference,
+            retain,
+            recovery_owner,
+        } = plan;
+        let pending = scope
+            .prepare(
+                request,
+                recovery_owner,
+                reference,
+                if retain {
+                    RecoveryReferencePolicy::RetainCaller
+                } else {
+                    RecoveryReferencePolicy::ReleaseRecovery
+                },
+            )
+            .map_err(|error| request.error(error))?;
+        let intent_result =
+            super::retry::transaction_named(client, &intent, intent_bindings, false, "intent")
+                .await;
+        let (issued_payload, result) = match intent_result {
+            Ok(()) => (
+                true,
+                super::retry::transaction_named(client, &query, bindings, false, "payload").await,
+            ),
+            Err(error) => (false, Err(error)),
         };
-    result?;
-    if !retain {
-        let mut release = Variables::new();
-        release.insert("reference", reference);
-        release.insert(
-            "effect",
-            RecordId::new("native_effect", request.operation.hex()),
-        );
-        let current = IssuanceEra::capture(client).await?;
-        release.insert("__generation", current.generation.hex());
-        release.insert("__era", current.era);
-        coordination::bind_stripe(&mut release, request.operation);
-        let release_sql = format!(
-            "BEGIN; {ERA_GUARD} fn::native_touch($effect); fn::native_touch($reference); DELETE $reference RETURN NONE; COMMIT;"
-        );
-        if let Err(error) = super::retry::transaction_named(
-            client,
-            &release_sql,
-            release,
-            true,
-            "outcome_reference_release",
-        )
-        .await
-        {
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.committed("native effect committed", request.operation.hex());
-            return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
+        let primary = match result {
+            Ok(()) => {
+                // Durable knowledge precedes the last native witness release.
+                let settled = match pending.committed() {
+                    Ok(()) => settle_pending_recovery(&scope, &pending).await.map(|_| ()),
+                    Err(error) => Err(error),
+                };
+                return settled.map_err(|error| {
+                    let mut completion = Completion {
+                        local: LocalState::Outstanding,
+                        remote: RemoteState::Unknown,
+                        ..Completion::default()
+                    };
+                    completion.committed("native effect committed", request.operation.hex());
+                    complete::<()>(Err(request.error(error)), completion).unwrap_err()
+                });
+            }
+            Err(error) => request.error(error),
+        };
+        match settle_pending_recovery(&scope, &pending).await {
+            Ok(EffectDisposition::Committed) if issued_payload => Ok(()),
+            Ok(disposition) => {
+                let mut completion = Completion::default();
+                if disposition == EffectDisposition::Committed {
+                    completion.committed("native effect committed", request.operation.hex());
+                }
+                complete(Err(primary), completion)
+            }
+            Err(error) => {
+                let mut completion = Completion {
+                    local: LocalState::Outstanding,
+                    remote: RemoteState::Unknown,
+                    ..Completion::default()
+                };
+                if pending.inspect(|entry| entry.observed_disposition).ok()
+                    == Some(EffectDisposition::Committed)
+                {
+                    completion.committed("native effect committed", request.operation.hex());
+                }
+                completion.step("native protected recovery handback", Err(error));
+                complete(Err(primary), completion)
+            }
         }
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<
+            Box<dyn lctx_model::domain::resources::Reservation>,
+        >())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema("native effect continuation size"))?;
+    let charge = budget.reserve("native effect continuation", bytes)?;
+    Ok(async move {
+        let _charge = charge;
+        body.await
+    }
+    .boxed())
+}
+
+/// Settle only exact original request metadata, never original production SQL.
+async fn settle_pending_recovery(
+    scope: &Arc<RecoveryScope>,
+    pending: &PendingRecovery,
+) -> Result<EffectDisposition, ModelError> {
+    settle_pending_recovery_admitted(scope, pending, scope.cancellation()).await
+}
+async fn settle_pending_recovery_admitted(
+    scope: &Arc<RecoveryScope>,
+    pending: &PendingRecovery,
+    admission: &RetryCancellation,
+) -> Result<EffectDisposition, ModelError> {
+    let body = recovery_settlement_body(scope, pending, admission)?;
+    with_recovery_scope(
+        scope.clone(),
+        with_retry_context(super::retry::recovery_admission_context(admission), body),
+    )
+    .await
+}
+// Erase the logical settlement body before composing task-local policy wrappers.
+// This keeps each caller's concrete future independent of the nested native stack.
+fn recovery_settlement_body<'a>(
+    scope: &'a Arc<RecoveryScope>,
+    pending: &'a PendingRecovery,
+    admission: &'a RetryCancellation,
+) -> Result<futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>>, ModelError> {
+    use futures::FutureExt;
+    let body = async move {
+        if admission.stopped() {
+            return Err(ModelError::Conflict(
+                "native recovery issuance stopped; owner retained",
+            ));
+        }
+        let envelope = pending.inspect(Clone::clone)?;
+        let disposition = match envelope.action {
+            RecoveryAction::ReconcileOriginalRequest => {
+                let reconcile = reconcile_pending_envelope(scope.client(), &envelope, admission);
+                let _reconcile_charge = scope.budget().reserve(
+                    "native original request reconciliation future",
+                    std::mem::size_of_val(&reconcile),
+                )?;
+                let disposition = reconcile.boxed().await?;
+                pending.observed(disposition)?;
+                disposition
+            }
+            RecoveryAction::ReleaseTerminalReference => envelope.observed_disposition,
+        };
+        let terminal = pending.inspect(Clone::clone)?;
+        let release = settle_reference(scope.client(), &terminal, admission);
+        let _release_charge = scope.budget().reserve(
+            "native exact reference settlement future",
+            std::mem::size_of_val(&release),
+        )?;
+        release.boxed().await?;
+        pending.settle(disposition)?;
+        Ok(disposition)
+    };
+    // The returned future owns both its body and the grant through completion.
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<
+            Box<dyn lctx_model::domain::resources::Reservation>,
+        >())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema("native settlement future size"))?;
+    let charge = scope
+        .budget()
+        .reserve("native exact request settlement future", bytes)?;
+    Ok(async move {
+        let _charge = charge;
+        body.await
+    }
+    .boxed())
+}
+// Only this protocol's still-pending owner can discharge a compacted/never-issued
+// request. Permanent era fencing plus atomically retained witnesses is the proof;
+// a missing outcome alone still means CompactedTerminal to ordinary observers.
+pub(super) async fn prove_compacted_owner_absent(
+    client: &Surreal<Client>,
+    request: NativeRequest,
+    reference: &RecordId,
+    objects: &[RecordId],
+    admission: &RetryCancellation,
+) -> Result<(), ModelError> {
+    request.validate()?;
+    if admission.stopped() {
+        return Err(ModelError::Conflict(
+            "native compacted proof issuance stopped",
+        ));
+    }
+    let scope = capture_recovery_scope().ok_or(ModelError::Conflict(
+        "native compacted proof requires owning scope",
+    ))?;
+    if !std::ptr::eq(scope.client().as_ref(), client) {
+        return Err(ModelError::Conflict(
+            "native compacted proof session correspondence",
+        ));
+    }
+    let reader = scope.finalization_reader(admission).await?;
+    let mut records = Vec::with_capacity(2 + objects.len());
+    records.push(RecordId::new("native_effect", request.operation.hex()));
+    records.push(reference.clone());
+    records.extend_from_slice(objects);
+    let proof: Object = reader.query_native("RETURN {installation:(SELECT generation,closed_through FROM ONLY native_installation:current),records:(SELECT VALUE id FROM $records)}",
+        Variables::from_iter([("records".into(), surrealdb::types::SurrealValue::into_value(records))])).await?;
+    let installation = proof
+        .get("installation")
+        .and_then(|value| value.as_object())
+        .ok_or(ModelError::Conflict(
+            "native compacted owner installation cardinality",
+        ))?;
+    let records = proof
+        .get("records")
+        .and_then(|value| value.as_array())
+        .ok_or(ModelError::Conflict(
+            "native compacted owner record inventory",
+        ))?;
+    if hash_field(installation, "generation")? != request.issuance.generation
+        || int_field(installation, "closed_through")? < request.issuance.era
+        || !records.is_empty()
+    {
+        return Err(ModelError::Conflict(
+            "native compacted owner lacks permanent cut/absent retained witnesses",
+        ));
     }
     Ok(())
+}
+pub(super) async fn reconcile_pending_envelope(
+    client: &Surreal<Client>,
+    envelope: &PendingRecoveryEnvelope,
+    admission: &RetryCancellation,
+) -> Result<EffectDisposition, ModelError> {
+    envelope.validate(&envelope.target)?;
+    if envelope.action != RecoveryAction::ReconcileOriginalRequest
+        || envelope.observed_disposition != EffectDisposition::Pending
+    {
+        return Err(ModelError::Conflict(
+            "native pending owner reconciliation phase",
+        ));
+    }
+    let disposition = reconcile_request(client, envelope.request).await?;
+    if disposition == EffectDisposition::CompactedTerminal {
+        prove_compacted_owner_absent(
+            client,
+            envelope.request,
+            &envelope.outcome_reference,
+            &[],
+            admission,
+        )
+        .await?;
+    }
+    Ok(disposition)
+}
+pub(super) async fn settle_reference(
+    client: &Surreal<Client>,
+    envelope: &PendingRecoveryEnvelope,
+    admission: &RetryCancellation,
+) -> Result<(), ModelError> {
+    envelope.validate(&envelope.target)?;
+    let request = envelope.request;
+    if envelope.observed_disposition == EffectDisposition::CompactedTerminal {
+        if envelope.action != RecoveryAction::ReleaseTerminalReference {
+            return Err(ModelError::Conflict(
+                "native compacted settlement requires durable terminal knowledge",
+            ));
+        }
+        return prove_compacted_owner_absent(
+            client,
+            request,
+            &envelope.outcome_reference,
+            &[],
+            admission,
+        )
+        .await;
+    }
+    let mut bindings = Variables::new();
+    bindings.insert("reference", envelope.outcome_reference.clone());
+    bindings.insert(
+        "effect",
+        RecordId::new("native_effect", request.operation.hex()),
+    );
+    bindings.insert("owner", request.operation.hex());
+    bindings.insert("kind", envelope.reference_policy.kind());
+    bindings.insert("original_era", request.issuance.era);
+    bindings.insert(
+        "known_committed",
+        envelope.observed_disposition == EffectDisposition::Committed,
+    );
+    if !matches!(
+        envelope.observed_disposition,
+        EffectDisposition::Committed | EffectDisposition::FencedUncommitted
+    ) {
+        return Err(ModelError::Conflict(
+            "native recovery terminal knowledge missing",
+        ));
+    }
+    request.bind(&mut bindings);
+    let current = IssuanceEra::capture(client).await?;
+    if current.generation != request.issuance.generation {
+        return Err(ModelError::Conflict("native recovery reference generation"));
+    }
+    bindings.insert("__era", current.era);
+    coordination::bind_stripe(&mut bindings, request.operation);
+    let check = "LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE AND ($prior.effect!=$effect OR $prior.owner!=$owner OR $prior.kind!=$kind) { THROW 'native recovery reference correspondence'; }; LET $outcome=SELECT * FROM ONLY $effect FOR UPDATE; IF $outcome!=NONE { IF $outcome.request!=$__request OR $outcome.generation!=$__generation OR $outcome.era!=$original_era OR !$outcome.resolved OR $outcome.committed!=$known_committed { THROW 'native recovery terminal outcome correspondence'; }; } ELSE IF $original_era>$__installation.closed_through { THROW 'native recovery terminal witness unexpectedly absent'; };";
+    let action = if envelope.reference_policy == RecoveryReferencePolicy::RetainCaller {
+        // An absent-intent fence can establish the explicitly requested caller
+        // reference now. Never recreate absent/compacted operation history.
+        "IF $outcome=NONE { THROW 'native caller outcome unavailable'; }; UPSERT $reference SET effect=$effect,owner=$owner,kind=$kind RETURN NONE;"
+    } else {
+        "DELETE $reference RETURN NONE;"
+    };
+    let sql = format!(
+        "BEGIN; {ERA_GUARD} fn::native_touch($effect); fn::native_touch($reference); {check} {action} COMMIT;"
+    );
+    coordination::preflight(&sql, &bindings)?;
+    super::retry::transaction_named(client, &sql, bindings, true, "outcome_reference_settlement")
+        .await
+}
+/// The actual parent finalization owner calls this after joining submitted work.
+/// Failed admission/settlement leaves both durable metadata and the owning scope.
+pub async fn resume_recovery_scope(scope: &Arc<RecoveryScope>) -> Result<(), ModelError> {
+    resume_recovery_scope_admitted(scope, scope.cancellation()).await
+}
+/// An explicit parent handback recipient may admit a separate recovery operation
+/// after original producers have joined. This never reopens production admission.
+pub async fn resume_recovery_scope_admitted(
+    scope: &Arc<RecoveryScope>,
+    admission: &RetryCancellation,
+) -> Result<(), ModelError> {
+    scope.join_finalization_reads().await?;
+    while let Some(pending) = scope.first_pending()? {
+        settle_pending_recovery_admitted(scope, &pending, admission).await?;
+    }
+    Ok(())
+}
+/// Settle allocation and earn exact source terminal knowledge while both native
+/// witnesses remain held. The factory persists that knowledge before release.
+pub fn finalize_factory_source_admitted<'a>(
+    scope: &'a Arc<RecoveryScope>,
+    marker: &'a super::SourceFinalizationMarker,
+    admission: &'a RetryCancellation,
+    abandon: bool,
+) -> futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>> {
+    use futures::FutureExt;
+    async move {
+        scope.join_finalization_reads().await?;
+        if marker.phase == super::SourceFinalizationPhase::SourceTerminal {
+            return match marker.allocation_disposition {
+                EffectDisposition::Committed
+                | EffectDisposition::FencedUncommitted
+                | EffectDisposition::CompactedTerminal => Ok(marker.allocation_disposition),
+                _ => Err(ModelError::Conflict(
+                    "native source terminal allocation knowledge",
+                )),
+            };
+        }
+        with_retry_context(
+            super::retry::recovery_admission_context(admission),
+            with_recovery_scope(
+                scope.clone(),
+                source_finalization_body(scope, marker, admission, abandon)?,
+            ),
+        )
+        .await
+    }
+    .boxed()
+}
+/// A durable SourceTerminal marker is the surviving witness throughout these
+/// separately recorded releases; neither action replays the allocation payload.
+fn source_finalization_body<'a>(
+    scope: &'a Arc<RecoveryScope>,
+    marker: &'a super::SourceFinalizationMarker,
+    admission: &'a RetryCancellation,
+    abandon: bool,
+) -> Result<futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>>, ModelError> {
+    use futures::FutureExt;
+    let body = async move {
+        if admission.stopped() {
+            return Err(ModelError::Conflict(
+                "native source recovery issuance stopped",
+            ));
+        }
+        if marker.original_epoch != 1
+            || marker.target != *scope.target()
+            || marker.allocation.issuance.generation != marker.target.generation
+        {
+            return Err(ModelError::Conflict(
+                "native source finalization correspondence",
+            ));
+        }
+        let disposition = reconcile_request(scope.client(), marker.allocation).await?;
+        if disposition == EffectDisposition::CompactedTerminal {
+            if marker.phase != super::SourceFinalizationPhase::AllocationPending {
+                return Err(ModelError::Conflict(
+                    "native active source lost its allocation witness",
+                ));
+            }
+            prove_compacted_owner_absent(
+                scope.client(),
+                marker.allocation,
+                &allocation_outcome_reference(marker.allocation)?,
+                &[
+                    RecordId::new("native_attempt", marker.attempt.hex()),
+                    source_attempt_reference(marker.attempt),
+                ],
+                admission,
+            )
+            .await?;
+            return Ok(disposition);
+        }
+        let mut vars = Variables::new();
+        vars.insert(
+            "attempt",
+            RecordId::new("native_attempt", marker.attempt.hex()),
+        );
+        let reader = scope.finalization_reader(admission).await?;
+        let rows: Vec<Object> = reader.query_native("SELECT * FROM $attempt", vars).await?;
+        if disposition == EffectDisposition::FencedUncommitted {
+            if !rows.is_empty() {
+                return Err(ModelError::Conflict(
+                    "fenced source allocation has an attempt",
+                ));
+            }
+            return Ok(disposition);
+        }
+        if disposition != EffectDisposition::Committed {
+            return Err(ModelError::Conflict(
+                "native source allocation remains uncertain",
+            ));
+        }
+        let [row] = rows.as_slice() else {
+            return Err(ModelError::Conflict("native source attempt cardinality"));
+        };
+        if hash_field(row, "generation")? != marker.target.generation
+            || int_field(row, "era")? != marker.allocation.issuance.era
+            || int_field(row, "epoch")? != marker.original_epoch
+        {
+            return Err(ModelError::Conflict(
+                "native source attempt identity changed",
+            ));
+        }
+        let terminal = matches!(row.get("state"), Some(Value::String(state)) if matches!(state.as_str(), "closed" | "abandoned"));
+        if terminal {
+            let holds: Vec<RecordId> = reader.query_native(
+                    "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt LIMIT 1",
+                    Variables::from_iter([("attempt".into(), Value::RecordId(RecordId::new("native_attempt", marker.attempt.hex())))]),
+                ).await?;
+            if !holds.is_empty() {
+                return Err(ModelError::Conflict(
+                    "native terminal source still holds objects",
+                ));
+            }
+        }
+        if abandon && !terminal {
+            let close = super::close_attempt(scope.client(), marker.attempt, "abandoned");
+            let _close_charge = scope
+                .budget()
+                .reserve("native source close future", std::mem::size_of_val(&close))?;
+            close.boxed().await?;
+        } else if !terminal {
+            return Err(ModelError::Conflict(
+                "native source attempt is not terminal",
+            ));
+        }
+        Ok(disposition)
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<
+            Box<dyn lctx_model::domain::resources::Reservation>,
+        >())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema("native source finalization future size"))?;
+    let charge = scope
+        .budget()
+        .reserve("native source finalization future", bytes)?;
+    Ok(async move {
+        let _charge = charge;
+        body.await
+    }
+    .boxed())
+}
+pub async fn release_factory_source_references_admitted(
+    scope: &Arc<RecoveryScope>,
+    marker: &super::SourceFinalizationMarker,
+    admission: &RetryCancellation,
+) -> Result<(), ModelError> {
+    scope.join_finalization_reads().await?;
+    if admission.stopped() {
+        return Err(ModelError::Conflict(
+            "native reference release issuance stopped",
+        ));
+    }
+    let body =
+        release_factory_references_body(scope, FactoryReferenceRelease::Source(marker), admission)?;
+    if marker.phase == super::SourceFinalizationPhase::SourceTerminal
+        && marker.allocation_disposition == EffectDisposition::CompactedTerminal
+    {
+        return with_recovery_scope(scope.clone(), body).await;
+    }
+    with_retry_context(
+        super::retry::recovery_admission_context(admission),
+        with_recovery_scope(scope.clone(), body),
+    )
+    .await
+}
+// Ordinary release and the permanently compacted absence proof are alternatives
+// of the same witness-release action. Both cross the erased boundary before any
+// task-local policy wrappers; neither can expose an unbounded proof future there.
+enum FactoryReferenceRelease<'a> {
+    Source(&'a super::SourceFinalizationMarker),
+    Pin(&'a super::PinFinalizationMarker),
+}
+fn release_factory_references_body<'a>(
+    scope: &'a Arc<RecoveryScope>,
+    release: FactoryReferenceRelease<'a>,
+    admission: &'a RetryCancellation,
+) -> Result<futures::future::BoxFuture<'a, Result<(), ModelError>>, ModelError> {
+    use futures::FutureExt;
+    let body = async move {
+        let (allocation, phase, disposition, identity, table, reference, terminal_error) =
+            match release {
+                FactoryReferenceRelease::Source(marker) => (
+                    marker.allocation,
+                    marker.phase,
+                    marker.allocation_disposition,
+                    marker.attempt,
+                    "native_attempt",
+                    source_attempt_reference(marker.attempt),
+                    "native source durable terminal marker required",
+                ),
+                FactoryReferenceRelease::Pin(marker) => (
+                    marker.allocation,
+                    marker.phase,
+                    marker.allocation_disposition,
+                    marker.pin,
+                    "native_pin",
+                    source_pin_reference(marker.pin),
+                    "native pin durable terminal marker required",
+                ),
+            };
+        if phase == super::SourceFinalizationPhase::SourceTerminal
+            && disposition == EffectDisposition::CompactedTerminal
+        {
+            return prove_compacted_owner_absent(
+                scope.client(),
+                allocation,
+                &allocation_outcome_reference(allocation)?,
+                &[RecordId::new(table, identity.hex()), reference],
+                admission,
+            )
+            .await;
+        }
+        if phase != super::SourceFinalizationPhase::SourceTerminal
+            || !matches!(
+                disposition,
+                EffectDisposition::Committed | EffectDisposition::FencedUncommitted
+            )
+        {
+            return Err(ModelError::Conflict(terminal_error));
+        }
+        if admission.stopped() {
+            return Err(ModelError::Conflict(
+                "native source/pin reference release stopped",
+            ));
+        }
+        super::history::release_outcome_reference(
+            scope.client(),
+            reference,
+            &identity.hex(),
+            "caller",
+        )
+        .await?;
+        super::history::release_outcome(
+            scope.client(),
+            allocation,
+            &allocation.operation.hex(),
+            "caller",
+        )
+        .await
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<
+            Box<dyn lctx_model::domain::resources::Reservation>,
+        >())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema(
+            "native witness release continuation size",
+        ))?;
+    let charge = scope
+        .budget()
+        .reserve("native source/pin witness release continuation", bytes)?;
+    Ok(async move {
+        let _charge = charge;
+        body.await
+    }
+    .boxed())
+}
+
+#[derive(Clone, Copy)]
+pub enum PinFinalizationAuthority {
+    VerifyReleased,
+    /// The actual factory has joined query owners and checked pin borrowers/certainty.
+    OwnedDrained,
+    /// The explicit resumer authenticated the original host's loss under closed maintenance.
+    HostGoneMaintenance,
+}
+pub fn finalize_factory_pin_admitted<'a>(
+    scope: &'a Arc<RecoveryScope>,
+    marker: &'a super::PinFinalizationMarker,
+    admission: &'a RetryCancellation,
+    authority: PinFinalizationAuthority,
+) -> futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>> {
+    use futures::FutureExt;
+    async move {
+        scope.join_finalization_reads().await?;
+        if marker.phase == super::SourceFinalizationPhase::SourceTerminal {
+            return match marker.allocation_disposition {
+                EffectDisposition::Committed
+                | EffectDisposition::FencedUncommitted
+                | EffectDisposition::CompactedTerminal => Ok(marker.allocation_disposition),
+                _ => Err(ModelError::Conflict(
+                    "native pin terminal allocation knowledge",
+                )),
+            };
+        }
+        with_retry_context(
+            super::retry::recovery_admission_context(admission),
+            with_recovery_scope(
+                scope.clone(),
+                pin_finalization_body(scope, marker, admission, authority)?,
+            ),
+        )
+        .await
+    }
+    .boxed()
+}
+fn pin_finalization_body<'a>(
+    scope: &'a Arc<RecoveryScope>,
+    marker: &'a super::PinFinalizationMarker,
+    admission: &'a RetryCancellation,
+    authority: PinFinalizationAuthority,
+) -> Result<futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>>, ModelError> {
+    use futures::FutureExt;
+    let body = async move {
+        if admission.stopped() {
+            return Err(ModelError::Conflict("native pin recovery issuance stopped"));
+        }
+        if marker.original_epoch != 1
+            || marker.target != *scope.target()
+            || marker.allocation.issuance.generation != marker.target.generation
+        {
+            return Err(ModelError::Conflict(
+                "native pin finalization correspondence",
+            ));
+        }
+        let disposition = reconcile_request(scope.client(), marker.allocation).await?;
+        if disposition == EffectDisposition::CompactedTerminal {
+            if marker.phase != super::SourceFinalizationPhase::AllocationPending {
+                return Err(ModelError::Conflict(
+                    "native active pin lost its allocation witness",
+                ));
+            }
+            prove_compacted_owner_absent(
+                scope.client(),
+                marker.allocation,
+                &allocation_outcome_reference(marker.allocation)?,
+                &[
+                    RecordId::new("native_pin", marker.pin.hex()),
+                    source_pin_reference(marker.pin),
+                ],
+                admission,
+            )
+            .await?;
+            return Ok(disposition);
+        }
+        let vars = Variables::from_iter([(
+            "pin".into(),
+            Value::RecordId(RecordId::new("native_pin", marker.pin.hex())),
+        )]);
+        let reader = scope.finalization_reader(admission).await?;
+        let rows: Vec<Object> = reader.query_native("SELECT * FROM $pin", vars).await?;
+        if disposition == EffectDisposition::FencedUncommitted {
+            if !rows.is_empty() {
+                return Err(ModelError::Conflict("fenced pin allocation has a pin"));
+            }
+            return Ok(disposition);
+        }
+        if disposition != EffectDisposition::Committed {
+            return Err(ModelError::Conflict(
+                "native pin allocation remains uncertain",
+            ));
+        }
+        let [row] = rows.as_slice() else {
+            return Err(ModelError::Conflict("native pin finalization cardinality"));
+        };
+        if hash_field(row, "generation")? != marker.target.generation
+            || int_field(row, "era")? != marker.allocation.issuance.era
+            || int_field(row, "epoch")? != marker.original_epoch
+        {
+            return Err(ModelError::Conflict(
+                "native pin allocation identity changed",
+            ));
+        }
+        match authority {
+            PinFinalizationAuthority::VerifyReleased => {
+                if row.get("released") != Some(&Value::Bool(true)) {
+                    return Err(ModelError::Conflict("native pin is not released"));
+                }
+            }
+            PinFinalizationAuthority::OwnedDrained => {
+                super::release_pin_checked(scope.client(), marker.pin, false).await?
+            }
+            PinFinalizationAuthority::HostGoneMaintenance => {
+                super::release_pin_checked(scope.client(), marker.pin, true).await?
+            }
+        }
+        Ok(disposition)
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<
+            Box<dyn lctx_model::domain::resources::Reservation>,
+        >())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema("native pin finalization future size"))?;
+    let charge = scope
+        .budget()
+        .reserve("native pin finalization future", bytes)?;
+    Ok(async move {
+        let _charge = charge;
+        body.await
+    }
+    .boxed())
+}
+pub async fn release_factory_pin_references_admitted(
+    scope: &Arc<RecoveryScope>,
+    marker: &super::PinFinalizationMarker,
+    admission: &RetryCancellation,
+) -> Result<(), ModelError> {
+    scope.join_finalization_reads().await?;
+    if admission.stopped() {
+        return Err(ModelError::Conflict(
+            "native reference release issuance stopped",
+        ));
+    }
+    let body =
+        release_factory_references_body(scope, FactoryReferenceRelease::Pin(marker), admission)?;
+    if marker.phase == super::SourceFinalizationPhase::SourceTerminal
+        && marker.allocation_disposition == EffectDisposition::CompactedTerminal
+    {
+        return with_recovery_scope(scope.clone(), body).await;
+    }
+    with_retry_context(
+        super::retry::recovery_admission_context(admission),
+        with_recovery_scope(scope.clone(), body),
+    )
+    .await
 }
 // Observation retains the original row for owner validation without acquiring fresh
 // owner authority or performing a second racy receipt lookup after an era cut.
@@ -961,10 +1835,21 @@ mod payload_controls {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store =
-            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-                .await
-                .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            lctx_model::domain::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -1117,6 +2002,7 @@ mod payload_controls {
             "__attempt",
             "__owner_id",
             "__owner_kind",
+            "__attempt_slot",
             "__stripe",
         ] {
             payload.insert(key, "control");
@@ -1188,3 +2074,129 @@ mod owner_effect_packet_controls {
         );
     }
 }
+
+#[cfg(test)]
+mod compacted_owner_controls {
+    use super::*;
+    use lctx_model::domain::resources::{DEFAULT_MEMORY_BYTES, ResourceBudget};
+
+    // Owns the installation era cut. Select only on a disposable, otherwise idle
+    // RocksDB campaign; ordinary fixture verification must never select it.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB campaign only"]
+    async fn native_never_issued_owners_settle_after_permanent_cut_without_inventing_outcomes() {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
+        ))
+        .unwrap();
+        let budget = ResourceBudget::fixed(DEFAULT_MEMORY_BYTES).unwrap();
+        let factory = RecoveryFactoryOwner::new(config.receipt_binding().unwrap(), budget).unwrap();
+        let (client, lease) = crate::reader::connect_owned(
+            &config.endpoint,
+            &config.writer_credentials(),
+            config.namespace.as_str(),
+            config.database.as_str(),
+            &factory,
+        )
+        .await
+        .unwrap();
+        let scope = lease.recovery_scope().clone();
+        with_recovery_scope(scope.clone(), async {
+            let era = IssuanceEra::capture(&client).await.unwrap();
+            let allocation =
+                prepare_attempt_allocation(fresh_identity("never-issued-source").unwrap(), era)
+                    .unwrap();
+            lease
+                .register_attempt(allocation.attempt, allocation.request)
+                .unwrap();
+            let request = NativeRequest::issue(&client, ContentHash::of(b"never-issued-request"))
+                .await
+                .unwrap();
+            let reference =
+                request_outcome_reference(request, RecoveryReferencePolicy::ReleaseRecovery)
+                    .unwrap();
+            let pending = scope
+                .prepare(
+                    request,
+                    RecoveryOwner::Installation,
+                    reference.clone(),
+                    RecoveryReferencePolicy::ReleaseRecovery,
+                )
+                .unwrap();
+            super::super::set_admission(&client, false).await.unwrap();
+            super::super::history::cut_era(&client).await.unwrap();
+            assert_eq!(
+                reconcile_request(&client, request).await.unwrap(),
+                EffectDisposition::CompactedTerminal
+            );
+            // A retained witness makes the purported absent-owner proof invalid.
+            client
+                .query(
+                    "CREATE $reference SET effect=$effect,owner=$owner,kind='recovery' RETURN NONE",
+                )
+                .bind(("reference", reference.clone()))
+                .bind((
+                    "effect",
+                    RecordId::new("native_effect", request.operation.hex()),
+                ))
+                .bind(("owner", request.operation.hex()))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            assert!(
+                prove_compacted_owner_absent(
+                    &client,
+                    request,
+                    &reference,
+                    &[],
+                    scope.cancellation()
+                )
+                .await
+                .is_err()
+            );
+            client
+                .query("DELETE $reference RETURN NONE")
+                .bind(("reference", reference.clone()))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            assert_eq!(
+                settle_pending_recovery_admitted(&scope, &pending, scope.cancellation())
+                    .await
+                    .unwrap(),
+                EffectDisposition::CompactedTerminal
+            );
+            assert_eq!(scope.pending_count().unwrap(), 0);
+            let count: i64 = scope
+                .finalization_reader(scope.cancellation())
+                .await
+                .unwrap()
+                .query_native(
+                    "RETURN array::len(SELECT VALUE id FROM $records)",
+                    Variables::from_iter([(
+                        "records".into(),
+                        surrealdb::types::SurrealValue::into_value(vec![
+                            reference,
+                            RecordId::new("native_effect", request.operation.hex()),
+                        ]),
+                    )]),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                count, 0,
+                "settlement must not synthesize an old outcome or caller reference"
+            );
+            super::super::set_admission(&client, true).await.unwrap();
+        })
+        .await;
+        lease.complete().await.unwrap();
+        assert_eq!(factory.pending_count().unwrap(), 0);
+    }
+}
+
+#[cfg(test)]
+#[path = "authorization/recovery_controls.rs"]
+mod recovery_native_controls;

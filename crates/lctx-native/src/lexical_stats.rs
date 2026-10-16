@@ -203,7 +203,7 @@ fn documents<Context>(
 ) -> Result<crate::reader::NativeRows, ModelError> {
     let reader = reader.transport_reader();
     let budget = budget.clone();
-    crate::reader::NativeRows::owned(move |sender| async move {
+    crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let mut ids = SortedRows::with_budget(&budget)?;
         let result = async {
             while let Some(value) = nominees.next().await? {
@@ -257,7 +257,7 @@ fn documents<Context>(
                 reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![sql.into()])?)?;
             let result = async {
                 while let Some(value) = docs.next().await? {
-                    if sender.send(value).await.is_err() {
+                    if !sender.send(value).await? {
                         break;
                     }
                 }

@@ -138,7 +138,7 @@ pub(crate) async fn transfer_expected(
     let sql = format!(
         "LET $guard=SELECT * FROM ONLY $selected_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $selected_record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$selected_incarnation OR $actual!=$selected_bytes {{ THROW 'selected reader exact transfer changed'; }}; {holds}"
     );
-    effect_for_owner(&pin.client, EffectOwner::Pin(owner), &sql, variables).await?;
+    effect_for_owner(pin.client(), EffectOwner::Pin(owner), &sql, variables).await?;
     pin.ensure_live()
 }
 
@@ -165,7 +165,7 @@ pub(crate) async fn transfer_expected_many(
     let owner = RecordId::new("native_pin", pin.identity.hex());
     let authority = EffectOwner::Pin(owner.clone());
     let _scope = budget.reserve("receiving CAS fixed owner context", 8192)?;
-    let issuance = authorization::owner_issuance(&pin.client, &authority).await?;
+    let issuance = authorization::owner_issuance(pin.client(), &authority).await?;
     let mut offset = 0;
     while offset < records.len() {
         let mut count = (records.len() - offset).min(crate::loader::NATIVE_WINDOW_ROWS);
@@ -207,7 +207,7 @@ pub(crate) async fn transfer_expected_many(
                 "FOR $expected IN $selected {{ LET $record=$expected.record; LET $guard_id=$expected.guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; LET $actual=SELECT * FROM ONLY $record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$expected.incarnation OR $actual!=$expected.bytes {{ THROW 'selected reader exact transfer changed'; }}; }}; {holds}"
             );
             let prepared = match authorization::prepare_owner_effect(
-                &pin.client,
+                pin.client(),
                 &authority,
                 issuance,
                 &sql,
@@ -229,7 +229,7 @@ pub(crate) async fn transfer_expected_many(
             if prepared.bytes()? > _workspace.size() {
                 return Err(ModelError::Schema("receiving exact CAS construction bound"));
             }
-            authorization::execute_prepared_owner_effect(&pin.client, prepared).await?;
+            authorization::execute_prepared_owner_effect(pin.client(), prepared).await?;
             pin.ensure_live()?;
             offset += count;
             break;

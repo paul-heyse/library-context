@@ -3010,116 +3010,122 @@ async fn audit_membership_window(
     );
     d::completion::complete(result, terminal)
 }
-async fn audit_original(
-    reader: &NativeReader<()>,
-    original: &crate::completed_rows::OriginalBacking,
-    budget: &ResourceBudget,
-    audit: &InstallationAudit,
-) -> Result<(), ModelError> {
-    let source = d::graph::EntityId::of(original.artifact);
-    let layout = crate::originals::layout(reader, &RecordId::new("original", source.0.hex()))
-        .await?
-        .ok_or(ModelError::Conflict("installed original layout"))?;
-    crate::originals::validate_layout(reader, &layout).await?;
-    if !crate::originals::header(reader, &layout.blob).await? {
-        return Err(ModelError::Conflict("installed original incomplete blob"));
-    }
-    let remaining = layout
-        .blob
-        .byte_len
-        .checked_sub(original.start)
-        .ok_or(ModelError::Conflict("installed original coverage"))?;
-    if original.len as u64 != remaining.min(d::artifact::ARTIFACT_CHUNK_BYTES as u64) {
-        return Err(ModelError::Conflict("installed original coverage"));
-    }
-    let mut hash = d::ContentHasher::default();
-    let mut offset = 0;
-    while offset < original.len {
-        let length = (original.len - offset).min(256 << 10);
-        let bytes = reader
-            .original_bytes(source, original.start + offset as u64, length)
+// Original backing verification is one bounded logical audit operation. Erase its
+// execution future at that seam rather than carrying the complete blob/query/recovery
+// future graph through contributor preparation. Existing admission and workers remain.
+fn audit_original<'a>(
+    reader: &'a NativeReader<()>,
+    original: &'a crate::completed_rows::OriginalBacking,
+    budget: &'a ResourceBudget,
+    audit: &'a InstallationAudit,
+) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
+    async move {
+        let source = d::graph::EntityId::of(original.artifact);
+        let layout = crate::originals::layout(reader, &RecordId::new("original", source.0.hex()))
+            .await?
+            .ok_or(ModelError::Conflict("installed original layout"))?;
+        crate::originals::validate_layout(reader, &layout).await?;
+        if !crate::originals::header(reader, &layout.blob).await? {
+            return Err(ModelError::Conflict("installed original incomplete blob"));
+        }
+        let remaining = layout
+            .blob
+            .byte_len
+            .checked_sub(original.start)
+            .ok_or(ModelError::Conflict("installed original coverage"))?;
+        if original.len as u64 != remaining.min(d::artifact::ARTIFACT_CHUNK_BYTES as u64) {
+            return Err(ModelError::Conflict("installed original coverage"));
+        }
+        let mut hash = d::ContentHasher::default();
+        let mut offset = 0;
+        while offset < original.len {
+            let length = (original.len - offset).min(256 << 10);
+            let bytes = reader
+                .original_bytes(source, original.start + offset as u64, length)
+                .await?;
+            hash.update(&bytes);
+            offset += length;
+        }
+        if hash.finish() != original.digest {
+            return Err(ModelError::Conflict("installed original content digest"));
+        }
+        let blob = layout.blob.id();
+        let premise = crate::originals::active_blob_premise(reader, &layout.blob).await?;
+        if audit
+            .blobs
+            .get(&blob)
+            .is_some_and(|observed| *observed != premise)
+        {
+            return Err(ModelError::Conflict(
+                "installed original protected incarnation changed",
+            ));
+        }
+        let mut key = d::KeySink::new("native-exact-blob-preparation/v1");
+        key.part(
+            b"descriptor",
+            &serde_json::to_vec(&layout.blob.value(true)).map_err(ModelError::codec)?,
+        );
+        key.part(b"incarnation", &premise.to_le_bytes());
+        let key = key.finish();
+        let blob = layout.blob.clone();
+        let worker_budget = budget.clone();
+        audit
+            .run_work((3, key), move |owner| {
+                async move {
+                    let reader =
+                        NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
+                    let result = async {
+                        if owner
+                            .blobs
+                            .get(&blob.id())
+                            .is_some_and(|observed| *observed == premise)
+                        {
+                            return Ok(None);
+                        }
+                        owner.pin.protect(blob.id()).await?;
+                        if crate::originals::active_blob_premise(&reader, &blob).await? != premise {
+                            return Err(ModelError::Conflict(
+                                "installed blob changed before observation",
+                            ));
+                        }
+                        #[cfg(test)]
+                        if let Ok(barrier) = BLOB_OBSERVATION_BARRIER.try_with(Clone::clone) {
+                            barrier.observed.wait().await;
+                            barrier.resume.wait().await;
+                        }
+                        crate::originals::validate_blob(&reader, &blob, &worker_budget).await?;
+                        if crate::originals::active_blob_premise(&reader, &blob).await? != premise {
+                            return Err(ModelError::Conflict(
+                                "installed original observation premise changed",
+                            ));
+                        }
+                        owner.ensure_context(&reader, &worker_budget).await?;
+                        owner.charge.grow(
+                            crate::selection::node_bytes(&blob.id())
+                                .saturating_mul(4)
+                                .saturating_add(128),
+                        )?;
+                        Ok(Some(blob.id()))
+                    }
+                    .await;
+                    let mut terminal = d::completion::Completion::default();
+                    terminal.step("complete blob worker reader close", reader.close().await);
+                    let prepared = d::completion::complete(result, terminal)?;
+                    owner.pin.ensure_live()?;
+                    if let Some(blob) = prepared {
+                        owner.blobs.insert(blob, premise);
+                        owner
+                            .blob_observations
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    Ok(())
+                }
+                .boxed()
+            })
             .await?;
-        hash.update(&bytes);
-        offset += length;
+        Ok(())
     }
-    if hash.finish() != original.digest {
-        return Err(ModelError::Conflict("installed original content digest"));
-    }
-    let blob = layout.blob.id();
-    let premise = crate::originals::active_blob_premise(reader, &layout.blob).await?;
-    if audit
-        .blobs
-        .get(&blob)
-        .is_some_and(|observed| *observed != premise)
-    {
-        return Err(ModelError::Conflict(
-            "installed original protected incarnation changed",
-        ));
-    }
-    let mut key = d::KeySink::new("native-exact-blob-preparation/v1");
-    key.part(
-        b"descriptor",
-        &serde_json::to_vec(&layout.blob.value(true)).map_err(ModelError::codec)?,
-    );
-    key.part(b"incarnation", &premise.to_le_bytes());
-    let key = key.finish();
-    let blob = layout.blob.clone();
-    let worker_budget = budget.clone();
-    audit
-        .run_work((3, key), move |owner| {
-            async move {
-                let reader =
-                    NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
-                let result = async {
-                    if owner
-                        .blobs
-                        .get(&blob.id())
-                        .is_some_and(|observed| *observed == premise)
-                    {
-                        return Ok(None);
-                    }
-                    owner.pin.protect(blob.id()).await?;
-                    if crate::originals::active_blob_premise(&reader, &blob).await? != premise {
-                        return Err(ModelError::Conflict(
-                            "installed blob changed before observation",
-                        ));
-                    }
-                    #[cfg(test)]
-                    if let Ok(barrier) = BLOB_OBSERVATION_BARRIER.try_with(Clone::clone) {
-                        barrier.observed.wait().await;
-                        barrier.resume.wait().await;
-                    }
-                    crate::originals::validate_blob(&reader, &blob, &worker_budget).await?;
-                    if crate::originals::active_blob_premise(&reader, &blob).await? != premise {
-                        return Err(ModelError::Conflict(
-                            "installed original observation premise changed",
-                        ));
-                    }
-                    owner.ensure_context(&reader, &worker_budget).await?;
-                    owner.charge.grow(
-                        crate::selection::node_bytes(&blob.id())
-                            .saturating_mul(4)
-                            .saturating_add(128),
-                    )?;
-                    Ok(Some(blob.id()))
-                }
-                .await;
-                let mut terminal = d::completion::Completion::default();
-                terminal.step("complete blob worker reader close", reader.close().await);
-                let prepared = d::completion::complete(result, terminal)?;
-                owner.pin.ensure_live()?;
-                if let Some(blob) = prepared {
-                    owner.blobs.insert(blob, premise);
-                    owner
-                        .blob_observations
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                }
-                Ok(())
-            }
-            .boxed()
-        })
-        .await?;
-    Ok(())
+    .boxed()
 }
 
 #[cfg(test)]
@@ -3144,9 +3150,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -3357,9 +3375,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -3632,9 +3662,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -3826,9 +3868,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -3924,9 +3978,21 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -4025,12 +4091,36 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
-        let first = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
-        let second = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let first = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
+        let second = NativeCompilerStore::begin(
+            &config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
@@ -4537,20 +4627,57 @@ async fn prepare_local_aliases(
     )>,
     ModelError,
 > {
-    let mut window = crate::loader::NATIVE_WINDOW_ROWS;
-    loop {
-        match prepare_local_aliases_window(reader, expected, budget, audit, include_seeds, window)
-            .await
-        {
-            // Every attempt is effect-free and owns its provisional sorters. Only a
-            // terminal local capacity refusal permits replay of the same exact source.
-            Err(error) if window > 1 && terminal_local_resource(&error) => {
-                window = (window / 2).max(1);
-            }
-            result => return result,
-        }
-    }
+    prepare_local_aliases_execution(reader, expected, budget, audit, include_seeds)?.await
 }
+type PreparedLocalAliasRows = Option<(
+    crate::ordered_rows::PreparedRows,
+    crate::ordered_rows::PreparedRows,
+)>;
+// One adaptive alias-preparation operation retains its provisional sorters and
+// cleanup through all capacity retries. Its consumers receive one erased execution.
+fn prepare_local_aliases_execution<'a>(
+    reader: &'a NativeReader<()>,
+    expected: &'a ExpectedRecord,
+    budget: &'a ResourceBudget,
+    audit: &'a InstallationAudit,
+    include_seeds: bool,
+) -> Result<futures::future::BoxFuture<'a, Result<PreparedLocalAliasRows, ModelError>>, ModelError>
+{
+    let body = async move {
+        let mut window = crate::loader::NATIVE_WINDOW_ROWS;
+        loop {
+            match prepare_local_aliases_window(
+                reader,
+                expected,
+                budget,
+                audit,
+                include_seeds,
+                window,
+            )
+            .await
+            {
+                // Every attempt is effect-free and owns its provisional sorters. Only a
+                // terminal local capacity refusal permits replay of the same exact source.
+                Err(error) if window > 1 && terminal_local_resource(&error) => {
+                    window = (window / 2).max(1);
+                }
+                result => return result,
+            }
+        }
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema(
+            "local alias preparation continuation size",
+        ))?;
+    let grant = budget.reserve("native local alias preparation continuation", bytes)?;
+    Ok(Box::pin(async move {
+        let _grant = grant;
+        body.await
+    }))
+}
+
 async fn prepare_local_aliases_window(
     reader: &NativeReader<()>,
     expected: &ExpectedRecord,
@@ -6935,9 +7062,21 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
         ))
         .unwrap();
-        let store = NativeCompilerStore::begin(&store_config, d::admission::Frontier::Facts)
-            .await
-            .unwrap();
+        let store = NativeCompilerStore::begin(
+            &store_config,
+            d::admission::Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &store_config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = crate::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),

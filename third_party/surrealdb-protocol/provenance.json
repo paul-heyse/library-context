@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "package": "surrealdb-protocol",
+  "version": "0.13.1",
+  "archive_sha256": "d53501c853fe88d5ead8e50612d310b43389f3c66fda7ef323a1af6c393809c6",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "98de24cb4e554f93340a1f921927aa9ec2520218"
+    },
+    "path_in_vcs": ""
+  },
+  "local_overrides": {
+    "gen/rust/proto/surrealdb/protocol/rpc/v1/surrealdb.protocol.rpc.v1.rs": {
+      "source_sha256": "434448c5b26ff3df2f86df8e6471c1301bf0b53e6492ebebcbc2ecfb3bcd1586",
+      "patched_sha256": "6c7c10d5fddb470d6a0e9ba796128c1011439a075d8fc962923536b47257c54f"
+    }
+  }
+}

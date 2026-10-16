@@ -49,15 +49,19 @@ pub async fn compile(
             Target::Artifact(_, config) | Target::Native(config) => config,
         })?;
         crate::newnative::ready(&runtime).await?;
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
         let model = Arc::new(lctx_model::domain::model()?);
+        let factory = lctx_compiler_store::compiler::recovery_factory(&runtime, budget.clone())?;
         let store =
-            lctx_compiler_store::compiler::NativeCompilerStore::begin(&runtime, frontier).await?;
-        let workspace = match cpg_core::workspace::Workspace::new(
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(&runtime, frontier, &factory)
+                .await?;
+        let workspace = match cpg_core::workspace::Workspace::with_budget(
             model,
             cpg_core::workspace::WorkspaceOptions {
                 memory_bytes,
                 ..Default::default()
             },
+            budget.clone(),
             store.clone(),
         ) {
             Ok(workspace) => workspace,
@@ -70,7 +74,7 @@ pub async fn compile(
             }
         };
         let cache_setup: Result<(), lctx_model::domain::ModelError> = async {
-            let cache = lctx_compiler_store::NativeProductCache::connect(&runtime)
+            let cache = lctx_compiler_store::NativeProductCache::connect(&runtime, &factory)
                 .await?
                 .map(Arc::new);
             if let Err(error) = workspace.set_product_cache(cache.clone()) {

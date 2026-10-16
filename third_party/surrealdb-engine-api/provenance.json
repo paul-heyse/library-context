@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "package": "surrealdb-engine-api",
+  "version": "3.3.0",
+  "archive_sha256": "dff233f2d7c1b5b0eac9f54abb01aaaa42dc466c381095d6b16588ae95482383",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "238bfeb11f5725bebed370167656748df8067595"
+    },
+    "path_in_vcs": "surrealdb/engine-api"
+  },
+  "local_overrides": {
+    "src/lib.rs": {
+      "source_sha256": "ddd7769c07dd94e72fa3c902db2270f1c6556d625a3a98d5fc9ebfc6282d535d",
+      "patched_sha256": "1e270c1e693542bdd215f886cd6fc54477dcc179fab2e13adbfe5e5873c527d4"
+    }
+  }
+}

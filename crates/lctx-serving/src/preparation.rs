@@ -1018,7 +1018,10 @@ mod controls {
                 key,
                 Box::new(|budget| {
                     Box::pin(async move {
-                        let rows = lctx_native::reader::NativeRows::owned(|_| async { Ok(()) })?;
+                        let rows =
+                            lctx_native::reader::NativeRows::owned(budget.clone(), |_| async {
+                                Ok(())
+                            })?;
                         Ok(PreparedData::Batches(Arc::new(
                             lctx_native::NativeReader::<()>::canonical_row_batches(rows, &budget)
                                 .await?,

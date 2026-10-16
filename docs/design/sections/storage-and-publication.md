@@ -19,7 +19,7 @@ DDL, constructed rows, independent imported-value reconciliation and realization
 together; the [correction plan PC3–PC4](../../plans/persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution)
 owns implementation and actual planner qualification.
 
-> Decision: ADR-0145
+> Decision: ADR-0173
 
 **Implemented compiler and published native projections, 2026-10-05.** Named projection contracts specify their
 completed source, semantic roles, contexts, vertex universe, direction, multiplicity, weights,
@@ -32,7 +32,7 @@ publication handle. Indexed native selection and projected Arrow streams feed mo
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
 
-> Decision: ADR-0145, ADR-0103, ADR-0044, ADR-0085, ADR-0161
+> Decision: ADR-0173, ADR-0103, ADR-0044, ADR-0085, ADR-0161
 
 ## §6 Persistence and publication
 
@@ -72,7 +72,7 @@ Native upgrades preserve atomic page effects and progress under immutable checke
 authority. Schema evolution in §6.3 owns the complete transition and recovery contract;
 the persisted coordinator retains actual migration receipts and enclosing acceptance.
 
-> Decision: ADR-0145, ADR-0146, ADR-0165, ADR-0167
+> Decision: ADR-0173, ADR-0146, ADR-0167
 
 ### §6.1 Admitted content and native publication
 
@@ -197,7 +197,7 @@ Remove transition-only converters and frozen historical fixtures after cutover. 
 need minimal revealing functional cases, not historical campaigns or performance benchmarks.
 The efficiency coordinator owns migration/regeneration dispositions and current acceptance.
 
-> Decision: ADR-0151, ADR-0152, ADR-0161, ADR-0165, ADR-0166
+> Decision: ADR-0151, ADR-0152, ADR-0161, ADR-0173, ADR-0166
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.
@@ -317,6 +317,30 @@ contribution/binding/cleanup and successor incidence partners write the collecto
 guard. Current global coordination remains until the complete migration and race controls pass;
 finite engine conflict evidence does not establish protocol acceptance.
 
+**Accepted target / implementation in progress, 2026-10-15 (ADR-0173).** Each attempt owns a
+complete versioned64-stripe admission domain, distinct from installation-era admission. Ordinary
+intent/payload effects validate exact durable participant context and write one stripe per window;
+freeze, close, semantic admission and maintenance eligibility cuts validate/write every stripe.
+Keep exact binding revision, object/contribution/completion predicates and complete incidence
+projection. Only the context's admitted attempt invalidation can be shared; unrelated-attempt
+production refuses without an explicit narrow transition authority. History includes charged bounded
+stripe-child disposal behind permanent fencing. No native qualification or speed measurement is implied.
+
+Recovery scopes belong to actual source finalization or explicit maintenance/direct-command owners.
+They retain sessions, reservations and exact reconciliation/reference-release actions through checked
+terminals. Persist pending request metadata before issue, then known Committed/reference-release
+metadata before releasing its last native outcome witness. Missing recipients refuse before issue;
+pending recovery prevents session/signal/source completion. Authenticated resumption never replays
+payload SQL or rewrites original Unknowns. Admitted ingress includes pre-buffer/decode/conversion
+ownership and lease-bearing queue/delivery; framing alone establishes no memory-admission guarantee.
+The [efficiency coordinator](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns implementation and focused evidence; existing targets and historical receipts remain separately scoped.
+Explicit raw schema installation remains excluded-target maintenance work. It awaits issued work
+without a serving-request aggregate timeout and closes its authenticated session on checked return.
+The session guard alone retains neither an interrupted raw-DDL future nor callable request recovery;
+unknown installation requires exact executor drainage and current catalog/index reconciliation or
+authenticated whole-target discard. Session invalidation does not establish index/target drainage.
+
 **Implemented source / native acceptance pending,2026-10-14 (ADR-0170).** Retirement resume discovers
 bounded pending/retiring pages from the head and uses a separate retained cursor. Candidates are
 freshly checked, nominations invalidate buffered hints, and insufficient effect allowance stops
@@ -406,7 +430,7 @@ stopped-run cleanup uncertainty; host process cleanup does not establish native 
 Logical content backups reference separately protected cold-service recovery
 assets; recovery metadata is not authority to restore live clients or execute imported commands.
 
-> Decision: ADR-0145, ADR-0088, ADR-0126, ADR-0165, ADR-0166
+> Decision: ADR-0173, ADR-0088, ADR-0126, ADR-0166
 
 **Implemented source / functional acceptance pending,2026-10-14 (ADR-0168).** Same-operation
 reuse retains successful terminal individual checks under complete ordered roles, exact views,
@@ -452,7 +476,7 @@ member copies, seals and legacy readers are removed. Whole-inventory attachment 
 inputs before one exact receiving CAS. Selector-qualified alias edges prevent union-wide witness
 leakage. Runtime completion remains subject to the coordinator’s focused acceptance.
 
-> Decision: ADR-0152, ADR-0156, ADR-0157, ADR-0165, ADR-0166
+> Decision: ADR-0152, ADR-0156, ADR-0157, ADR-0173, ADR-0166
 
 **Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
 joint named-attachment recovery retains original Unknown/not_observed receipts and composes checked server execution
@@ -495,7 +519,7 @@ Published readers use a trusted Rust boundary to pin exact published views and i
 cannot change beneath a pinned handle. Streamed results remain provisional until terminal success.
 A partial diagnostic subgraph reports its boundary and cannot claim global compiler completeness.
 
-> Decision: ADR-0141, ADR-0145, ADR-0126
+> Decision: ADR-0141, ADR-0173, ADR-0126
 
 ### §6.3 Schema evolution
 
@@ -539,7 +563,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0161, ADR-0145, ADR-0087, ADR-0048, ADR-0155
+> Decision: ADR-0161, ADR-0173, ADR-0087, ADR-0048, ADR-0155
 
 ### §6.4 Serving realizations
 
@@ -549,7 +573,7 @@ SurrealQL is the only executor; Python remains a thin adapter. Complex kernels c
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0145, ADR-0071, ADR-0150, ADR-0049
+> Decision: ADR-0173, ADR-0071, ADR-0150, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -580,4 +604,4 @@ consumer. Historical runs/operation records are retired rather than reconstructe
 The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0145, ADR-0073, ADR-0150
+> Decision: ADR-0173, ADR-0073, ADR-0150

@@ -17,6 +17,7 @@ use tracing::{Instrument, instrument::WithSubscriber};
 pub struct NativeCalls {
     native: Arc<NativeCompilerStore>,
     cancellation: Cancellation,
+    budget: ResourceBudget,
     limit: Arc<Semaphore>,
     tasks: Mutex<(Vec<NativeCallTask>, StateCharge)>,
 }
@@ -51,6 +52,7 @@ impl NativeCalls {
         Self {
             native,
             cancellation,
+            budget: budget.clone(),
             limit: Arc::new(Semaphore::new(8)),
             tasks: Mutex::new((
                 Vec::new(),
@@ -73,12 +75,23 @@ impl NativeCalls {
         let (answer, acknowledgement) = oneshot::channel();
         let native = self.native.clone();
         let cancellation = self.cancellation.clone();
+        let budget = self.budget.clone();
         let owner = tracing::info_span!(target: "lctx_phase", "native_call", attempt=%native.attempt().hex());
         // Only the result channel is typed; submitted ownership and scheduler work are shared.
         let request: Request = async move {
-            let result =
-                lctx_native::control::with_retry_cancellation(cancellation.native_retry(), future)
-                    .await;
+            let result = match native.bind_recovery_budget(&budget) {
+                Ok(recovery) => {
+                    lctx_native::control::with_recovery_scope(
+                        recovery,
+                        lctx_native::control::with_retry_cancellation(
+                            cancellation.native_retry(),
+                            future,
+                        ),
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
+            };
             if result.is_err() {
                 fail(&native, &cancellation);
             }

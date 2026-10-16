@@ -1,10 +1,10 @@
 ---
 id: ADR-0165
 title: Prepare protected contributions and realize only independently required boundaries
-status: accepted
+status: superseded
 date: 2026-10-12
 supersedes: [ADR-0164]
-superseded-by: null
+superseded-by: ADR-0173
 design: [§6, §6.1, §6.2, §15.1]
 evidence: Proposed
 ---

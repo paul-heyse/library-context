@@ -2,6 +2,7 @@
 
 from ._native import (
     NativeFailure,
+    NativeRecoveryOwner,
     NativeSession,
     admit_envelope,
     canonical_embedding_spec,
@@ -19,6 +20,7 @@ from ._native import (
 
 __all__ = [
     "NativeFailure",
+    "NativeRecoveryOwner",
     "NativeSession",
     "admit_envelope",
     "canonical_embedding_spec",

@@ -58,37 +58,52 @@ pub async fn install_shared(
             "native installation requires installer authority".into(),
         ));
     }
-    let client =
-        reader::authenticated(&config.endpoint, &config.writer_credentials(), None).await?;
+    let phase = crate::phase::Phase::begin("native_installation_authentication");
+    let connected =
+        reader::authenticated(&config.endpoint, &config.writer_credentials(), None).await;
+    phase.finish_result(&connected);
+    let client = connected?;
+    // Installation owns this actual authenticated session through all issued
+    // work. Unknown execution retains it for the excluded target's maintenance
+    // owner; a checked return closes it explicitly rather than relying on Drop.
+    let session = reader::SessionFinalizationGuard::new(client.clone());
+    let result = async {
+    let phase = crate::phase::Phase::begin("native_installation_namespace_database");
+    let bootstrap = async {
     client
         .query(format!(
             "DEFINE NAMESPACE IF NOT EXISTS `{}`",
             config.namespace.as_str()
         ))
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::loader::write_failure)?
         .check()
         .map_err(ModelError::codec)?;
     client
         .use_ns(config.namespace.as_str())
         .await
-        .map_err(ModelError::codec)?;
+        .map_err(crate::loader::write_failure)?;
     client
         .query(format!(
             "DEFINE DATABASE IF NOT EXISTS `{}` STRICT",
             config.database.as_str()
         ))
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::loader::write_failure)?
         .check()
         .map_err(ModelError::codec)?;
     client
         .use_db(config.database.as_str())
         .await
-        .map_err(ModelError::codec)?;
+        .map_err(crate::loader::write_failure)?;
+    Ok::<(), ModelError>(())
+    }.await;
+    phase.finish_result(&bootstrap);
+    bootstrap?;
     // Installation retries may fill missing declarations but cannot stamp a new meaning
     // onto an older installation, or reset its accumulated authorization watermarks.
-    let installed = match client
+    let phase = crate::phase::Phase::begin("native_installation_marker_read");
+    let marker = async { Ok::<_, ModelError>(match client
         .query("SELECT * FROM native_installation:current")
         .await
     {
@@ -104,11 +119,16 @@ pub async fn install_shared(
             }
             Err(error) => return Err(ModelError::codec(error)),
         },
-        Err(error) => return Err(ModelError::codec(error)),
-    };
+        Err(error) => return Err(crate::loader::write_failure(error)),
+    }) }.await;
+    phase.finish_result(&marker);
+    let installed = marker?;
     let fresh = installed.as_ref().is_none_or(Vec::is_empty);
     if !fresh {
-        crate::control::check_installation(&client, config.service_generation).await?;
+        let phase = crate::phase::Phase::begin("native_installation_existing_marker_check");
+        let checked = crate::control::check_installation(&client, config.service_generation).await;
+        phase.finish_result(&checked);
+        checked?;
         if installed
             .as_ref()
             .and_then(|rows| rows.first())
@@ -121,21 +141,33 @@ pub async fn install_shared(
         }
     }
     let loader = Loader::new(client.clone());
-    let mut catalog = loader.installation_catalog().await?;
+    let phase = crate::phase::Phase::begin("native_installation_inventory");
+    let captured = loader.installation_catalog().await;
+    phase.finish_result(&captured);
+    let mut catalog = captured?;
     crate::materialization::validate_native_definitions(native_definitions)?;
-    catalog
+    let phase = crate::phase::Phase::begin("native_installation_control_schema");
+    let applied = catalog
         .apply(crate::control::schema(), "native durable control schema")
-        .await?;
+        .await;
+    phase.finish_result(&applied);
+    applied?;
     catalog.install(native_definitions).await?;
-    catalog
+    let phase = crate::phase::Phase::begin("native_installation_compiler_schema");
+    let applied = catalog
         .apply(&compiler_schema(), "compiler shared state schema")
-        .await?;
-    catalog
+        .await;
+    phase.finish_result(&applied);
+    applied?;
+    let phase = crate::phase::Phase::begin("native_installation_completion_schema");
+    let applied = catalog
         .apply(
             &completion_schema(),
             "native frozen completion and derived staging schema",
         )
-        .await?;
+        .await;
+    phase.finish_result(&applied);
+    applied?;
     let mut bindings = Variables::new();
     bindings.insert("generation", config.service_generation.hex());
     bindings.insert("schema", base_schema_identity().hex());
@@ -147,26 +179,71 @@ pub async fn install_shared(
         );
         let sql = "BEGIN; IF (SELECT VALUE id FROM ONLY native_installation:current)!=NONE OR array::len(SELECT VALUE id FROM native_admission_stripe LIMIT 1)>0 OR (SELECT VALUE id FROM ONLY native_backup_gate:current)!=NONE { THROW 'native fresh installation control collision'; }; CREATE native_installation:current SET generation=$generation,schema=$schema,schema_version=$version,admission_open=false,era=1,closed_through=0,control_revision=0 RETURN NONE; FOR $stripe IN $stripes { CREATE $stripe.id CONTENT $stripe RETURN NONE; }; CREATE native_backup_gate:current SET revision=0,active_count=0 RETURN NONE; COMMIT;";
         crate::control::preflight_control(sql, &bindings)?;
-        crate::control::checked_transaction(
+        let phase = crate::phase::Phase::begin("native_installation_control_marker_create");
+        let created = async { crate::control::checked_transaction(
             client
                 .query(sql)
                 .bind(bindings)
                 .await
                 .map_err(crate::loader::write_failure)?,
-        )?;
+        ) }.await;
+        phase.finish_result(&created);
+        created?;
     }
     Ok(())
+    }.await;
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|error: &ModelError| !error.permits_storage_cleanup())
+    {
+        return result;
+    }
+    let phase = crate::phase::Phase::begin("native_installation_shared_session_close");
+    let closed = session.close().await;
+    phase.finish_result(&closed);
+    let mut completion = d::completion::Completion::default();
+    completion.step("shared schema installer session close", closed);
+    d::completion::complete(result, completion)
 }
 pub async fn check_installation(
     config: &RuntimeConfig,
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
-    let client = reader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        config.namespace.as_str(),
-        config.database.as_str(),
-    )
-    .await?;
+    check_installation_inner(config, None).await
+}
+/// The caller's pool covers connection bootstrap as well as subsequent finite reads.
+pub async fn check_installation_admitted(
+    config: &RuntimeConfig,
+    budget: &d::resources::ResourceBudget,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    check_installation_inner(config, Some(budget)).await
+}
+async fn check_installation_inner(
+    config: &RuntimeConfig,
+    budget: Option<&d::resources::ResourceBudget>,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    let credentials = config.writer_credentials();
+    let client = match budget {
+        Some(budget) => {
+            reader::connect_admitted(
+                &config.endpoint,
+                &credentials,
+                config.namespace.as_str(),
+                config.database.as_str(),
+                budget,
+            )
+            .await?
+        }
+        None => {
+            reader::connect(
+                &config.endpoint,
+                &credentials,
+                config.namespace.as_str(),
+                config.database.as_str(),
+            )
+            .await?
+        }
+    };
     let session = reader::SessionFinalizationGuard::new(client.clone());
     let checked = async {
         let version = client
@@ -236,12 +313,18 @@ async fn maintenance_admission(config: &RuntimeConfig, open: bool) -> Result<(),
             "native maintenance requires installer authority".into(),
         ));
     }
-    let client = check_installation(config).await?;
-    if open {
-        crate::control::check_pending_effects(&client).await?;
-    }
-    crate::control::set_admission(&client, open).await?;
-    Ok(())
+    let budget = d::resources::ResourceBudget::fixed(d::resources::DEFAULT_MEMORY_BYTES)?;
+    let owner = crate::maintenance::MaintenanceOwner::connect(config, &budget).await?;
+    let client = owner.client().clone();
+    let result = crate::control::with_recovery_scope(owner.scope(), async {
+        if open {
+            crate::control::check_pending_effects(&client).await?;
+        }
+        crate::control::set_admission(&client, open).await?;
+        Ok(())
+    })
+    .await;
+    owner.finish(result).await
 }
 pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError> {
     if !matches!(config.authentication, crate::AuthenticationScope::Root) {
@@ -249,16 +332,15 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
             "native maintenance requires installer authority".into(),
         ));
     }
-    let client = check_installation(config).await?;
-    // The returned authenticated session belongs to this maintenance operation.
-    // Cancellation before its invalidation acknowledgement retains the actual handle.
-    let session = reader::SessionFinalizationGuard::new(client.clone());
+    let budget = d::resources::ResourceBudget::fixed(d::resources::DEFAULT_MEMORY_BYTES)?;
+    let owner = crate::maintenance::MaintenanceOwner::connect(config, &budget).await?;
+    let client = owner.client().clone();
     let unconfirmed = |error: surrealdb::Error| {
         let mut completion = d::completion::Completion::default();
         completion.remote = d::completion::RemoteState::Unknown;
         d::completion::complete::<()>(Err(reader::sdk_error(error)), completion).unwrap_err()
     };
-    let result:Result<(),ModelError>=async {
+    let result:Result<(),ModelError>=crate::control::with_recovery_scope(owner.scope(), async {
     let mut response = client
         .query("SELECT VALUE admission_open FROM native_installation:current")
         .await
@@ -273,7 +355,7 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
     }
     loop {
         let mut response = client
-            .query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen'] LIMIT 128")
+            .query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen'] LIMIT 1")
             .await
             .map_err(unconfirmed)?
             .check()
@@ -285,7 +367,7 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
         crate::control::effect(
             &client,
             None,
-            "FOR $attempt IN $attempts { fn::native_touch($attempt); LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE { THROW 'native maintenance attempt disappeared'; }; IF $owner.state IN ['open','frozen'] { UPDATE $attempt SET state='closing',revision+=1 RETURN NONE; }; }",
+            "FOR $attempt IN $attempts { LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE { THROW 'native maintenance attempt disappeared'; }; fn::native_attempt_cut($attempt,$owner.generation,$owner.era,$owner.epoch,'maintenance'); IF $owner.state IN ['open','frozen'] { UPDATE $attempt SET state='closing',revision+=1 RETURN NONE; }; }",
             {
                 let mut bindings = Variables::new();
                 bindings.insert("attempts", attempts);
@@ -323,23 +405,8 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
         ));
     }
     Ok(())
-    }.await;
-    let mut completion = d::completion::Completion::default();
-    if result
-        .as_ref()
-        .err()
-        .is_some_and(|error| !error.permits_storage_cleanup())
-    {
-        completion.local = d::completion::LocalState::Outstanding;
-        completion.remote = d::completion::RemoteState::Unknown;
-    } else {
-        let closed = session.close().await;
-        if closed.is_err() {
-            completion.local = d::completion::LocalState::Outstanding;
-        }
-        completion.step("installation drainage session invalidation", closed);
-    }
-    d::completion::complete(result, completion)
+    }).await;
+    owner.finish(result).await
 }
 /// Explicit recovery of named abandoned clients after the service owner proves actual
 /// host drainage. Neither identity age nor an empty view list establishes that proof.
@@ -360,10 +427,11 @@ pub async fn reconcile_maintenance(
             "maintenance reconciliation requires stopped readers",
         ));
     }
-    let client = check_installation(config).await?;
-    let session = reader::SessionFinalizationGuard::new(client.clone());
+    let budget = d::resources::ResourceBudget::fixed(d::resources::DEFAULT_MEMORY_BYTES)?;
+    let owner = crate::maintenance::MaintenanceOwner::connect(config, &budget).await?;
+    let client = owner.client().clone();
     let mut completion = d::completion::Completion::default();
-    let result = async {
+    let result = crate::control::with_recovery_scope(owner.scope(), async {
         let mut response = client
             .query("SELECT VALUE admission_open FROM native_installation:current")
             .await
@@ -392,21 +460,9 @@ pub async fn reconcile_maintenance(
             completion.committed("reconciled native backup hold", hold.hex());
         }
         Ok(())
-    }
+    })
     .await;
-    if result
-        .as_ref()
-        .err()
-        .is_some_and(|error| !error.permits_storage_cleanup())
-    {
-        completion.local = d::completion::LocalState::Outstanding;
-        completion.remote = d::completion::RemoteState::Unknown;
-    } else {
-        let closed = session.close().await;
-        if closed.is_err() {
-            completion.local = d::completion::LocalState::Outstanding;
-        }
-        completion.step("maintenance reconciliation session invalidation", closed);
-    }
-    lctx_model::domain::completion::complete(result, completion)
+    owner
+        .finish(lctx_model::domain::completion::complete(result, completion))
+        .await
 }

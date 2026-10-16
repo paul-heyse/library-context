@@ -365,9 +365,19 @@ async fn main() -> Result<(), ModelError> {
             cancellation.cancel();
         },
     )?;
+    let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+        config.receipt_binding(handle.service_generation)?,
+        budget.clone(),
+    )?;
     let reader = lctx_native::control::with_retry_cancellation(
         retry,
-        NativeReader::connect(&config.endpoint, &config.credentials(), handle),
+        NativeReader::connect(
+            &config.endpoint,
+            &config.credentials(),
+            handle.clone(),
+            &budget,
+            &reader_factory,
+        ),
     )
     .await?;
     let reader = reader.with_budget(&budget).with_read_cancellation(stopped);

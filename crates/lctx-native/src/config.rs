@@ -53,7 +53,61 @@ impl ReuseConfig {
         Ok(())
     }
 }
+fn receipt_binding(
+    selection: &Path,
+    generation: ContentHash,
+) -> Result<crate::signal::NativeReceiptBinding, ModelError> {
+    if let Some(directory) = std::env::var_os("LCTX_NATIVE_DRAIN_DIRECTORY") {
+        let recorded = std::env::var("LCTX_SURREAL_GENERATION").map_err(ModelError::codec)?;
+        if recorded != generation.hex() {
+            return Err(ModelError::Conflict("native fixture receipt generation"));
+        }
+        return Ok(crate::signal::NativeReceiptBinding {
+            directory: PathBuf::from(directory),
+            attachment: std::env::var("LCTX_FIXTURE_ATTACHMENT").map_err(ModelError::codec)?,
+            generation,
+        });
+    }
+    let parent = selection
+        .parent()
+        .ok_or(ModelError::Conflict("native runtime receipt parent"))?;
+    if !parent.is_absolute() {
+        return Err(ModelError::Conflict(
+            "native runtime receipt parent must be absolute",
+        ));
+    }
+    let directory = parent.join("native-recovery");
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&directory).map_err(ModelError::codec)?;
+    if directory.canonicalize().map_err(ModelError::codec)? != directory {
+        return Err(ModelError::Conflict(
+            "native runtime receipt directory redirected",
+        ));
+    }
+    Ok(crate::signal::NativeReceiptBinding {
+        directory,
+        attachment: format!("installed-service-{}", generation.hex()),
+        generation,
+    })
+}
 impl RuntimeConfig {
+    pub fn receipt_binding(&self) -> Result<crate::signal::NativeReceiptBinding, ModelError> {
+        receipt_binding(&self.selection, self.service_generation)
+    }
+    /// Bind an actual native owner beneath the existing runtime/storage owner.
+    pub fn signal_owner(
+        &self,
+        owner: &'static str,
+        cancel: impl Fn() + Send + Sync + 'static,
+    ) -> Result<crate::signal::SignalRegistration, ModelError> {
+        crate::signal::SignalRegistration::with_receipt(owner, cancel, self.receipt_binding()?)
+    }
     pub fn read(path: &Path) -> Result<Self, ModelError> {
         let cfg: Self = serde_json::from_slice(&std::fs::read(path).map_err(ModelError::codec)?)
             .map_err(ModelError::codec)?;
@@ -303,6 +357,12 @@ pub struct ViewerConfig {
     pub selection: PathBuf,
 }
 impl ViewerConfig {
+    pub fn receipt_binding(
+        &self,
+        generation: ContentHash,
+    ) -> Result<crate::signal::NativeReceiptBinding, ModelError> {
+        receipt_binding(&self.selection, generation)
+    }
     pub fn read(path: &Path) -> Result<Self, ModelError> {
         let cfg: Self = serde_json::from_slice(&std::fs::read(path).map_err(ModelError::codec)?)
             .map_err(ModelError::codec)?;

@@ -1273,7 +1273,9 @@ pub(crate) async fn restore(
             }
             compare_dump_state(&dump, &prepared, &transport, &budget)?;
             dump.compare_definitions(config).await?;
-            let native = NativeCompilerStore::begin(config, prepared.manifest.frontier).await?;
+            let factory = lctx_compiler_store::compiler::recovery_factory(config, budget.clone())?;
+            let native =
+                NativeCompilerStore::begin(config, prepared.manifest.frontier, &factory).await?;
             // Keep standalone admission ownership through publication success or error cleanup.
             let mut runtime = None;
             let result = async {

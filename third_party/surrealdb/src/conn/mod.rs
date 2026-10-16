@@ -185,6 +185,13 @@ impl Router {
 		})
 	}
 
+    /// Buffered results with their independently owned ingress resources.
+    pub(crate) fn query_results_with_resources(
+        &self, ctx: EngineContext, query: Cow<'static, str>, variables: Variables,
+    ) -> BoxFuture<'_, Result<surrealdb_rpc::AdmittedQueryResults>> {
+        Box::pin(async move { self.engine.query_with_resources(ctx, query, variables).await })
+    }
+
 	/// Runs a query, returning every statement's result.
 	pub(crate) fn query_results(
 		&self,

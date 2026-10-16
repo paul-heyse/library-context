@@ -39,9 +39,21 @@ fn config() -> RuntimeConfig {
 }
 impl Product {
     async fn new(cfg: &RuntimeConfig) -> Self {
-        let source = NativeCompilerStore::begin(cfg, Frontier::Facts)
-            .await
-            .unwrap();
+        let source = NativeCompilerStore::begin(
+            cfg,
+            Frontier::Facts,
+            &lctx_compiler_store::compiler::recovery_factory(
+                cfg,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
+        )
+        .await
+        .unwrap();
         let client = lctx_compiler_store::compiler::check_installation(cfg)
             .await
             .unwrap();

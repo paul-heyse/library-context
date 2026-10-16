@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "package": "surrealdb-types",
+  "version": "3.3.0",
+  "archive_sha256": "18cd057ad378914c5c32701d8e2298fc0b717dd07b087d895627832d7c834051",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "238bfeb11f5725bebed370167656748df8067595"
+    },
+    "path_in_vcs": "surrealdb/types"
+  },
+  "local_overrides": {
+    "src/error.rs": {
+      "source_sha256": "a6e41381d7c7472293b6aa5dbce741bf1c9027df3828f18a7a35ee9753b53ce9",
+      "patched_sha256": "d4af057adfd1ac68b41b3b3842911b7de581e3f640d48efe957f8ef5b56948a8"
+    },
+    "src/proto/record.rs": {
+      "source_sha256": "c899d5649b722f3c1b157ec384512dcd96f95bdad14c74a758c5557576cdfc30",
+      "patched_sha256": "e0587f6eb6342c9c80fd04e298d592ffc8636f8e85325f074a3763a7ced54b70"
+    },
+    "src/proto/value.rs": {
+      "source_sha256": "166280c868a64b768ef6766969f8244b89e3c88ab97123a1bd1ae7a203da46d7",
+      "patched_sha256": "b987636e890d94756242ff0f02e82d9118260f49ca63627fd0ac941baa0ddefc"
+    }
+  }
+}

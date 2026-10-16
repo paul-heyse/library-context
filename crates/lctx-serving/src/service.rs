@@ -51,7 +51,11 @@ pub struct NativeService {
 impl NativeService {
     pub fn new(reader: NativeReader, limits: ResourceLimits) -> Result<Self, ModelError> {
         limits.validate()?;
-        let shared = ResourceBudget::fixed(limits.shared_bytes as usize)?;
+        let shared = match reader.resource_budget() {
+            Ok(parent) if parent.limit() == limits.shared_bytes as usize => parent,
+            Ok(parent) => ResourceBudget::scoped(&parent, limits.shared_bytes as usize)?,
+            Err(_) => ResourceBudget::fixed(limits.shared_bytes as usize)?,
+        };
         let queries = Arc::new(Semaphore::new(limits.query_connections as usize));
         let cpu = Arc::new(Semaphore::new(limits.cpu_jobs as usize));
         let prepared = crate::preparation::PreparedCache::new(

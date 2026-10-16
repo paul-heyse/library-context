@@ -297,7 +297,7 @@ pub(crate) async fn finish_physical_completion(
     variables.insert("completion_identity", data.identity()?.hex());
     variables.insert("completion_logical", data.completed_state.hex());
     let sql = format!(
-        "{} fn::native_touch($completion); LET $predicate=SELECT VALUE revision FROM ONLY type::record('native_predicate',[$completion]); LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $predicate!=$completion_revision+1 OR $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes {{ THROW 'physical completion inventory audit raced'; }}; UPDATE $completion SET completed=true RETURN NONE; UPDATE $__attempt SET completed_identity=$completion_identity,completed_state=$completion_logical RETURN NONE",
+        "{} fn::native_touch($completion); LET $predicate=SELECT VALUE revision FROM ONLY type::record('native_predicate',[$completion]); LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $predicate!=$completion_revision+1 OR $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes {{ THROW 'physical completion inventory audit raced'; }}; UPDATE $completion SET completed=true RETURN NONE; fn::native_attempt_cut($__attempt,$__generation,$__era,$__epoch,'completion'); UPDATE $__attempt SET completed_identity=$completion_identity,completed_state=$completion_logical RETURN NONE",
         frozen::FENCE_GUARD
     );
     effect_for_owner(

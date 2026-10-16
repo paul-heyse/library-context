@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "python/lctx_semantics", "tools/lctx-surreal-dev"]
-exclude = ["third_party/allocative", "third_party/surrealdb", "third_party/surrealdb-rpc", "third_party/surrealkit", "third_party/manyhow"]
+exclude = ["third_party/allocative", "third_party/surrealdb", "third_party/surrealdb-rpc", "third_party/surrealdb-protocol", "third_party/surrealdb-engine-api", "third_party/surrealdb-types", "third_party/tonic", "third_party/surrealkit", "third_party/manyhow"]
 
 [workspace.package]
 version = "0.1.0"
@@ -188,6 +188,10 @@ surrealkit = { path = "third_party/surrealkit" }
 allocative = { path = "third_party/allocative" }
 surrealdb = { path = "third_party/surrealdb" }
 surrealdb-rpc = { path = "third_party/surrealdb-rpc" }
+surrealdb-protocol = { path = "third_party/surrealdb-protocol" }
+surrealdb-engine-api = { path = "third_party/surrealdb-engine-api" }
+surrealdb-types = { path = "third_party/surrealdb-types" }
+tonic = { path = "third_party/tonic" }
 
 # Keep all reachable published latest-family crates at the same nominal source.
 ruff_annotate_snippets = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }

@@ -113,170 +113,204 @@ pub(crate) async fn dispatch(
     retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<Response, ModelError> {
+    prepare_dispatch_execution(read, request, channels, vector, limits, retained, b)?.await
+}
+type OperationExecution<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, ModelError>> + Send + 'a>>;
+// All operation callers share one admitted execution continuation. Construction
+// happens only when dispatch is polled, before any query or retained-state effect.
+fn prepare_dispatch_execution<'a>(
+    read: OperationRead<'a, '_>,
+    request: &'a Request,
+    channels: &'a ChannelState,
+    vector: Option<&'a QueryVector>,
+    limits: &'a ResourceLimits,
+    retained: &'a mut crate::ranked_results::RankedRequest<'_>,
+    b: &'a ResourceBudget,
+) -> Result<OperationExecution<'a>, ModelError> {
     let OperationRead {
         reader,
         preparation,
     } = read;
-    let snapshot = reader.handle().clone();
-    match request {
-        Request::GetCapability(r) => Ok(Response::GetCapability(GetCapabilityResponse {
-            delivery: Optional::default(),
-            snapshot,
-            capability: crate::capability::get(reader, preparation, r.capability, b).await?,
-        })),
-        Request::GetEvidence(r) => Ok(Response::GetEvidence(GetEvidenceResponse {
-            delivery: Optional::default(),
-            snapshot,
-            evidence: crate::evidence::get(
-                reader,
-                preparation,
-                &r.source,
-                request,
-                channels,
-                limits,
-                b,
-            )
-            .await?,
-        })),
-        Request::InspectValuePaths(r) => {
-            crate::inspection::get(reader, preparation, r, request, limits, b)
-                .await
-                .map(Response::InspectValuePaths)
-        }
-        Request::FindOperations(r) => {
-            let domains =
-                crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
-            let data = chosen(reader, preparation, &r.library, None, &r.selection.0, b).await?;
-            let group = |outcome, group| {
-                let (values, _compact) = compact_candidates(
-                    data.selected.group(outcome).filter(|_| {
-                        r.selection.0.mode == selection::Mode::Discovery
-                            || outcome == selection::Outcome::Supported
-                    }),
-                    data.prepared.data(),
-                    &domains,
-                    b,
-                )?;
-                let compact = page(
-                    values,
-                    request,
-                    reader,
-                    group,
-                    "results",
-                    None,
-                    Availability::Available {},
-                )?;
-                hydrate_page(compact, |candidate| {
-                    candidates::packet(candidate, data.prepared.data(), &domains)
-                })
-            };
-            Ok(Response::FindOperations(FindOperationsResponse {
+    let body = async move {
+        let snapshot = reader.handle().clone();
+        match request {
+            Request::GetCapability(r) => Ok(Response::GetCapability(GetCapabilityResponse {
                 delivery: Optional::default(),
                 snapshot,
-                domains: domains.clone(),
-                supported: group(selection::Outcome::Supported, "supported")?,
-                unresolved: group(selection::Outcome::Unresolved, "unresolved")?,
-                conflicting: group(selection::Outcome::Conflicting, "conflicting")?,
-                extent: extent(&data.selected),
-            }))
-        }
-        Request::CompareOperations(r) => {
-            let domains =
-                crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
-            let mut operations = Vec::new();
-            for selector in &r.operations {
-                let d = chosen(
+                capability: crate::capability::get(reader, preparation, r.capability, b).await?,
+            })),
+            Request::GetEvidence(r) => Ok(Response::GetEvidence(GetEvidenceResponse {
+                delivery: Optional::default(),
+                snapshot,
+                evidence: crate::evidence::get(
                     reader,
                     preparation,
-                    &r.library,
-                    Some(selector),
-                    &r.selection.0,
+                    &r.source,
+                    request,
+                    channels,
+                    limits,
                     b,
                 )
-                .await?;
-                let candidates = d
-                    .selected
-                    .eligible()
-                    .map(|c| candidates::packet(c, d.prepared.data(), &domains))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let members = candidates
-                    .iter()
-                    .map(|c| c.member)
-                    .collect::<std::collections::BTreeSet<_>>();
-                operations.push(ComparisonEntry {
-                    requested: selector.clone(),
-                    candidates,
-                    ambiguous: members.len() > 1,
-                });
+                .await?,
+            })),
+            Request::InspectValuePaths(r) => {
+                crate::inspection::get(reader, preparation, r, request, limits, b)
+                    .await
+                    .map(Response::InspectValuePaths)
             }
-            Ok(Response::CompareOperations(CompareOperationsResponse {
-                delivery: Optional::default(),
-                snapshot,
-                domains,
-                operations,
-            }))
-        }
-        Request::GetOperation(r) => {
-            let domains =
-                crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
-            let members =
-                crate::selection::members(reader, Some(&r.library), Some(&r.operation), b).await?;
-            let operation = match members.as_slice() {
-                [] => OperationResolution::Missing {
-                    coverage: Availability::Partial {
-                        reason: Name::new("captured_public_domain_only").map_err(wire)?,
-                    },
-                },
-                [member] => OperationResolution::Unique {
-                    packet: crate::operation_packet::get(
-                        read, member, &domains, r, request, limits, b,
-                    )
-                    .await?,
-                },
-                _ => {
-                    let d = crate::selection::classify_prepared(
-                        reader,
-                        &members,
-                        &selection::Selection::default(),
+            Request::FindOperations(r) => {
+                let domains =
+                    crate::library::resolve_prepared(reader, Some(&r.library), b, preparation)
+                        .await?;
+                let data = chosen(reader, preparation, &r.library, None, &r.selection.0, b).await?;
+                let group = |outcome, group| {
+                    let (values, _compact) = compact_candidates(
+                        data.selected.group(outcome).filter(|_| {
+                            r.selection.0.mode == selection::Mode::Discovery
+                                || outcome == selection::Outcome::Supported
+                        }),
+                        data.prepared.data(),
+                        &domains,
                         b,
+                    )?;
+                    let compact = page(
+                        values,
+                        request,
+                        reader,
+                        group,
+                        "results",
+                        None,
+                        Availability::Available {},
+                    )?;
+                    hydrate_page(compact, |candidate| {
+                        candidates::packet(candidate, data.prepared.data(), &domains)
+                    })
+                };
+                Ok(Response::FindOperations(FindOperationsResponse {
+                    delivery: Optional::default(),
+                    snapshot,
+                    domains: domains.clone(),
+                    supported: group(selection::Outcome::Supported, "supported")?,
+                    unresolved: group(selection::Outcome::Unresolved, "unresolved")?,
+                    conflicting: group(selection::Outcome::Conflicting, "conflicting")?,
+                    extent: extent(&data.selected),
+                }))
+            }
+            Request::CompareOperations(r) => {
+                let domains =
+                    crate::library::resolve_prepared(reader, Some(&r.library), b, preparation)
+                        .await?;
+                let mut operations = Vec::new();
+                for selector in &r.operations {
+                    let d = chosen(
+                        reader,
                         preparation,
+                        &r.library,
+                        Some(selector),
+                        &r.selection.0,
+                        b,
                     )
                     .await?;
-                    OperationResolution::Ambiguous {
-                        candidates: d
-                            .selected
-                            .eligible()
-                            .map(|c| candidates::packet(c, d.prepared.data(), &domains))
-                            .collect::<Result<Vec<_>, _>>()?,
-                    }
+                    let candidates = d
+                        .selected
+                        .eligible()
+                        .map(|c| candidates::packet(c, d.prepared.data(), &domains))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let members = candidates
+                        .iter()
+                        .map(|c| c.member)
+                        .collect::<std::collections::BTreeSet<_>>();
+                    operations.push(ComparisonEntry {
+                        requested: selector.clone(),
+                        candidates,
+                        ambiguous: members.len() > 1,
+                    });
                 }
-            };
-            Ok(Response::GetOperation(GetOperationResponse {
-                delivery: Optional::default(),
-                snapshot,
-                domains,
-                operation,
-            }))
-        }
-        Request::BrowseLibrary(r) => browse(reader, preparation, r, request, b)
-            .await
-            .map(Response::BrowseLibrary),
-        Request::SearchOperations(r) => {
-            search_operations(read, r, request, channels, vector, retained, b)
+                Ok(Response::CompareOperations(CompareOperationsResponse {
+                    delivery: Optional::default(),
+                    snapshot,
+                    domains,
+                    operations,
+                }))
+            }
+            Request::GetOperation(r) => {
+                let domains =
+                    crate::library::resolve_prepared(reader, Some(&r.library), b, preparation)
+                        .await?;
+                let members =
+                    crate::selection::members(reader, Some(&r.library), Some(&r.operation), b)
+                        .await?;
+                let operation = match members.as_slice() {
+                    [] => OperationResolution::Missing {
+                        coverage: Availability::Partial {
+                            reason: Name::new("captured_public_domain_only").map_err(wire)?,
+                        },
+                    },
+                    [member] => OperationResolution::Unique {
+                        packet: crate::operation_packet::get(
+                            read, member, &domains, r, request, limits, b,
+                        )
+                        .await?,
+                    },
+                    _ => {
+                        let d = crate::selection::classify_prepared(
+                            reader,
+                            &members,
+                            &selection::Selection::default(),
+                            b,
+                            preparation,
+                        )
+                        .await?;
+                        OperationResolution::Ambiguous {
+                            candidates: d
+                                .selected
+                                .eligible()
+                                .map(|c| candidates::packet(c, d.prepared.data(), &domains))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        }
+                    }
+                };
+                Ok(Response::GetOperation(GetOperationResponse {
+                    delivery: Optional::default(),
+                    snapshot,
+                    domains,
+                    operation,
+                }))
+            }
+            Request::BrowseLibrary(r) => browse(reader, preparation, r, request, b)
                 .await
-                .map(Response::SearchOperations)
+                .map(Response::BrowseLibrary),
+            Request::SearchOperations(r) => {
+                search_operations(read, r, request, channels, vector, retained, b)
+                    .await
+                    .map(Response::SearchOperations)
+            }
+            Request::SearchEvidence(r) => {
+                search_evidence(read, r, request, channels, vector, retained, b)
+                    .await
+                    .map(Response::SearchEvidence)
+            }
+            Request::SearchCapabilities(r) => {
+                search_capabilities(read, r, request, channels, vector, retained, b)
+                    .await
+                    .map(Response::SearchCapabilities)
+            }
         }
-        Request::SearchEvidence(r) => {
-            search_evidence(read, r, request, channels, vector, retained, b)
-                .await
-                .map(Response::SearchEvidence)
-        }
-        Request::SearchCapabilities(r) => {
-            search_capabilities(read, r, request, channels, vector, retained, b)
-                .await
-                .map(Response::SearchCapabilities)
-        }
-    }
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<
+            Box<dyn lctx_model::domain::resources::Reservation>,
+        >())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema(
+            "native operation execution continuation size",
+        ))?;
+    let grant = b.reserve("native operation execution continuation", bytes)?;
+    Ok(Box::pin(async move {
+        let _grant = grant;
+        body.await
+    }))
 }
 #[allow(
     clippy::too_many_arguments,

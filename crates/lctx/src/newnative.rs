@@ -60,16 +60,22 @@ pub async fn publish(
     expected.validate()?;
     let manifest =
         lctx_model::domain::graph::Manifest::decode(&std::fs::read(path.join("manifest.json"))?)?;
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
     let model = Arc::new(lctx_model::domain::model()?);
-    let native =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(config, manifest.frontier)
-            .await?;
-    let workspace = match cpg_core::workspace::Workspace::new(
+    let factory = lctx_compiler_store::compiler::recovery_factory(config, budget.clone())?;
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+        config,
+        manifest.frontier,
+        &factory,
+    )
+    .await?;
+    let workspace = match cpg_core::workspace::Workspace::with_budget(
         model,
         cpg_core::workspace::WorkspaceOptions {
             memory_bytes,
             ..Default::default()
         },
+        budget.clone(),
         native.clone(),
     ) {
         Ok(workspace) => workspace,
@@ -168,9 +174,16 @@ impl std::ops::Deref for PinnedReader {
     }
 }
 pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<PinnedReader> {
+    let limits = config.serving_limits.clone().unwrap_or_default();
+    limits.validate()?;
+    let budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(limits.shared_bytes.try_into()?)?;
+    let reader_factory =
+        lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding()?, budget.clone())?;
     let handle = handle(config, path)?;
     let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let cancellation = lctx_native::control::RetryCancellation::default();
+    let recovery_admission = cancellation.clone();
     let (flag, retry) = (stopped.clone(), cancellation.clone());
     let signal = lctx_native::signal::SignalRegistration::new("CLI selected reader", move || {
         flag.store(true, std::sync::atomic::Ordering::Release);
@@ -184,7 +197,13 @@ pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<
             deadline(),
             lctx_native::control::with_retry_cancellation(
                 cancellation,
-                NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle),
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.writer_credentials(),
+                    handle,
+                    &budget,
+                    &reader_factory,
+                ),
             ),
         )
         .await
@@ -203,6 +222,10 @@ pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<
         }
         Err(error) => {
             let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "CLI reader constructor factory drainage",
+                reader_factory.drain(&recovery_admission).await,
+            );
             // A failed/expired connection cannot prove that pin admission never
             // committed. Retain its started owner for native reconciliation.
             completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
@@ -357,7 +380,11 @@ pub async fn tool(
 pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Result<()> {
     use lctx_native::phase::Phase;
     let operation = Phase::begin("native_installation");
-    let result = tokio::time::timeout(deadline(), async {
+    // Explicit maintenance installation spans many checked operations and
+    // background index-readiness waits. A serving request deadline must not
+    // drop issued schema work; host interruption retains the owned target's
+    // separate maintenance/recovery obligation.
+    let result = async {
         anyhow::ensure!(
             config.authentication == lctx_native::config::AuthenticationScope::Root,
             "installation requires explicit maintenance credentials"
@@ -393,8 +420,14 @@ pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Resul
         phase.finish_result(&result);
         terminal.step("embedding schema session close", result);
         lctx_model::domain::completion::complete(embedding, terminal)?;
+        let product_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )?;
+        let product_factory =
+            lctx_compiler_store::compiler::recovery_factory(config, product_budget)?;
         let phase = Phase::begin("native_installation_product_schema");
-        let result = lctx_compiler_store::NativeProductCache::install(config).await;
+        let result =
+            lctx_compiler_store::NativeProductCache::install(config, &product_factory).await;
         phase.finish_result(&result);
         if let Some(cache) = result? {
             let phase = Phase::begin("native_installation_product_session_close");
@@ -414,10 +447,8 @@ pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Resul
             result?;
         }
         Ok(())
-    })
-    .await
-    .context("native installation deadline exceeded")
-    .and_then(std::convert::identity);
+    }
+    .await;
     operation.finish_result(&result);
     result
 }

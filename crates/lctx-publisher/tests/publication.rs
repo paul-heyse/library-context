@@ -320,6 +320,15 @@ async fn publication_control() {
         let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             Frontier::Normalized,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -370,6 +379,15 @@ async fn publication_control() {
         let restored = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             Frontier::Normalized,
+            &lctx_compiler_store::compiler::recovery_factory(
+                &config,
+                (lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned native control recovery budget"))
+                .clone(),
+            )
+            .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -393,11 +411,27 @@ async fn publication_control() {
         let listed = lctx_publisher::inspection::list(&config).await.unwrap();
         assert!(listed.contains(&handle));
         inspector_owner = Some(
-            NativeReader::connect(
-                &config.endpoint,
-                &config.writer_credentials(),
-                handle.clone(),
-            )
+            async {
+                let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned reader control budget");
+                let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+                    config
+                        .receipt_binding()
+                        .expect("owned reader receipt binding"),
+                    reader_budget.clone(),
+                )
+                .expect("owned reader factory");
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.writer_credentials(),
+                    handle.clone(),
+                    &reader_budget,
+                    &reader_factory,
+                )
+                .await
+            }
             .await
             .unwrap(),
         );
@@ -414,11 +448,27 @@ async fn publication_control() {
             .unwrap();
         assert_reader_panic_cleanup(&mut inspector_owner, &config, &handle).await;
         viewer_owner = Some(
-            NativeReader::connect(
-                &config.endpoint,
-                &config.writer_credentials(),
-                handle.clone(),
-            )
+            async {
+                let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned reader control budget");
+                let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+                    config
+                        .receipt_binding()
+                        .expect("owned reader receipt binding"),
+                    reader_budget.clone(),
+                )
+                .expect("owned reader factory");
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.writer_credentials(),
+                    handle.clone(),
+                    &reader_budget,
+                    &reader_factory,
+                )
+                .await
+            }
             .await
             .unwrap()
             .with_budget(workspace.budget()),
@@ -549,9 +599,29 @@ async fn publication_control() {
             .await
             .unwrap();
         assert!(
-            NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
+            async {
+                let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned reader control budget");
+                let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+                    config
+                        .receipt_binding()
+                        .expect("owned reader receipt binding"),
+                    reader_budget.clone(),
+                )
+                .expect("owned reader factory");
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.writer_credentials(),
+                    handle,
+                    &reader_budget,
+                    &reader_factory,
+                )
                 .await
-                .is_err()
+            }
+            .await
+            .is_err()
         );
     })
     .catch_unwind()
@@ -785,8 +855,20 @@ async fn small_publication_from_source(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     ))?;
     config.selection = scratch.path().join("selected.json");
-    let native =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, frontier).await?;
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+        &config,
+        frontier,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await?;
     let workspace = Workspace::new(
         Arc::new(model()?),
         WorkspaceOptions::default(),
@@ -1508,8 +1590,7 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
         assert_eq!(fixture.manifest.frontier, Frontier::Facts);
         assert_eq!(fixture.manifest.profile, Profile::Catalog);
         assert_eq!(fixture.manifest.originals.len(), 1);
-        source_owner = Some(NativeReader::connect(&fixture.config.endpoint,
-            &fixture.config.writer_credentials(), fixture.handle.clone()).await.unwrap().with_budget(&budget));
+        source_owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone(), &reader_budget, &reader_factory).await }.await.unwrap().with_budget(&budget));
         augment_published_source_roots(&mut fixture.source_cleanup, fixture.source_attempt,
             source_owner.as_ref().unwrap(), &budget).await.unwrap();
         let before = publication_ownership(source_owner.as_ref().unwrap(), &budget).await.unwrap();
@@ -1559,8 +1640,7 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
                 panic!("cold ingress cannot borrow retired source rows: {remaining:?}; actual incoming holds printed above");
             }
         }
-        assert!(NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(),
-            fixture.handle.clone()).await.is_err(), "source publication must be unavailable before restore");
+        assert!(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone(), &reader_budget, &reader_factory).await }.await.is_err(), "source publication must be unavailable before restore");
         assert!(!fixture.config.selection.exists());
         assert!(!fixture.config.selection.with_extension("serving.json").exists());
         let (first, second) = tokio::join!(
@@ -1576,8 +1656,7 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
             lctx_publisher::inspection::audit(&fixture.config, &second, &definitions),
         );
         first_audit.unwrap(); second_audit.unwrap();
-        restored_owner = Some(NativeReader::connect(&fixture.config.endpoint,
-            &fixture.config.writer_credentials(), first).await.unwrap().with_budget(&budget));
+        restored_owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), first, &reader_budget, &reader_factory).await }.await.unwrap().with_budget(&budget));
         let reader = restored_owner.as_ref().unwrap();
         let after = publication_ownership(reader, &budget).await.unwrap();
         let incoming_after = receiving_capture_attempts(reader, &receipt).await.unwrap();
@@ -1700,7 +1779,7 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
             let remaining: Vec<RecordId> = response.take(0).unwrap();
             assert!(remaining.is_empty(), "cold restore cannot borrow source publication, contributions, memberships or original bytes: {remaining:?}");
         }
-        assert!(NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone()).await.is_err(),
+        assert!(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone(), &reader_budget, &reader_factory).await }.await.is_err(),
             "source publication must be unavailable before independent admission");
         let restored = lctx_publisher::backup::restore_publication(
             &fixture.config, &output, fixture.handle.publication, &definitions, &output_receipt,
@@ -1708,8 +1787,7 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
         assert_eq!(restored, fixture.handle);
         assert!(!fixture.config.selection.exists(), "restore does not adopt an operator selection");
         lctx_publisher::inspection::audit(&fixture.config, &restored, &definitions).await.unwrap();
-        restored_owner = Some(NativeReader::connect(&fixture.config.endpoint,
-            &fixture.config.writer_credentials(), restored).await.unwrap().with_budget(&reader_budget));
+        restored_owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), restored, &reader_budget, &reader_factory).await }.await.unwrap().with_budget(&reader_budget));
         let reader = restored_owner.as_ref().unwrap();
         assert_eq!(lctx_publisher::inspection::show(reader).await.unwrap().manifest.content(), fixture.manifest.content());
         assert_eq!(fixture.manifest.originals.len(), 1);
@@ -1774,8 +1852,7 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
     let mut restored_owner = None;
     let mut foreign_owner = None;
     let outcome = AssertUnwindSafe(async {
-        selected_owner = Some(NativeReader::connect(&fixture.config.endpoint,
-            &fixture.config.writer_credentials(), fixture.handle.clone()).await.unwrap().with_budget(&budget));
+        selected_owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone(), &reader_budget, &reader_factory).await }.await.unwrap().with_budget(&budget));
         let reader = selected_owner.as_ref().unwrap();
         let mut publication = Variables::new();
         publication.insert("publication", RecordId::new("publication", fixture.handle.publication.hex()));
@@ -1862,8 +1939,7 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
         assert_eq!(attempts[0].get("generation"), Some(&Value::String(fixture.config.service_generation.hex())));
         let pins_after_restore: Vec<RecordId> = reader.query_native(pins_query, publication.clone()).await.unwrap();
         assert_eq!(pins_after_restore, selected_pins, "backup and restore release their exact internal pins");
-        restored_owner = Some(NativeReader::connect(&fixture.config.endpoint,
-            &fixture.config.writer_credentials(), restored).await.unwrap().with_budget(&budget));
+        restored_owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), restored, &reader_budget, &reader_factory).await }.await.unwrap().with_budget(&budget));
         let restored_reader = restored_owner.as_ref().unwrap();
         let details = lctx_publisher::inspection::show(restored_reader).await.unwrap();
         assert_eq!(details.manifest.content(), fixture.manifest.content());
@@ -1934,11 +2010,27 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
     let mut restored_viewer_owner = None;
     let outcome = AssertUnwindSafe(async {
         viewer_owner = Some(
-            NativeReader::connect(
-                &config.endpoint,
-                &config.writer_credentials(),
-                handle.clone(),
-            )
+            async {
+                let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned reader control budget");
+                let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+                    config
+                        .receipt_binding()
+                        .expect("owned reader receipt binding"),
+                    reader_budget.clone(),
+                )
+                .expect("owned reader factory");
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.writer_credentials(),
+                    handle.clone(),
+                    &reader_budget,
+                    &reader_factory,
+                )
+                .await
+            }
             .await
             .unwrap(),
         );
@@ -2082,11 +2174,27 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
         }
 
         restored_viewer_owner = Some(
-            NativeReader::connect(
-                &config.endpoint,
-                &config.writer_credentials(),
-                restored.clone(),
-            )
+            async {
+                let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                )
+                .expect("owned reader control budget");
+                let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+                    config
+                        .receipt_binding()
+                        .expect("owned reader receipt binding"),
+                    reader_budget.clone(),
+                )
+                .expect("owned reader factory");
+                NativeReader::connect(
+                    &config.endpoint,
+                    &config.writer_credentials(),
+                    restored.clone(),
+                    &reader_budget,
+                    &reader_factory,
+                )
+                .await
+            }
             .await
             .unwrap(),
         );
@@ -2134,8 +2242,7 @@ macro_rules! derived_excess_controls {
             let fixture = small_publication(stringify!($name)).await.unwrap();
             let mut owner = None;
             let outcome = AssertUnwindSafe(async {
-                owner = Some(NativeReader::connect(&fixture.config.endpoint,
-                    &fixture.config.writer_credentials(), fixture.handle.clone()).await.unwrap());
+                owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone(), &reader_budget, &reader_factory).await }.await.unwrap());
                 restored_derived_excess_is_refused(owner.as_ref().unwrap(), &fixture.config,
                     &fixture.handle, &lctx_native::materialization::native_definitions(),
                     $table).await;
@@ -2163,11 +2270,7 @@ async fn retirement_matching_stale_generation_refuses_before_selection_clear_or_
     let mut observer_owner = None;
     let outcome = AssertUnwindSafe(async {
         let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
-        observer_owner = Some(NativeReader::connect(
-            &fixture.config.endpoint,
-            &fixture.config.writer_credentials(),
-            fixture.handle.clone(),
-        ).await.unwrap().with_budget(&budget));
+        observer_owner = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(fixture.config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone(), &reader_budget, &reader_factory).await }.await.unwrap().with_budget(&budget));
         let observer = observer_owner.as_ref().unwrap();
         let publication = RecordId::new("publication", fixture.handle.publication.hex());
         let job = lctx_native::control::fresh_identity("stale-generation-retirement-control").unwrap();

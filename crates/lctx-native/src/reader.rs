@@ -1,9 +1,12 @@
 use futures::{FutureExt, StreamExt};
+pub(crate) mod ingress;
+mod retained;
 use lctx_model::domain::{
     Key, KeySink, ModelError, Record,
     graph::{Assertion, Entity, Target},
     serving::SnapshotHandle,
 };
+pub(crate) use retained::{materialize_native_bytes, native_retained_bytes};
 use serde::{Serialize, de::DeserializeOwned};
 use std::sync::Arc;
 use surrealdb::{
@@ -261,6 +264,9 @@ impl ReaderScope {
 }
 #[derive(Default)]
 struct QueryOperations {
+    recovery: Option<Arc<crate::control::RecoveryScope>>,
+    signals: Option<Arc<crate::signal::SignalRegistration>>,
+    factory: Option<crate::control::FactoryLease>,
     owns_session: bool,
     session_closed: bool,
     active: usize,
@@ -268,6 +274,41 @@ struct QueryOperations {
     closed: bool,
     // Abandoned delivery has a reader-owned terminal receipt, rather than a log-only result.
     abandoned: Vec<Result<(), Arc<ModelError>>>,
+}
+/// Erase the finalization owner's recursive type graph while retaining the
+/// actual query registry. This owner has no source factory lease.
+pub(crate) trait RecoveryReadOwner: Send + Sync {
+    fn reader(&self) -> NativeReader<()>;
+    fn close(&self) -> futures::future::BoxFuture<'_, Result<(), ModelError>>;
+    fn terminal(&self) -> Result<bool, ModelError>;
+}
+struct PrivateRecoveryRead(NativeReader<()>);
+impl RecoveryReadOwner for PrivateRecoveryRead {
+    fn reader(&self) -> NativeReader<()> {
+        self.0.clone()
+    }
+    fn close(&self) -> futures::future::BoxFuture<'_, Result<(), ModelError>> {
+        self.0.close().boxed()
+    }
+    fn terminal(&self) -> Result<bool, ModelError> {
+        let state = self
+            .0
+            .operations
+            .lock()
+            .map_err(|_| ModelError::Conflict("native finalization read owner"))?;
+        Ok(state.closed && state.active == 0)
+    }
+}
+pub(crate) fn recovery_read_owner(
+    client: Arc<Surreal<Client>>,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+    cancellation: Arc<std::sync::atomic::AtomicBool>,
+) -> Arc<dyn RecoveryReadOwner> {
+    Arc::new(PrivateRecoveryRead(
+        NativeReader::private(client)
+            .with_budget(budget)
+            .with_read_cancellation(cancellation),
+    ))
 }
 struct QueryLease {
     operations: Arc<std::sync::Mutex<QueryOperations>>,
@@ -350,100 +391,6 @@ impl Drop for QueryLease {
 /// not allocator RSS: BTree allocator metadata, shared backing buffers and compiled regex
 /// internals are owned by the SDK, as are transport queues before delivery. All value kinds
 /// contribute their visible payload; no silent dynamic-kind fallback or guessed row maximum.
-fn native_query_payload_bytes(value: &Value) -> usize {
-    use std::ops::Bound;
-    use surrealdb::types::{Geometry, RecordIdKey};
-    fn sum(values: impl Iterator<Item = usize>) -> usize {
-        values.fold(0, usize::saturating_add)
-    }
-    fn bound(value: &Bound<Value>) -> usize {
-        match value {
-            Bound::Included(value) | Bound::Excluded(value) => native_query_payload_bytes(value),
-            Bound::Unbounded => 0,
-        }
-    }
-    fn key(value: &RecordIdKey) -> usize {
-        std::mem::size_of::<RecordIdKey>().saturating_add(match value {
-            RecordIdKey::Number(_) | RecordIdKey::Uuid(_) => 0,
-            RecordIdKey::String(value) => value.capacity(),
-            RecordIdKey::Array(values) => sum(values.iter().map(native_query_payload_bytes))
-                .saturating_add(
-                    (values.capacity() - values.len()).saturating_mul(std::mem::size_of::<Value>()),
-                ),
-            RecordIdKey::Object(values) => sum(values.iter().map(|(name, value)| {
-                name.capacity()
-                    .saturating_add(std::mem::size_of::<String>())
-                    .saturating_add(native_query_payload_bytes(value))
-            })),
-            RecordIdKey::Range(range) => {
-                std::mem::size_of_val(range.as_ref()).saturating_add(sum([
-                    &range.start,
-                    &range.end,
-                ]
-                .into_iter()
-                .map(|value| match value {
-                    Bound::Included(value) | Bound::Excluded(value) => key(value),
-                    Bound::Unbounded => 0,
-                })))
-            }
-        })
-    }
-    fn slots<T>(values: &Vec<T>) -> usize {
-        values.capacity().saturating_mul(std::mem::size_of::<T>())
-    }
-    // Geometry containers expose their storage through the pinned public geo fields.
-    fn geometry(value: &Geometry) -> usize {
-        match value {
-            Geometry::Point(_) => 0,
-            Geometry::Line(value) => slots(&value.0),
-            Geometry::Polygon(value) => slots(&value.exterior().0)
-                .saturating_add(std::mem::size_of_val(value.interiors()))
-                .saturating_add(sum(value.interiors().iter().map(|line| slots(&line.0)))),
-            Geometry::MultiPoint(value) => slots(&value.0),
-            Geometry::MultiLine(value) => {
-                slots(&value.0).saturating_add(sum(value.0.iter().map(|line| slots(&line.0))))
-            }
-            Geometry::MultiPolygon(value) => {
-                slots(&value.0).saturating_add(sum(value.0.iter().map(|polygon| {
-                    slots(&polygon.exterior().0)
-                        .saturating_add(std::mem::size_of_val(polygon.interiors()))
-                        .saturating_add(sum(polygon.interiors().iter().map(|line| slots(&line.0))))
-                })))
-            }
-            Geometry::Collection(values) => {
-                slots(values).saturating_add(sum(values.iter().map(geometry)))
-            }
-        }
-    }
-    std::mem::size_of::<Value>().saturating_add(match value {
-        Value::None
-        | Value::Null
-        | Value::Bool(_)
-        | Value::Number(_)
-        | Value::Duration(_)
-        | Value::Datetime(_)
-        | Value::Uuid(_) => 0,
-        Value::String(value) => value.capacity(),
-        Value::Bytes(value) => value.len(),
-        Value::Array(values) => sum(values.iter().map(native_query_payload_bytes)).saturating_add(
-            (values.capacity() - values.len()).saturating_mul(std::mem::size_of::<Value>()),
-        ),
-        Value::Object(values) => sum(values.iter().map(|(name, value)| {
-            name.capacity()
-                .saturating_add(std::mem::size_of::<String>())
-                .saturating_add(native_query_payload_bytes(value))
-        })),
-        Value::Set(values) => sum(values.iter().map(native_query_payload_bytes)),
-        Value::Table(value) => value.capacity(),
-        Value::RecordId(value) => value.table.capacity().saturating_add(key(&value.key)),
-        Value::File(value) => value.bucket.capacity().saturating_add(value.key.capacity()),
-        Value::Range(value) => std::mem::size_of_val(value.as_ref())
-            .saturating_add(bound(&value.start))
-            .saturating_add(bound(&value.end)),
-        Value::Regex(value) => value.as_str().len(),
-        Value::Geometry(value) => geometry(value),
-    })
-}
 struct ChargedNativeValue {
     value: Option<Value>,
     _charge: Box<dyn lctx_model::domain::resources::Reservation>,
@@ -460,7 +407,10 @@ enum NativeValueShape {
     Single(Value),
 }
 struct AcceptedValue {
-    stream: futures::stream::BoxStream<'static, surrealdb::Result<surrealdb::method::BatchItem>>,
+    stream: futures::stream::BoxStream<
+        'static,
+        Result<surrealdb::method::AdmittedBatchItem, surrealdb::method::AdmittedBatchFailure>,
+    >,
     lease: QueryLease,
     budget: lctx_model::domain::resources::ResourceBudget,
     charge: Box<dyn lctx_model::domain::resources::Reservation>,
@@ -537,13 +487,14 @@ impl AcceptedValue {
             return Ok(());
         }
         match item {
-            BatchItem::Rows { values, .. } => {
-                // Charge the delivered batch before admitting it to retained accumulation.
-                // This does not charge SDK/tonic allocations before delivery.
-                let bytes = values
-                    .iter()
-                    .map(native_query_payload_bytes)
-                    .fold(0usize, usize::saturating_add);
+            BatchItem::Rows { mut values, .. } => {
+                // Transfer the qualified retained allocation into the application owner while
+                // the SDK framing, conversion and batch reservations still overlap it.
+                let bytes = values.iter().try_fold(0usize, |total, value| {
+                    total
+                        .checked_add(native_retained_bytes(value)?)
+                        .ok_or(ModelError::Schema("native retained batch size overflow"))
+                })?;
                 let slots = values
                     .capacity()
                     .saturating_mul(std::mem::size_of::<Value>());
@@ -596,12 +547,16 @@ impl AcceptedValue {
                     replacement.append(rows);
                     *rows = replacement;
                 }
+                for value in &mut values {
+                    materialize_native_bytes(value);
+                }
                 rows.extend(values);
                 self.payload_bytes = self.payload_bytes.saturating_add(bytes);
             }
-            BatchItem::Value { value, .. } => {
-                let bytes = native_query_payload_bytes(&value);
+            BatchItem::Value { mut value, .. } => {
+                let bytes = native_retained_bytes(&value)?;
                 self.charge.try_resize(bytes)?;
+                materialize_native_bytes(&mut value);
                 self.value = NativeValueShape::Single(value);
                 self.payload_bytes = bytes;
             }
@@ -612,6 +567,50 @@ impl AcceptedValue {
         }
         Ok(())
     }
+    fn ingest_admitted(
+        &mut self,
+        item: Result<surrealdb::method::AdmittedBatchItem, surrealdb::method::AdmittedBatchFailure>,
+    ) -> Result<(), ModelError> {
+        use surrealdb::method::BatchItem;
+        let (item, reservations) = item
+            .map_err(|failure| {
+                let (error, reservations) = failure.into_parts();
+                ModelError::Cause(Box::new(ingress::LeasedFailure {
+                    source: unconfirmed_stream(sdk_error(error)),
+                    _reservations: reservations,
+                }))
+            })?
+            .into_parts();
+        match item {
+            BatchItem::Finished {
+                index,
+                query_type,
+                time,
+                error: Some(error),
+            } => {
+                // Preserve both malformed order and the statement's own typed
+                // failure. Its allocations stay admitted through result ownership.
+                let result = self.ingest(Ok(BatchItem::Finished {
+                    index,
+                    query_type,
+                    time,
+                    error: None,
+                }));
+                self.fail(ModelError::Cause(Box::new(ingress::LeasedFailure {
+                    source: sdk_error(error),
+                    _reservations: reservations,
+                })));
+                result
+            }
+            item => {
+                let result = self.ingest(Ok(item));
+                // Retained values now have the accumulation reservation; keep
+                // ingress/native/protobuf overlap live through that transfer.
+                drop(reservations);
+                result
+            }
+        }
+    }
     async fn drain(&mut self, flag: Option<Arc<std::sync::atomic::AtomicBool>>) {
         let mut cancelled = false;
         while let Some(item) = self.stream.next().await {
@@ -621,7 +620,7 @@ impl AcceptedValue {
                 self.fail(error);
                 cancelled = true;
             }
-            if let Err(error) = self.ingest(item) {
+            if let Err(error) = self.ingest_admitted(item) {
                 self.fail(error);
             }
         }
@@ -646,9 +645,38 @@ struct NativeValueOwner {
     accepted: Option<AcceptedValue>,
 }
 impl NativeValueOwner {
+    #[cfg(test)]
     fn new(
         stream: impl futures::Stream<Item = surrealdb::Result<surrealdb::method::BatchItem>>
         + Send
+        + 'static,
+        statements: usize,
+        selected: usize,
+        budget: lctx_model::domain::resources::ResourceBudget,
+        charge: Box<dyn lctx_model::domain::resources::Reservation>,
+        lease: QueryLease,
+    ) -> Self {
+        Self::new_admitted(
+            stream.map(|item| {
+                item.map(|item| surrealdb::method::AdmittedBatchItem::new(item, Vec::new()))
+                    .map_err(|error| {
+                        surrealdb::method::AdmittedBatchFailure::new(error, Vec::new())
+                    })
+            }),
+            statements,
+            selected,
+            budget,
+            charge,
+            lease,
+        )
+    }
+    fn new_admitted(
+        stream: impl futures::Stream<
+            Item = Result<
+                surrealdb::method::AdmittedBatchItem,
+                surrealdb::method::AdmittedBatchFailure,
+            >,
+        > + Send
         + 'static,
         statements: usize,
         selected: usize,
@@ -1121,6 +1149,22 @@ impl<Context> NativeReader<Context> {
             .clone()
             .ok_or(ModelError::Conflict("native reader requires caller budget"))
     }
+    pub fn recovery_scope(&self) -> Result<Arc<crate::control::RecoveryScope>, ModelError> {
+        let recovery = self
+            .operations
+            .lock()
+            .map_err(|_| ModelError::Conflict("native query operation owner"))?
+            .recovery
+            .clone()
+            .or_else(crate::control::capture_recovery_scope)
+            .ok_or(ModelError::Conflict("native reader recovery owner missing"))?;
+        if !Arc::ptr_eq(recovery.client(), &self.client) {
+            return Err(ModelError::Conflict(
+                "native reader recovery session differs",
+            ));
+        }
+        Ok(recovery)
+    }
     fn scratch_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> {
         self.request_budget.clone().ok_or(ModelError::Conflict(
             "native selected read requires caller budget",
@@ -1190,6 +1234,19 @@ impl<Context> NativeReader<Context> {
     }
     /// The owner drains reader clones and streams before explicit session invalidation.
     pub async fn close(&self) -> Result<(), ModelError> {
+        let factory = self
+            .operations
+            .lock()
+            .map_err(|_| ModelError::Conflict("native query operation owner"))?
+            .factory
+            .as_ref()
+            .map(|lease| lease.factory().clone());
+        self.close_inner().await.map_err(|error| match factory {
+            Some(factory) => factory.handback(error),
+            None => error,
+        })
+    }
+    async fn close_inner(&self) -> Result<(), ModelError> {
         let drains = self
             .operations
             .lock()
@@ -1278,6 +1335,31 @@ impl<Context> NativeReader<Context> {
                 .map_err(|_| ModelError::Conflict("native query operation owner"))?;
             state.owns_session && !state.session_closed
         };
+        let (recovery, signals, factory) = {
+            let operations = self
+                .operations
+                .lock()
+                .map_err(|_| ModelError::Conflict("native query operation owner"))?;
+            (
+                operations.recovery.clone(),
+                operations.signals.clone(),
+                operations.factory.clone(),
+            )
+        };
+        if owns_session
+            && let Some(recovery) = &recovery
+            && recovery.pending_count()? != 0
+        {
+            completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+            completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+            completion.step(
+                "owned reader recovery handback",
+                Err(ModelError::Conflict(
+                    "native reader has pending recovery requests",
+                )),
+            );
+            return lctx_model::domain::completion::complete(Ok(()), completion);
+        }
         if owns_session {
             // Even after confirmed query drainage, session detach/invalidation
             // needs its own acknowledgement. Cancellation must retain the exact
@@ -1288,7 +1370,11 @@ impl<Context> NativeReader<Context> {
                 client: self.client.clone(),
                 confirmed: false,
             };
-            let invalidated = self.client.invalidate().await.map_err(sdk_error);
+            let invalidated = if let Some(factory) = &factory {
+                factory.close_session().await
+            } else {
+                self.client.invalidate().await.map_err(sdk_error)
+            };
             session.confirmed = invalidated.is_ok();
             if invalidated.is_err() {
                 completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
@@ -1299,6 +1385,17 @@ impl<Context> NativeReader<Context> {
                 .lock()
                 .map_err(|_| ModelError::Conflict("native query operation owner"))?
                 .session_closed = true;
+        }
+        if let Some(factory) = factory {
+            completion.step(
+                "owned reader factory finality",
+                factory.complete_with(&completion).await,
+            );
+        } else if let Some(signals) = signals {
+            completion.step(
+                "owned reader signal finality",
+                signals.complete(&completion).await,
+            );
         }
         lctx_model::domain::completion::complete(Ok(()), completion)
     }
@@ -1507,7 +1604,7 @@ impl<Context> NativeReader<Context> {
             return_owner.ensure_scope_live()?;
             Ok(Some(
                 selected
-                    .with_reader_owner(return_owner)
+                    .with_reader_owner(return_owner)?
                     .with_read_cancellation(cancellation),
             ))
         }
@@ -1540,7 +1637,7 @@ impl<Context> NativeReader<Context> {
         let table = table.to_owned();
         let predicate = predicate.to_owned();
         let order = order.to_owned();
-        let mut rows = NativeRows::owned(move |sender| async move {
+        let mut rows = NativeRows::owned(budget.clone(), move |sender| async move {
             let selection = selection
                 .await?
                 .ok_or(ModelError::Conflict("selected reader scope"))?;
@@ -1561,7 +1658,7 @@ impl<Context> NativeReader<Context> {
             let result = async { loop {
                 let row = tokio::select! { biased; _ = sender.closed() => { rows.cancel_delivery(); break; }, row = rows.next() => row? };
                 let Some(row) = row else { break; };
-                if sender.send(row).await.is_err() { rows.cancel_delivery(); break; }
+                if !sender.send(row).await? { rows.cancel_delivery(); break; }
             } Ok(()) }.await;
             let mut completion = lctx_model::domain::completion::Completion::default();
             completion.step(
@@ -1592,14 +1689,14 @@ impl<Context> NativeReader<Context> {
             let preparation = self.selection_preparation();
             let table = table.to_owned();
             let order = order.to_owned();
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 let selected = preparation
                     .await?
                     .ok_or(ModelError::Conflict("candidate exact selection missing"))?;
                 let mut rows = selected.candidate_rows(candidates, &table, &order, &budget)?;
                 let result = async {
                     while let Some(row) = rows.next().await? {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             rows.cancel_delivery();
                             break;
                         }
@@ -1749,7 +1846,7 @@ impl<Context> NativeReader<Context> {
             let relation = relation.to_owned();
             let table = table.to_owned();
             let budget = budget.clone();
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 let selected = preparation
                     .await?
                     .ok_or(ModelError::Conflict("exact relation selection missing"))?;
@@ -1759,7 +1856,7 @@ impl<Context> NativeReader<Context> {
                 let mut rows = selected.relation_candidates(&relation, &table, &budget)?;
                 let result = async {
                     while let Some(row) = rows.next().await? {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             rows.cancel_delivery();
                             break;
                         }
@@ -1775,7 +1872,7 @@ impl<Context> NativeReader<Context> {
                 lctx_model::domain::completion::complete(result, terminal)
             })?
         };
-        let mut rows = NativeRows::owned(move |sender| async move {
+        let mut rows = NativeRows::owned(budget.clone(), move |sender| async move {
             let result = async {
                 let mut emitted = 0usize;
                 while let Some(row) = input.next().await? {
@@ -1784,7 +1881,7 @@ impl<Context> NativeReader<Context> {
                         break;
                     }
                     if emitted < limit {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             input.cancel_delivery();
                             break;
                         }
@@ -1822,7 +1919,11 @@ impl<Context> NativeReader<Context> {
         self.ensure_scope_live()?;
         query
             .with_bindings(self.view_bindings())
-            .stream_cancellable(&self.client, self.cancellation.as_ref())
+            .stream_cancellable(
+                &self.client,
+                self.cancellation.as_ref(),
+                &self.scratch_budget()?,
+            )
             .map(|mut rows| {
                 rows.scope = self.scope.clone();
                 rows
@@ -1832,7 +1933,7 @@ impl<Context> NativeReader<Context> {
         &self,
         query: crate::prepared::PreparedQuery,
     ) -> Result<T, ModelError> {
-        let mut value = self.checked_native_value(query).await?;
+        let mut value = self.checked_native_value(query)?.await?;
         SerdeWrapper::<T>::from_value(value.take_value())
             .map(|value| value.0)
             .map_err(ModelError::codec)
@@ -1843,15 +1944,16 @@ impl<Context> NativeReader<Context> {
         &self,
         query: crate::prepared::PreparedQuery,
     ) -> Result<T, ModelError> {
-        let mut value = self.checked_native_value(query).await?;
+        let mut value = self.checked_native_value(query)?.await?;
         T::from_value(value.take_value()).map_err(ModelError::codec)
     }
     /// Finite owner-generated SELECT/RETURN reads. This API does not register LIVE
     /// subscriptions and is not a read-only authorization fence for arbitrary SQL.
-    async fn checked_native_value(
+    fn checked_native_value(
         &self,
         query: crate::prepared::PreparedQuery,
-    ) -> Result<ChargedNativeValue, ModelError> {
+    ) -> Result<futures::future::BoxFuture<'_, Result<ChargedNativeValue, ModelError>>, ModelError>
+    {
         self.ensure_scope_live()?;
         if query.result_positions().len() != 1 {
             return Err(ModelError::Schema("native single result demand"));
@@ -1859,27 +1961,48 @@ impl<Context> NativeReader<Context> {
         let selected = query.result_positions()[0];
         let statements = query.expected_terminals();
         let budget = self.scratch_budget()?;
-        let charge = budget.reserve(
-            "native exact query accumulation",
-            std::mem::size_of::<Value>(),
-        )?;
-        let (sql, bindings) = query.with_bindings(self.view_bindings()).into_request();
-        self.ensure_scope_live()?;
-        let stream = self
-            .client
-            .query(sql)
-            .bind(bindings)
-            .stream_batches()
-            .map_err(sdk_error)?;
-        let lease = QueryLease::admit(
-            self.operations.clone(),
-            self.client.clone(),
-            self.scope.clone(),
-        )?;
-        let mut owner = NativeValueOwner::new(stream, statements, selected, budget, charge, lease);
-        let value = owner.collect(self.cancellation.clone()).await?;
-        self.ensure_scope_live()?;
-        Ok(value)
+        let body_budget = budget.clone();
+        let reader = self.transport_reader();
+        let body = async move {
+            reader.ensure_scope_live()?;
+            let budget = body_budget;
+            let charge = budget.reserve(
+                "native exact query accumulation",
+                std::mem::size_of::<Value>(),
+            )?;
+            let (sql, bindings) = query.with_bindings(reader.view_bindings()).into_request();
+            reader.ensure_scope_live()?;
+            let stream = reader
+                .client
+                .query(sql)
+                .bind(bindings)
+                .stream_batches_with_options(ingress::options(&budget)?)
+                .map_err(sdk_error)?;
+            let lease = QueryLease::admit(
+                reader.operations.clone(),
+                reader.client.clone(),
+                reader.scope.clone(),
+            )?;
+            let mut owner =
+                NativeValueOwner::new_admitted(stream, statements, selected, budget, charge, lease);
+            let value = owner.collect(reader.cancellation.clone()).await?;
+            reader.ensure_scope_live()?;
+            Ok(value)
+        };
+        // Every typed/native scalar query shares this concrete execution seam.
+        // Admit the complete continuation before allocation, stream issuance or
+        // registry admission; the grant survives collection and terminal checks.
+        let bytes = std::mem::size_of_val(&body)
+            .checked_add(std::mem::size_of::<
+                Box<dyn lctx_model::domain::resources::Reservation>,
+            >())
+            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+            .ok_or(ModelError::Schema("native value query continuation size"))?;
+        let grant = budget.reserve("native value query continuation", bytes)?;
+        Ok(Box::pin(async move {
+            let _grant = grant;
+            body.await
+        }))
     }
 
     /// Finite owner-selected predicates; source payloads are decoded one at a time.
@@ -2395,7 +2518,10 @@ impl NativeReader<SnapshotHandle> {
             protected?;
             let publication_scope = handle.clone();
             Ok(Self {
-                operations: Default::default(),
+                operations: Arc::new(std::sync::Mutex::new(QueryOperations {
+                    recovery: crate::control::capture_recovery_scope(),
+                    ..Default::default()
+                })),
                 client: client.clone(),
                 derivation: Some(handle.realization),
                 handle,
@@ -2440,50 +2566,82 @@ impl NativeReader<SnapshotHandle> {
             }
         }
     }
-    /// Own a dedicated authenticated session through setup, query drain and close.
+    /// Caller retains the factory before await and drains it on construction failure.
     pub async fn connect(
         endpoint: &str,
         credentials: &Credentials,
         handle: SnapshotHandle,
+        budget: &lctx_model::domain::resources::ResourceBudget,
+        factory: &Arc<crate::control::RecoveryFactoryOwner>,
     ) -> Result<Self, ModelError> {
-        let client = connect(
-            endpoint,
-            credentials,
-            handle.database.namespace.as_str(),
-            handle.database.database.as_str(),
-        )
-        .await?;
-        let mut setup = InstalledReaderSetup {
-            views: vec![],
-            pin: None,
-            client: client.clone(),
-            confirmed: false,
-        };
-        match Self::open(client.clone(), handle).await {
+        if factory.binding().generation != handle.service_generation
+            || !factory.budget().shares_pool(budget)
+        {
+            return Err(ModelError::Conflict(
+                "publication reader factory budget/generation",
+            ));
+        }
+        let cancellation = crate::control::RetryCancellation::default();
+        let stop = cancellation.clone();
+        let signals = Arc::new(crate::signal::SignalRegistration::with_receipt(
+            "publication native reader",
+            move || stop.cancel(),
+            factory.binding().clone(),
+        )?);
+        let client = Arc::new(Surreal::init());
+        let recovery = crate::control::RecoveryScope::new(
+            client.clone(),
+            budget.clone(),
+            cancellation,
+            signals.pending_recipient()?,
+            crate::control::RecoveryTarget {
+                generation: handle.service_generation,
+                namespace: handle.database.namespace.as_str().into(),
+                database: handle.database.database.as_str().into(),
+                endpoint: Some(endpoint.into()),
+            },
+        )?;
+        let lease = factory.attach(recovery.clone(), signals.clone())?;
+        let result = crate::control::with_recovery_scope(recovery.clone(), async {
+            connect_with_client(
+                client.clone(),
+                endpoint,
+                credentials,
+                handle.database.namespace.as_str(),
+                handle.database.database.as_str(),
+                Some(budget),
+                false,
+            )
+            .await?;
+            Self::open(client.clone(), handle).await
+        })
+        .await;
+        match result {
             Ok(reader) => {
-                reader
-                    .operations
-                    .lock()
-                    .map_err(|_| ModelError::Conflict("publication reader session owner"))?
-                    .owns_session = true;
-                setup.confirmed = true;
+                let reader = reader.with_budget(budget);
+                {
+                    let mut operations = reader
+                        .operations
+                        .lock()
+                        .map_err(|_| ModelError::Conflict("publication reader session owner"))?;
+                    operations.owns_session = true;
+                    operations.recovery = Some(recovery);
+                    operations.signals = Some(signals);
+                    operations.factory = Some(lease);
+                }
                 Ok(reader)
             }
             Err(error) => {
-                if !setup.permits_cleanup(&error) {
-                    return Err(error);
+                if !error.permits_storage_cleanup() || recovery.pending_count()? != 0 {
+                    return Err(factory.handback(error));
                 }
-                let mut terminal = lctx_model::domain::completion::Completion::default();
-                let invalidated = client.invalidate().await.map_err(sdk_error);
-                setup.confirmed = invalidated.is_ok();
-                if invalidated.is_err() {
-                    terminal.remote = lctx_model::domain::completion::RemoteState::Unknown;
-                }
-                terminal.step(
-                    "failed publication reader session invalidation",
-                    invalidated,
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step(
+                    "failed publication reader owner close",
+                    lease.complete().await,
                 );
-                lctx_model::domain::completion::complete(Err(error), terminal)
+                lctx_model::domain::completion::complete(Err(error), completion)
+                    .map_err(|error| factory.handback(error))
             }
         }
     }
@@ -2629,111 +2787,143 @@ impl NativeReader<()> {
         }
         // SDK Surreal::clone creates an independently attached authenticated session.
         // Arc::clone would share the source store's invalidation lifetime.
-        let client = Arc::new(client.as_ref().clone());
-        let mut setup = InstalledReaderSetup {
-            views: views.to_vec(),
-            pin: None,
-            client: client.clone(),
-            confirmed: false,
-        };
-        let pin = match crate::control::ReaderPin::acquire(client.clone(), &logical).await {
-            Ok(pin) => pin,
-            Err(error) => {
-                if !setup.permits_cleanup(&error) {
-                    return Err(error);
-                }
-                let mut terminal = lctx_model::domain::completion::Completion::default();
-                let invalidated = client.invalidate().await.map_err(sdk_error);
-                if invalidated.is_err() {
-                    terminal.remote = lctx_model::domain::completion::RemoteState::Unknown;
-                }
-                terminal.step("failed installed reader session invalidation", invalidated);
-                let result = lctx_model::domain::completion::complete(Err(error), terminal);
-                setup.confirmed = result
-                    .as_ref()
-                    .err()
-                    .is_none_or(|error| error.permits_storage_cleanup());
-                return result;
-            }
-        };
-        setup.pin = Some(pin.clone());
-        let reader = Self::private(client.clone()).with_budget(budget);
-        let result = async {
-            crate::installed_view::protect_receiving_views(views, &pin, &reader, budget).await?;
-            // The exact native capabilities own these selectors already. Mechanical
-            // selection borrows them; no duplicate compound descriptor is retained.
-            Ok(Vec::<crate::completed_state::InstalledViewRef>::new())
+        let parent = crate::control::capture_recovery_scope().ok_or(ModelError::Conflict(
+            "independent reader requires source recovery owner",
+        ))?;
+        if !Arc::ptr_eq(parent.client(), &client) {
+            return Err(ModelError::Conflict(
+                "independent reader source session differs",
+            ));
         }
-        .await;
-        // Mark uncertainty before any cleanup can release the pin or drop a
-        // recovery view. Still close the private transport to join its drains.
-        if let Err(error) = &result {
-            setup.permits_cleanup(error);
-        }
-        let closed = reader.close().await;
-        if let Err(error) = &closed {
-            setup.permits_cleanup(error);
-        }
-        let mut terminal = lctx_model::domain::completion::Completion::default();
-        terminal.step("installed reader setup private transport close", closed);
-        let result = lctx_model::domain::completion::complete(result, terminal);
-        let references = match result {
-            Ok(references) => references,
-            Err(error) => {
-                if !setup.permits_cleanup(&error) {
-                    return Err(error);
-                }
-                let released = pin.release().await;
-                let may_invalidate = released
-                    .as_ref()
-                    .err()
-                    .is_none_or(|error| setup.permits_cleanup(error));
-                let mut terminal = lctx_model::domain::completion::Completion::default();
-                terminal.step("failed installed reader setup pin release", released);
-                if may_invalidate {
-                    let invalidated = client.invalidate().await.map_err(sdk_error);
+        let factory = parent.factory()?;
+        let (recovery, signals, lease) = parent.fork_session(budget)?;
+        let result = crate::control::with_recovery_scope(recovery.clone(), async {
+            let client = recovery.client().clone();
+            let mut setup = InstalledReaderSetup {
+                views: views.to_vec(),
+                pin: None,
+                client: client.clone(),
+                confirmed: false,
+            };
+            let pin = match crate::control::ReaderPin::acquire(client.clone(), &logical).await {
+                Ok(pin) => pin,
+                Err(error) => {
+                    if !setup.permits_cleanup(&error) {
+                        return Err(error);
+                    }
+                    let mut terminal = lctx_model::domain::completion::Completion::default();
+                    let invalidated = lease.close_session().await;
                     if invalidated.is_err() {
                         terminal.remote = lctx_model::domain::completion::RemoteState::Unknown;
                     }
                     terminal.step("failed installed reader session invalidation", invalidated);
+                    let result = lctx_model::domain::completion::complete(Err(error), terminal);
+                    setup.confirmed = result
+                        .as_ref()
+                        .err()
+                        .is_none_or(|error| error.permits_storage_cleanup());
+                    return result;
                 }
-                let result = lctx_model::domain::completion::complete(Err(error), terminal);
-                setup.confirmed = result
-                    .as_ref()
-                    .err()
-                    .is_none_or(|error| error.permits_storage_cleanup());
-                return result;
+            };
+            setup.pin = Some(pin.clone());
+            let reader = Self::private(client.clone()).with_budget(budget);
+            let result = async {
+                crate::installed_view::protect_receiving_views(views, &pin, &reader, budget)
+                    .await?;
+                // The exact native capabilities own these selectors already. Mechanical
+                // selection borrows them; no duplicate compound descriptor is retained.
+                Ok(Vec::<crate::completed_state::InstalledViewRef>::new())
             }
-        };
-        let installed = std::mem::take(&mut setup.views);
-        let pin = setup.pin.take().expect("earned installed reader pin");
-        setup.confirmed = true;
-        Ok(Self {
-            operations: Arc::new(std::sync::Mutex::new(QueryOperations {
-                owns_session: true,
-                ..Default::default()
-            })),
-            client,
-            handle: (),
-            derivation: None,
-            cancellation: None,
-            budget: Some(budget.clone()),
-            request_budget: Some(budget.clone()),
-            scope: Some(Arc::new(ReaderScope {
-                publication: None,
-                originals: None,
-                views: logical,
-                exact: Some(Arc::new(ExactViewSelection {
-                    references,
-                    _installed: installed,
-                    _charge: charge,
+            .await;
+            // Mark uncertainty before any cleanup can release the pin or drop a
+            // recovery view. Still close the private transport to join its drains.
+            if let Err(error) = &result {
+                setup.permits_cleanup(error);
+            }
+            let closed = reader.close().await;
+            if let Err(error) = &closed {
+                setup.permits_cleanup(error);
+            }
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step("installed reader setup private transport close", closed);
+            let result = lctx_model::domain::completion::complete(result, terminal);
+            let references = match result {
+                Ok(references) => references,
+                Err(error) => {
+                    if !setup.permits_cleanup(&error) {
+                        return Err(error);
+                    }
+                    let released = pin.release().await;
+                    let may_invalidate = released
+                        .as_ref()
+                        .err()
+                        .is_none_or(|error| setup.permits_cleanup(error));
+                    let mut terminal = lctx_model::domain::completion::Completion::default();
+                    terminal.step("failed installed reader setup pin release", released);
+                    if may_invalidate {
+                        let invalidated = lease.close_session().await;
+                        if invalidated.is_err() {
+                            terminal.remote = lctx_model::domain::completion::RemoteState::Unknown;
+                        }
+                        terminal.step("failed installed reader session invalidation", invalidated);
+                    }
+                    let result = lctx_model::domain::completion::complete(Err(error), terminal);
+                    setup.confirmed = result
+                        .as_ref()
+                        .err()
+                        .is_none_or(|error| error.permits_storage_cleanup());
+                    return result;
+                }
+            };
+            let installed = std::mem::take(&mut setup.views);
+            let pin = setup.pin.take().expect("earned installed reader pin");
+            setup.confirmed = true;
+            Ok(Self {
+                operations: Arc::new(std::sync::Mutex::new(QueryOperations {
+                    owns_session: true,
+                    recovery: Some(recovery.clone()),
+                    signals: Some(signals.clone()),
+                    factory: Some(lease.clone()),
+                    ..Default::default()
                 })),
-                _pin: Some(pin),
-                release_pin_on_close: true,
-                borrowed: None,
-                selection: std::sync::Mutex::new(None),
-            })),
+                client,
+                handle: (),
+                derivation: None,
+                cancellation: None,
+                budget: Some(budget.clone()),
+                request_budget: Some(budget.clone()),
+                scope: Some(Arc::new(ReaderScope {
+                    publication: None,
+                    originals: None,
+                    views: logical,
+                    exact: Some(Arc::new(ExactViewSelection {
+                        references,
+                        _installed: installed,
+                        _charge: charge,
+                    })),
+                    _pin: Some(pin),
+                    release_pin_on_close: true,
+                    borrowed: None,
+                    selection: std::sync::Mutex::new(None),
+                })),
+            })
         })
+        .await;
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(ModelError::permits_storage_cleanup)
+            && recovery.pending_count()? == 0
+        {
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step(
+                "failed independent reader signal finality",
+                lease.complete_with(&terminal).await,
+            );
+            return lctx_model::domain::completion::complete(result, terminal)
+                .map_err(|error| factory.handback(error));
+        }
+        result.map_err(|error| factory.handback(error))
     }
     /// Earn an exact physical view scope under a temporary pin. Every requested logical
     /// view is resolved through this completed state's inventory, never global discovery.
@@ -2752,7 +2942,18 @@ impl NativeReader<()> {
         let identity = data.identity()?;
         // Completed readers may outlive their staging/source session. Own a real
         // independent SDK session before the first effect, including setup failure.
-        let client = Arc::new(client.as_ref().clone());
+        let parent = crate::control::capture_recovery_scope().ok_or(ModelError::Conflict(
+            "independent reader requires source recovery owner",
+        ))?;
+        if !Arc::ptr_eq(parent.client(), &client) {
+            return Err(ModelError::Conflict(
+                "independent reader source session differs",
+            ));
+        }
+        let factory = parent.factory()?;
+        let (recovery, signals, lease) = parent.fork_session(budget)?;
+        let result = crate::control::with_recovery_scope(recovery.clone(), async {
+        let client = recovery.client().clone();
         let mut setup = InstalledReaderSetup {
             views: vec![],
             pin: None,
@@ -2765,7 +2966,7 @@ impl NativeReader<()> {
                 if !setup.permits_cleanup(&error) {
                     return Err(error);
                 }
-                let invalidated = client.invalidate().await.map_err(sdk_error);
+                let invalidated = lease.close_session().await;
                 let mut completion = lctx_model::domain::completion::Completion::default();
                 if invalidated.is_err() {
                     completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
@@ -2877,7 +3078,7 @@ impl NativeReader<()> {
                 let mut completion = lctx_model::domain::completion::Completion::default();
                 completion.step("completed reader failed setup pin release", released);
                 if may_invalidate {
-                    let invalidated = client.invalidate().await.map_err(sdk_error);
+                    let invalidated = lease.close_session().await;
                     if invalidated.is_err() {
                         completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
                     }
@@ -2899,6 +3100,9 @@ impl NativeReader<()> {
         Ok(Self {
             operations: Arc::new(std::sync::Mutex::new(QueryOperations {
                 owns_session: true,
+                recovery: Some(recovery.clone()),
+                signals: Some(signals.clone()),
+                factory: Some(lease.clone()),
                 ..Default::default()
             })),
             client,
@@ -2918,6 +3122,22 @@ impl NativeReader<()> {
                 selection: std::sync::Mutex::new(None),
             })),
         })
+        }).await;
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(ModelError::permits_storage_cleanup)
+            && recovery.pending_count()? == 0
+        {
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step(
+                "failed independent reader signal finality",
+                lease.complete_with(&terminal).await,
+            );
+            return lctx_model::domain::completion::complete(result, terminal)
+                .map_err(|error| factory.handback(error));
+        }
+        result.map_err(|error| factory.handback(error))
     }
     pub fn for_views(
         client: Arc<Surreal<Client>>,
@@ -2957,6 +3177,11 @@ impl NativeReader<()> {
             request_budget: None,
             scope: None,
         }
+    }
+    pub(crate) fn private_owner_bytes() -> usize {
+        size_of::<std::sync::Mutex<QueryOperations>>()
+            + size_of::<PrivateRecoveryRead>()
+            + 4 * size_of::<usize>()
     }
     /// Borrow a recovery owner's pin through every accepted operation. Closing this
     /// private transport drains its operations; the recovery owner releases the pin.
@@ -3008,8 +3233,89 @@ fn unconfirmed_stream(error: ModelError) -> ModelError {
     lctx_model::domain::completion::complete::<()>(Err(error), completion).unwrap_err()
 }
 
+// A queued value owns its destination allocation before the producer releases
+// its source batch. next() transfers this lease to the cursor until acknowledgment.
+struct OwnedRow {
+    value: Value,
+    reservation: Arc<dyn surrealdb::method::IngressReservation>,
+}
+/// Admitted delivery for native preparation drivers. A refused allocation is an
+/// error; only receiver cancellation is reported as false.
+pub struct NativeRowSender {
+    sender: tokio::sync::mpsc::Sender<OwnedRow>,
+    owner: Arc<dyn surrealdb::method::IngressAdmission>,
+    _queue_storage: Arc<dyn surrealdb::method::IngressReservation>,
+}
+impl NativeRowSender {
+    pub async fn send(&self, mut value: Value) -> Result<bool, ModelError> {
+        if self.sender.is_closed() {
+            return Ok(false);
+        }
+        let reservation = self
+            .owner
+            .reserve(
+                surrealdb::method::IngressStage::ValueConversion,
+                native_retained_bytes(&value)?,
+            )
+            .map_err(sdk_error)?;
+        // Bytes can share an entire source frame. Replace that backing while
+        // both the source owner and destination reservation remain live.
+        materialize_native_bytes(&mut value);
+        Ok(self
+            .sender
+            .send(OwnedRow { value, reservation })
+            .await
+            .is_ok())
+    }
+    pub fn is_closed(&self) -> bool {
+        self.sender.is_closed()
+    }
+    pub async fn closed(&self) {
+        self.sender.closed().await;
+    }
+}
+fn owned_row_queue_bytes() -> usize {
+    use std::mem::{align_of, size_of};
+    // Tokio 1.53.2 mpsc::block: four-word header plus BLOCK_CAP values.
+    // Capacity one permits one write at a time: two retained list blocks plus
+    // one candidate during grow/reuse. Include alignment at each boundary.
+    let block_cap = if usize::BITS == 64 { 32 } else { 16 };
+    let blocks =
+        3 * (4 * size_of::<usize>() + block_cap * size_of::<OwnedRow>() + align_of::<OwnedRow>());
+    // chan::Chan has two CachePadded fields, Notify, semaphore, counters and
+    // RxFields; include final and Arc-header 128-byte alignment separately.
+    let channel = 4 * 128
+        + size_of::<tokio::sync::Notify>()
+        + size_of::<tokio::sync::Semaphore>()
+        + 7 * size_of::<usize>();
+    // oneshot::Inner contains state, Option<T>, two Task/Waker slots and Arc
+    // counters. The shared terminal future/task is independently runtime-owned.
+    let terminal = size_of::<Option<Result<(), ModelError>>>()
+        + 3 * size_of::<usize>()
+        + 2 * size_of::<std::task::Waker>()
+        + 4 * align_of::<Option<Result<(), ModelError>>>();
+    blocks + channel + terminal
+}
+
+enum NativeRowsSource {
+    // Synthetic drivers and pure controls already own their allocation admission.
+    Synthetic(
+        futures::stream::BoxStream<'static, surrealdb::Result<surrealdb::method::StreamItem>>,
+    ),
+    Admitted(
+        futures::stream::BoxStream<
+            'static,
+            Result<surrealdb::method::AdmittedBatchItem, surrealdb::method::AdmittedBatchFailure>,
+        >,
+    ),
+    Owned(tokio::sync::mpsc::Receiver<OwnedRow>),
+}
 pub struct NativeRows {
-    stream: futures::stream::BoxStream<'static, surrealdb::Result<surrealdb::method::StreamItem>>,
+    stream: NativeRowsSource,
+    pending: Option<(usize, std::vec::IntoIter<Value>)>,
+    reservations: Vec<Arc<dyn surrealdb::method::IngressReservation>>,
+    results: Option<Vec<usize>>,
+    statement_shape: u8,
     // Declaration order matters: dropping the stream signals cancellation before the final
     // session handle can be released. Explicit drainage retains both through completion.
     client: Option<Arc<Surreal<Client>>>,
@@ -3023,31 +3329,37 @@ pub struct NativeRows {
     drain_row_order_error: bool,
     row_bytes: usize,
     owned_result: Option<DrainCompletion>,
+    current_row_reservation: Option<Arc<dyn surrealdb::method::IngressReservation>>,
+    owned_storage: Option<Arc<dyn surrealdb::method::IngressReservation>>,
 }
 impl NativeRows {
     /// The driver owns all native preparation through its checked terminal. Receiver loss
     /// stops delivery; admitted native reads still drain before the synthetic terminal.
-    pub fn owned<F, Fut>(driver: F) -> Result<Self, ModelError>
+    pub fn owned<F, Fut>(
+        budget: lctx_model::domain::resources::ResourceBudget,
+        driver: F,
+    ) -> Result<Self, ModelError>
     where
-        F: FnOnce(tokio::sync::mpsc::Sender<Value>) -> Fut + Send + 'static,
+        F: FnOnce(NativeRowSender) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(), ModelError>> + Send + 'static,
     {
+        let owner = ingress::admission(&budget);
+        let storage = owner
+            .reserve(
+                surrealdb::method::IngressStage::ValueConversion,
+                owned_row_queue_bytes(),
+            )
+            .map_err(sdk_error)?;
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let (terminal_sender, terminal_receiver) = tokio::sync::oneshot::channel();
+        let sender = NativeRowSender {
+            sender,
+            owner,
+            _queue_storage: storage.clone(),
+        };
         tokio::spawn(async move {
             let result = driver(sender).await;
             let _ = terminal_sender.send(result);
-        });
-        let rows = futures::stream::unfold(receiver, |mut receiver| async move {
-            receiver.recv().await.map(|value| {
-                (
-                    Ok(surrealdb::method::StreamItem::Row {
-                        statement: 0,
-                        value,
-                    }),
-                    receiver,
-                )
-            })
         });
         let result = async move {
             terminal_receiver
@@ -3062,17 +3374,10 @@ impl NativeRows {
         }
         .boxed()
         .shared();
-        let terminal_result = result.clone();
-        let terminal = futures::stream::once(async move {
-            let _ = terminal_result.await;
-            Ok(surrealdb::method::StreamItem::StatementEnd {
-                statement: 0,
-                stats: Default::default(),
-                result: Ok(()),
-            })
-        });
-        let mut rows = Self::new(rows.chain(terminal), 1)?;
+        let mut rows = Self::new(futures::stream::empty(), 1)?;
+        rows.stream = NativeRowsSource::Owned(receiver);
         rows.owned_result = Some(result);
+        rows.owned_storage = Some(storage);
         Ok(rows)
     }
     pub fn new(
@@ -3085,7 +3390,11 @@ impl NativeRows {
             return Err(ModelError::Schema("native stream statement inventory"));
         }
         Ok(Self {
-            stream: stream.boxed(),
+            stream: NativeRowsSource::Synthetic(stream.boxed()),
+            pending: None,
+            reservations: Vec::new(),
+            results: None,
+            statement_shape: 0,
             client: None,
             transaction: None,
             scope: None,
@@ -3097,13 +3406,176 @@ impl NativeRows {
             drain_row_order_error: false,
             row_bytes: 1024 * 1024,
             owned_result: None,
+            current_row_reservation: None,
+            owned_storage: None,
         })
+    }
+    pub(crate) fn new_admitted(
+        stream: impl futures::Stream<
+            Item = Result<
+                surrealdb::method::AdmittedBatchItem,
+                surrealdb::method::AdmittedBatchFailure,
+            >,
+        > + Send
+        + 'static,
+        statements: usize,
+        results: Vec<usize>,
+    ) -> Result<Self, ModelError> {
+        if results.is_empty()
+            || results.iter().any(|index| *index >= statements)
+            || results.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ModelError::Schema("native admitted result inventory"));
+        }
+        let mut rows = Self::new(futures::stream::empty(), statements)?;
+        rows.stream = NativeRowsSource::Admitted(stream.boxed());
+        rows.results = Some(results);
+        Ok(rows)
+    }
+    fn leased_error(&mut self, source: ModelError) -> ModelError {
+        ModelError::Cause(Box::new(ingress::LeasedFailure {
+            source,
+            _reservations: std::mem::take(&mut self.reservations),
+        }))
+    }
+    async fn next_item(&mut self) -> Option<Result<surrealdb::method::StreamItem, ModelError>> {
+        use surrealdb::method::{BatchItem, StreamItem};
+        loop {
+            if let Some((statement, values)) = &mut self.pending
+                && let Some(value) = values.next()
+            {
+                let statement = *statement;
+                if self
+                    .results
+                    .as_ref()
+                    .is_some_and(|results| !results.contains(&statement))
+                {
+                    if statement != self.ended || statement >= self.statements {
+                        return Some(Err(unconfirmed_stream(ModelError::Schema(
+                            "native preparation row order",
+                        ))));
+                    }
+                    if !matches!(value, Value::None) {
+                        return Some(Err(ModelError::Schema(
+                            "native preparation emitted payload",
+                        )));
+                    }
+                    continue;
+                }
+                return Some(Ok(StreamItem::Row { statement, value }));
+            }
+            // Polling again acknowledges that the previously delivered Value was
+            // dropped or acquired replacement admission. The iterator's backing
+            // allocation is destroyed before its ingress reservations are released.
+            self.pending.take();
+            self.reservations.clear();
+            self.current_row_reservation.take();
+            let admitted = match &mut self.stream {
+                NativeRowsSource::Synthetic(stream) => {
+                    return stream
+                        .next()
+                        .await
+                        .map(|item| item.map_err(|error| unconfirmed_stream(sdk_error(error))));
+                }
+                NativeRowsSource::Admitted(stream) => stream.next().await?,
+                NativeRowsSource::Owned(receiver) => {
+                    if let Some(OwnedRow { value, reservation }) = receiver.recv().await {
+                        self.current_row_reservation = Some(reservation);
+                        return Some(Ok(StreamItem::Row {
+                            statement: 0,
+                            value,
+                        }));
+                    }
+                    if self.ended == 0 {
+                        if let Some(result) = self.owned_result.as_ref().cloned() {
+                            let _ = result.await;
+                        }
+                        return Some(Ok(StreamItem::StatementEnd {
+                            statement: 0,
+                            stats: Default::default(),
+                            result: Ok(()),
+                        }));
+                    }
+                    return None;
+                }
+            };
+            let admitted = match admitted {
+                Ok(item) => item,
+                Err(failure) => {
+                    let (error, reservations) = failure.into_parts();
+                    return Some(Err(ModelError::Cause(Box::new(ingress::LeasedFailure {
+                        source: unconfirmed_stream(sdk_error(error)),
+                        _reservations: reservations,
+                    }))));
+                }
+            };
+            let (item, reservations) = admitted.into_parts();
+            self.reservations = reservations;
+            let index = item.index();
+            if !matches!(item, BatchItem::Finished { .. }) {
+                if index != self.ended || index >= self.statements {
+                    return Some(Err(unconfirmed_stream(ModelError::Schema(
+                        "native admitted payload order",
+                    ))));
+                }
+                let shape = if matches!(item, BatchItem::Rows { .. }) {
+                    1
+                } else {
+                    2
+                };
+                if self.statement_shape != 0 && (shape != self.statement_shape || shape == 2) {
+                    return Some(Err(unconfirmed_stream(ModelError::Schema(
+                        "native admitted mixed/repeated value shape",
+                    ))));
+                }
+                self.statement_shape = shape;
+            }
+            match item {
+                BatchItem::Rows { index, values } => {
+                    self.pending = Some((index, values.into_iter()))
+                }
+                BatchItem::Value { index, value } => {
+                    if self
+                        .results
+                        .as_ref()
+                        .is_some_and(|results| !results.contains(&index))
+                    {
+                        if matches!(value, Value::None) {
+                            continue;
+                        }
+                        return Some(Err(ModelError::Schema(
+                            "native preparation emitted payload",
+                        )));
+                    }
+                    return Some(Ok(StreamItem::Row {
+                        statement: index,
+                        value,
+                    }));
+                }
+                BatchItem::EmptyValue { .. } => continue,
+                BatchItem::Finished {
+                    index,
+                    time,
+                    query_type,
+                    error,
+                } => {
+                    self.statement_shape = 0;
+                    return Some(Ok(StreamItem::StatementEnd {
+                        statement: index,
+                        stats: surrealdb::method::StreamStats::default()
+                            .with_execution_time(time)
+                            .with_query_type(query_type),
+                        result: error.map_or(Ok(()), Err),
+                    }));
+                }
+            }
+        }
     }
     /// Close synthetic delivery while keeping its independent driver terminal alive.
     /// Raw transport streams remain owned until checked drainage.
     pub fn cancel_delivery(&mut self) {
         if self.owned_result.is_some() {
-            self.stream = futures::stream::empty().boxed();
+            self.stream = NativeRowsSource::Synthetic(futures::stream::empty().boxed());
             self.exhausted = true;
             self.ended = self.statements;
         }
@@ -3133,11 +3605,9 @@ impl NativeRows {
     /// Interrupted drainage can be retried on this same owner; it never admits failed rows.
     pub async fn drain_transport(&mut self) -> Result<(), ModelError> {
         if !self.exhausted {
-            while let Some(item) = self.stream.next().await {
+            while let Some(item) = self.next_item().await {
                 match item {
-                    Err(error) => self
-                        .drain_errors
-                        .push(Arc::new(unconfirmed_stream(sdk_error(error)))),
+                    Err(error) => self.drain_errors.push(Arc::new(error)),
                     Ok(surrealdb::method::StreamItem::Row { statement, .. }) => {
                         if (statement != self.ended || statement >= self.statements)
                             && !self.drain_row_order_error
@@ -3159,7 +3629,8 @@ impl NativeRows {
                             self.ended += 1;
                         }
                         if let Err(error) = result {
-                            self.drain_errors.push(Arc::new(sdk_error(error)));
+                            let error = self.leased_error(sdk_error(error));
+                            self.drain_errors.push(Arc::new(error));
                         }
                     }
                 }
@@ -3207,6 +3678,10 @@ impl NativeRows {
         self.scope.take();
         lctx_model::domain::completion::complete(Ok(()), completion)
     }
+    /// The returned Value is covered by this owner's current batch leases until
+    /// the next poll, drainage or owner drop. Native consumers must drop it or
+    /// acquire their own admission before that transfer acknowledgment; arbitrary
+    /// escaped Values are not covered after this owner is released.
     pub async fn next(&mut self) -> Result<Option<Value>, ModelError> {
         if let Some(error) = &self.failure {
             return Err(ModelError::SharedCause(error.clone()));
@@ -3235,16 +3710,16 @@ impl NativeRows {
         if self.exhausted && self.owned_result.is_none() {
             return Ok(None);
         }
-        while let Some(item) = self.stream.next().await {
-            match item.map_err(|error| unconfirmed_stream(sdk_error(error)))? {
+        while let Some(item) = self.next_item().await {
+            match item? {
                 surrealdb::method::StreamItem::Row { statement, value } => {
                     if statement != self.ended || statement >= self.statements {
                         return Err(unconfirmed_stream(ModelError::Schema(
                             "native stream row order",
                         )));
                     }
-                    // The SDK queue is row bounded, not byte bounded. Refuse an oversized source
-                    // value before decoding or expansion; this is not a server RSS guarantee.
+                    // Transport, protobuf and conversion allocations already carry
+                    // admission; this is the model's separate per-row contract.
                     let bytes = crate::loader::native_bytes(&value);
                     if bytes > self.row_bytes {
                         return Err(ModelError::Limit {
@@ -3265,7 +3740,9 @@ impl NativeRows {
                         )));
                     }
                     self.ended += 1;
-                    result.map_err(sdk_error)?;
+                    if let Err(error) = result {
+                        return Err(self.leased_error(sdk_error(error)));
+                    }
                 }
             }
         }
@@ -3329,11 +3806,35 @@ impl Drop for NativeRows {
             if let Some(scope) = &scope {
                 scope.retain_unknown();
             }
+            // No executor can establish remote finality. Preserve the actual
+            // accepted request, session and reservations instead of dropping
+            // them and making unresolved execution look like released ownership.
+            std::mem::forget((
+                std::mem::replace(
+                    &mut self.stream,
+                    NativeRowsSource::Synthetic(futures::stream::empty().boxed()),
+                ),
+                self.pending.take(),
+                std::mem::take(&mut self.reservations),
+                self.client.take(),
+                self.transaction.take(),
+                scope,
+                self.owned_result.take(),
+                self.current_row_reservation.take(),
+                self.owned_storage.take(),
+            ));
             return;
         };
         self.cancel_delivery();
         let mut drain = NativeRows {
-            stream: std::mem::replace(&mut self.stream, futures::stream::empty().boxed()),
+            stream: std::mem::replace(
+                &mut self.stream,
+                NativeRowsSource::Synthetic(futures::stream::empty().boxed()),
+            ),
+            pending: self.pending.take(),
+            reservations: std::mem::take(&mut self.reservations),
+            results: self.results.take(),
+            statement_shape: self.statement_shape,
             client: self.client.take(),
             transaction: self.transaction.take(),
             scope,
@@ -3345,6 +3846,8 @@ impl Drop for NativeRows {
             drain_row_order_error: self.drain_row_order_error,
             row_bytes: self.row_bytes,
             owned_result: self.owned_result.take(),
+            current_row_reservation: self.current_row_reservation.take(),
+            owned_storage: self.owned_storage.take(),
         };
         runtime.spawn(async move {
             let result = drain.drain_transport().await;
@@ -3352,6 +3855,253 @@ impl Drop for NativeRows {
                 tracing::error!(primary = ?drain.failure, completion = ?result, "cancelled native read terminal outcome");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod admitted_native_rows_controls {
+    use super::*;
+    use lctx_model::domain::resources::ResourceBudget;
+    use surrealdb::method::{
+        AdmittedBatchFailure, AdmittedBatchItem, BatchItem, BatchQueryType, IngressStage,
+    };
+
+    fn end(index: usize, error: Option<surrealdb::Error>) -> BatchItem {
+        BatchItem::Finished {
+            index,
+            time: Default::default(),
+            query_type: BatchQueryType::Other,
+            error,
+        }
+    }
+    fn charged(item: BatchItem, budget: &ResourceBudget, bytes: usize) -> AdmittedBatchItem {
+        AdmittedBatchItem::new(
+            item,
+            vec![
+                ingress::admission(budget)
+                    .reserve(IngressStage::ValueConversion, bytes)
+                    .unwrap(),
+            ],
+        )
+    }
+    #[tokio::test]
+    async fn owned_queue_refuses_before_driver_and_reports_row_refusal() {
+        let refused = ResourceBudget::fixed(owned_row_queue_bytes() - 1).unwrap();
+        let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let marker = called.clone();
+        let result = NativeRows::owned(refused.clone(), move |_| async move {
+            marker.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert!(!called.load(std::sync::atomic::Ordering::Acquire));
+        assert_eq!(refused.reserved(), 0);
+
+        let budget = ResourceBudget::fixed(owned_row_queue_bytes()).unwrap();
+        let mut rows = NativeRows::owned(budget.clone(), |sender| async move {
+            sender.send(Value::from_t(7)).await?;
+            Ok(())
+        })
+        .unwrap();
+        assert!(
+            rows.next().await.is_err(),
+            "quota refusal must not become successful missing rows"
+        );
+        let _ = rows.drain_transport().await;
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn owned_queue_retains_each_destination_until_acknowledgment() {
+        let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
+        let value_bytes = native_retained_bytes(&Value::from_t(1)).unwrap();
+        let mut rows = NativeRows::owned(budget.clone(), |sender| async move {
+            for number in 0..97 {
+                if !sender.send(Value::from_t(number)).await? {
+                    break;
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+        for number in 0..97 {
+            let value = rows.next().await.unwrap().unwrap();
+            assert_eq!(value, Value::from_t(number));
+            assert!(budget.reserved() >= owned_row_queue_bytes() + value_bytes);
+            let replacement = budget.reserve("row transfer control", value_bytes).unwrap();
+            drop(value);
+            drop(replacement);
+        }
+        assert!(rows.next().await.unwrap().is_none());
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn owned_queue_detaches_shared_bytes_under_destination_admission() {
+        let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
+        let backing = prost::bytes::Bytes::from(vec![7; 128 * 1024]);
+        let slice = backing.slice(3..7);
+        let old_pointer = slice.as_ptr() as usize;
+        let mut rows = NativeRows::owned(budget.clone(), move |sender| async move {
+            sender.send(Value::Bytes(slice.into())).await?;
+            Ok(())
+        })
+        .unwrap();
+        let value = rows.next().await.unwrap().unwrap();
+        let Value::Bytes(bytes) = &value else {
+            panic!("byte row");
+        };
+        assert_eq!(bytes.as_ref(), &[7; 4]);
+        assert_ne!(
+            bytes.as_ptr() as usize,
+            old_pointer,
+            "shared full-frame backing must not escape its original owner"
+        );
+        assert!(
+            budget.reserved() >= owned_row_queue_bytes() + native_retained_bytes(&value).unwrap()
+        );
+        drop(value);
+        assert!(rows.next().await.unwrap().is_none());
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+        drop(backing);
+    }
+    #[tokio::test]
+    async fn one_batch_retains_leases_through_each_row_transfer() {
+        let budget = ResourceBudget::fixed(1024).unwrap();
+        let item = charged(
+            BatchItem::Rows {
+                index: 0,
+                values: vec![Value::from_t(1), Value::from_t(2)],
+            },
+            &budget,
+            256,
+        );
+        let mut rows = NativeRows::new_admitted(
+            futures::stream::iter(vec![
+                Ok(item),
+                Ok(AdmittedBatchItem::new(end(0, None), vec![])),
+            ]),
+            1,
+            vec![0],
+        )
+        .unwrap();
+        let first = rows.next().await.unwrap().unwrap();
+        assert_eq!(budget.reserved(), 256);
+        let retained = budget.reserve("test consumer transfer", 128).unwrap();
+        assert_eq!(
+            budget.reserved(),
+            384,
+            "replacement and ingress overlap before acknowledgment"
+        );
+        drop(first);
+        let second = rows.next().await.unwrap().unwrap();
+        assert_eq!(
+            budget.reserved(),
+            384,
+            "remaining batch cannot release early"
+        );
+        drop(second);
+        assert!(rows.next().await.unwrap().is_none());
+        assert_eq!(budget.reserved(), 128);
+        drop(retained);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn terminal_failure_owns_its_leases_after_stream_owner_drop() {
+        let budget = ResourceBudget::fixed(1024).unwrap();
+        let item = charged(
+            end(
+                0,
+                Some(surrealdb::Error::internal("typed terminal details".into())),
+            ),
+            &budget,
+            256,
+        );
+        let mut rows =
+            NativeRows::new_admitted(futures::stream::iter(vec![Ok(item)]), 1, vec![0]).unwrap();
+        let failure = rows.next().await.unwrap_err();
+        rows.drain_transport().await.unwrap();
+        drop(rows);
+        assert_eq!(budget.reserved(), 256);
+        drop(failure);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn physically_drained_stream_failure_retains_details() {
+        let budget = ResourceBudget::fixed(1024).unwrap();
+        let lease = ingress::admission(&budget)
+            .reserve(IngressStage::ValueConversion, 256)
+            .unwrap();
+        let mut rows = NativeRows::new_admitted(
+            futures::stream::iter(vec![
+                Ok(AdmittedBatchItem::new(end(0, None), vec![])),
+                Err(AdmittedBatchFailure::new(
+                    surrealdb::Error::internal("late status".into()),
+                    vec![lease],
+                )),
+            ]),
+            1,
+            vec![0],
+        )
+        .unwrap();
+        let failure = rows.next().await.unwrap_err();
+        let completion = rows.drain_transport().await.unwrap_err();
+        assert!(
+            !completion.permits_storage_cleanup(),
+            "physical EOF does not prove remote executor completion"
+        );
+        drop(completion);
+        drop(rows);
+        assert_eq!(budget.reserved(), 256);
+        drop(failure);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn preparation_filter_preserves_empty_single_and_every_terminal() {
+        let mut rows = NativeRows::new_admitted(
+            futures::stream::iter(vec![
+                Ok(AdmittedBatchItem::new(
+                    BatchItem::Value {
+                        index: 0,
+                        value: Value::None,
+                    },
+                    vec![],
+                )),
+                Ok(AdmittedBatchItem::new(end(0, None), vec![])),
+                Ok(AdmittedBatchItem::new(
+                    BatchItem::EmptyValue { index: 1 },
+                    vec![],
+                )),
+                Ok(AdmittedBatchItem::new(end(1, None), vec![])),
+            ]),
+            2,
+            vec![1],
+        )
+        .unwrap();
+        assert!(rows.next().await.unwrap().is_none());
+        let mut rows = NativeRows::new_admitted(
+            futures::stream::iter(vec![
+                Ok(AdmittedBatchItem::new(
+                    BatchItem::Rows {
+                        index: 0,
+                        values: vec![],
+                    },
+                    vec![],
+                )),
+                Ok(AdmittedBatchItem::new(
+                    BatchItem::EmptyValue { index: 0 },
+                    vec![],
+                )),
+            ]),
+            1,
+            vec![0],
+        )
+        .unwrap();
+        assert!(
+            rows.next().await.is_err(),
+            "mixed shape must fail even without payload rows"
+        );
     }
 }
 
@@ -3482,7 +4232,7 @@ impl SessionFinalizationGuard {
         }
     }
     /// Transfer the close obligation to the returned owner; this is no terminal acknowledgement.
-    pub(crate) fn transfer(self) {
+    pub fn transfer(self) {
         self.closed
             .store(true, std::sync::atomic::Ordering::Release);
     }
@@ -3516,14 +4266,111 @@ pub async fn connect(
     namespace: &str,
     database: &str,
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
-    let client = authenticated(endpoint, credentials, Some((namespace, database))).await?;
-    let session = SessionFinalizationGuard::new(client.clone());
+    connect_inner(endpoint, credentials, namespace, database, None).await
+}
+pub async fn connect_admitted(
+    endpoint: &str,
+    credentials: &Credentials,
+    namespace: &str,
+    database: &str,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    connect_inner(endpoint, credentials, namespace, database, Some(budget)).await
+}
+/// Caller retains the factory before this await. Any interrupted construction
+/// leaves a concrete child in that factory, recoverable without resetting stop.
+pub async fn connect_owned(
+    endpoint: &str,
+    credentials: &Credentials,
+    namespace: &str,
+    database: &str,
+    factory: &Arc<crate::control::RecoveryFactoryOwner>,
+) -> Result<(Arc<Surreal<Client>>, crate::control::FactoryLease), ModelError> {
+    let cancellation = crate::control::RetryCancellation::default();
+    let stop = cancellation.clone();
+    let signals = Arc::new(crate::signal::SignalRegistration::with_receipt(
+        "owned native session",
+        move || stop.cancel(),
+        factory.binding().clone(),
+    )?);
+    let client = Arc::new(Surreal::init());
+    let recovery = crate::control::RecoveryScope::new(
+        client.clone(),
+        factory.budget().clone(),
+        cancellation,
+        signals.pending_recipient()?,
+        crate::control::RecoveryTarget {
+            generation: factory.binding().generation,
+            namespace: namespace.into(),
+            database: database.into(),
+            endpoint: Some(endpoint.into()),
+        },
+    )?;
+    let lease = factory.attach(recovery.clone(), signals)?;
+    let connected = crate::control::with_recovery_scope(
+        recovery,
+        connect_with_client(
+            client.clone(),
+            endpoint,
+            credentials,
+            namespace,
+            database,
+            Some(factory.budget()),
+            false,
+        ),
+    )
+    .await;
+    match connected {
+        Ok(client) => Ok((client, lease)),
+        Err(error) => Err(factory.handback(error)),
+    }
+}
+async fn connect_inner(
+    endpoint: &str,
+    credentials: &Credentials,
+    namespace: &str,
+    database: &str,
+    budget: Option<&lctx_model::domain::resources::ResourceBudget>,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    connect_with_client(
+        Arc::new(Surreal::init()),
+        endpoint,
+        credentials,
+        namespace,
+        database,
+        budget,
+        true,
+    )
+    .await
+}
+async fn connect_with_client(
+    client: Arc<Surreal<Client>>,
+    endpoint: &str,
+    credentials: &Credentials,
+    namespace: &str,
+    database: &str,
+    budget: Option<&lctx_model::domain::resources::ResourceBudget>,
+    standalone: bool,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    let client = authenticated_client(
+        client,
+        endpoint,
+        credentials,
+        Some((namespace, database)),
+        budget,
+        standalone,
+    )
+    .await?;
+    let session = standalone.then(|| SessionFinalizationGuard::new(client.clone()));
     let selected = client
         .use_ns(namespace)
         .use_db(database)
         .await
         .map_err(sdk_error);
     if let Err(error) = selected {
+        let Some(session) = session else {
+            return Err(error);
+        };
         if !error.permits_storage_cleanup() {
             return Err(error);
         }
@@ -3534,7 +4381,9 @@ pub async fn connect(
         );
         return lctx_model::domain::completion::complete(Err(error), terminal);
     }
-    session.transfer();
+    if let Some(session) = session {
+        session.transfer();
+    }
     Ok(client)
 }
 /// Authenticate without selecting or implicitly creating a database. Private compiler creation
@@ -3544,16 +4393,60 @@ pub async fn authenticated(
     credentials: &Credentials,
     scope: Option<(&str, &str)>,
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
-    let client = Arc::new(
-        Surreal::new::<Grpc>(
-            endpoint
-                .strip_prefix("grpc://")
-                .ok_or_else(|| ModelError::Invalid("native gRPC endpoint required".into()))?,
-        )
+    authenticated_inner(endpoint, credentials, scope, None).await
+}
+pub async fn authenticated_admitted(
+    endpoint: &str,
+    credentials: &Credentials,
+    scope: Option<(&str, &str)>,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    authenticated_inner(endpoint, credentials, scope, Some(budget)).await
+}
+async fn authenticated_inner(
+    endpoint: &str,
+    credentials: &Credentials,
+    scope: Option<(&str, &str)>,
+    budget: Option<&lctx_model::domain::resources::ResourceBudget>,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    authenticated_client(
+        Arc::new(Surreal::init()),
+        endpoint,
+        credentials,
+        scope,
+        budget,
+        true,
+    )
+    .await
+}
+async fn authenticated_client(
+    client: Arc<Surreal<Client>>,
+    endpoint: &str,
+    credentials: &Credentials,
+    scope: Option<(&str, &str)>,
+    budget: Option<&lctx_model::domain::resources::ResourceBudget>,
+    standalone: bool,
+) -> Result<Arc<Surreal<Client>>, ModelError> {
+    let mut config = surrealdb::opt::Config::new();
+    if let Some(budget) = budget {
+        config = config
+            .grpc(
+                surrealdb::opt::GrpcConfig::default().ingress_admission(ingress::admission(budget)),
+            )
+            .map_err(sdk_error)?;
+    }
+    let address = endpoint
+        .strip_prefix("grpc://")
+        .ok_or_else(|| ModelError::Invalid("native gRPC endpoint required".into()))?;
+    let phase = crate::phase::Phase::begin("native_connection_bootstrap");
+    let connected = client
+        .connect::<Grpc>((address, config))
         .await
-        .map_err(sdk_error)?,
-    );
-    let session = SessionFinalizationGuard::new(client.clone());
+        .map_err(sdk_error);
+    phase.finish_result(&connected);
+    connected?;
+    let session = standalone.then(|| SessionFinalizationGuard::new(client.clone()));
+    let phase = crate::phase::Phase::begin("native_connection_signin");
     let signed: Result<(), ModelError> = async {
         match credentials {
             Credentials::Root { username, password } => {
@@ -3582,7 +4475,11 @@ pub async fn authenticated(
         Ok(())
     }
     .await;
+    phase.finish_result(&signed);
     if let Err(error) = signed {
+        let Some(session) = session else {
+            return Err(error);
+        };
         if !error.permits_storage_cleanup() {
             return Err(error);
         }
@@ -3593,7 +4490,9 @@ pub async fn authenticated(
         );
         return lctx_model::domain::completion::complete(Err(error), terminal);
     }
-    session.transfer();
+    if let Some(session) = session {
+        session.transfer();
+    }
     Ok(client)
 }
 

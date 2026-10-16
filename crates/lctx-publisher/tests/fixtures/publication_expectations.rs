@@ -101,9 +101,20 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
         ));
     }
     let model = Arc::new(model()?);
-    let native =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
-            .await?;
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+        &config,
+        Frontier::Catalog,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await?;
     let workspace = match Workspace::new(model, WorkspaceOptions::default(), native.clone()) {
         Ok(workspace) => workspace,
         Err(error) => return complete(Err(error), native.abandon_finality_report().await),

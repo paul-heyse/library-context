@@ -29,6 +29,7 @@ use std::{
 pub(crate) struct Snapshot<'a> {
     pub(crate) transaction: &'a Arc<Transaction<Client>>,
     pub(crate) cancel: &'a crate::owned_read::Cancellation,
+    pub(crate) budget: &'a ResourceBudget,
 }
 pub(crate) struct BackupSpools<'a> {
     pub(crate) claims: &'a Path,
@@ -42,7 +43,7 @@ async fn read(
 ) -> Result<(), ModelError> {
     transaction.cancel.check()?;
     let mut rows = PreparedQuery::new(bindings, vec![], vec![sql])?
-        .stream_transaction(transaction.transaction)?;
+        .stream_transaction(transaction.transaction, transaction.budget)?;
     let result = async {
         while let Some(row) = rows.next().await? {
             transaction.cancel.check()?;
@@ -416,7 +417,7 @@ pub(crate) async fn export(
             RecoveryFamily::Memberships => {
                 for owner in &physical {
                     cancel.check()?;
-                    let rows = PreparedQuery::new(exact("owner", owner.clone()), vec![], vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?.stream_transaction(transaction.transaction)?;
+                    let rows = PreparedQuery::new(exact("owner", owner.clone()), vec![], vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?.stream_transaction(transaction.transaction, transaction.budget)?;
                     let mut rows = rows;
                     let result = async {
                         while let Some(row) = rows.next().await? {
@@ -610,7 +611,7 @@ pub(crate) async fn export(
             RecoveryFamily::OriginalChunks => {
                 for blob in blobs.keys() {
                     cancel.check()?;
-                    let rows = PreparedQuery::new(exact("blob",blob.clone()),vec![],vec!["SELECT * FROM original_chunk WITH INDEX position WHERE blob=$blob ORDER BY start".into()])?.stream_transaction(transaction.transaction)?;
+                    let rows = PreparedQuery::new(exact("blob",blob.clone()),vec![],vec!["SELECT * FROM original_chunk WITH INDEX position WHERE blob=$blob ORDER BY start".into()])?.stream_transaction(transaction.transaction, transaction.budget)?;
                     write_stream(&mut writer, encoded.as_mut(), rows, cancel).await?;
                 }
             }
@@ -806,9 +807,13 @@ mod tests {
             let waiter = tokio::spawn(crate::owned_read::run(
                 "selected snapshot protocol control",
                 move |cancel| async move {
+                    let budget =
+                        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)
+                            .unwrap();
                     let snapshot = Snapshot {
                         transaction: &transaction,
                         cancel: &cancel,
+                        budget: &budget,
                     };
                     let mut row_seen = Some(row_seen);
                     let result = read(
@@ -912,9 +917,12 @@ mod tests {
                 .unwrap(),
         );
         let cancel = crate::owned_read::Cancellation::default();
+        let budget =
+            ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
         let snapshot = Snapshot {
             transaction: &transaction,
             cancel: &cancel,
+            budget: &budget,
         };
         let result: Result<(), ModelError> = async {
             let metadata = one(
@@ -958,7 +966,7 @@ mod tests {
             .bind(vars.clone())
             .await;
         assert!(
-            after_cancel.and_then(|response| response.check()).is_err(),
+            after_cancel.map_or(true, |response| response.check().is_err()),
             "cancelled snapshot cannot accept a later read"
         );
         transaction.invalidate_session().await.unwrap();
@@ -1004,7 +1012,10 @@ mod tests {
             ],
         )
         .unwrap()
-        .stream_transaction(&transaction)
+        .stream_transaction(
+            &transaction,
+            &ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap(),
+        )
         .unwrap();
         assert!(rows.next().await.unwrap().is_some());
         let failure = rows

@@ -1,0 +1,101 @@
+[package]
+name = "surrealdb-types"
+version.workspace = true
+publish = true
+readme = "README.md"
+documentation = "https://docs.rs/surrealdb-types/"
+authors.workspace = true
+edition.workspace = true
+license-file.workspace = true
+description.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+convert = ["dep:async-channel", "dep:url", "dep:semver"]
+reqwest = ["dep:reqwest"]
+# Value <-> surrealdb_protocol::proto::v1::Value conversions, for gRPC engines.
+proto = ["dep:prost", "surrealdb-protocol/proto"]
+arbitrary = [
+    "dep:arbitrary",
+    "dep:regex-syntax",
+    "regex-syntax/arbitrary",
+    "rust_decimal/rust-fuzz",
+    "dep:geo-types",
+    "geo-types/arbitrary",
+    "uuid/arbitrary",
+    "chrono/arbitrary",
+]
+
+[dependencies]
+anyhow.workspace = true
+async-channel = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
+semver = { workspace = true, optional = true, features = ["serde"] }
+reqwest = { workspace = true, optional = true, default-features = false }
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+bytes.workspace = true
+castaway.workspace = true
+papaya.workspace = true
+# `now`/`wasmbind`: `Datetime::now()` reads the system clock natively and the
+# wasm32 JS Date API under wasm-bindgen.
+chrono = { workspace = true, features = ["serde", "now", "wasmbind"] }
+flatbuffers.workspace = true
+geo = { workspace = true, features = ["use-serde"] }
+geo-types = { workspace = true, optional = true }
+hex.workspace = true
+http.workspace = true
+regex.workspace = true
+# Used for generating random regexes for fuzzing with arbitrary
+regex-syntax = { workspace = true, optional = true }
+rust_decimal.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+surrealdb-protocol = { workspace = true, features = ["flatbuffers"] }
+surrealdb-types-derive.workspace = true
+parse-common.workspace = true
+tracing.workspace = true
+ulid.workspace = true
+rand.workspace = true
+prost = { workspace = true, optional = true }
+
+# WASM DEPENDENCY CONFIGURATION
+[target.'cfg(target_family = "wasm")'.dependencies]
+uuid = { workspace = true, features = ["serde", "v4", "v7", "js"] }
+# Two majors of getrandom, because two majors of `rand` are in the graph and
+# neither getrandom builds for wasm*-unknown-unknown without being told which
+# backend to use:
+#
+#   0.2  <- rand_core 0.6 <- rand 0.8 <- geo
+#   0.3  <- rand_core 0.9 <- rand 0.9 <- ulid, and this crate directly
+#
+# So they cannot be deduplicated from here: it needs `geo` to move to rand 0.9,
+# which is upstream. These two lines are not the duplication — they are the
+# wasm fix for a duplication that exists either way, and they collapse to one
+# the moment `geo` upgrades.
+#
+# 0.2 selects the backend with a feature; 0.3 needs that feature AND the
+# `getrandom_backend` cfg (see `.cargo/config.toml`, and note the precedence
+# caveat there). Declared in this crate because it is where `geo` enters the
+# graph, so every wasm consumer inherits the fix rather than rediscovering it.
+getrandom = { workspace = true, features = ["wasm_js"] }
+getrandom_02 = { workspace = true, features = ["js"] }
+
+# NON-WASM DEPENDENCY CONFIGURATION
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+uuid = { workspace = true, features = ["serde", "v4", "v7"] }
+
+[dev-dependencies]
+rstest.workspace = true
+serde_json = { workspace = true }
+
+[package.metadata.cargo-machete]
+# geo-types is an optional dependency tied to a feature; getrandom and
+# getrandom_02 are wasm-only backend selections with no code reference
+ignored = ["geo-types", "getrandom", "getrandom_02"]
+
+[lints]
+workspace = true

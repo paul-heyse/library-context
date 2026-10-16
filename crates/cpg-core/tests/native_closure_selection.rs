@@ -75,9 +75,21 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let known = Package {
         name: "known-in-first-epoch".into(),
     };
@@ -296,9 +308,21 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let occurrence = Occurrence {
         source: nominal(1),
         start: 0,
@@ -458,9 +482,21 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_admin(&store, &config).await;
     let package = Package {
         name: format!("selected-{}", store.attempt().hex()),

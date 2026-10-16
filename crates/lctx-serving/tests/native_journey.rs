@@ -163,9 +163,29 @@ async fn absent_library_returns_unknown_library_without_broad_view_lowering() {
     ))
     .unwrap();
     let handle = viewer.selected().unwrap();
-    let reader = NativeReader::connect(&viewer.endpoint, &viewer.credentials(), handle)
+    let reader = async {
+        let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )
+        .expect("owned reader control budget");
+        let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+            viewer
+                .receipt_binding(handle.service_generation)
+                .expect("owned reader receipt binding"),
+            reader_budget.clone(),
+        )
+        .expect("owned reader factory");
+        NativeReader::connect(
+            &viewer.endpoint,
+            &viewer.credentials(),
+            handle.clone(),
+            &reader_budget,
+            &reader_factory,
+        )
         .await
-        .unwrap();
+    }
+    .await
+    .unwrap();
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
     let result = service
         .execute(
@@ -235,9 +255,29 @@ async fn published_service_refuses_executable_epoch_drift_before_library_lookup(
     lctx_publisher::inspection::audit(&config, &handle, &lctx_serving::native_definitions())
         .await
         .unwrap();
-    let reader = NativeReader::connect(&viewer.endpoint, &viewer.credentials(), handle.clone())
+    let reader = async {
+        let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )
+        .expect("owned reader control budget");
+        let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+            viewer
+                .receipt_binding(handle.service_generation)
+                .expect("owned reader receipt binding"),
+            reader_budget.clone(),
+        )
+        .expect("owned reader factory");
+        NativeReader::connect(
+            &viewer.endpoint,
+            &viewer.credentials(),
+            handle.clone(),
+            &reader_budget,
+            &reader_factory,
+        )
         .await
-        .unwrap();
+    }
+    .await
+    .unwrap();
     let result = async {
         let admin = lctx_native::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
         let checked = async {
@@ -313,7 +353,7 @@ async fn catalog_journey() {
     let installed_selection_before = installed_selection.try_exists().unwrap()
         .then(|| std::fs::read(&installed_selection).unwrap());
     config.selection=scratch.path().join("selection.json");
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog, &lctx_compiler_store::compiler::recovery_factory(&config, (lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned native control recovery budget")).clone()).expect("owned native control factory"))
         .await
         .unwrap();
     let workspace = Workspace::new(
@@ -369,11 +409,7 @@ async fn catalog_journey() {
     finalize_compiler_workspace(&workspace).await.unwrap();
     drop(workspace);
     assert!(!config.selection.exists());
-    let reader = NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        handle.clone(),
-    )
+    let reader = async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle.clone(), &reader_budget, &reader_factory).await }
     .await
     .unwrap();
     let encoder = Id::<embedding::EmbeddingSpec>::of(&embedding::EmbeddingSpecKey {
@@ -702,7 +738,7 @@ async fn catalog_journey() {
     let a_executables_before = executable_observation(&reader).await.unwrap();
     assert_eq!(a_executables_before.1, lctx_serving::operation_definition().hex());
     let coexistence_phase = Phase::begin("distinct_capability_epoch_publication_coexists");
-    let b_native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
+    let b_native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Facts, &lctx_compiler_store::compiler::recovery_factory(&config, (lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned native control recovery budget")).clone()).expect("owned native control factory"))
         .await
         .unwrap();
     let b_workspace = Workspace::new(
@@ -730,9 +766,7 @@ async fn catalog_journey() {
     let mut b_reader = None;
     let observations = async {
         lctx_publisher::inspection::audit(&config, &b_handle, &lctx_native::materialization::native_definitions()).await?;
-        b_reader = Some(NativeReader::connect(
-            &config.endpoint, &config.writer_credentials(), b_handle.clone(),
-        ).await?);
+        b_reader = Some(async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&config.endpoint, &config.writer_credentials(), b_handle.clone(), &reader_budget, &reader_factory).await }.await?);
         let b_sources = b_reader.as_ref().unwrap().records::<source::SourceArtifact>(
             RecordSelection::Scope {
                 field: "input".into(),
@@ -871,11 +905,7 @@ async fn catalog_journey() {
             .await
             .unwrap();
     assert_eq!(restored.semantic, handle.semantic);
-    let restored_reader = NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        restored.clone(),
-    )
+    let restored_reader = async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&config.endpoint, &config.writer_credentials(), restored.clone(), &reader_budget, &reader_factory).await }
     .await
     .unwrap();
     let mut restored_full = restored_reader
@@ -986,7 +1016,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     let scratch=tempfile::tempdir().unwrap();
     let mut config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
     config.selection=scratch.path().join("selection.json");
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog, &lctx_compiler_store::compiler::recovery_factory(&config, (lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned native control recovery budget")).clone()).expect("owned native control factory"))
         .await
         .unwrap();
     let workspace = Workspace::new(
@@ -1079,7 +1109,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     drop(admitted);
     finalize_compiler_workspace(&workspace).await.unwrap();
     drop(workspace);
-    let reader = NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
+    let reader = async { let reader_budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).expect("owned reader control budget"); let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding().expect("owned reader receipt binding"), reader_budget.clone()).expect("owned reader factory"); NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle, &reader_budget, &reader_factory).await }
         .await
         .unwrap();
     let sources = reader

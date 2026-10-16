@@ -47,7 +47,20 @@ pub async fn reader(
     entities: &[Entity],
     assertions: &[Assertion],
 ) -> Result<ScopedFixture, ModelError> {
-    let store = NativeCompilerStore::begin(config, Frontier::Facts).await?;
+    let store = NativeCompilerStore::begin(
+        config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await?;
     let model = lctx_model::domain::model()?;
     let budget = ResourceBudget::fixed(64 << 20)?;
     let mut groups = BTreeMap::<String, Vec<surrealdb::types::Value>>::new();

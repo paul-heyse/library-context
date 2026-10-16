@@ -451,10 +451,17 @@ async fn finalize_marker(
     }
     let readback_phase = Phase::begin("publication_readback");
     completion.step("publication session invalidation", session.close().await);
+    let readback_budget = loader.read_budget()?;
+    let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+        config.receipt_binding()?,
+        readback_budget.clone(),
+    )?;
     let readback = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
+        &readback_budget,
+        &reader_factory,
     )
     .await;
     let readback = match readback {

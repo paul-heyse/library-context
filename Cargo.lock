@@ -4078,6 +4078,7 @@ dependencies = [
  "datafusion",
  "futures 0.3.34",
  "hex",
+ "http-body-util",
  "insta",
  "lctx-compiler-store",
  "lctx-model",
@@ -4086,6 +4087,7 @@ dependencies = [
  "serde_json",
  "surrealdb",
  "surrealdb-protocol",
+ "surrealdb-rpc",
  "surrealdb-sql",
  "surrealdb-syn",
  "tempfile",
@@ -4202,7 +4204,6 @@ dependencies = [
  "chrono",
  "compact_str 0.10.0",
  "console",
- "crc32fast",
  "crossbeam-epoch",
  "crossbeam-utils",
  "dashmap",
@@ -7923,8 +7924,6 @@ dependencies = [
 [[package]]
 name = "surrealdb-engine-api"
 version = "3.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dff233f2d7c1b5b0eac9f54abb01aaaa42dc466c381095d6b16588ae95482383"
 dependencies = [
  "async-channel",
  "surrealdb-rpc",
@@ -7968,8 +7967,6 @@ dependencies = [
 [[package]]
 name = "surrealdb-protocol"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d53501c853fe88d5ead8e50612d310b43389f3c66fda7ef323a1af6c393809c6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8071,8 +8068,6 @@ dependencies = [
 [[package]]
 name = "surrealdb-types"
 version = "3.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18cd057ad378914c5c32701d8e2298fc0b717dd07b087d895627832d7c834051"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -8659,13 +8654,12 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 [[package]]
 name = "tonic"
 version = "0.14.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
 dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
  "bytes",
+ "crc32fast",
  "flate2",
  "h2",
  "http",
@@ -8674,6 +8668,7 @@ dependencies = [
  "hyper",
  "hyper-timeout",
  "hyper-util",
+ "miniz_oxide",
  "percent-encoding",
  "pin-project",
  "socket2",
@@ -8687,6 +8682,7 @@ dependencies = [
  "tracing",
  "webpki-roots 1.0.9",
  "zstd 0.13.3",
+ "zstd-sys",
 ]
 
 [[package]]

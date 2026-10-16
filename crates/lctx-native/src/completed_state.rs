@@ -655,42 +655,115 @@ pub(crate) async fn verify_installed_refs(
     references: &[InstalledViewRef],
     budget: &d::resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    let parent = data.record()?;
-    let completion = data.identity()?;
-    let requests = installed_ref_requests(data, references, budget)?;
-    let selectors = &requests.selectors;
-    let mut offset = 0;
-    let mut width = crate::loader::NATIVE_WINDOW_ROWS;
-    while offset < selectors.len() {
-        let count = width.min(selectors.len() - offset);
-        let observed = async {
-            let _page = if count > 1 {
-                Some(budget.reserve(
-                    "compound selector observation page identities",
-                    count.saturating_mul(1024),
-                )?)
-            } else {
-                None
-            };
-            let page = &selectors[offset..offset + count];
-            let ids = page.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
-            let mut actual =
-                crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
-            for (id, selector) in page {
-                let expected = actual.take_required(id)?;
-                if expected.row() != selector.value()? {
-                    return Err(ModelError::Conflict("compound exact selector bytes"));
+    prepare_installed_reference_verification(reader, data, references, budget)?.await
+}
+// Validate one exact reference inventory beneath the caller's existing hold.
+// This boundary is shared by physical, frozen and published transport consumers.
+fn prepare_installed_reference_verification<'a>(
+    reader: &'a crate::NativeReader<()>,
+    data: &'a FrozenCompletion,
+    references: &'a [InstalledViewRef],
+    budget: &'a d::resources::ResourceBudget,
+) -> Result<futures::future::BoxFuture<'a, Result<(), ModelError>>, ModelError> {
+    let body = async move {
+        let parent = data.record()?;
+        let completion = data.identity()?;
+        let requests = installed_ref_requests(data, references, budget)?;
+        let selectors = &requests.selectors;
+        let mut offset = 0;
+        let mut width = crate::loader::NATIVE_WINDOW_ROWS;
+        while offset < selectors.len() {
+            let count = width.min(selectors.len() - offset);
+            let observed = async {
+                let _page = if count > 1 {
+                    Some(budget.reserve(
+                        "compound selector observation page identities",
+                        count.saturating_mul(1024),
+                    )?)
+                } else {
+                    None
+                };
+                let page = &selectors[offset..offset + count];
+                let ids = page.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+                let mut actual =
+                    crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+                for (id, selector) in page {
+                    let expected = actual.take_required(id)?;
+                    if expected.row() != selector.value()? {
+                        return Err(ModelError::Conflict("compound exact selector bytes"));
+                    }
+                }
+                actual.finish()?;
+                if count == 1 {
+                    // Preserve the original scalar hold observation at the final width.
+                    require_hold(reader, &parent, &page[0].0).await
+                } else {
+                    let pairs = ids
+                        .into_iter()
+                        .map(|id| (parent.clone(), id))
+                        .collect::<Vec<_>>();
+                    let mut holds =
+                        crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
+                    for (owner, object) in &pairs {
+                        holds.take_required(owner, object)?;
+                    }
+                    holds.finish()
                 }
             }
-            actual.finish()?;
+            .await;
+            match observed {
+                Err(ModelError::Resource { .. }) if count > 1 => {
+                    width = (count / 2).max(1);
+                }
+                Err(error) => return Err(error),
+                Ok(()) => {
+                    offset += count;
+                    width = crate::loader::NATIVE_WINDOW_ROWS;
+                }
+            }
+        }
+        let targets = &requests.copies;
+        let mut offset = 0;
+        let mut width = (crate::loader::NATIVE_WINDOW_ROWS / 2).max(1);
+        while offset < targets.len() {
+            let count = width.min(targets.len() - offset);
+            // Keep the original scalar capacity/refusal route after a batch cannot fit.
+            // There is no receiving effect or accepted partial selector to roll back.
             if count == 1 {
-                // Preserve the original scalar hold observation at the final width.
-                require_hold(reader, &parent, &page[0].0).await
-            } else {
-                let pairs = ids
-                    .into_iter()
-                    .map(|id| (parent.clone(), id))
-                    .collect::<Vec<_>>();
+                verify_installed_copy(reader, data, &targets[offset], budget).await?;
+                offset += 1;
+                continue;
+            }
+            let observed = async {
+                let _page = budget.reserve(
+                    "compound selector observation page identities",
+                    count.saturating_mul(2048),
+                )?;
+                let page = &targets[offset..offset + count];
+                let mut ids = Vec::with_capacity(count * 2);
+                let mut pairs = Vec::with_capacity(count * 2);
+                for mapping in page {
+                    for object in [
+                        contributor_copy_record(completion, mapping.physical),
+                        RecordId::new("compiler_contribution", mapping.physical.hex()),
+                    ] {
+                        pairs.push((parent.clone(), object.clone()));
+                        ids.push(object);
+                    }
+                }
+                let mut actual =
+                    crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+                for mapping in page {
+                    let copy = actual
+                        .take_required(&contributor_copy_record(completion, mapping.physical))?;
+                    let copy = ContributorCopy::from_row(copy.row(), completion)?;
+                    let physical = actual.take_required(&RecordId::new(
+                        "compiler_contribution",
+                        mapping.physical.hex(),
+                    ))?;
+                    verify_mapped_copy(mapping, &copy, physical.incarnation(), physical.row())?;
+                }
+                actual.finish()?;
                 let mut holds =
                     crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
                 for (owner, object) in &pairs {
@@ -698,82 +771,36 @@ pub(crate) async fn verify_installed_refs(
                 }
                 holds.finish()
             }
-        }
-        .await;
-        match observed {
-            Err(ModelError::Resource { .. }) if count > 1 => {
-                width = (count / 2).max(1);
-            }
-            Err(error) => return Err(error),
-            Ok(()) => {
-                offset += count;
-                width = crate::loader::NATIVE_WINDOW_ROWS;
-            }
-        }
-    }
-    let targets = &requests.copies;
-    let mut offset = 0;
-    let mut width = (crate::loader::NATIVE_WINDOW_ROWS / 2).max(1);
-    while offset < targets.len() {
-        let count = width.min(targets.len() - offset);
-        // Keep the original scalar capacity/refusal route after a batch cannot fit.
-        // There is no receiving effect or accepted partial selector to roll back.
-        if count == 1 {
-            verify_installed_copy(reader, data, &targets[offset], budget).await?;
-            offset += 1;
-            continue;
-        }
-        let observed = async {
-            let _page = budget.reserve(
-                "compound selector observation page identities",
-                count.saturating_mul(2048),
-            )?;
-            let page = &targets[offset..offset + count];
-            let mut ids = Vec::with_capacity(count * 2);
-            let mut pairs = Vec::with_capacity(count * 2);
-            for mapping in page {
-                for object in [
-                    contributor_copy_record(completion, mapping.physical),
-                    RecordId::new("compiler_contribution", mapping.physical.hex()),
-                ] {
-                    pairs.push((parent.clone(), object.clone()));
-                    ids.push(object);
+            .await;
+            match observed {
+                Err(ModelError::Resource { .. }) => {
+                    width = (count / 2).max(1);
+                }
+                Err(error) => return Err(error),
+                Ok(()) => {
+                    offset += count;
+                    width = (crate::loader::NATIVE_WINDOW_ROWS / 2).max(1);
                 }
             }
-            let mut actual =
-                crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
-            for mapping in page {
-                let copy =
-                    actual.take_required(&contributor_copy_record(completion, mapping.physical))?;
-                let copy = ContributorCopy::from_row(copy.row(), completion)?;
-                let physical = actual.take_required(&RecordId::new(
-                    "compiler_contribution",
-                    mapping.physical.hex(),
-                ))?;
-                verify_mapped_copy(mapping, &copy, physical.incarnation(), physical.row())?;
-            }
-            actual.finish()?;
-            let mut holds =
-                crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
-            for (owner, object) in &pairs {
-                holds.take_required(owner, object)?;
-            }
-            holds.finish()
         }
-        .await;
-        match observed {
-            Err(ModelError::Resource { .. }) => {
-                width = (count / 2).max(1);
-            }
-            Err(error) => return Err(error),
-            Ok(()) => {
-                offset += count;
-                width = (crate::loader::NATIVE_WINDOW_ROWS / 2).max(1);
-            }
-        }
-    }
-    Ok(())
+        Ok(())
+    };
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema(
+            "installed reference verification continuation size",
+        ))?;
+    let grant = budget.reserve(
+        "native installed reference verification continuation",
+        bytes,
+    )?;
+    Ok(Box::pin(async move {
+        let _grant = grant;
+        body.await
+    }))
 }
+
 async fn verify_installed_copy(
     reader: &crate::NativeReader<()>,
     data: &FrozenCompletion,
@@ -1679,6 +1706,18 @@ impl CompletedAdmission {
 pub struct PublishedCompletedState {
     inner: std::sync::Arc<PublishedCompletedInner>,
 }
+// A publication retains the exact reader's pin/session/resource ownership. Keep
+// that execution owner behind a private capability: installed selectors can retain
+// publications whose readers themselves retain installed selectors.
+trait PublishedReadRetention: Send + Sync {
+    fn reader(&self) -> &crate::NativeReader<d::serving::SnapshotHandle>;
+}
+struct RetainedPublishedReader(crate::NativeReader<d::serving::SnapshotHandle>);
+impl PublishedReadRetention for RetainedPublishedReader {
+    fn reader(&self) -> &crate::NativeReader<d::serving::SnapshotHandle> {
+        &self.0
+    }
+}
 struct PublishedCompletedInner {
     completion: FrozenCompletion,
     completion_incarnation: i64,
@@ -1687,7 +1726,7 @@ struct PublishedCompletedInner {
     inventory: std::sync::Arc<InstalledViewInventory>,
     marker: crate::reader::ProtectedPublicationMarker,
     // This is a retained borrowed scope/pin, never a separately owned session to close.
-    reader: crate::NativeReader<d::serving::SnapshotHandle>,
+    reader: Box<dyn PublishedReadRetention>,
     _charge: Box<dyn d::resources::Reservation>,
 }
 impl PublishedCompletedState {
@@ -1711,7 +1750,7 @@ impl PublishedCompletedState {
         &self,
         client: &surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,
     ) -> Result<(), ModelError> {
-        if !std::ptr::eq(client, self.inner.reader.client()) {
+        if !std::ptr::eq(client, self.retained_reader().client()) {
             return Err(ModelError::Conflict(
                 "published inventory foreign native session",
             ));
@@ -1729,7 +1768,7 @@ impl PublishedCompletedState {
         &self.inner.admission
     }
     pub(crate) fn retained_reader(&self) -> &crate::NativeReader<d::serving::SnapshotHandle> {
-        &self.inner.reader
+        self.inner.reader.reader()
     }
 }
 /// Marker/pin reachability and persisted semantic admission survive legitimate origin
@@ -1738,95 +1777,125 @@ pub async fn published_completed_state(
     reader: &crate::NativeReader<d::serving::SnapshotHandle>,
     budget: &d::resources::ResourceBudget,
 ) -> Result<PublishedCompletedState, ModelError> {
-    let marker = reader.protected_publication_marker(budget).await?;
-    let record = |field: &str, table: &str| -> Result<RecordId, ModelError> {
-        match marker.row().get(field) {
-            Some(Value::RecordId(id)) if id.table.as_str() == table => Ok(id.clone()),
-            _ => Err(ModelError::Schema("published completed pointer")),
-        }
-    };
-    let completion_id = record("completion", "native_completed_state")?;
-    let admission_id = record("admission", "native_completed_admission")?;
-    let transport = reader.transport_reader().with_budget(budget);
-    let expected = crate::control::inspect_expected_read(&transport, completion_id.clone(), budget)
-        .await?
-        .ok_or(ModelError::Conflict(
-            "published physical completion missing",
-        ))?;
-    let _scratch = budget.reserve(
-        "published completion decode",
-        crate::loader::native_bytes(expected.row())
-            .saturating_mul(32)
-            .saturating_add(65536),
-    )?;
-    let data = FrozenCompletion::from_row(expected.row(), true)?;
-    if data.record()? != completion_id
-        || data.generation != reader.handle().service_generation
-        || marker.row().get("completion_incarnation") != Some(&expected.incarnation().into_value())
-    {
-        return Err(ModelError::Conflict(
-            "published physical completion identity/incarnation",
-        ));
-    }
-    drop(_scratch);
-    let admission = crate::control::inspect_expected_read(&transport, admission_id.clone(), budget)
-        .await?
-        .ok_or(ModelError::Conflict("published semantic admission missing"))?;
-    let admission_decode = budget.reserve(
-        "published semantic admission decode",
-        crate::loader::native_bytes(admission.row())
-            .saturating_mul(32)
-            .saturating_add(65536),
-    )?;
-    let semantic = CompletedAdmission::from_row(admission.row())?;
-    let model = d::model()?;
-    if semantic.record()? != admission_id
-        || marker.row().get("admission_incarnation") != Some(&admission.incarnation().into_value())
-    {
-        return Err(ModelError::Conflict(
-            "published semantic admission identity/incarnation",
-        ));
-    }
-    let charge = budget.reserve(
-        "published completed retained typed data",
-        std::mem::size_of::<PublishedCompletedInner>()
-            .saturating_add(2 * std::mem::size_of::<usize>())
-            .saturating_add(admission_heap(&semantic)),
-    )?;
-    drop(admission_decode);
-    require_hold(&transport, &admission_id, &completion_id).await?;
-    let inventory = inspect_inventory(&transport, &data, budget).await?;
-    {
-        let _validation = inventory_typed_charge(
-            std::mem::size_of::<CompletedAdmission>().saturating_add(admission_heap(&semantic)),
-            budget,
+    prepare_published_completed_state(reader, budget)?.await
+}
+// Reader/serving callers share one complete protected preparation, without
+// inheriting its inventory/eligibility/query execution future graph.
+fn prepare_published_completed_state<'a>(
+    reader: &'a crate::NativeReader<d::serving::SnapshotHandle>,
+    budget: &'a d::resources::ResourceBudget,
+) -> Result<futures::future::BoxFuture<'a, Result<PublishedCompletedState, ModelError>>, ModelError>
+{
+    let body = async move {
+        let marker = reader.protected_publication_marker(budget).await?;
+        let record = |field: &str, table: &str| -> Result<RecordId, ModelError> {
+            match marker.row().get(field) {
+                Some(Value::RecordId(id)) if id.table.as_str() == table => Ok(id.clone()),
+                _ => Err(ModelError::Schema("published completed pointer")),
+            }
+        };
+        let completion_id = record("completion", "native_completed_state")?;
+        let admission_id = record("admission", "native_completed_admission")?;
+        let transport = reader.transport_reader().with_budget(budget);
+        let expected =
+            crate::control::inspect_expected_read(&transport, completion_id.clone(), budget)
+                .await?
+                .ok_or(ModelError::Conflict(
+                    "published physical completion missing",
+                ))?;
+        let _scratch = budget.reserve(
+            "published completion decode",
+            crate::loader::native_bytes(expected.row())
+                .saturating_mul(32)
+                .saturating_add(65536),
         )?;
-        semantic.validate(&data, expected.incarnation(), &model, &inventory, budget)?;
-    }
-    let repeated = reader.protected_publication_marker(budget).await?;
-    if repeated.row() != marker.row() {
-        return Err(ModelError::Conflict(
-            "published marker changed during completed factory",
-        ));
-    }
-    let result = PublishedCompletedState {
-        inner: std::sync::Arc::new(PublishedCompletedInner {
-            completion: data,
-            completion_incarnation: expected.incarnation(),
-            admission: semantic,
-            admission_incarnation: admission.incarnation(),
-            inventory,
-            marker,
-            reader: reader.clone(),
-            _charge: charge,
-        }),
+        let data = FrozenCompletion::from_row(expected.row(), true)?;
+        if data.record()? != completion_id
+            || data.generation != reader.handle().service_generation
+            || marker.row().get("completion_incarnation")
+                != Some(&expected.incarnation().into_value())
+        {
+            return Err(ModelError::Conflict(
+                "published physical completion identity/incarnation",
+            ));
+        }
+        drop(_scratch);
+        let admission =
+            crate::control::inspect_expected_read(&transport, admission_id.clone(), budget)
+                .await?
+                .ok_or(ModelError::Conflict("published semantic admission missing"))?;
+        let admission_decode = budget.reserve(
+            "published semantic admission decode",
+            crate::loader::native_bytes(admission.row())
+                .saturating_mul(32)
+                .saturating_add(65536),
+        )?;
+        let semantic = CompletedAdmission::from_row(admission.row())?;
+        let model = d::model()?;
+        if semantic.record()? != admission_id
+            || marker.row().get("admission_incarnation")
+                != Some(&admission.incarnation().into_value())
+        {
+            return Err(ModelError::Conflict(
+                "published semantic admission identity/incarnation",
+            ));
+        }
+        let charge = budget.reserve(
+            "published completed retained typed data",
+            std::mem::size_of::<PublishedCompletedInner>()
+                .saturating_add(std::mem::size_of::<RetainedPublishedReader>())
+                .saturating_add(2 * std::mem::size_of::<usize>())
+                .saturating_add(admission_heap(&semantic)),
+        )?;
+        drop(admission_decode);
+        require_hold(&transport, &admission_id, &completion_id).await?;
+        let inventory = inspect_inventory(&transport, &data, budget).await?;
+        {
+            let _validation = inventory_typed_charge(
+                std::mem::size_of::<CompletedAdmission>().saturating_add(admission_heap(&semantic)),
+                budget,
+            )?;
+            semantic.validate(&data, expected.incarnation(), &model, &inventory, budget)?;
+        }
+        let repeated = reader.protected_publication_marker(budget).await?;
+        if repeated.row() != marker.row() {
+            return Err(ModelError::Conflict(
+                "published marker changed during completed factory",
+            ));
+        }
+        let result = PublishedCompletedState {
+            inner: std::sync::Arc::new(PublishedCompletedInner {
+                completion: data,
+                completion_incarnation: expected.incarnation(),
+                admission: semantic,
+                admission_incarnation: admission.incarnation(),
+                inventory,
+                marker,
+                reader: Box::new(RetainedPublishedReader(reader.clone())),
+                _charge: charge,
+            }),
+        };
+        if crate::completed_transport::eligibility_published(&result, budget).await?
+            != reader.handle().eligibility
+        {
+            return Err(ModelError::Conflict("published exact selector eligibility"));
+        }
+        Ok(result)
     };
-    if crate::completed_transport::eligibility_published(&result, budget).await?
-        != reader.handle().eligibility
-    {
-        return Err(ModelError::Conflict("published exact selector eligibility"));
-    }
-    Ok(result)
+    // Admit before allocating the continuation or beginning native observations.
+    // The same pool owns the continuation until all preparation checks finish;
+    // the returned capability retains its own separately admitted typed backing.
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema(
+            "published completion preparation continuation size",
+        ))?;
+    let grant = budget.reserve("published completion preparation continuation", bytes)?;
+    Ok(Box::pin(async move {
+        let _grant = grant;
+        body.await
+    }))
 }
 
 // Semantic execution belongs to compiler storage (ADR-0151). Native completion

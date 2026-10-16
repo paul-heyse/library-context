@@ -25,7 +25,19 @@ pub fn store() -> Arc<NativeCompilerStore> {
         tracing::dispatcher::with_default(&dispatch, || {
             span.in_scope(|| {
                 runtime
-                    .block_on(NativeCompilerStore::begin(&config, Frontier::Catalog))
+                    .block_on(NativeCompilerStore::begin(
+                        &config,
+                        Frontier::Catalog,
+                        &lctx_compiler_store::compiler::recovery_factory(
+                            &config,
+                            (lctx_model::domain::resources::ResourceBudget::fixed(
+                                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                            )
+                            .expect("owned native control recovery budget"))
+                            .clone(),
+                        )
+                        .expect("owned native control factory"),
+                    ))
                     .unwrap()
             })
         })

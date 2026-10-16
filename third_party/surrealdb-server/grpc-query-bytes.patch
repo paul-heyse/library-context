@@ -1,0 +1,128 @@
+diff --git a/surrealdb/server/src/rpc/grpc.rs b/surrealdb/server/src/rpc/grpc.rs
+index 8f87d7a..93e49bc 100644
+--- a/surrealdb/server/src/rpc/grpc.rs
++++ b/surrealdb/server/src/rpc/grpc.rs
+@@ -172,6 +172,36 @@ fn frame_payload_budget() -> usize {
+ 	limit.saturating_sub(transport_reserve(limit)).max(1)
+ }
+ 
++// Complete encoded response ceilings are independent of decoded-memory admission.
++// The allowance covers batch scalar metadata, nested tags and bounded stats. Error
++// details still go through actual encoded_len and fail as a transport status when
++// they cannot be represented under the caller's chosen complete-frame ceiling.
++const QUERY_ENVELOPE_ALLOWANCE: usize = 1024;
++
++fn query_byte_limit(requested: u32) -> Result<Option<usize>, Status> {
++	if requested == 0 { return Ok(None); }
++	let requested = requested as usize;
++	if requested <= QUERY_ENVELOPE_ALLOWANCE {
++		return Err(Status::invalid_argument(format!(
++			"max_batch_bytes must exceed the {QUERY_ENVELOPE_ALLOWANCE}-byte query envelope allowance"
++		)));
++	}
++	Ok(Some(requested.min(frame_payload_budget())))
++}
++
++fn checked_query_frame(frame: rpc::QueryResponse, limit: Option<usize>) -> Result<rpc::QueryResponse, Status> {
++	use surrealdb_types::prost::Message;
++	if let Some(limit) = limit {
++		let actual = frame.encoded_len();
++		if actual > limit {
++			return Err(Status::out_of_range(format!(
++				"Query response encodes to {actual} bytes, above requested max_batch_bytes {limit}"
++			)));
++		}
++	}
++	Ok(frame)
++}
++
+ /// Hands back a unary response once it is known to encode within
+ /// [`frame_payload_budget`], refusing it as a status naming the limit
+ /// otherwise.
+@@ -1354,7 +1384,8 @@ impl SurrealDbService for GrpcService {
+ 			));
+ 		}
+ 		let batch_records = batch_records(request.max_batch_records);
+-		self.stream_query(request.context.as_ref(), request.query, request.variables, batch_records)
++		let byte_limit = query_byte_limit(request.max_batch_bytes)?;
++		self.stream_query(request.context.as_ref(), request.query, request.variables, batch_records, byte_limit)
+ 			.await
+ 	}
+ 
+@@ -1564,6 +1595,7 @@ impl GrpcService {
+ 			"TRANSACTIONS".to_string(),
+ 			"LIVE_QUERIES".to_string(),
+ 			"REFRESH_TOKENS".to_string(),
++			"QUERY_BATCH_BYTES_V1".to_string(),
+ 		];
+ 		if cfg!(feature = "ml") {
+ 			capabilities.push("ML_MODELS".to_string());
+@@ -1658,6 +1690,7 @@ impl GrpcService {
+ 		query: String,
+ 		variables: Option<proto::Variables>,
+ 		batch_records: usize,
++		byte_limit: Option<usize>,
+ 	) -> Result<Response<ResponseStream<rpc::QueryResponse>>, Status> {
+ 		// Parse the transaction id before resolving a session, for the reason
+ 		// `execute` gives: an early return between the two would strand an
+@@ -1759,7 +1792,7 @@ impl GrpcService {
+ 			});
+ 		}
+ 
+-		let state = QueryFraming::new(
++		let mut state = QueryFraming::new(
+ 			Arc::clone(&self.state),
+ 			session,
+ 			principal,
+@@ -1769,11 +1802,18 @@ impl GrpcService {
+ 			cancel,
+ 			permit,
+ 		);
++		if let Some(limit) = byte_limit {
++			// Preserve the drain permit through the checked final response stream.
++			// Actual encoded_len remains the authoritative complete frame bound.
++			state.frames.value_budget = state.frames.value_budget.min(limit - QUERY_ENVELOPE_ALLOWANCE);
++		}
+ 		let frames = futures::stream::unfold(Some(state), |state| async move {
+ 			let mut state = state?;
+ 			state.next().await.map(|frame| (Ok(frame), Some(state)))
+ 		});
+-		Ok(Response::new(Box::pin(futures::stream::once(async move { Ok(begin) }).chain(frames))))
++		let frames = futures::stream::once(async move { Ok(begin) }).chain(frames)
++			.map(move |frame| frame.and_then(|frame| checked_query_frame(frame, byte_limit)));
++		Ok(Response::new(Box::pin(frames)))
+ 	}
+ 
+ 	/// Registers a live query for a subscription that will own it.
+diff --git a/surrealdb/server/tests/grpc.rs b/surrealdb/server/tests/grpc.rs
+index 8b9bada..6677486 100644
+--- a/surrealdb/server/tests/grpc.rs
++++ b/surrealdb/server/tests/grpc.rs
+@@ -721,6 +721,7 @@ async fn rows_arrive_before_the_query_finishes() {
+ 			variables: None,
+ 			accepted_encodings: Vec::new(),
+ 			max_batch_records: 0,
++			max_batch_bytes: 0,
+ 		})
+ 		.await
+ 		.expect("query")
+diff --git a/surrealdb/src/engine/remote/grpc.rs b/surrealdb/src/engine/remote/grpc.rs
+index 3016ea3..2aed1b6 100644
+--- a/surrealdb/src/engine/remote/grpc.rs
++++ b/surrealdb/src/engine/remote/grpc.rs
+@@ -760,6 +760,7 @@ impl GrpcEngine {
+ 			// engine can decode.
+ 			accepted_encodings: Vec::new(),
+ 			max_batch_records,
++			max_batch_bytes: 0,
+ 		};
+ 		Ok(self.client().query(self.checked(request)?).await.map_err(status_to_error)?.into_inner())
+ 	}
+@@ -2621,6 +2622,7 @@ mod tests {
+ 			variables: None,
+ 			accepted_encodings: Vec::new(),
+ 			max_batch_records: 0,
++			max_batch_bytes: 0,
+ 		};
+ 		let error = check_message_size(Some((64, LimitSource::Server)), &request)
+ 			.expect_err("above the limit");

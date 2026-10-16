@@ -8,7 +8,7 @@ use lctx_model::domain::charged::StateCharge;
 use lctx_model::domain::{
     ContentHash, ModelError,
     completion::{Completion, complete},
-    resources::{MAX_ROW_BYTES, ResourceBudget},
+    resources::{MAX_ROW_BYTES, Reservation, ResourceBudget},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -142,25 +142,71 @@ pub struct SelectedPayloads {
     topology: Option<crate::alias_topology::AliasTopology>,
     budget: ResourceBudget,
 }
+#[cfg(test)]
+type FixtureSelectionRead = dyn Fn(crate::prepared::PreparedQuery, &ResourceBudget) -> Result<NativeRows, ModelError>
+    + Send
+    + Sync;
 #[derive(Clone)]
 enum SelectionSource {
     Borrowed(
         Box<SelectionSource>,
         Arc<crate::reader::BorrowedInstalledGuard>,
     ),
-    Owned(Box<SelectionSource>, crate::NativeReader<()>),
-    Published(
-        Box<SelectionSource>,
-        crate::completed_state::PublishedCompletedState,
-    ),
+    Owned(Arc<SelectionSource>, Arc<dyn SelectionRetention>),
+    Published(Arc<SelectionSource>, Arc<dyn SelectionRetention>),
     #[cfg(test)]
-    Fixture(
-        Arc<dyn Fn(crate::prepared::PreparedQuery) -> Result<NativeRows, ModelError> + Send + Sync>,
-    ),
+    Fixture(Arc<FixtureSelectionRead>),
     Session(Arc<Surreal<Client>>),
     Transaction(Arc<surrealdb::method::Transaction<Client>>),
     Cancellable(Box<SelectionSource>, Arc<std::sync::atomic::AtomicBool>),
 }
+// Cache outputs expose the ability to retain/read an owner, not that owner's
+// recursive ReaderScope -> selection-cache type graph. Concrete adapters below
+// keep the original reader/publication and its allocation pool alive unchanged.
+trait SelectionRetention: Send + Sync {
+    fn check_live(&self) -> Result<(), ModelError>;
+    fn attach_scope(&self, rows: NativeRows) -> Result<NativeRows, ModelError>;
+}
+struct ReaderSelectionRetention {
+    reader: crate::NativeReader<()>,
+    _grant: Box<dyn Reservation>,
+}
+impl SelectionRetention for ReaderSelectionRetention {
+    fn check_live(&self) -> Result<(), ModelError> {
+        self.reader.ensure_scope_live()
+    }
+    fn attach_scope(&self, rows: NativeRows) -> Result<NativeRows, ModelError> {
+        self.reader.attach_scope(rows)
+    }
+}
+struct PublishedSelectionRetention {
+    completed: crate::completed_state::PublishedCompletedState,
+    _grant: Box<dyn Reservation>,
+}
+impl SelectionRetention for PublishedSelectionRetention {
+    fn check_live(&self) -> Result<(), ModelError> {
+        self.completed.retained_reader().ensure_scope_live()
+    }
+    fn attach_scope(&self, rows: NativeRows) -> Result<NativeRows, ModelError> {
+        self.completed.retained_reader().attach_scope(rows)
+    }
+}
+fn selection_retention_grant<T>(
+    budget: &ResourceBudget,
+    owner: &'static str,
+) -> Result<Box<dyn Reservation>, ModelError> {
+    // Both retention payloads and their inner sources are shared by clones.
+    // Admit each Arc's counters, alignment and state before either allocation.
+    let bytes = std::mem::size_of::<T>()
+        .checked_add(2 * std::mem::size_of::<usize>())
+        .and_then(|bytes| bytes.checked_add(std::mem::align_of::<T>() - 1))
+        .and_then(|bytes| bytes.checked_add(std::mem::size_of::<SelectionSource>()))
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::size_of::<usize>()))
+        .and_then(|bytes| bytes.checked_add(std::mem::align_of::<SelectionSource>() - 1))
+        .ok_or(ModelError::Schema("selected owner retention size"))?;
+    budget.reserve(owner, bytes)
+}
+
 enum CandidateNominations {
     Query(crate::prepared::PreparedQuery),
     Relation(String),
@@ -172,12 +218,8 @@ impl SelectionSource {
                 guard.ensure_live()?;
                 source.check_live()
             }
-            Self::Owned(source, reader) => {
-                reader.ensure_scope_live()?;
-                source.check_live()
-            }
-            Self::Published(source, completed) => {
-                completed.retained_reader().ensure_scope_live()?;
+            Self::Owned(source, owner) | Self::Published(source, owner) => {
+                owner.check_live()?;
                 source.check_live()
             }
             Self::Cancellable(source, flag) => {
@@ -187,24 +229,22 @@ impl SelectionSource {
             _ => Ok(()),
         }
     }
-    fn stream(&self, query: crate::prepared::PreparedQuery) -> Result<NativeRows, ModelError> {
+    fn stream(
+        &self,
+        query: crate::prepared::PreparedQuery,
+        budget: &ResourceBudget,
+    ) -> Result<NativeRows, ModelError> {
         match self {
             Self::Borrowed(source, guard) => {
                 guard.ensure_live()?;
-                source.stream(query)
+                source.stream(query, budget)
             }
-            Self::Owned(source, reader) => {
-                reader.ensure_scope_live()?;
-                reader.attach_scope(source.stream(query)?)
-            }
-            Self::Published(source, completed) => {
-                completed.retained_reader().ensure_scope_live()?;
-                completed
-                    .retained_reader()
-                    .attach_scope(source.stream(query)?)
+            Self::Owned(source, owner) | Self::Published(source, owner) => {
+                owner.check_live()?;
+                owner.attach_scope(source.stream(query, budget)?)
             }
             #[cfg(test)]
-            Self::Fixture(stream) => stream(query),
+            Self::Fixture(stream) => stream(query, budget),
             Self::Cancellable(source, cancelled) => {
                 if cancelled.load(std::sync::atomic::Ordering::Acquire) {
                     return Err(ModelError::Cause(Box::new(std::io::Error::new(
@@ -212,10 +252,10 @@ impl SelectionSource {
                         "selected read delivery cancelled",
                     ))));
                 }
-                source.stream(query)
+                source.stream(query, budget)
             }
-            Self::Session(client) => query.stream(client),
-            Self::Transaction(transaction) => query.stream_transaction(transaction),
+            Self::Session(client) => query.stream(client, budget),
+            Self::Transaction(transaction) => query.stream_transaction(transaction, budget),
         }
     }
 }
@@ -320,16 +360,16 @@ fn order_key(row: &Value, fields: &[String]) -> Result<String, ModelError> {
 }
 async fn consume(
     source: &SelectionSource,
+    budget: &ResourceBudget,
     sql: String,
     bindings: Variables,
     mut accept: impl FnMut(Value) -> Result<(), ModelError>,
 ) -> Result<(), ModelError> {
     let mut rows = source
-        .stream(crate::prepared::PreparedQuery::new(
-            bindings,
-            vec![],
-            vec![sql],
-        )?)?
+        .stream(
+            crate::prepared::PreparedQuery::new(bindings, vec![], vec![sql])?,
+            budget,
+        )?
         .with_row_bytes(MAX_ROW_BYTES);
     let result = async {
         while let Some(row) = rows.next().await? {
@@ -367,9 +407,20 @@ impl SelectedPayloads {
         };
         Self::prepare_completed_selectors(source, &references.0, budget).await
     }
-    pub(crate) fn with_reader_owner(mut self, reader: crate::NativeReader<()>) -> Self {
-        self.source = SelectionSource::Owned(Box::new(self.source), reader);
-        self
+    pub(crate) fn with_reader_owner(
+        mut self,
+        reader: crate::NativeReader<()>,
+    ) -> Result<Self, ModelError> {
+        let grant = selection_retention_grant::<ReaderSelectionRetention>(
+            &self.budget,
+            "selected reader owner retention",
+        )?;
+        let owner = Arc::new(ReaderSelectionRetention {
+            reader,
+            _grant: grant,
+        });
+        self.source = SelectionSource::Owned(Arc::new(self.source), owner);
+        Ok(self)
     }
     /// A snapshot independently compares the protected marker and every selected
     /// completion/mapping/hold/incarnation. The external capability keeps its publication
@@ -389,7 +440,15 @@ impl SelectedPayloads {
         let references = selected_references(completed.inventory(), requested, budget)?;
         check_publication_snapshot(&source, completed, budget).await?;
         let mut result = Self::prepare_completed_selectors(source, &references.0, budget).await?;
-        result.source = SelectionSource::Published(Box::new(result.source), completed.clone());
+        let grant = selection_retention_grant::<PublishedSelectionRetention>(
+            budget,
+            "selected publication owner retention",
+        )?;
+        let owner = Arc::new(PublishedSelectionRetention {
+            completed: completed.clone(),
+            _grant: grant,
+        });
+        result.source = SelectionSource::Published(Arc::new(result.source), owner);
         Ok(result)
     }
 
@@ -514,75 +573,90 @@ impl SelectedPayloads {
         )],
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        let mut charge = StateCharge::new(budget, "selected canonical contributor scopes");
-        let mut exact = CanonicalSelection {
-            views: Vec::new(),
-            owner_views: BTreeMap::new(),
-            alias_membership: BTreeMap::new(),
-            _charge: StateCharge::new(budget, "selected canonical contributor correspondence"),
-        };
-        let mut owners = SortedRows::with_budget(budget)?;
-        for (view, mappings) in selectors {
-            view.validate()?;
-            if exact.views.contains(&view.identity) {
-                return Err(ModelError::Conflict("selected logical view duplicate"));
-            }
-            charge.grow(std::mem::size_of::<ContentHash>())?;
-            exact.views.push(view.identity);
-            for logical in &view.contributions {
-                let mapping = mappings
-                    .iter()
-                    .find(|mapping| mapping.view == view.identity && mapping.logical == *logical)
-                    .ok_or(ModelError::Conflict(
-                        "selected canonical contributor mapping missing",
-                    ))?;
-                if mapping.incarnation <= 0 {
-                    return Err(ModelError::Conflict(
-                        "selected canonical contributor incarnation",
-                    ));
+        Self::prepare_selectors_execution(source, selectors, budget)?.await
+    }
+    // Session, transaction and installed-view consumers share one complete exact
+    // selection preparation. Erase its native/alias execution at that common seam.
+    fn prepare_selectors_execution<'a>(
+        source: SelectionSource,
+        selectors: &'a [(
+            &'a lctx_model::domain::completed::CompletedView,
+            &'a [crate::installed_view::ContributorRealization],
+        )],
+        budget: &'a ResourceBudget,
+    ) -> Result<futures::future::BoxFuture<'a, Result<Self, ModelError>>, ModelError> {
+        let body = async move {
+            let mut charge = StateCharge::new(budget, "selected canonical contributor scopes");
+            let mut exact = CanonicalSelection {
+                views: Vec::new(),
+                owner_views: BTreeMap::new(),
+                alias_membership: BTreeMap::new(),
+                _charge: StateCharge::new(budget, "selected canonical contributor correspondence"),
+            };
+            let mut owners = SortedRows::with_budget(budget)?;
+            for (view, mappings) in selectors {
+                view.validate()?;
+                if exact.views.contains(&view.identity) {
+                    return Err(ModelError::Conflict("selected logical view duplicate"));
                 }
-                let owner = RecordId::new("compiler_contribution", mapping.physical.hex());
-                exact._charge.grow(
-                    node_bytes(&owner)
-                        .saturating_mul(2)
-                        .saturating_add(view.relation.len())
-                        .saturating_add(512),
-                )?;
+                charge.grow(std::mem::size_of::<ContentHash>())?;
+                exact.views.push(view.identity);
+                for logical in &view.contributions {
+                    let mapping = mappings
+                        .iter()
+                        .find(|mapping| {
+                            mapping.view == view.identity && mapping.logical == *logical
+                        })
+                        .ok_or(ModelError::Conflict(
+                            "selected canonical contributor mapping missing",
+                        ))?;
+                    if mapping.incarnation <= 0 {
+                        return Err(ModelError::Conflict(
+                            "selected canonical contributor incarnation",
+                        ));
+                    }
+                    let owner = RecordId::new("compiler_contribution", mapping.physical.hex());
+                    exact._charge.grow(
+                        node_bytes(&owner)
+                            .saturating_mul(2)
+                            .saturating_add(view.relation.len())
+                            .saturating_add(512),
+                    )?;
+                    exact
+                        .owner_views
+                        .entry(owner)
+                        .or_default()
+                        .entry(view.relation.clone())
+                        .or_default()
+                        .insert(view.identity);
+                }
+                // Aliases across dependency contributors can carry selected endpoint paths.
+                for mapping in *mappings {
+                    owners.push(pointer(RecordId::new(
+                        "compiler_contribution",
+                        mapping.physical.hex(),
+                    )))?;
+                }
+            }
+            exact._charge.grow(
+                exact
+                    .views
+                    .len()
+                    .saturating_mul(std::mem::size_of::<ContentHash>()),
+            )?;
+            let mut seeds = SortedRows::with_budget(budget)?;
+            charge.grow(
                 exact
                     .owner_views
-                    .entry(owner)
-                    .or_default()
-                    .entry(view.relation.clone())
-                    .or_default()
-                    .insert(view.identity);
-            }
-            // Aliases across dependency contributors can carry selected endpoint paths.
-            for mapping in *mappings {
-                owners.push(pointer(RecordId::new(
-                    "compiler_contribution",
-                    mapping.physical.hex(),
-                )))?;
-            }
-        }
-        exact._charge.grow(
-            exact
-                .views
-                .len()
-                .saturating_mul(std::mem::size_of::<ContentHash>()),
-        )?;
-        let mut seeds = SortedRows::with_budget(budget)?;
-        charge.grow(
-            exact
-                .owner_views
-                .keys()
-                .map(|owner| node_bytes(owner).saturating_mul(3))
-                .fold(0usize, usize::saturating_add),
-        )?;
-        let selected_owners = exact.owner_views.keys().cloned().collect::<Vec<_>>();
-        for owners in selected_owners.chunks(WINDOW) {
-            let mut vars = Variables::new();
-            vars.insert("contributors", owners.to_vec());
-            consume(&source,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors".into(),vars,|row|{
+                    .keys()
+                    .map(|owner| node_bytes(owner).saturating_mul(3))
+                    .fold(0usize, usize::saturating_add),
+            )?;
+            let selected_owners = exact.owner_views.keys().cloned().collect::<Vec<_>>();
+            for owners in selected_owners.chunks(WINDOW) {
+                let mut vars = Variables::new();
+                vars.insert("contributors", owners.to_vec());
+                consume(&source, budget,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors".into(),vars,|row|{
                 crate::completed_rows::validate_state_row("compiler_membership",&row)?;
                 let (owner,node,relation,_,_)=membership_fields(&row)?;
                 if !owners.contains(owner){return Err(ModelError::Conflict("canonical selected foreign contributor"));}
@@ -591,81 +665,99 @@ impl SelectedPayloads {
                 }
                 Ok(())
             }).await?;
-        }
-        let owned =
-            Self::owned_alias_topology(&source, owners.finish()?.into_prepared(), budget).await?;
-        let seeds = seeds
-            .finish()?
-            .into_prepared()
-            .source_index("view", budget, || source.check_live())?;
-        let mut node_runs = Vec::new();
-        let mut alias_runs = Vec::new();
-        charge.grow(
-            selectors
-                .len()
-                .saturating_mul(2 * std::mem::size_of::<PreparedRows>()),
-        )?;
-        for (view, mappings) in selectors {
-            let mut eligible = SortedRows::with_budget(budget)?;
-            let mut closure_owners = SortedRows::with_budget(budget)?;
-            for mapping in *mappings {
-                closure_owners.push(pointer(RecordId::new(
-                    "compiler_contribution",
-                    mapping.physical.hex(),
-                )))?;
             }
-            let mut closure_owners = closure_owners.finish()?;
-            while let Some(owner) = closure_owners.next_row()? {
-                let mut incidence = owned.incidence.rows_for(&id(&owner)?, budget)?;
-                while let Some(row) = incidence.next_row()? {
-                    source.check_live()?;
-                    let Some(Value::RecordId(alias)) =
-                        row.as_object().and_then(|row| row.get("object"))
-                    else {
-                        return Err(ModelError::Schema("selector alias incidence target"));
-                    };
-                    eligible.push(pointer(alias.clone()))?;
-                }
-            }
-            let eligible = eligible.finish()?.into_prepared().point_index(budget)?;
-            let mut view_seeds = SortedRows::with_budget(budget)?;
-            let mut seed_rows =
-                seeds.rows_for(&RecordId::new("compiler_view", view.identity.hex()), budget)?;
-            while let Some(row) = seed_rows.next_row()? {
-                source.check_live()?;
-                let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node"))
-                else {
-                    return Err(ModelError::Schema("selector seed grant"));
-                };
-                view_seeds.push(pointer(node.clone()))?;
-            }
-            let (nodes, aliases) = owned.topology.expand_selected(
-                view_seeds.finish()?.into_prepared(),
-                &eligible,
-                budget,
-                || source.check_live(),
+            let owned =
+                Self::owned_alias_topology(&source, owners.finish()?.into_prepared(), budget)
+                    .await?;
+            let seeds = seeds
+                .finish()?
+                .into_prepared()
+                .source_index("view", budget, || source.check_live())?;
+            let mut node_runs = Vec::new();
+            let mut alias_runs = Vec::new();
+            charge.grow(
+                selectors
+                    .len()
+                    .saturating_mul(2 * std::mem::size_of::<PreparedRows>()),
             )?;
-            node_runs.push(nodes);
-            alias_runs.push(aliases);
-            exact
-                ._charge
-                .grow(std::mem::size_of::<PreparedPointRows>().saturating_add(128))?;
-            exact.alias_membership.insert(view.identity, eligible);
-        }
-        let nodes = PreparedRows::union_prepared(&node_runs, budget, || source.check_live())?;
-        let aliases = PreparedRows::union_prepared(&alias_runs, budget, || source.check_live())?;
-        let membership = nodes.point_index(budget)?;
-        Ok(Self {
-            exact: Some(Arc::new(exact)),
-            derivation: None,
-            source,
-            nodes,
-            membership,
-            aliases,
-            topology: Some(owned.topology),
-            budget: budget.clone(),
-        })
+            for (view, mappings) in selectors {
+                let mut eligible = SortedRows::with_budget(budget)?;
+                let mut closure_owners = SortedRows::with_budget(budget)?;
+                for mapping in *mappings {
+                    closure_owners.push(pointer(RecordId::new(
+                        "compiler_contribution",
+                        mapping.physical.hex(),
+                    )))?;
+                }
+                let mut closure_owners = closure_owners.finish()?;
+                while let Some(owner) = closure_owners.next_row()? {
+                    let mut incidence = owned.incidence.rows_for(&id(&owner)?, budget)?;
+                    while let Some(row) = incidence.next_row()? {
+                        source.check_live()?;
+                        let Some(Value::RecordId(alias)) =
+                            row.as_object().and_then(|row| row.get("object"))
+                        else {
+                            return Err(ModelError::Schema("selector alias incidence target"));
+                        };
+                        eligible.push(pointer(alias.clone()))?;
+                    }
+                }
+                let eligible = eligible.finish()?.into_prepared().point_index(budget)?;
+                let mut view_seeds = SortedRows::with_budget(budget)?;
+                let mut seed_rows =
+                    seeds.rows_for(&RecordId::new("compiler_view", view.identity.hex()), budget)?;
+                while let Some(row) = seed_rows.next_row()? {
+                    source.check_live()?;
+                    let Some(Value::RecordId(node)) =
+                        row.as_object().and_then(|row| row.get("node"))
+                    else {
+                        return Err(ModelError::Schema("selector seed grant"));
+                    };
+                    view_seeds.push(pointer(node.clone()))?;
+                }
+                let (nodes, aliases) = owned.topology.expand_selected(
+                    view_seeds.finish()?.into_prepared(),
+                    &eligible,
+                    budget,
+                    || source.check_live(),
+                )?;
+                node_runs.push(nodes);
+                alias_runs.push(aliases);
+                exact
+                    ._charge
+                    .grow(std::mem::size_of::<PreparedPointRows>().saturating_add(128))?;
+                exact.alias_membership.insert(view.identity, eligible);
+            }
+            let nodes = PreparedRows::union_prepared(&node_runs, budget, || source.check_live())?;
+            let aliases =
+                PreparedRows::union_prepared(&alias_runs, budget, || source.check_live())?;
+            let membership = nodes.point_index(budget)?;
+            Ok(Self {
+                exact: Some(Arc::new(exact)),
+                derivation: None,
+                source,
+                nodes,
+                membership,
+                aliases,
+                topology: Some(owned.topology),
+                budget: budget.clone(),
+            })
+        };
+        let bytes = std::mem::size_of_val(&body)
+            .checked_add(std::mem::size_of::<
+                Box<dyn lctx_model::domain::resources::Reservation>,
+            >())
+            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+            .ok_or(ModelError::Schema(
+                "exact selection preparation continuation size",
+            ))?;
+        let grant = budget.reserve("native exact selection preparation continuation", bytes)?;
+        Ok(Box::pin(async move {
+            let _grant = grant;
+            body.await
+        }))
     }
+
     async fn owned_alias_topology(
         source: &SelectionSource,
         owners: PreparedRows,
@@ -690,7 +782,7 @@ impl SelectedPayloads {
             }
             let mut vars = Variables::new();
             vars.insert("contributors", roots.clone());
-            consume(source,"SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner IN $contributors AND record::table(object)='compiler_alias'".into(),vars,|row|{
+            consume(source, budget,"SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner IN $contributors AND record::table(object)='compiler_alias'".into(),vars,|row|{
                 let fields=row.as_object().ok_or(ModelError::Schema("selected alias hold object"))?;
                 let (Some(Value::RecordId(owner)),Some(Value::RecordId(object)))=(fields.get("owner"),fields.get("object")) else {return Err(ModelError::Schema("selected alias hold incidence"));};
                 if fields.len()!=3 || !roots.contains(owner) || id(&row)?!=crate::control::hold_record_id(owner,object)? {return Err(ModelError::Conflict("selected alias hold foreign or noncanonical"));}
@@ -717,7 +809,7 @@ impl SelectedPayloads {
             let mut vars = Variables::new();
             vars.insert("ids", ids.clone());
             let mut seen = BTreeSet::new();
-            consume(source, "SELECT * FROM $ids".into(), vars, |row| {
+            consume(source, budget, "SELECT * FROM $ids".into(), vars, |row| {
                 let id = id(&row)?;
                 if !ids.contains(&id) || !seen.insert(id) {
                     return Err(ModelError::Conflict(
@@ -897,7 +989,7 @@ impl SelectedPayloads {
                     .collect::<Vec<_>>(),
             );
             let sql = "SELECT node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $roots";
-            consume(&source, sql.into(), vars, |value| {
+            consume(&source, budget, sql.into(), vars, |value| {
                 let Value::Object(row) = value else {
                     return Err(ModelError::Schema("selected membership pointer"));
                 };
@@ -1045,7 +1137,7 @@ impl SelectedPayloads {
         let table = table.to_owned();
         let predicate = predicate.to_owned();
         let budget = budget.clone();
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(budget.clone(), move |sender| async move {
             let mut sorted = SortedRows::with_budget_and_row_bytes(&budget, MAX_ROW_BYTES)?;
             let mut cursor = selected.pointers_with_budget(&budget)?;
             loop {
@@ -1072,7 +1164,10 @@ impl SelectedPayloads {
                     preparation.clone(),
                     vec![format!("SELECT * FROM $nodes WHERE ({predicate})")],
                 )?;
-                let mut rows = selected.source.stream(query)?.with_row_bytes(MAX_ROW_BYTES);
+                let mut rows = selected
+                    .source
+                    .stream(query, &budget)?
+                    .with_row_bytes(MAX_ROW_BYTES);
                 let result = async {
                     while let Some(row) = rows.next().await? {
                         let key = order_key(&row, &order)?;
@@ -1103,7 +1198,7 @@ impl SelectedPayloads {
                 let row = row
                     .remove("row")
                     .ok_or(ModelError::Schema("selected ordered payload"))?;
-                if sender.send(row).await.is_err() {
+                if !sender.send(row).await? {
                     break;
                 }
                 emitted += 1;
@@ -1179,7 +1274,7 @@ impl SelectedPayloads {
                             .collect::<Vec<_>>(),
                     );
                     let mut seen = BTreeSet::new();
-                    consume(source,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation AND semantic_key IN $keys".into(),vars,|row|{
+                    consume(source, budget,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation AND semantic_key IN $keys".into(),vars,|row|{
                         let _scratch=budget.reserve("selected nominal membership row",crate::loader::native_bytes(&row).saturating_mul(4))?;
                         crate::completed_rows::validate_state_row("compiler_membership",&row)?;
                         let (owner,node,actual_relation,key,content)=membership_fields(&row)?;
@@ -1336,7 +1431,7 @@ impl SelectedPayloads {
                 vars.insert("contributors", owners.to_vec());
                 vars.insert("nodes", nodes.clone());
                 let mut seen = BTreeSet::new();
-                consume(source,"SELECT * FROM compiler_membership WITH INDEX contribution_nodes WHERE contribution IN $contributors AND node IN $nodes".into(),vars,|row| {
+                consume(source, budget,"SELECT * FROM compiler_membership WITH INDEX contribution_nodes WHERE contribution IN $contributors AND node IN $nodes".into(),vars,|row| {
                     let _scratch=budget.reserve("selected membership row",crate::loader::native_bytes(&row).saturating_mul(4))?;
                     crate::completed_rows::validate_state_row("compiler_membership",&row)?;
                     let (owner,node,relation,key,content)=membership_fields(&row)?;
@@ -1593,7 +1688,7 @@ impl SelectedPayloads {
         let exact = exact.ok_or(ModelError::Conflict(
             "canonical relation requires exact selected contributors",
         ))?;
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(budget.clone(), move |sender| async move {
             let mut nominated = SortedRows::with_budget(&budget)?;
             let mut seed_grants = SortedRows::with_budget(&budget)?;
             let source_relations =
@@ -1613,7 +1708,7 @@ impl SelectedPayloads {
                     let mut vars = Variables::new();
                     vars.insert("contributors", owners.to_vec());
                     vars.insert("relation", selected_relation.to_owned());
-                    consume(&source,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation".into(),vars,|row|{
+                    consume(&source, &budget,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation".into(),vars,|row|{
                         crate::completed_rows::validate_state_row("compiler_membership",&row)?;
                         let (owner,node,actual_relation,_,_)=membership_fields(&row)?;
                         if !owners.contains(owner) || actual_relation!=selected_relation {return Err(ModelError::Conflict("canonical relation foreign membership"));}
@@ -1699,6 +1794,7 @@ impl SelectedPayloads {
                     // only endpoints of the requested relation become candidates.
                     consume(
                         &source,
+                        &budget,
                         "SELECT id FROM $nodes WHERE semantic_type=$relation".into(),
                         vars,
                         |row| {
@@ -1716,7 +1812,7 @@ impl SelectedPayloads {
             }
             let mut nominated = nominated.finish()?;
             while let Some(row) = nominated.next_row()? {
-                if sender.send(row).await.is_err() {
+                if !sender.send(row).await? {
                     break;
                 }
             }
@@ -1748,7 +1844,7 @@ impl SelectedPayloads {
         let relation = relation.to_owned();
         let table = table.to_owned();
         let budget = budget.clone();
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(budget.clone(), move |sender| async move {
             let _charge = charge;
             let mut rows = Self::candidate_rows_from(
                 selected.source.clone(),
@@ -1761,7 +1857,7 @@ impl SelectedPayloads {
             )?;
             let result = async {
                 while let Some(row) = rows.next().await? {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         rows.cancel_delivery();
                         break;
                     }
@@ -1845,9 +1941,9 @@ impl SelectedPayloads {
         }
         let table = table.to_owned();
         let budget = budget.clone();
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(budget.clone(), move |sender| async move {
             let mut candidates = match candidates {
-                CandidateNominations::Query(query) => source.stream(query)?,
+                CandidateNominations::Query(query) => source.stream(query, &budget)?,
                 CandidateNominations::Relation(relation) => Self::relation_nominations(
                     source.clone(),
                     views.clone(),
@@ -1918,11 +2014,14 @@ impl SelectedPayloads {
                     }
                     let vars = Variables::from_iter([("nodes".into(), nodes.clone().into_value())]);
                     let mut payloads = source
-                        .stream(crate::prepared::PreparedQuery::new(
-                            vars,
-                            vec![],
-                            vec!["SELECT * FROM $nodes".into()],
-                        )?)?
+                        .stream(
+                            crate::prepared::PreparedQuery::new(
+                                vars,
+                                vec![],
+                                vec!["SELECT * FROM $nodes".into()],
+                            )?,
+                            &budget,
+                        )?
                         .with_row_bytes(MAX_ROW_BYTES);
                     let result = async {
                         let mut seen = BTreeSet::new();
@@ -2005,7 +2104,7 @@ impl SelectedPayloads {
     }
     fn recovery_derived(&self, roles: bool) -> Result<NativeRows, ModelError> {
         let selected = self.clone();
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(selected.budget.clone(), move |sender| async move {
             if roles {
                 selected.bind_role_scope(&mut Variables::new())?;
             }
@@ -2066,7 +2165,7 @@ impl SelectedPayloads {
                         Some(SortedRows::with_budget(&selected.budget)?)
                     };
                     consume(
-                        &selected.source,
+                        &selected.source, &selected.budget,
                         format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $nodes{namespace}"),
                         vars,
                         |row| {
@@ -2169,14 +2268,18 @@ impl SelectedPayloads {
                 }
                 let mut vars = Variables::new();
                 vars.insert("ids", ids);
-                consume(&selected.source, "SELECT * FROM $ids".into(), vars, |row| {
-                    actual.push(row)
-                })
+                consume(
+                    &selected.source,
+                    &selected.budget,
+                    "SELECT * FROM $ids".into(),
+                    vars,
+                    |row| actual.push(row),
+                )
                 .await?;
             }
             let mut actual = actual.finish()?;
             while let Some(row) = actual.next_row()? {
-                if sender.send(row).await.is_err() {
+                if !sender.send(row).await? {
                     break;
                 }
             }
@@ -2191,12 +2294,12 @@ impl SelectedPayloads {
         }
         let selected = self.clone();
         let table = table.to_owned();
-        NativeRows::owned(move |sender| async move {
+        NativeRows::owned(selected.budget.clone(), move |sender| async move {
             if table == "compiler_alias" {
                 let mut aliases = selected.aliases.cursor_with_budget(&selected.budget)?;
                 while let Some(row) = aliases.next_row()? {
                     selected.source.check_live()?;
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -2224,7 +2327,7 @@ impl SelectedPayloads {
                 let derivation = selected.bind_role_scope(&mut vars)?;
                 vars.insert("nodes", batch);
                 consume(
-                    &selected.source,
+                    &selected.source, &selected.budget,
                     format!("SELECT * FROM {table} WITH INDEX outgoing WHERE in IN $nodes AND derivation = $lctx_derivation"),
                     vars,
                     |row| {
@@ -2236,7 +2339,7 @@ impl SelectedPayloads {
             }
             let mut rows = sorted.finish()?;
             while let Some(row) = rows.next_row()? {
-                if sender.send(row).await.is_err() {
+                if !sender.send(row).await? {
                     break;
                 }
             }
@@ -2279,19 +2382,26 @@ async fn snapshot_row(
     source: &SelectionSource,
     id: RecordId,
     expected: &Value,
+    budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut vars = Variables::new();
     vars.insert("record", id);
     let mut found = false;
-    consume(source, "SELECT * FROM $record".into(), vars, |row| {
-        if found || row != expected {
-            return Err(ModelError::Conflict(
-                "published transaction exact witness bytes",
-            ));
-        }
-        found = true;
-        Ok(())
-    })
+    consume(
+        source,
+        budget,
+        "SELECT * FROM $record".into(),
+        vars,
+        |row| {
+            if found || row != expected {
+                return Err(ModelError::Conflict(
+                    "published transaction exact witness bytes",
+                ));
+            }
+            found = true;
+            Ok(())
+        },
+    )
     .await?;
     if !found {
         return Err(ModelError::Conflict(
@@ -2304,6 +2414,7 @@ async fn snapshot_incarnation(
     source: &SelectionSource,
     id: &RecordId,
     incarnation: i64,
+    budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut vars = Variables::new();
     vars.insert(
@@ -2313,6 +2424,7 @@ async fn snapshot_incarnation(
     let mut found = false;
     consume(
         source,
+        budget,
         "SELECT phase,incarnation FROM $guard".into(),
         vars,
         |row| {
@@ -2361,7 +2473,7 @@ async fn snapshot_holds(
         let mut vars = Variables::new();
         vars.insert("holds", expected.keys().cloned().collect::<Vec<_>>());
         let mut seen = BTreeSet::new();
-        consume(source, "SELECT * FROM $holds".into(), vars, |row| {
+        consume(source, budget, "SELECT * FROM $holds".into(), vars, |row| {
             let address = id(&row)?;
             let Some((owner, object)) = expected.get(&address) else {
                 return Err(ModelError::Conflict(
@@ -2408,15 +2520,22 @@ async fn check_publication_snapshot(
     let Some(Value::RecordId(publication)) = marker.get("id") else {
         return Err(ModelError::Schema("published transaction marker id"));
     };
-    snapshot_row(source, publication.clone(), &Value::Object(marker.clone())).await?;
-    snapshot_row(source, data.record()?, &data.value(true)?).await?;
-    snapshot_incarnation(source, &data.record()?, completed.incarnation()).await?;
+    snapshot_row(
+        source,
+        publication.clone(),
+        &Value::Object(marker.clone()),
+        budget,
+    )
+    .await?;
+    snapshot_row(source, data.record()?, &data.value(true)?, budget).await?;
+    snapshot_incarnation(source, &data.record()?, completed.incarnation(), budget).await?;
     let admission = completed.admission();
-    snapshot_row(source, admission.record()?, &admission.value()?).await?;
+    snapshot_row(source, admission.record()?, &admission.value()?, budget).await?;
     snapshot_incarnation(
         source,
         &admission.record()?,
         completed.admission_incarnation(),
+        budget,
     )
     .await?;
     snapshot_hold(source, &admission.record()?, &data.record()?, budget).await?;
@@ -2428,7 +2547,7 @@ async fn check_publication_snapshot(
     else {
         return Err(ModelError::Schema("published transaction root incarnation"));
     };
-    snapshot_incarnation(source, root, *root_inc).await?;
+    snapshot_incarnation(source, root, *root_inc, budget).await?;
     snapshot_hold(source, publication, root, budget).await?;
     snapshot_hold(source, root, &data.record()?, budget).await?;
     snapshot_hold(source, root, &admission.record()?, budget).await?;
@@ -2436,7 +2555,7 @@ async fn check_publication_snapshot(
     vars.insert("generation", data.generation.hex());
     vars.insert("epoch", data.validity_epoch);
     let mut found = false;
-    consume(source,"SELECT id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$epoch".into(),vars,|_|{if found{return Err(ModelError::Conflict("snapshot installation duplicate"));}found=true;Ok(())}).await?;
+    consume(source, budget,"SELECT id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$epoch".into(),vars,|_|{if found{return Err(ModelError::Conflict("snapshot installation duplicate"));}found=true;Ok(())}).await?;
     if !found {
         return Err(ModelError::Conflict(
             "published transaction current validity epoch",
@@ -2446,7 +2565,7 @@ async fn check_publication_snapshot(
     let mut seen = 0usize;
     let mut vars = Variables::new();
     vars.insert("completion", data.record()?);
-    consume(source,"SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion ORDER BY logical_view,id".into(),vars,|row|{
+    consume(source, budget,"SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion ORDER BY logical_view,id".into(),vars,|row|{
         let reference=crate::completed_state::InstalledViewRef::from_row(&row,identity)?;hasher.row(&reference)?;
         if completed.inventory().references().get(seen)!=Some(&reference){return Err(ModelError::Conflict("published transaction exact complete inventory"));}seen+=1;Ok(())
     }).await?;
@@ -2461,7 +2580,7 @@ async fn check_publication_snapshot(
     let mut copy_count = 0usize;
     let mut vars = Variables::new();
     vars.insert("completion", data.record()?);
-    consume(source,"SELECT * FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$completion ORDER BY physical,id".into(),vars,|row|{
+    consume(source, budget,"SELECT * FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$completion ORDER BY physical,id".into(),vars,|row|{
         let copy=crate::completed_state::ContributorCopy::from_row(&row,identity)?;
         if completed.inventory().copies().get(&copy.physical)!=Some(&copy){return Err(ModelError::Conflict("snapshot compound contributor full inventory"));}
         contributor_hasher.row(&copy)?;copy_count+=1;Ok(())
@@ -2507,32 +2626,38 @@ async fn check_publication_snapshot(
         let mut vars = Variables::new();
         vars.insert("contributors", observed.keys().cloned().collect::<Vec<_>>());
         let mut seen = BTreeSet::new();
-        consume(source, "SELECT * FROM $contributors".into(), vars, |row| {
-            let owner = id(&row)?;
-            let copy = observed
-                .get(&owner)
-                .ok_or(ModelError::Conflict("snapshot foreign contributor"))?;
-            if !seen.insert(owner) {
-                return Err(ModelError::Conflict("snapshot duplicate contributor"));
-            }
-            let _scratch = budget.reserve(
-                "snapshot selected contributor decode",
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(32)
-                    .saturating_add(65536),
-            )?;
-            crate::completed_rows::validate_state_row("compiler_contribution", &row)?;
-            if crate::installed_view::audit::descriptor::<
-                lctx_model::domain::completed::CompletedContribution,
-            >(&row)?
-                != copy.descriptor
-            {
-                return Err(ModelError::Conflict(
-                    "snapshot selected contributor full descriptor",
-                ));
-            }
-            Ok(())
-        })
+        consume(
+            source,
+            budget,
+            "SELECT * FROM $contributors".into(),
+            vars,
+            |row| {
+                let owner = id(&row)?;
+                let copy = observed
+                    .get(&owner)
+                    .ok_or(ModelError::Conflict("snapshot foreign contributor"))?;
+                if !seen.insert(owner) {
+                    return Err(ModelError::Conflict("snapshot duplicate contributor"));
+                }
+                let _scratch = budget.reserve(
+                    "snapshot selected contributor decode",
+                    crate::loader::native_bytes(&row)
+                        .saturating_mul(32)
+                        .saturating_add(65536),
+                )?;
+                crate::completed_rows::validate_state_row("compiler_contribution", &row)?;
+                if crate::installed_view::audit::descriptor::<
+                    lctx_model::domain::completed::CompletedContribution,
+                >(&row)?
+                    != copy.descriptor
+                {
+                    return Err(ModelError::Conflict(
+                        "snapshot selected contributor full descriptor",
+                    ));
+                }
+                Ok(())
+            },
+        )
         .await?;
         if seen.len() != observed.len() {
             return Err(ModelError::Conflict("snapshot contributor missing"));
@@ -2542,6 +2667,7 @@ async fn check_publication_snapshot(
         let mut seen = BTreeSet::new();
         consume(
             source,
+            budget,
             "SELECT id,phase,incarnation FROM $guards".into(),
             vars,
             |row| {
@@ -2573,7 +2699,7 @@ async fn check_publication_snapshot(
     let mut vars = Variables::new();
     vars.insert("completion", data.record()?);
     let mut charge = StateCharge::new(budget, "snapshot exact canonical binding inventory");
-    consume(source,"SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$completion AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into(),vars,|row|{
+    consume(source, budget,"SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$completion AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into(),vars,|row|{
         let address=id(&row)?;charge.grow(node_bytes(&address).saturating_mul(2).saturating_add(128))?;bindings.push(address);Ok(())
     }).await?;
     if bindings.len() != completed.inventory().bindings().len() {
@@ -2590,6 +2716,7 @@ async fn check_publication_snapshot(
             source,
             id.clone(),
             &crate::binding_descriptor::value(binding)?,
+            budget,
         )
         .await?;
         snapshot_incarnation(
@@ -2598,6 +2725,7 @@ async fn check_publication_snapshot(
             completed
                 .inventory()
                 .binding_incarnation(binding.descriptor_identity()?)?,
+            budget,
         )
         .await?;
         snapshot_hold(
@@ -2610,7 +2738,13 @@ async fn check_publication_snapshot(
     }
     // The marker comparison is repeated under the same snapshot; external capability
     // liveness is checked again before any prepared selection escapes this constructor.
-    snapshot_row(source, publication.clone(), &Value::Object(marker.clone())).await?;
+    snapshot_row(
+        source,
+        publication.clone(),
+        &Value::Object(marker.clone()),
+        budget,
+    )
+    .await?;
     completed.retained_reader().ensure_scope_live()
 }
 
@@ -2804,7 +2938,7 @@ mod tests {
                 Value::Object(hold)
             })
             .collect::<Vec<_>>();
-        SelectionSource::Fixture(Arc::new(move |query| {
+        SelectionSource::Fixture(Arc::new(move |query, budget| {
             let (sql, vars) = query.into_request();
             assert!(!sql.contains("FROM compiler_alias"));
             let rows = if sql.contains("FROM compiler_membership") {
@@ -2840,9 +2974,9 @@ mod tests {
                 let ids = Vec::<RecordId>::from_value(vars.get("ids").unwrap().clone()).unwrap();
                 ids.iter().map(|id| aliases[id].clone()).collect()
             };
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 for row in rows {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -3024,7 +3158,7 @@ mod tests {
             physical: logical,
             incarnation: 1,
         }];
-        let source = SelectionSource::Fixture(Arc::new(|_| {
+        let source = SelectionSource::Fixture(Arc::new(|_, _budget| {
             panic!("duplicate exact input must refuse before query")
         }));
         assert!(
@@ -3051,7 +3185,7 @@ mod tests {
             let source_node = direct.clone();
             let variant = variant.clone();
             let observed = nominal_queries.clone();
-            let source = SelectionSource::Fixture(Arc::new(move |query| {
+            let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
                 let (sql, vars) = query.into_request();
                 assert!(!sql.contains("compiler_alias"));
                 assert!(!sql.contains("compiler_view_member"));
@@ -3093,9 +3227,9 @@ mod tests {
                 } else {
                     panic!("unexpected canonical membership query: {sql}");
                 }
-                NativeRows::owned(move |sender| async move {
+                NativeRows::owned(budget.clone(), move |sender| async move {
                     for row in rows {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             break;
                         }
                     }
@@ -3141,7 +3275,7 @@ mod tests {
         let selected_node = node.clone();
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let observed = calls.clone();
-        let source = SelectionSource::Fixture(Arc::new(move |query| {
+        let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
             let (sql, vars) = query.into_request();
             assert!(
                 sql.contains("AND derivation = $lctx_derivation"),
@@ -3170,9 +3304,9 @@ mod tests {
                 row.insert("derivation", derivation.hex());
                 Value::Object(row)
             });
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 for row in rows {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -3201,7 +3335,7 @@ mod tests {
     }
     #[tokio::test]
     async fn unqualified_derived_demand_refuses_even_empty_selection_before_native_access() {
-        let source = SelectionSource::Fixture(Arc::new(|_| {
+        let source = SelectionSource::Fixture(Arc::new(|_, _budget| {
             panic!("unqualified derived demand must refuse before native access")
         }));
         let selected = role_selection(source, &[], ResourceBudget::fixed(8 << 20).unwrap());
@@ -3263,7 +3397,7 @@ mod tests {
                     .collect::<Vec<_>>();
                 let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
                 let observed = calls.clone();
-                let source = SelectionSource::Fixture(Arc::new(move |query| {
+                let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
                     let (sql, vars) = query.into_request();
                     assert!(
                         sql.contains("WITH INDEX contribution_rows WHERE contribution IN $roots")
@@ -3283,9 +3417,9 @@ mod tests {
                             Value::Object(row)
                         })
                         .collect::<Vec<_>>();
-                    NativeRows::owned(move |sender| async move {
+                    NativeRows::owned(budget.clone(), move |sender| async move {
                         for row in values {
-                            if sender.send(row).await.is_err() {
+                            if !sender.send(row).await? {
                                 break;
                             }
                         }
@@ -3344,7 +3478,7 @@ mod tests {
         let original_seed = seed.clone();
         let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let observed = reads.clone();
-        let source = SelectionSource::Fixture(Arc::new(move |query| {
+        let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
             let (sql, vars) = query.into_request();
             assert!(
                 !sql.contains("FROM compiler_alias"),
@@ -3384,9 +3518,9 @@ mod tests {
                     .cloned()
                     .collect()
             };
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 for row in rows {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -3433,7 +3567,7 @@ mod tests {
         let roots = (0..WINDOW)
             .map(|ordinal| ContentHash::of(format!("root-{ordinal}").as_bytes()))
             .collect::<Vec<_>>();
-        let source = SelectionSource::Fixture(Arc::new(|_| {
+        let source = SelectionSource::Fixture(Arc::new(|_, _budget| {
             panic!("unadmitted root window opened a query")
         }));
         let error = SelectedPayloads::prepare(source, &roots, true, &budget)
@@ -3453,14 +3587,14 @@ mod tests {
             let budget = ResourceBudget::fixed(8 << 20).unwrap();
             let drained = Arc::new(AtomicBool::new(false));
             let observed = drained.clone();
-            let source = SelectionSource::Fixture(Arc::new(move |_| {
+            let source = SelectionSource::Fixture(Arc::new(move |_, budget| {
                 let observed = observed.clone();
-                NativeRows::owned(move |sender| async move {
+                NativeRows::owned(budget.clone(), move |sender| async move {
                     for row in [
                         Value::Null,
                         pointer(RecordId::new("compiler_record", "remaining")),
                     ] {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             break;
                         }
                     }
@@ -3486,7 +3620,7 @@ mod tests {
         }
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let source = SelectionSource::Cancellable(
-            Box::new(SelectionSource::Fixture(Arc::new(|_| {
+            Box::new(SelectionSource::Fixture(Arc::new(|_, _budget| {
                 panic!("cancelled root window opened a query")
             }))),
             Arc::new(AtomicBool::new(true)),
@@ -3706,7 +3840,7 @@ mod tests {
                     let observed = calls.clone();
                     let hydrated = Arc::new(std::sync::Mutex::new(Vec::new()));
                     let observed_hydrated = hydrated.clone();
-                    let source = SelectionSource::Fixture(Arc::new(move |query| {
+                    let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
                         let (sql, vars) = query.into_request();
                         let nodes = vars
                             .get("nodes")
@@ -3768,9 +3902,9 @@ mod tests {
                                 .extend(nodes.iter().cloned());
                             nodes.iter().map(|node| payloads[node].clone()).collect()
                         };
-                        NativeRows::owned(move |sender| async move {
+                        NativeRows::owned(budget.clone(), move |sender| async move {
                             for row in values {
-                                if sender.send(row).await.is_err() {
+                                if !sender.send(row).await? {
                                     break;
                                 }
                             }
@@ -3855,7 +3989,7 @@ mod tests {
                 .into_prepared(),
             topology: None,
             budget: retained.clone(),
-            source: SelectionSource::Fixture(Arc::new(move |query| {
+            source: SelectionSource::Fixture(Arc::new(move |query, budget| {
                 let (sql, vars) = query.into_request();
                 let values = if sql == "NOMINATE;" {
                     vec![
@@ -3905,9 +4039,9 @@ mod tests {
                     row.insert("semantic_key", "key");
                     vec![Value::Object(row)]
                 };
-                NativeRows::owned(move |sender| async move {
+                NativeRows::owned(budget.clone(), move |sender| async move {
                     for row in values {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             break;
                         }
                     }
@@ -3993,7 +4127,7 @@ mod tests {
         let two = ContentHash::of(b"view-two");
         let reverse = Arc::new(AtomicUsize::new(0));
         let calls = reverse.clone();
-        let source = SelectionSource::Fixture(Arc::new(move |query| {
+        let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
             let (sql, vars) = query.into_request();
             assert!(
                 sql.starts_with("SELECT * FROM compiler_membership"),
@@ -4030,9 +4164,9 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             let _ = &calls;
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 for row in values {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -4086,7 +4220,7 @@ mod tests {
         }
         let nodes = nodes.finish().unwrap().into_prepared();
         let membership = nodes.point_index(&budget).unwrap();
-        let source = SelectionSource::Fixture(Arc::new(|query| {
+        let source = SelectionSource::Fixture(Arc::new(|query, budget| {
             let (sql, _) = query.into_request();
             let values = if sql == "NOMINATE;" {
                 ["a", "z"]
@@ -4106,9 +4240,9 @@ mod tests {
                     })
                     .collect::<Vec<_>>()
             };
-            NativeRows::owned(move |sender| async move {
+            NativeRows::owned(budget.clone(), move |sender| async move {
                 for row in values {
-                    if sender.send(row).await.is_err() {
+                    if !sender.send(row).await? {
                         break;
                     }
                 }
@@ -4152,7 +4286,7 @@ mod tests {
         let two = ContentHash::of(b"nominal-two");
         for competing in [false, true] {
             let budget = ResourceBudget::fixed(8 << 20).unwrap();
-            let source = SelectionSource::Fixture(Arc::new(move |query| {
+            let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
                 let (sql, vars) = query.into_request();
                 assert!(sql.starts_with("SELECT * FROM compiler_membership"));
                 let owners =
@@ -4202,9 +4336,9 @@ mod tests {
                         })
                     })
                     .collect::<Vec<_>>();
-                NativeRows::owned(move |sender| async move {
+                NativeRows::owned(budget.clone(), move |sender| async move {
                     for row in values {
-                        if sender.send(row).await.is_err() {
+                        if !sender.send(row).await? {
                             break;
                         }
                     }

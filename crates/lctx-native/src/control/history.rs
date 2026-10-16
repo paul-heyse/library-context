@@ -192,11 +192,22 @@ const PHASES: &[(&str, &str)] = &[
     ("retirement", "native_retirement"),
     ("pin", "native_pin"),
     ("backup", "native_backup_hold"),
+    ("attempt_stripe", "native_attempt_stripe"),
     ("attempt", "native_attempt"),
     ("operation_owner", "native_operation_owner"),
     ("checkpoint", "native_history_checkpoint"),
 ];
-fn eligible(phase: &str) -> Result<&'static str, ModelError> {
+fn eligible(phase: &str) -> Result<String, ModelError> {
+    if phase == "attempt_stripe" {
+        // Rebind the single parent eligibility expression; child collection must
+        // not grow a divergent copy of the attempt provenance contract.
+        let parent = eligible("attempt")?
+            .replace("$candidate_state", "$parent")
+            .replace("$candidate", "$parent_id");
+        return Ok(format!(
+            "$candidate_state.era<=$closed AND $candidate_state.format=1 AND $candidate_state.slot>=0 AND $candidate_state.slot<64 AND $candidate=type::record('native_attempt_stripe',[$candidate_state.attempt,$candidate_state.slot]) AND ($parent=NONE OR ($parent.generation=$candidate_state.generation AND $parent.era=$candidate_state.era AND $parent.epoch=$candidate_state.epoch AND ({parent}) AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$parent_id LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$parent_id LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$parent_id LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$parent_id LIMIT 1)=0))"
+        ));
+    }
     Ok(match phase {
         "effect" => {
             "$candidate_state.resolved AND $candidate_state.era<=$closed AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX effect_outcome_refs WHERE effect=$candidate LIMIT 1)=0"
@@ -220,7 +231,7 @@ fn eligible(phase: &str) -> Result<&'static str, ModelError> {
             "$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done'] AND $candidate!=$checkpoint"
         }
         _ => return Err(ModelError::Schema("native history phase")),
-    })
+    }.to_owned())
 }
 /// A request identifies the caller's original limit, even when the physical page is smaller.
 fn page_request(
@@ -514,14 +525,27 @@ async fn charge_candidates(
     candidates: Vec<Object>,
 ) -> Result<Vec<Value>, ModelError> {
     let mut parents = std::collections::BTreeMap::new();
-    if phase == "retirement_item" && !candidates.is_empty() {
+    if matches!(phase, "retirement_item" | "attempt_stripe") && !candidates.is_empty() {
         let ids = candidates
             .iter()
-            .map(|row| match row.get("job") {
-                Some(Value::RecordId(id)) if id.table.as_str() == "native_retirement" => {
-                    Ok(id.clone())
+            .map(|row| {
+                match row.get(if phase == "attempt_stripe" {
+                    "attempt"
+                } else {
+                    "job"
+                }) {
+                    Some(Value::RecordId(id))
+                        if id.table.as_str()
+                            == if phase == "attempt_stripe" {
+                                "native_attempt"
+                            } else {
+                                "native_retirement"
+                            } =>
+                    {
+                        Ok(id.clone())
+                    }
+                    _ => Err(ModelError::Schema("native history retirement parent")),
                 }
-                _ => Err(ModelError::Schema("native history retirement parent")),
             })
             .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
         let mut response = client
@@ -557,7 +581,10 @@ fn charged_candidate_rows(
             charged.insert("examined", id.clone());
             charged.insert("removed", id.clone());
             charged.insert("protected", id.clone());
-            let parent = match candidate.get("job") {
+            let parent = match candidate
+                .get("job")
+                .or_else(|| candidate.get("slot").and_then(|_| candidate.get("attempt")))
+            {
                 Some(Value::RecordId(id)) => parents
                     .get(id)
                     .cloned()
@@ -588,7 +615,9 @@ fn page_sql(phase: &str, position: usize, count: usize) -> Result<String, ModelE
     let mut removed = Vec::new();
     let mut protected = Vec::new();
     for index in 0..count {
-        let parent = if phase == "retirement_item" {
+        let parent = if phase == "attempt_stripe" {
+            "LET $parent_id=$candidate_state.attempt; LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; IF $parent!=$row.parent { THROW 'native history attempt parent changed'; };"
+        } else if phase == "retirement_item" {
             "LET $parent_id=$candidate_state.job; fn::native_touch($parent_id); LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; fn::native_touch($parent.lineage); IF $parent!=$row.parent { THROW 'native history parent changed'; };"
         } else {
             "LET $parent=NONE;"
@@ -598,7 +627,26 @@ fn page_sql(phase: &str, position: usize, count: usize) -> Result<String, ModelE
         } else {
             "$candidate_state.generation=$__generation"
         };
-        sql.push_str(&format!(" LET $row=$rows[{index}]; LET $candidate=$row.candidate.id; fn::native_touch($candidate); LET $candidate_state=SELECT * FROM ONLY $candidate FOR UPDATE; IF $candidate_state!=$row.candidate {{ THROW 'native history candidate changed'; }}; {parent} fn::native_incidence($candidate_state); LET $deleted_{index}=IF $candidate_state!=NONE AND ({generation}) AND ({}) AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$candidate LIMIT 1)=0 {{ fn::native_incidence($candidate_state); DELETE $candidate RETURN NONE; true }} ELSE {{ false }};",eligible(phase)?));
+        // Permanently closed-era stripe teardown deliberately does not demand a
+        // complete live stripe set. A prefix already deleted by this collector
+        // permanently prevents future admission. Child DELETE conflicts with any
+        // racing complete-cut reference acquisition before that first deletion.
+        let touch = if matches!(phase, "attempt" | "attempt_stripe") {
+            ""
+        } else {
+            "fn::native_touch($candidate);"
+        };
+        let incidence = if matches!(phase, "attempt" | "attempt_stripe") {
+            ""
+        } else {
+            "fn::native_incidence($candidate_state);"
+        };
+        let stripe_empty = if phase == "attempt" {
+            "AND array::len(SELECT VALUE id FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$candidate LIMIT 1)=0"
+        } else {
+            ""
+        };
+        sql.push_str(&format!(" LET $row=$rows[{index}]; LET $candidate=$row.candidate.id; {touch} LET $candidate_state=SELECT * FROM ONLY $candidate FOR UPDATE; IF $candidate_state!=$row.candidate {{ THROW 'native history candidate changed'; }}; {parent} {incidence} LET $deleted_{index}=IF $candidate_state!=NONE AND ({generation}) AND ({}) {stripe_empty} AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$candidate LIMIT 1)=0 {{ {incidence} DELETE $candidate RETURN NONE; true }} ELSE {{ false }};",eligible(phase)?));
         removed.push(format!(
             "IF $deleted_{index} {{ [$rows[{index}].candidate.id] }} ELSE {{ [] }}"
         ));
@@ -724,7 +772,7 @@ mod tests {
     use super::*;
     // One-off actual evidence acquisition, deliberately separate from qualification and
     // collector controls. The host/run owners supply exclusion and artifact retention.
-    const INVENTORY_TABLES: [&str; 22] = [
+    const INVENTORY_TABLES: [&str; 23] = [
         "native_outcome_ref",
         "native_effect",
         "native_attempt",
@@ -744,6 +792,7 @@ mod tests {
         "native_publication_staging",
         "native_installation",
         "native_admission_stripe",
+        "native_attempt_stripe",
         "native_backup_gate",
         "native_predicate",
         "native_operation_owner",
@@ -1171,6 +1220,64 @@ mod tests {
         assert_eq!(row.get("protected"), candidates[0].get("id"));
     }
 
+    #[test]
+    fn attempt_stripe_history_charges_parent_and_deletes_one_child_per_candidate() {
+        let attempt = RecordId::new("native_attempt", "history-stripe-parent");
+        let mut parent = Object::new();
+        parent.insert("id", attempt.clone());
+        parent.insert("generation", ContentHash::of(b"history-parent").hex());
+        parent.insert("era", 1i64);
+        parent.insert("epoch", 1i64);
+        parent.insert("state", "closed");
+        let candidates = coordination::attempt_stripe_ids(&attempt)
+            .into_iter()
+            .take(2)
+            .enumerate()
+            .map(|(slot, id)| {
+                let mut row = Object::new();
+                row.insert("id", id);
+                row.insert("attempt", attempt.clone());
+                row.insert("format", 1i64);
+                row.insert("slot", slot as i64);
+                row
+            })
+            .collect::<Vec<_>>();
+        let charged = charged_candidate_rows(
+            candidates,
+            &std::collections::BTreeMap::from([(attempt, parent.clone())]),
+        )
+        .unwrap();
+        assert_eq!(charged.len(), 2);
+        for row in charged {
+            assert_eq!(
+                row.as_object().unwrap().get("parent"),
+                Some(&Value::Object(parent.clone()))
+            );
+        }
+        let stripe_phase = PHASES
+            .iter()
+            .position(|entry| entry.0 == "attempt_stripe")
+            .unwrap();
+        let parent_phase = PHASES
+            .iter()
+            .position(|entry| entry.0 == "attempt")
+            .unwrap();
+        assert!(stripe_phase < parent_phase);
+        let sql = page_sql("attempt_stripe", stripe_phase, 2).unwrap();
+        surrealdb_syn::parse(&sql).unwrap();
+        assert_eq!(sql.matches("DELETE $candidate RETURN NONE").count(), 2);
+        assert!(
+            !sql.contains("native_attempt_cut"),
+            "permanently fenced teardown may resume a partial child prefix"
+        );
+        assert!(sql.contains("native history attempt parent changed"));
+        assert!(sql.contains("WHERE object=$parent_id"));
+        let parent_sql = page_sql("attempt", parent_phase, 1).unwrap();
+        surrealdb_syn::parse(&parent_sql).unwrap();
+        assert!(parent_sql.contains(
+            "native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$candidate LIMIT 1)=0"
+        ));
+    }
     fn rollback_after_deletion_sql(sql: &str) -> String {
         assert_eq!(sql.matches(" UPDATE $checkpoint SET").count(), 1);
         sql.replacen(" UPDATE $checkpoint SET"," IF array::len(SELECT VALUE id FROM $candidate_first)>0 { THROW 'qualification candidate was not deleted'; }; THROW 'qualification rollback after actual deletion'; UPDATE $checkpoint SET",1)

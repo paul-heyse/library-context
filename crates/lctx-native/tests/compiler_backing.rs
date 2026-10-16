@@ -134,9 +134,21 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Normalized)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let assessment: Id<ProjectionSourceAssessment> =
         serde_json::from_value(serde_json::json!(&store.attempt().0[..16])).unwrap();
@@ -255,9 +267,21 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
             "maximum declared opaque chunk requires one oversized transport envelope"
         );
     }
-    let restored = NativeCompilerStore::begin(&config, Frontier::Normalized)
-        .await
-        .unwrap();
+    let restored = NativeCompilerStore::begin(
+        &config,
+        Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     restored
         .import_state(file.path(), &state, &native_operation_budget)
         .await
@@ -383,9 +407,21 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     );
     store.abandon().await.unwrap();
     // Frozen export cannot reopen its source for a later conflicting write.
-    let conflict_store = NativeCompilerStore::begin(&config, Frontier::Normalized)
-        .await
-        .unwrap();
+    let conflict_store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let mut conflicting = chunk.clone();
     conflicting.payload = EvidenceBytes(vec![1, 2, 3]);
     let mut next = spec;
@@ -444,9 +480,21 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<QualityStep>();
     let row = QualityStep {
@@ -698,9 +746,21 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
-    let store = NativeCompilerStore::begin(&config, Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let artifact: Id<SourceArtifact> =
         serde_json::from_value(serde_json::to_value(&store.attempt().0[..16]).unwrap()).unwrap();

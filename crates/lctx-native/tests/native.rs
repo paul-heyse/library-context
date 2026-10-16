@@ -46,9 +46,21 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
     use lctx_compiler_store::compiler::NativeCompilerStore;
     use std::collections::{BTreeMap, BTreeSet};
     let cfg = scoped::config();
-    let store = NativeCompilerStore::begin(&cfg, admission::Frontier::Normalized)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &cfg,
+        admission::Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &cfg,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let nonce = lctx_native::control::fresh_identity("exact-relation-control").unwrap();
     let key = |byte: u8| {
         let mut key = [byte; 16];

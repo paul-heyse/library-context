@@ -21,6 +21,7 @@ pub mod query;
 pub mod request;
 pub mod response;
 pub mod stream;
+pub mod ingress;
 pub mod token;
 
 pub use framing::{QUERY_BATCH_RECORDS, StreamFrames};
@@ -32,3 +33,4 @@ pub use stream::{
 	QUERY_STREAM_BUFFER, QueryStreamFrame, QueryStreamItem, STREAM_FRAME_KEY, items_for_result,
 };
 pub use token::Token;
+pub use ingress::{AdmittedQueryResults, AdmittedQueryFailure, AdmittedQueryStreamEvent, AdmittedQueryStreamItem, IngressAdmission, IngressReservation, IngressStage, QueryStreamOptions};

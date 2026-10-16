@@ -225,9 +225,21 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<QualityStep>();
     let row = QualityStep {
@@ -284,10 +296,21 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .await
         .unwrap();
     assert_eq!(state.semantic.backing_rows, 1);
-    let restored =
-        NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-            .await
-            .unwrap();
+    let restored = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     restored
         .import_state(file.path(), &state, &native_operation_budget)
         .await
@@ -540,10 +563,21 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
             .collect::<String>(),
     )
     .unwrap();
-    let altered =
-        NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-            .await
-            .unwrap();
+    let altered = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let error = altered
         .import_state(file.path(), &state, &native_operation_budget)
         .await
@@ -576,9 +610,21 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Package>();
     let rows = vec![
@@ -712,9 +758,21 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let mut admin_owner = None;
     let mut restored_owner = None;
     let mut restored_admin_owner = None;
@@ -883,9 +941,21 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .unwrap();
         assert_eq!(receipt.semantic, state);
         restored_owner = Some(
-            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-                .await
-                .unwrap(),
+            NativeCompilerStore::begin(
+                &config,
+                lctx_model::domain::admission::Frontier::Facts,
+                &lctx_compiler_store::compiler::recovery_factory(
+                    &config,
+                    (lctx_model::domain::resources::ResourceBudget::fixed(
+                        lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                    )
+                    .expect("owned native control recovery budget"))
+                    .clone(),
+                )
+                .expect("owned native control factory"),
+            )
+            .await
+            .unwrap(),
         );
         let restored = restored_owner.as_ref().unwrap();
         restored_admin_owner = Some(fixture_client(restored, &config).await);
@@ -919,9 +989,21 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         // metadata or silently ignoring an existing key. Published graph payloads remain identical.
         // A separate mutable attempt owns this mutation challenge; the transported owner is frozen.
         replay_owner = Some(
-            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-                .await
-                .unwrap(),
+            NativeCompilerStore::begin(
+                &config,
+                lctx_model::domain::admission::Frontier::Facts,
+                &lctx_compiler_store::compiler::recovery_factory(
+                    &config,
+                    (lctx_model::domain::resources::ResourceBudget::fixed(
+                        lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+                    )
+                    .expect("owned native control recovery budget"))
+                    .clone(),
+                )
+                .expect("owned native control factory"),
+            )
+            .await
+            .unwrap(),
         );
         let replay_store = replay_owner.as_ref().unwrap();
         replay_admin_owner = Some(fixture_client(replay_store, &config).await);
@@ -1022,9 +1104,21 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let mut bytes = (0..(1024 * 1024))
         .map(|index| (index % 256) as u8)
@@ -1257,9 +1351,21 @@ async fn overlapping_membership_windows_count_distinct_keys_across_contributors(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let mut views = BTreeMap::new();
     let mut frozen = Vec::new();
@@ -1350,9 +1456,21 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Release>();
     let packages = (0..180)
@@ -1817,10 +1935,21 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store =
-        NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Normalized)
-            .await
-            .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<lctx_model::domain::value::Place>();
     let first = lctx_model::domain::value::Place {
         root: serde_json::from_value(serde_json::to_value([21u8; 16]).unwrap()).unwrap(),
@@ -1934,9 +2063,21 @@ async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases
     ))
     .unwrap();
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let nonce = lctx_native::control::fresh_identity("installed-reader-lifetime").unwrap();
     let row = Package {
@@ -2175,9 +2316,21 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let empty = store
         .begin_contribution(spec("empty-read", &relation))
@@ -2376,9 +2529,21 @@ async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let relation = Relation::of::<Package>();
     let shared = Package {
@@ -2598,9 +2763,21 @@ async fn local_current_observation_refusal_does_not_poison_later_consumer() {
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
     let config = RuntimeConfig::read(&path).unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let expected = Package {
         name: "healthy-after-local-preparation-refusal".into(),
@@ -2694,12 +2871,36 @@ async fn singleton_output_namespaces_preserve_logical_state_and_refuse_unowned_r
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     ))
     .unwrap();
-    let off = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
-    let cold = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let off = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
+    let cold = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let relation = Relation::of::<Package>();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     let mut second = None;
@@ -2873,9 +3074,21 @@ async fn missing_source_headers_replay_native_staging_into_shared_and_empty_blob
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
     ))
     .unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let reader = lctx_native::NativeReader::private(admin.clone()).with_budget(&budget);
     let result=std::panic::AssertUnwindSafe(async{
@@ -2939,10 +3152,21 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned format-7 native fixture"),
     ))
     .unwrap();
-    let source =
-        NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-            .await
-            .unwrap();
+    let source = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&source, &config).await;
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let nonce = lctx_native::control::fresh_identity("shared-dependency-edge-control").unwrap();
@@ -3061,9 +3285,21 @@ async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
     ))
     .unwrap();
-    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let store = NativeCompilerStore::begin(
+        &config,
+        lctx_model::domain::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&store, &config).await;
     let budget = ResourceBudget::fixed(768 << 20).unwrap();
     let audit = InstallationAudit::new(admin.clone(), &budget)
@@ -3129,12 +3365,36 @@ async fn cold_transport_distinct_empty_copies_keep_root_qualified_dependency_cho
             .expect("owned schema8 validation runtime"),
     ))
     .unwrap();
-    let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-        .await
-        .unwrap();
-    let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
-        .await
-        .unwrap();
+    let source = NativeCompilerStore::begin(
+        &config,
+        d::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
+    let target = NativeCompilerStore::begin(
+        &config,
+        d::admission::Frontier::Facts,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let admin = fixture_client(&target, &config).await;
     let result=async {
         let package=Relation::of::<Package>();let release=Relation::of::<d::input::Release>();let quality=Relation::of::<QualityStep>();
@@ -3212,12 +3472,36 @@ async fn cold_transport_permuted_copy_alias_chain_keeps_local_absence() {
             .expect("owned schema8 validation runtime"),
     ))
     .unwrap();
-    let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Normalized)
-        .await
-        .unwrap();
-    let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Normalized)
-        .await
-        .unwrap();
+    let source = NativeCompilerStore::begin(
+        &config,
+        d::admission::Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
+    let target = NativeCompilerStore::begin(
+        &config,
+        d::admission::Frontier::Normalized,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await
+    .unwrap();
     let source_admin = fixture_client(&source, &config).await;
     let target_admin = fixture_client(&target, &config).await;
     let result = async {

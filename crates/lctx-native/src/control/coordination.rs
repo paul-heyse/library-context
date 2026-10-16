@@ -26,9 +26,32 @@ pub(super) fn bind_stripe(bindings: &mut Variables, operation: ContentHash) {
 pub(super) fn bind_all_stripes(bindings: &mut Variables) {
     bindings.insert("__stripes", stripe_ids());
 }
+/// Attempt admission uses the same finite width, but separate exact child IDs.
+/// Persist the operation's slot in its durable participant so payload/recovery
+/// never choose a different conflict address for the same original request.
+pub(super) fn attempt_slot(operation: ContentHash) -> i64 {
+    i64::from(ContentHash::of(&operation.0).0[0] & 63)
+}
+#[cfg(test)]
+pub(super) fn attempt_stripe_ids(attempt: &RecordId) -> Vec<RecordId> {
+    (0..ADMISSION_STRIPES)
+        .map(|slot| {
+            RecordId::new(
+                "native_attempt_stripe",
+                surrealdb::types::RecordIdKey::Array(
+                    vec![
+                        Value::RecordId(attempt.clone()),
+                        surrealdb::types::SurrealValue::into_value(slot as i64),
+                    ]
+                    .into(),
+                ),
+            )
+        })
+        .collect()
+}
 // The marker read carries configuration only. The selected stripe WRITE is the conflict
 // partner for close/open/cut, including an uncommitted intent that arrived before the cut.
-pub(super) const ERA_GUARD: &str = "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=8 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; }; UPDATE $__stripe SET revision+=1 RETURN NONE;";
+pub(super) const ERA_GUARD: &str = "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=9 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; }; UPDATE $__stripe SET revision+=1 RETURN NONE;";
 pub(super) const ALL_STRIPES_GUARD: &str = "IF array::len($__stripes)!=64 { THROW 'native stripe set width'; }; FOR $__stripe_id IN $__stripes { LET $__state=SELECT * FROM ONLY $__stripe_id FOR UPDATE; IF $__state=NONE OR $__state.format!=1 OR $__state.generation!=$__generation OR $__state.era!=$__era OR $__state.closed_through!=$__installation.closed_through OR $__state.admission_open!=$__installation.admission_open OR $__state.revision>=9223372036854775807 { THROW 'native all-stripe authority'; }; UPDATE $__stripe_id SET revision+=1 RETURN NONE; };";
 pub(super) const DRAINED_PREDICATE: &str = "IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen','closing'] LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='registering' LIMIT 1)>0 { THROW 'native installation borrowers remain'; };";
 
@@ -64,6 +87,7 @@ fn query_wire_bound(sql: &str, bindings: &Variables) -> Result<usize, ModelError
         variables: Some(proto::Variables { variables }),
         accepted_encodings: Vec::new(),
         max_batch_records: u32::MAX,
+        max_batch_bytes: u32::MAX,
     };
     Ok(request.encoded_len())
 }
@@ -368,7 +392,9 @@ FOR $__expected IN ($__object_expectations ?? []) {
     IF $__before!=NONE AND $__before.revision>=9223372036854775807 { THROW 'native guard revision exhausted'; };
     IF $__expected.phase='active' {
         IF $__before=NONE OR $__before.phase!='active' OR $__before.incarnation!=$__expected.incarnation { THROW 'native expected active incarnation changed'; };
-        UPDATE $__guard_id SET revision+=1 RETURN NONE;
+        IF $__attempt_context=NONE OR $__expected.record!=$__attempt_context.attempt {
+            UPDATE $__guard_id SET revision+=1 RETURN NONE;
+        };
     } ELSE {
         IF $__expected.phase='vacant' {
             IF $__expected.incarnation!=0 OR $__expected.tombstone_revision!=0 { THROW 'native expected vacant identity invalid'; };
@@ -649,5 +675,273 @@ mod tests {
         let mut bindings = Variables::new();
         bindings.insert("payload", "x".repeat(TRANSFER_BYTES));
         assert!(preflight("BEGIN;COMMIT;", &bindings).is_err());
+    }
+}
+
+#[cfg(test)]
+mod attempt_cut_controls {
+    use super::*;
+    #[test]
+    fn attempt_stripe_ids_are_complete_exact_and_scope_qualified() {
+        let one = RecordId::new("native_attempt", "one");
+        let two = RecordId::new("native_attempt", "two");
+        let ids = attempt_stripe_ids(&one);
+        assert_eq!(ids.len(), 64);
+        let unique = ids.iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), 64);
+        assert!(
+            attempt_stripe_ids(&two)
+                .iter()
+                .all(|id| !unique.contains(id))
+        );
+        for operation in 0..256u32 {
+            let slot = attempt_slot(ContentHash::of(&operation.to_le_bytes()));
+            assert!((0..64).contains(&slot));
+        }
+    }
+    #[test]
+    fn actual_attempt_owner_plans_parse_and_participate_once_without_shared_touch() {
+        let request = NativeRequest {
+            issuance: IssuanceEra {
+                generation: ContentHash::of(b"cut-generation"),
+                era: 1,
+            },
+            operation: ContentHash::of(b"cut-operation"),
+            request: ContentHash::of(b"cut-request"),
+        };
+        for owner in [
+            EffectOwner::OpenAttempt(ContentHash::of(b"cut-attempt")),
+            EffectOwner::FrozenAttempt(ContentHash::of(b"cut-attempt")),
+            EffectOwner::TerminalAttempt(TerminalAttempt {
+                identity: ContentHash::of(b"cut-attempt"),
+                epoch: 1,
+            }),
+        ] {
+            let plan = authorization::owner_effect_plan(
+                request,
+                &owner,
+                "RETURN true",
+                Variables::new(),
+                false,
+            )
+            .unwrap();
+            for sql in [&plan.intent, &plan.query] {
+                surrealdb_syn::parse(sql).unwrap();
+                assert_eq!(
+                    sql.matches("fn::native_attempt_participate($__attempt_context)")
+                        .count(),
+                    1
+                );
+                assert!(!sql.contains("fn::native_touch($__attempt)"));
+                assert!(!sql.contains("fn::native_touch($__owner_id)"));
+            }
+            assert_eq!(
+                plan.intent_bindings.get("__attempt_slot"),
+                Some(&surrealdb::types::SurrealValue::into_value(attempt_slot(
+                    request.operation
+                )))
+            );
+        }
+        surrealdb_syn::parse(include_str!("schema.surql")).unwrap();
+    }
+    #[test]
+    fn attempt_participant_lock_uses_record_parameter_not_field_idiom() {
+        use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
+        // Parsing alone accepts the former query. The pinned core's FOR UPDATE
+        // source classifier rejects its Idiom before evaluating the field value.
+        let old = surrealdb_syn::parse("SELECT * FROM ONLY $context.effect FOR UPDATE;").unwrap();
+        let [TopLevelExpr::Expr(Expr::Select(old))] = old.expressions.as_slice() else {
+            panic!("one revealing locked SELECT");
+        };
+        assert!(old.for_update);
+        assert!(matches!(old.what.as_slice(), [Expr::Idiom(_)]));
+        let schema = surrealdb_syn::parse(include_str!("schema.surql")).unwrap();
+        let participant = schema
+            .expressions
+            .iter()
+            .find_map(|expression| {
+                if let TopLevelExpr::Expr(Expr::Define(statement)) = expression
+                    && let DefineStatement::Function(function) = statement.as_ref()
+                    && function.name.as_str() == "native_attempt_participate"
+                {
+                    Some(function)
+                } else {
+                    None
+                }
+            })
+            .expect("actual participant definition");
+        let binding = participant
+            .block
+            .0
+            .iter()
+            .find_map(|expression| match expression {
+                Expr::Let(binding) if binding.name.as_str() == "effect_id" => Some(binding),
+                _ => None,
+            })
+            .expect("exact witness binding");
+        assert!(matches!(&binding.what, Expr::Idiom(_)));
+        let locked = participant
+            .block
+            .0
+            .iter()
+            .find_map(|expression| match expression {
+                Expr::Let(binding) if binding.name.as_str() == "effect" => match &binding.what {
+                    Expr::Select(locked) => Some(locked),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("actual participant witness read");
+        assert!(locked.only && locked.for_update);
+        assert!(
+            matches!(locked.what.as_slice(), [Expr::Param(parameter)] if parameter.as_str() == "effect_id")
+        );
+    }
+    // Uses direct protocol packets to control native transaction commit order;
+    // never selected on the shared fixture service. The enclosing owned campaign
+    // owns leftover logical participants and failed-commit sessions through discard.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB campaign only"]
+    async fn native_attempt_disjoint_payloads_overlap_and_complete_cut_fences_late_intent() {
+        let cfg = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned RocksDB campaign"),
+        ))
+        .unwrap();
+        let client = crate::installation::check_installation(&cfg).await.unwrap();
+        let era = IssuanceEra::capture(&client).await.unwrap();
+        let attempt = fresh_identity("attempt-stripe-overlap-control").unwrap();
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )
+        .unwrap();
+        let stop = RetryCancellation::default();
+        let cancel = stop.clone();
+        let signals = cfg
+            .signal_owner("attempt stripe allocation control", move || cancel.cancel())
+            .unwrap();
+        let scope = RecoveryScope::new(
+            client.clone(),
+            budget,
+            stop,
+            signals.pending_recipient().unwrap(),
+            RecoveryTarget {
+                generation: cfg.service_generation,
+                namespace: cfg.namespace.as_str().into(),
+                database: cfg.database.as_str().into(),
+                endpoint: Some(cfg.endpoint.clone()),
+            },
+        )
+        .unwrap();
+        with_recovery_scope(
+            scope.clone(),
+            authorization::begin_attempt_in(&client, attempt, era),
+        )
+        .await
+        .unwrap();
+        assert_eq!(scope.pending_count().unwrap(), 0);
+        let first = fresh_identity("stripe-first-operation").unwrap();
+        let mut second = fresh_identity("stripe-second-operation").unwrap();
+        while attempt_slot(second) == attempt_slot(first) {
+            second = fresh_identity("stripe-second-operation").unwrap();
+        }
+        let make = |operation| {
+            let request = NativeRequest {
+                issuance: era,
+                operation,
+                request: ContentHash::of(&operation.0),
+            };
+            authorization::owner_effect_plan(
+                request,
+                &EffectOwner::OpenAttempt(attempt),
+                "RETURN true",
+                Variables::new(),
+                false,
+            )
+            .unwrap()
+        };
+        let a = make(first);
+        let b = make(second);
+        checked_transaction(
+            client
+                .query(a.intent.clone())
+                .bind(a.intent_bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        checked_transaction(
+            client
+                .query(b.intent.clone())
+                .bind(b.intent_bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let body = |sql: &str| {
+            sql.strip_prefix("BEGIN;")
+                .unwrap()
+                .strip_suffix("COMMIT;")
+                .unwrap()
+                .to_owned()
+        };
+        let left = client.as_ref().clone().begin().await.unwrap();
+        let right = client.as_ref().clone().begin().await.unwrap();
+        checked_transaction(
+            left.query(body(&a.query))
+                .bind(a.bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        checked_transaction(
+            right
+                .query(body(&b.query))
+                .bind(b.bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        left.commit().await.unwrap().invalidate().await.unwrap();
+        right.commit().await.unwrap().invalidate().await.unwrap();
+        let cut = client.as_ref().clone().begin().await.unwrap();
+        cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
+        let late = make(fresh_identity("stripe-late-intent").unwrap());
+        checked_transaction(
+            client
+                .query(late.intent.clone())
+                .bind(late.intent_bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            cut.commit().await.is_err(),
+            "older full cut conflicts with later committed intent"
+        );
+        let cut = client.as_ref().clone().begin().await.unwrap();
+        cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
+        cut.commit().await.unwrap().invalidate().await.unwrap();
+        assert!(
+            checked_transaction(client.query(late.query).bind(late.bindings).await.unwrap())
+                .is_err(),
+            "accepted delayed payload is fenced by the completed cut"
+        );
+        let after = make(fresh_identity("stripe-after-cut-intent").unwrap());
+        assert!(
+            checked_transaction(
+                client
+                    .query(after.intent)
+                    .bind(after.intent_bindings)
+                    .await
+                    .unwrap()
+            )
+            .is_err(),
+            "new intent refuses closed eligibility"
+        );
+        client.invalidate().await.unwrap();
+        signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
+            .unwrap();
     }
 }

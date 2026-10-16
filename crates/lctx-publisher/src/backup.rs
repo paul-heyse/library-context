@@ -47,10 +47,19 @@ async fn backup_owned(
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    let limits = config.serving_limits.clone().unwrap_or_default();
+    limits.validate()?;
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+        limits.shared_bytes.try_into().map_err(ModelError::codec)?,
+    )?;
+    let reader_factory =
+        lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding()?, budget.clone())?;
     let viewer = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
+        &budget,
+        &reader_factory,
     )
     .await?;
     let mut pin_guard = viewer.protect_terminal_close();
@@ -70,9 +79,6 @@ async fn backup_owned(
     let mut sources = None;
     let result = async {
         cancel.check()?;
-        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
-            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-        )?;
         let completed =
             lctx_native::completed_state::published_completed_state(&viewer, &budget).await?;
         let metadata = recovery_metadata(config, handle)?;
@@ -126,6 +132,7 @@ async fn backup_owned(
             &crate::selected_backup::Snapshot {
                 transaction: &snapshot,
                 cancel,
+                budget: &budget,
             },
             &completed,
             &version,
