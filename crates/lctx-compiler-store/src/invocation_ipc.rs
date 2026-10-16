@@ -101,20 +101,14 @@ impl IpcStreamRead {
         self.reader.next().transpose().map_err(ModelError::codec)
     }
 }
-/// Read-only table registrations over existing sealed input files. This owner cannot create
-/// files or allocate writer IDs, and can be retained by a single physical read stream.
+/// Read-only table registrations owned by one physical read stream. Providers retain
+/// their exact sealed carriers; this session cannot create files or allocate writer IDs.
 pub struct InvocationRead {
     session: SessionContext,
-    budget: ResourceBudget,
-    cancellation: Cancellation,
-    directory: Arc<tempfile::TempDir>,
-    charge: StateCharge,
+    _charge: StateCharge,
 }
 impl InvocationRead {
     pub fn session(&self) -> &SessionContext { &self.session }
-    pub async fn adopt(&mut self, sealed: &SealedIpc, name: &str) -> Result<(), ModelError> {
-        sealed.adopt_to(&self.session, &self.directory, &self.budget, &self.cancellation, &mut self.charge, name).await
-    }
 }
 impl SealedIpc {
     async fn adopt_to(&self, session: &SessionContext, directory: &Arc<tempfile::TempDir>,
@@ -228,8 +222,7 @@ impl InvocationIpc {
         Ok(InvocationRead {
             session: SessionContext::new_with_config_rt(self.session.copied_config()
                 .with_create_default_catalog_and_schema(true), self.session.runtime_env()),
-            budget: self.budget.clone(), cancellation: self.cancellation.clone(),
-            directory: self.directory.clone(), charge,
+            _charge: charge,
         })
     }
     pub async fn adopt(&mut self, sealed: &SealedIpc, name: &str) -> Result<(), ModelError> {

@@ -14,7 +14,7 @@ struct Group {
     windows: Vec<Window>,
     indexes: Vec<(usize, CoverageIndex)>,
 }
-struct Window { rows_name: String, rows: Arc<SealedStream> }
+struct Window { rows: Arc<SealedStream> }
 /// Exact immutable source and budget ownership survive local membership/partition retries.
 /// Failed source acquisition is terminal; successful windows are never reissued.
 pub struct FrontierCapture {
@@ -25,14 +25,13 @@ pub struct FrontierCapture {
     groups: BTreeMap<String, Group>,
     charge: StateCharge,
     acquisition_failed: bool,
-    next: usize,
 }
 impl FrontierCapture {
     pub(crate) fn new(owner: PreparedEdges, budget: &ResourceBudget, cancellation: &Cancellation) -> Result<Self, ModelError> {
         let ipc = InvocationIpc::new(owner.session(), budget, cancellation, None)?;
         Ok(Self { owner, ipc, budget: budget.clone(), cancellation: cancellation.clone(),
             groups: BTreeMap::new(), charge: StateCharge::new(budget, "native-frontier-capture"),
-            acquisition_failed: false, next: 0 })
+            acquisition_failed: false })
     }
     pub(crate) fn require_owner(&self, owner: &PreparedEdges, budget: &ResourceBudget) -> Result<(), ModelError> {
         if self.acquisition_failed { return Err(ModelError::Conflict("failed native frontier acquisition")); }
@@ -102,9 +101,6 @@ impl FrontierCapture {
         if !missing.is_empty() || self.groups[&group].windows.is_empty() {
             let window_ordinal = self.groups[&group].windows.len();
             let index = if missing.is_empty() { None } else { Some(CoverageIndex::new(&missing, window_ordinal, &self.budget)?) };
-            let next = self.next; self.next += 1;
-            let rows_name = format!("frontier_rows_{next}");
-            self.charge.grow(256 + rows_name.len())?;
             let windows = &mut self.groups.get_mut(&group).expect("capture group").windows;
             if windows.len() == windows.capacity() {
                 let additional = windows.capacity().max(4);
@@ -151,7 +147,7 @@ impl FrontierCapture {
             drop(buffer);
             let rows = writer.seal()?;
             let state = self.groups.get_mut(&group).expect("capture group");
-            state.windows.push(Window { rows_name, rows });
+            state.windows.push(Window { rows });
             if let Some(index) = index { state.indexes.push((0, index)); }
             self.complete_acquisition();
             drop(_buffer);
@@ -162,7 +158,7 @@ impl FrontierCapture {
         // Only exactly intersecting captures participate in this query. A disjoint frontier
         // neither scans old result files nor rebuilds a logical union over its history.
         let retained = self.budget.reserve("native-capture-local-query",
-            selected.iter().map(|index| windows[*index].rows_name.len() + 64).sum::<usize>() * 3 + keys.len() * 128 + 4096)?;
+            selected.len().max(1) * size_of::<Arc<SealedStream>>() * 3 + keys.len() * 128 + 4096)?;
         let empty = selected.is_empty();
         let ordered = selected.len() <= 1;
         let inputs = if empty { vec![windows[0].rows.clone()] } else {
