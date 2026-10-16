@@ -1,0 +1,3679 @@
+{
+  "cases": [
+    {
+      "case": "cpg-core::compiler_artifacts$scoped_source_execution::actual_source_calls_and_enriched_match_finite_whole_operation",
+      "incomplete_observations": [],
+      "max_observed_transaction_retries": 6,
+      "observed_transaction_terminals": [
+        {
+          "count": 26,
+          "stage": "intent",
+          "status": "committed"
+        },
+        {
+          "count": 54,
+          "stage": "outcome_reference_settlement",
+          "status": "committed"
+        },
+        {
+          "count": 1,
+          "stage": "payload",
+          "status": "cancelled_before_issue"
+        },
+        {
+          "count": 155,
+          "stage": "payload",
+          "status": "committed"
+        }
+      ],
+      "phases": {
+        "analysis_analytics_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:42.999922Z",
+          "last_payload_line": 19511,
+          "max_terminal_elapsed_ms": 7226.299538,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_authored_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:45.198717Z",
+          "last_payload_line": 19815,
+          "max_terminal_elapsed_ms": 9425.002414,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_method_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:43.757143Z",
+          "last_payload_line": 19637,
+          "max_terminal_elapsed_ms": 7983.381187,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_native_inventory": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.321562Z",
+          "last_payload_line": 21762,
+          "max_terminal_elapsed_ms": 92546.48279200001,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_projection_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:42.607948Z",
+          "last_payload_line": 19492,
+          "max_terminal_elapsed_ms": 6834.143721,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_retrieval_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:39.449880Z",
+          "last_payload_line": 19247,
+          "max_terminal_elapsed_ms": 3676.029956,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analytic_text": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:46.667675Z",
+          "last_payload_line": 19848,
+          "max_terminal_elapsed_ms": 10890.025929,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "catalog_core": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:33.520376Z",
+          "last_payload_line": 21238,
+          "max_terminal_elapsed_ms": 46851.154211,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "compiler_completion_gate": {
+          "begins": 12,
+          "last_observed_timestamp": "2026-10-16T19:19:46.668010Z",
+          "last_payload_line": 19851,
+          "max_terminal_elapsed_ms": 4388.569485999999,
+          "statuses": {
+            "begin": 12,
+            "returned": 12
+          },
+          "terminals": 12
+        },
+        "compiler_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.602710Z",
+          "last_payload_line": 10,
+          "max_terminal_elapsed_ms": 64.929088,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "completed_input_provider": {
+          "begins": 1095,
+          "last_observed_timestamp": "2026-10-16T19:19:48.224716Z",
+          "last_payload_line": 20290,
+          "max_terminal_elapsed_ms": 2898.198781,
+          "statuses": {
+            "begin": 1095,
+            "returned": 1095
+          },
+          "terminals": 1095
+        },
+        "embedding_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:42.120289Z",
+          "last_payload_line": 19396,
+          "max_terminal_elapsed_ms": 6346.398082000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_logical_closure": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:35.984301Z",
+          "last_payload_line": 3491,
+          "max_terminal_elapsed_ms": 359.188903,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_payload_selection": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:37.013501Z",
+          "last_payload_line": 3493,
+          "max_terminal_elapsed_ms": 1029.181611,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_batch_read": {
+          "begins": 28,
+          "last_observed_timestamp": "2026-10-16T19:09:29.868362Z",
+          "last_payload_line": 2493,
+          "max_terminal_elapsed_ms": 18933.214177,
+          "statuses": {
+            "begin": 28,
+            "returned": 28
+          },
+          "terminals": 28
+        },
+        "native_batch_write": {
+          "begins": 1348,
+          "last_observed_timestamp": "2026-10-16T19:21:08.319496Z",
+          "last_payload_line": 21759,
+          "max_terminal_elapsed_ms": 4875.835195,
+          "statuses": {
+            "begin": 1348,
+            "failed": 1,
+            "passed": 1347
+          },
+          "terminals": 1348
+        },
+        "native_call_acknowledgement": {
+          "begins": 4588,
+          "last_observed_timestamp": "2026-10-16T19:21:08.320315Z",
+          "last_payload_line": 21760,
+          "max_terminal_elapsed_ms": 12749.355487,
+          "statuses": {
+            "begin": 4588,
+            "returned": 4588
+          },
+          "terminals": 4588
+        },
+        "native_compound_child_installation": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:14.947538Z",
+          "last_payload_line": 20888,
+          "max_terminal_elapsed_ms": 4181.659011,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_family_union": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:10.739494Z",
+          "last_payload_line": 20844,
+          "max_terminal_elapsed_ms": 115.290224,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_inventory_receiving": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:16.871038Z",
+          "last_payload_line": 20928,
+          "max_terminal_elapsed_ms": 1893.6480279999998,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_selection_assurance": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:10.673825Z",
+          "last_payload_line": 20842,
+          "max_terminal_elapsed_ms": 5480.078536,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_connection_bootstrap": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.339444Z",
+          "last_payload_line": 5,
+          "max_terminal_elapsed_ms": 1.311728,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_connection_signin": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.358166Z",
+          "last_payload_line": 7,
+          "max_terminal_elapsed_ms": 18.711592999999997,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_contribution_begin": {
+          "begins": 24,
+          "last_observed_timestamp": "2026-10-16T19:19:48.681078Z",
+          "last_payload_line": 20299,
+          "max_terminal_elapsed_ms": 1629.974892,
+          "statuses": {
+            "begin": 24,
+            "passed": 24
+          },
+          "terminals": 24
+        },
+        "native_inventory_inputs": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:44.071562Z",
+          "last_payload_line": 19792,
+          "max_terminal_elapsed_ms": 8296.475223,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_output": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.320329Z",
+          "last_payload_line": 21761,
+          "max_terminal_elapsed_ms": 84248.746342,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "native_product_mapping_discovery": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:05.792436Z",
+          "last_payload_line": 20822,
+          "max_terminal_elapsed_ms": 2.8476690000000002,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_product_retention": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:18.538884Z",
+          "last_payload_line": 20945,
+          "max_terminal_elapsed_ms": 12748.711578,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.463247Z",
+          "last_payload_line": 8,
+          "max_terminal_elapsed_ms": 133.859894,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "nominal_closure_pair_batch": {
+          "begins": 407,
+          "last_observed_timestamp": "2026-10-16T19:19:58.121249Z",
+          "last_payload_line": 20600,
+          "max_terminal_elapsed_ms": 347.550063,
+          "statuses": {
+            "begin": 407,
+            "returned": 407
+          },
+          "terminals": 407
+        },
+        "nominal_closure_provider": {
+          "begins": 482,
+          "last_observed_timestamp": "2026-10-16T19:16:28.860293Z",
+          "last_payload_line": 11422,
+          "max_terminal_elapsed_ms": 2898.273405,
+          "statuses": {
+            "begin": 482,
+            "returned": 482
+          },
+          "terminals": 482
+        },
+        "nominal_closure_sort_batch": {
+          "begins": 99,
+          "last_observed_timestamp": "2026-10-16T19:19:58.122229Z",
+          "last_payload_line": 20605,
+          "max_terminal_elapsed_ms": 1.511321,
+          "statuses": {
+            "begin": 99,
+            "returned": 99
+          },
+          "terminals": 99
+        },
+        "nominal_closure_sort_start": {
+          "begins": 99,
+          "last_observed_timestamp": "2026-10-16T19:19:58.122071Z",
+          "last_payload_line": 20603,
+          "max_terminal_elapsed_ms": 11.681515,
+          "statuses": {
+            "begin": 99,
+            "returned": 99
+          },
+          "terminals": 99
+        },
+        "normalize_bindings": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:59.223287Z",
+          "last_payload_line": 11759,
+          "max_terminal_elapsed_ms": 45102.05626,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callable_aspects": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:45.258337Z",
+          "last_payload_line": 11611,
+          "max_terminal_elapsed_ms": 61957.705368,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callables": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:33.499890Z",
+          "last_payload_line": 8317,
+          "max_terminal_elapsed_ms": 58802.169157000004,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_coverage": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:31.234100Z",
+          "last_payload_line": 12254,
+          "max_terminal_elapsed_ms": 31975.735166,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_entities": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:50.996847Z",
+          "last_payload_line": 5577,
+          "max_terminal_elapsed_ms": 128388.961593,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_events": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:14.097042Z",
+          "last_payload_line": 10177,
+          "max_terminal_elapsed_ms": 30795.417305000003,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_projections": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:47.787367Z",
+          "last_payload_line": 11661,
+          "max_terminal_elapsed_ms": 33663.476002,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_receivers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:43.280788Z",
+          "last_payload_line": 8780,
+          "max_terminal_elapsed_ms": 9762.803426,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_relations": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:14:34.681031Z",
+          "last_payload_line": 7368,
+          "max_terminal_elapsed_ms": 103668.48487999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalized_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:35.773045Z",
+          "last_payload_line": 18865,
+          "max_terminal_elapsed_ms": 124490.13856,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "provider_bridge_acknowledgement": {
+          "begins": 480,
+          "last_observed_timestamp": "2026-10-16T19:10:20.798234Z",
+          "last_payload_line": 3356,
+          "max_terminal_elapsed_ms": 4873.393842,
+          "statuses": {
+            "begin": 480,
+            "returned": 480
+          },
+          "terminals": 480
+        },
+        "provider_completion": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:10:30.614080Z",
+          "last_payload_line": 3488,
+          "max_terminal_elapsed_ms": 84876.70443099999,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "provider_execution": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:10:20.798369Z",
+          "last_payload_line": 3357,
+          "max_terminal_elapsed_ms": 91549.067482,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "providers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:37.020613Z",
+          "last_payload_line": 3495,
+          "max_terminal_elapsed_ms": 268417.65954900003,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "semantic_reference_validation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:56.632842Z",
+          "last_payload_line": 13697,
+          "max_terminal_elapsed_ms": 9555.874886,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        }
+      },
+      "producer_context_line_counts": {
+        "analysis_analytics_configuration": 20,
+        "analysis_authored_configuration": 46,
+        "analysis_method_configuration": 30,
+        "analysis_native_inventory": 1226,
+        "analysis_projection_configuration": 16,
+        "analysis_retrieval_configuration": 12,
+        "analytic_text": 68,
+        "catalog_core": 726,
+        "embedding_configuration": 26,
+        "normalize_bindings": 1079,
+        "normalize_callable_aspects": 707,
+        "normalize_callables": 678,
+        "normalize_coverage": 345,
+        "normalize_entities": 1148,
+        "normalize_events": 724,
+        "normalize_projections": 367,
+        "normalize_receivers": 461,
+        "normalize_relations": 1360
+      },
+      "seconds": 900.088,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    },
+    {
+      "case": "cpg-core::compiler_artifacts$scoped_summary::actual_summary_matches_complete_finite_whole_operation",
+      "incomplete_observations": [
+        {
+          "payload_line": 19662,
+          "phase": "base_cohort_membership_capture",
+          "timestamp": "2026-10-16T19:20:47.441295Z"
+        }
+      ],
+      "max_observed_transaction_retries": 13,
+      "observed_transaction_terminals": [
+        {
+          "count": 28,
+          "stage": "intent",
+          "status": "committed"
+        },
+        {
+          "count": 46,
+          "stage": "outcome_reference_settlement",
+          "status": "committed"
+        },
+        {
+          "count": 141,
+          "stage": "payload",
+          "status": "committed"
+        }
+      ],
+      "phases": {
+        "analysis_analytics_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:42.005019Z",
+          "last_payload_line": 16101,
+          "max_terminal_elapsed_ms": 4457.395877999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_authored_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:47.755908Z",
+          "last_payload_line": 16604,
+          "max_terminal_elapsed_ms": 10207.818159,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_method_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:46.458294Z",
+          "last_payload_line": 16586,
+          "max_terminal_elapsed_ms": 8910.001344999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_native_inventory": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:07.576336Z",
+          "last_payload_line": 17390,
+          "max_terminal_elapsed_ms": 90026.043149,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_projection_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:42.944361Z",
+          "last_payload_line": 16147,
+          "max_terminal_elapsed_ms": 5395.948453,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_retrieval_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:41.206922Z",
+          "last_payload_line": 16054,
+          "max_terminal_elapsed_ms": 3658.3789260000003,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analytic_text": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:49.199609Z",
+          "last_payload_line": 17037,
+          "max_terminal_elapsed_ms": 11643.427737,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analyze_local": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:20.280508Z",
+          "last_payload_line": 18471,
+          "max_terminal_elapsed_ms": 72698.92431700001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "base_cohort_membership_capture": {
+          "begins": 2,
+          "last_observed_timestamp": "2026-10-16T19:20:47.441295Z",
+          "last_payload_line": 19662,
+          "max_terminal_elapsed_ms": 115406.619157,
+          "statuses": {
+            "begin": 2,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "base_expression_adoption": {
+          "begins": 19,
+          "last_observed_timestamp": "2026-10-16T19:20:47.396215Z",
+          "last_payload_line": 19658,
+          "max_terminal_elapsed_ms": 0.139767,
+          "statuses": {
+            "begin": 19,
+            "passed": 19
+          },
+          "terminals": 19
+        },
+        "base_expression_computation": {
+          "begins": 19,
+          "last_observed_timestamp": "2026-10-16T19:20:47.396207Z",
+          "last_payload_line": 19656,
+          "max_terminal_elapsed_ms": 2.935843,
+          "statuses": {
+            "begin": 19,
+            "passed": 19
+          },
+          "terminals": 19
+        },
+        "base_expression_emission": {
+          "begins": 19,
+          "last_observed_timestamp": "2026-10-16T19:20:47.396243Z",
+          "last_payload_line": 19660,
+          "max_terminal_elapsed_ms": 0.393088,
+          "statuses": {
+            "begin": 19,
+            "passed": 19
+          },
+          "terminals": 19
+        },
+        "base_expression_root_batch": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:43.434473Z",
+          "last_payload_line": 19535,
+          "max_terminal_elapsed_ms": 13.512434,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_expression_syntax_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:47.384951Z",
+          "last_payload_line": 19546,
+          "max_terminal_elapsed_ms": 2.5645770000000003,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "base_metadata_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:43.413653Z",
+          "last_payload_line": 19533,
+          "max_terminal_elapsed_ms": 2944.468235,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_nominal_closure_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:40.297694Z",
+          "last_payload_line": 19530,
+          "max_terminal_elapsed_ms": 314.198267,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_pure_local_assembly": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:47.382358Z",
+          "last_payload_line": 19543,
+          "max_terminal_elapsed_ms": 195.254617,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "base_scope_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:40.420058Z",
+          "last_payload_line": 19531,
+          "max_terminal_elapsed_ms": 436.554759,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_unique_payload_capture": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:47.187068Z",
+          "last_payload_line": 19540,
+          "max_terminal_elapsed_ms": 8341.20255,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "catalog_core": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:31.739102Z",
+          "last_payload_line": 17353,
+          "max_terminal_elapsed_ms": 43977.49463,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "compiler_completion_gate": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:15:47.755937Z",
+          "last_payload_line": 16605,
+          "max_terminal_elapsed_ms": 3848.8383109999995,
+          "statuses": {
+            "begin": 10,
+            "returned": 10
+          },
+          "terminals": 10
+        },
+        "compiler_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.588252Z",
+          "last_payload_line": 10,
+          "max_terminal_elapsed_ms": 68.803088,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "completed_input_provider": {
+          "begins": 1292,
+          "last_observed_timestamp": "2026-10-16T19:18:39.975140Z",
+          "last_payload_line": 19365,
+          "max_terminal_elapsed_ms": 12949.938587,
+          "statuses": {
+            "begin": 1292,
+            "returned": 1292
+          },
+          "terminals": 1292
+        },
+        "embedding_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:44.705753Z",
+          "last_payload_line": 16558,
+          "max_terminal_elapsed_ms": 7157.085701999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "evaluate_base": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.317306Z",
+          "last_payload_line": 19663,
+          "max_terminal_elapsed_ms": 160375.669939,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_logical_closure": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:31.762410Z",
+          "last_payload_line": 3472,
+          "max_terminal_elapsed_ms": 358.244984,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_payload_selection": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:32.883706Z",
+          "last_payload_line": 3474,
+          "max_terminal_elapsed_ms": 1121.277644,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_batch_read": {
+          "begins": 18,
+          "last_observed_timestamp": "2026-10-16T19:09:22.659237Z",
+          "last_payload_line": 2436,
+          "max_terminal_elapsed_ms": 18202.06813,
+          "statuses": {
+            "begin": 18,
+            "returned": 18
+          },
+          "terminals": 18
+        },
+        "native_batch_write": {
+          "begins": 317,
+          "last_observed_timestamp": "2026-10-16T19:17:54.450109Z",
+          "last_payload_line": 18222,
+          "max_terminal_elapsed_ms": 61230.839369,
+          "statuses": {
+            "begin": 317,
+            "passed": 317
+          },
+          "terminals": 317
+        },
+        "native_call_acknowledgement": {
+          "begins": 3712,
+          "last_observed_timestamp": "2026-10-16T19:18:28.710079Z",
+          "last_payload_line": 18549,
+          "max_terminal_elapsed_ms": 61231.273369999995,
+          "statuses": {
+            "begin": 3712,
+            "returned": 3712
+          },
+          "terminals": 3712
+        },
+        "native_compound_child_installation": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:11.199888Z",
+          "last_payload_line": 17183,
+          "max_terminal_elapsed_ms": 3342.407132,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_family_union": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:07.827741Z",
+          "last_payload_line": 17179,
+          "max_terminal_elapsed_ms": 64.342254,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_inventory_receiving": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:14.466974Z",
+          "last_payload_line": 17217,
+          "max_terminal_elapsed_ms": 3262.437415,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_selection_assurance": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:07.763374Z",
+          "last_payload_line": 17177,
+          "max_terminal_elapsed_ms": 5163.309246,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_connection_bootstrap": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.332482Z",
+          "last_payload_line": 5,
+          "max_terminal_elapsed_ms": 1.380933,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_connection_signin": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.349591Z",
+          "last_payload_line": 7,
+          "max_terminal_elapsed_ms": 17.100895,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_contribution_begin": {
+          "begins": 26,
+          "last_observed_timestamp": "2026-10-16T19:18:28.710040Z",
+          "last_payload_line": 18548,
+          "max_terminal_elapsed_ms": 2002.458217,
+          "statuses": {
+            "begin": 26,
+            "passed": 26
+          },
+          "terminals": 26
+        },
+        "native_inventory_completion": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:07.574564Z",
+          "last_payload_line": 17389,
+          "max_terminal_elapsed_ms": 82346.31025,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_inputs": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:44.461109Z",
+          "last_payload_line": 16553,
+          "max_terminal_elapsed_ms": 6910.734695,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_output": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:45.228119Z",
+          "last_payload_line": 16577,
+          "max_terminal_elapsed_ms": 766.9896170000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_product_mapping_discovery": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:02.598275Z",
+          "last_payload_line": 17169,
+          "max_terminal_elapsed_ms": 1.358846,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_product_retention": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:16.422661Z",
+          "last_payload_line": 17218,
+          "max_terminal_elapsed_ms": 13826.16375,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.444386Z",
+          "last_payload_line": 8,
+          "max_terminal_elapsed_ms": 118.35356499999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "nominal_closure_pair_batch": {
+          "begins": 464,
+          "last_observed_timestamp": "2026-10-16T19:18:40.277594Z",
+          "last_payload_line": 19524,
+          "max_terminal_elapsed_ms": 213.561137,
+          "statuses": {
+            "begin": 464,
+            "returned": 464
+          },
+          "terminals": 464
+        },
+        "nominal_closure_provider": {
+          "begins": 564,
+          "last_observed_timestamp": "2026-10-16T19:17:22.043993Z",
+          "last_payload_line": 17996,
+          "max_terminal_elapsed_ms": 12949.970849,
+          "statuses": {
+            "begin": 564,
+            "returned": 564
+          },
+          "terminals": 564
+        },
+        "nominal_closure_sort_batch": {
+          "begins": 102,
+          "last_observed_timestamp": "2026-10-16T19:18:40.297176Z",
+          "last_payload_line": 19529,
+          "max_terminal_elapsed_ms": 1.579513,
+          "statuses": {
+            "begin": 102,
+            "returned": 102
+          },
+          "terminals": 102
+        },
+        "nominal_closure_sort_start": {
+          "begins": 102,
+          "last_observed_timestamp": "2026-10-16T19:18:40.278345Z",
+          "last_payload_line": 19527,
+          "max_terminal_elapsed_ms": 28.689864999999998,
+          "statuses": {
+            "begin": 102,
+            "returned": 102
+          },
+          "terminals": 102
+        },
+        "normalize_bindings": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:38.283507Z",
+          "last_payload_line": 8815,
+          "max_terminal_elapsed_ms": 31426.781735,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callable_aspects": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:14.708671Z",
+          "last_payload_line": 8532,
+          "max_terminal_elapsed_ms": 37851.336447999995,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callables": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:22.340769Z",
+          "last_payload_line": 5426,
+          "max_terminal_elapsed_ms": 24004.280805000002,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_coverage": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:44.447276Z",
+          "last_payload_line": 9051,
+          "max_terminal_elapsed_ms": 6133.265465,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_entities": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:17.732972Z",
+          "last_payload_line": 3938,
+          "max_terminal_elapsed_ms": 38929.768660999995,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_events": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:06.837834Z",
+          "last_payload_line": 7315,
+          "max_terminal_elapsed_ms": 29979.531388000003,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_projections": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:26.516683Z",
+          "last_payload_line": 8749,
+          "max_terminal_elapsed_ms": 19657.632402,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_receivers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:36.840377Z",
+          "last_payload_line": 5890,
+          "max_terminal_elapsed_ms": 14483.450980000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_relations": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:58.320437Z",
+          "last_payload_line": 4956,
+          "max_terminal_elapsed_ms": 40568.933843000006,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalized_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:37.546482Z",
+          "last_payload_line": 15691,
+          "max_terminal_elapsed_ms": 113054.41136,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "provider_bridge_acknowledgement": {
+          "begins": 486,
+          "last_observed_timestamp": "2026-10-16T19:10:16.878044Z",
+          "last_payload_line": 3336,
+          "max_terminal_elapsed_ms": 5740.568749999999,
+          "statuses": {
+            "begin": 486,
+            "returned": 486
+          },
+          "terminals": 486
+        },
+        "provider_bridge_join": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.329464Z",
+          "last_payload_line": 19669,
+          "max_terminal_elapsed_ms": 0.075503,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "provider_completion": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:10:26.636200Z",
+          "last_payload_line": 3463,
+          "max_terminal_elapsed_ms": 87459.97563999999,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "provider_execution": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:10:16.878204Z",
+          "last_payload_line": 3337,
+          "max_terminal_elapsed_ms": 82537.51853999999,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "providers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:32.890080Z",
+          "last_payload_line": 3476,
+          "max_terminal_elapsed_ms": 264301.58172,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "semantic_artifact_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:28.770250Z",
+          "last_payload_line": 18725,
+          "max_terminal_elapsed_ms": 3.166359,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "semantic_input_stream": {
+          "begins": 108,
+          "last_observed_timestamp": "2026-10-16T19:18:39.976905Z",
+          "last_payload_line": 19366,
+          "max_terminal_elapsed_ms": 3766.055152,
+          "statuses": {
+            "begin": 108,
+            "returned": 108
+          },
+          "terminals": 108
+        },
+        "semantic_reference_validation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:15.636718Z",
+          "last_payload_line": 10525,
+          "max_terminal_elapsed_ms": 11903.968090999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        }
+      },
+      "producer_context_line_counts": {
+        "analysis_analytics_configuration": 16,
+        "analysis_authored_configuration": 36,
+        "analysis_method_configuration": 22,
+        "analysis_native_inventory": 714,
+        "analysis_projection_configuration": 18,
+        "analysis_retrieval_configuration": 12,
+        "analytic_text": 69,
+        "analyze_local": 1007,
+        "catalog_core": 656,
+        "embedding_configuration": 30,
+        "evaluate_base": 1119,
+        "normalize_bindings": 1070,
+        "normalize_callable_aspects": 700,
+        "normalize_callables": 450,
+        "normalize_coverage": 217,
+        "normalize_entities": 352,
+        "normalize_events": 720,
+        "normalize_projections": 357,
+        "normalize_receivers": 464,
+        "normalize_relations": 978
+      },
+      "seconds": 900.114,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    },
+    {
+      "case": "cpg-core::compiler_artifacts$scoped_summary::actual_recursive_summary_preserves_scc_delta_answers_and_exhaustion",
+      "incomplete_observations": [
+        {
+          "payload_line": 19604,
+          "phase": "base_unique_payload_capture",
+          "timestamp": "2026-10-16T19:21:05.114789Z"
+        }
+      ],
+      "max_observed_transaction_retries": 10,
+      "observed_transaction_terminals": [
+        {
+          "count": 22,
+          "stage": "intent",
+          "status": "committed"
+        },
+        {
+          "count": 37,
+          "stage": "outcome_reference_settlement",
+          "status": "committed"
+        },
+        {
+          "count": 157,
+          "stage": "payload",
+          "status": "committed"
+        }
+      ],
+      "phases": {
+        "analysis_analytics_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:56.525212Z",
+          "last_payload_line": 16592,
+          "max_terminal_elapsed_ms": 7340.866775,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_authored_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:02.691674Z",
+          "last_payload_line": 16653,
+          "max_terminal_elapsed_ms": 13507.244574,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_method_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:00.349147Z",
+          "last_payload_line": 16637,
+          "max_terminal_elapsed_ms": 11164.669043,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_native_inventory": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:32.030766Z",
+          "last_payload_line": 17453,
+          "max_terminal_elapsed_ms": 102844.981529,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_projection_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:57.987873Z",
+          "last_payload_line": 16626,
+          "max_terminal_elapsed_ms": 8803.350345,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_retrieval_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:52.662565Z",
+          "last_payload_line": 16103,
+          "max_terminal_elapsed_ms": 3478.0024689999996,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analytic_text": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:05.153406Z",
+          "last_payload_line": 17085,
+          "max_terminal_elapsed_ms": 15965.410818,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analyze_local": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:47.575387Z",
+          "last_payload_line": 18539,
+          "max_terminal_elapsed_ms": 75539.91047300001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "base_cohort_membership_capture": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:05.114774Z",
+          "last_payload_line": 19603,
+          "max_terminal_elapsed_ms": 106832.464742,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "base_expression_root_batch": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:18.282272Z",
+          "last_payload_line": 19600,
+          "max_terminal_elapsed_ms": 9.606206,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_metadata_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:18.270562Z",
+          "last_payload_line": 19598,
+          "max_terminal_elapsed_ms": 4067.669349,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_nominal_closure_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:14.200244Z",
+          "last_payload_line": 19595,
+          "max_terminal_elapsed_ms": 760.13476,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_scope_preparation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:14.200405Z",
+          "last_payload_line": 19596,
+          "max_terminal_elapsed_ms": 760.292017,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "base_unique_payload_capture": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:05.114789Z",
+          "last_payload_line": 19604,
+          "max_terminal_elapsed_ms": 0.0,
+          "statuses": {
+            "begin": 1
+          },
+          "terminals": 0
+        },
+        "catalog_core": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:55.366051Z",
+          "last_payload_line": 17412,
+          "max_terminal_elapsed_ms": 52668.972781000004,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "compiler_completion_gate": {
+          "begins": 11,
+          "last_observed_timestamp": "2026-10-16T19:16:02.691710Z",
+          "last_payload_line": 16654,
+          "max_terminal_elapsed_ms": 4477.858505,
+          "statuses": {
+            "begin": 11,
+            "returned": 11
+          },
+          "terminals": 11
+        },
+        "compiler_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.614494Z",
+          "last_payload_line": 10,
+          "max_terminal_elapsed_ms": 72.288861,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "completed_input_provider": {
+          "begins": 1294,
+          "last_observed_timestamp": "2026-10-16T19:19:13.435181Z",
+          "last_payload_line": 19430,
+          "max_terminal_elapsed_ms": 12663.445424000001,
+          "statuses": {
+            "begin": 1294,
+            "returned": 1294
+          },
+          "terminals": 1294
+        },
+        "embedding_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:55.865534Z",
+          "last_payload_line": 16399,
+          "max_terminal_elapsed_ms": 6680.920888000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "evaluate_base": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.327146Z",
+          "last_payload_line": 19605,
+          "max_terminal_elapsed_ms": 130509.62344000001,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_logical_closure": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:36.709472Z",
+          "last_payload_line": 3530,
+          "max_terminal_elapsed_ms": 383.506183,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_payload_selection": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:37.644321Z",
+          "last_payload_line": 3532,
+          "max_terminal_elapsed_ms": 934.830774,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_batch_read": {
+          "begins": 18,
+          "last_observed_timestamp": "2026-10-16T19:09:29.726410Z",
+          "last_payload_line": 2467,
+          "max_terminal_elapsed_ms": 17460.204124,
+          "statuses": {
+            "begin": 18,
+            "returned": 18
+          },
+          "terminals": 18
+        },
+        "native_batch_write": {
+          "begins": 324,
+          "last_observed_timestamp": "2026-10-16T19:18:15.991535Z",
+          "last_payload_line": 18303,
+          "max_terminal_elapsed_ms": 64949.335123,
+          "statuses": {
+            "begin": 324,
+            "passed": 324
+          },
+          "terminals": 324
+        },
+        "native_call_acknowledgement": {
+          "begins": 3719,
+          "last_observed_timestamp": "2026-10-16T19:18:58.253071Z",
+          "last_payload_line": 18614,
+          "max_terminal_elapsed_ms": 64949.712251,
+          "statuses": {
+            "begin": 3719,
+            "returned": 3719
+          },
+          "terminals": 3719
+        },
+        "native_compound_child_installation": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:38.805540Z",
+          "last_payload_line": 17227,
+          "max_terminal_elapsed_ms": 6271.305379,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_family_union": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:32.445105Z",
+          "last_payload_line": 17221,
+          "max_terminal_elapsed_ms": 93.119919,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_inventory_receiving": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:41.450704Z",
+          "last_payload_line": 17263,
+          "max_terminal_elapsed_ms": 2620.939866,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_selection_assurance": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:32.351914Z",
+          "last_payload_line": 17219,
+          "max_terminal_elapsed_ms": 10924.887334,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_connection_bootstrap": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.334843Z",
+          "last_payload_line": 5,
+          "max_terminal_elapsed_ms": 1.113205,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_connection_signin": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.352384Z",
+          "last_payload_line": 7,
+          "max_terminal_elapsed_ms": 17.533254000000003,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_contribution_begin": {
+          "begins": 26,
+          "last_observed_timestamp": "2026-10-16T19:18:58.253009Z",
+          "last_payload_line": 18613,
+          "max_terminal_elapsed_ms": 2119.754183,
+          "statuses": {
+            "begin": 26,
+            "passed": 26
+          },
+          "terminals": 26
+        },
+        "native_inventory_completion": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:32.029615Z",
+          "last_payload_line": 17452,
+          "max_terminal_elapsed_ms": 94611.629448,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_inputs": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:56.476259Z",
+          "last_payload_line": 16586,
+          "max_terminal_elapsed_ms": 7290.468996,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_output": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:57.417903Z",
+          "last_payload_line": 16621,
+          "max_terminal_elapsed_ms": 941.6377150000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_product_mapping_discovery": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:21.422142Z",
+          "last_payload_line": 17217,
+          "max_terminal_elapsed_ms": 2.9626040000000002,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_product_retention": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:16:42.722731Z",
+          "last_payload_line": 17267,
+          "max_terminal_elapsed_ms": 21304.806597,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.463243Z",
+          "last_payload_line": 8,
+          "max_terminal_elapsed_ms": 136.449837,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "nominal_closure_pair_batch": {
+          "begins": 464,
+          "last_observed_timestamp": "2026-10-16T19:19:14.196883Z",
+          "last_payload_line": 19589,
+          "max_terminal_elapsed_ms": 280.205176,
+          "statuses": {
+            "begin": 464,
+            "returned": 464
+          },
+          "terminals": 464
+        },
+        "nominal_closure_provider": {
+          "begins": 565,
+          "last_observed_timestamp": "2026-10-16T19:17:45.930897Z",
+          "last_payload_line": 18059,
+          "max_terminal_elapsed_ms": 12663.482135,
+          "statuses": {
+            "begin": 565,
+            "returned": 565
+          },
+          "terminals": 565
+        },
+        "nominal_closure_sort_batch": {
+          "begins": 102,
+          "last_observed_timestamp": "2026-10-16T19:19:14.199593Z",
+          "last_payload_line": 19594,
+          "max_terminal_elapsed_ms": 3.749385,
+          "statuses": {
+            "begin": 102,
+            "returned": 102
+          },
+          "terminals": 102
+        },
+        "nominal_closure_sort_start": {
+          "begins": 102,
+          "last_observed_timestamp": "2026-10-16T19:19:14.199225Z",
+          "last_payload_line": 19592,
+          "max_terminal_elapsed_ms": 2.234146,
+          "statuses": {
+            "begin": 102,
+            "returned": 102
+          },
+          "terminals": 102
+        },
+        "normalize_bindings": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:54.196872Z",
+          "last_payload_line": 8882,
+          "max_terminal_elapsed_ms": 35986.193655999996,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callable_aspects": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:23.798685Z",
+          "last_payload_line": 8550,
+          "max_terminal_elapsed_ms": 40036.970351,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callables": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:29.980667Z",
+          "last_payload_line": 5491,
+          "max_terminal_elapsed_ms": 26010.486277,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_coverage": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:14:04.051646Z",
+          "last_payload_line": 9111,
+          "max_terminal_elapsed_ms": 9823.473118999998,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_entities": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:24.509903Z",
+          "last_payload_line": 4007,
+          "max_terminal_elapsed_ms": 41179.852078,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_events": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:18.190605Z",
+          "last_payload_line": 7384,
+          "max_terminal_elapsed_ms": 34427.95168300001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_projections": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:41.526371Z",
+          "last_payload_line": 8816,
+          "max_terminal_elapsed_ms": 23313.598246,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_receivers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:43.743150Z",
+          "last_payload_line": 5956,
+          "max_terminal_elapsed_ms": 13746.105259,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_relations": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:03.954262Z",
+          "last_payload_line": 5022,
+          "max_terminal_elapsed_ms": 39428.72122299999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalized_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:49.183838Z",
+          "last_payload_line": 15745,
+          "max_terminal_elapsed_ms": 105079.431408,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "provider_bridge_acknowledgement": {
+          "begins": 490,
+          "last_observed_timestamp": "2026-10-16T19:10:21.493839Z",
+          "last_payload_line": 3400,
+          "max_terminal_elapsed_ms": 5266.577652999999,
+          "statuses": {
+            "begin": 490,
+            "returned": 490
+          },
+          "terminals": 490
+        },
+        "provider_bridge_join": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.329096Z",
+          "last_payload_line": 19611,
+          "max_terminal_elapsed_ms": 0.050622,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "provider_completion": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:10:31.393521Z",
+          "last_payload_line": 3527,
+          "max_terminal_elapsed_ms": 83736.33835399999,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "provider_execution": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:10:21.493990Z",
+          "last_payload_line": 3401,
+          "max_terminal_elapsed_ms": 93796.099735,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "providers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:37.651792Z",
+          "last_payload_line": 3534,
+          "max_terminal_elapsed_ms": 269037.05317100004,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "semantic_artifact_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:58.274067Z",
+          "last_payload_line": 18790,
+          "max_terminal_elapsed_ms": 4.478739,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "semantic_input_stream": {
+          "begins": 108,
+          "last_observed_timestamp": "2026-10-16T19:19:13.436616Z",
+          "last_payload_line": 19431,
+          "max_terminal_elapsed_ms": 4655.90347,
+          "statuses": {
+            "begin": 108,
+            "returned": 108
+          },
+          "terminals": 108
+        },
+        "semantic_reference_validation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:21.219969Z",
+          "last_payload_line": 10579,
+          "max_terminal_elapsed_ms": 4245.3701280000005,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        }
+      },
+      "producer_context_line_counts": {
+        "analysis_analytics_configuration": 16,
+        "analysis_authored_configuration": 36,
+        "analysis_method_configuration": 24,
+        "analysis_native_inventory": 714,
+        "analysis_projection_configuration": 18,
+        "analysis_retrieval_configuration": 12,
+        "analytic_text": 70,
+        "analyze_local": 1000,
+        "catalog_core": 657,
+        "embedding_configuration": 26,
+        "evaluate_base": 996,
+        "normalize_bindings": 1070,
+        "normalize_callable_aspects": 705,
+        "normalize_callables": 448,
+        "normalize_coverage": 215,
+        "normalize_entities": 348,
+        "normalize_events": 721,
+        "normalize_projections": 353,
+        "normalize_receivers": 465,
+        "normalize_relations": 980
+      },
+      "seconds": 900.12,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    },
+    {
+      "case": "cpg-core::compiler_behavior$base_execution::behavioral_execution_channels_preserve_evaluation_completion_calls_and_enrichment",
+      "incomplete_observations": [],
+      "max_observed_transaction_retries": 5,
+      "observed_transaction_terminals": [
+        {
+          "count": 18,
+          "stage": "intent",
+          "status": "committed"
+        },
+        {
+          "count": 42,
+          "stage": "outcome_reference_settlement",
+          "status": "committed"
+        },
+        {
+          "count": 176,
+          "stage": "payload",
+          "status": "committed"
+        }
+      ],
+      "phases": {
+        "analysis_analytics_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:16.186612Z",
+          "last_payload_line": 16372,
+          "max_terminal_elapsed_ms": 6402.519321,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_authored_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:23.402310Z",
+          "last_payload_line": 16870,
+          "max_terminal_elapsed_ms": 13617.798617,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_method_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:18.646110Z",
+          "last_payload_line": 16543,
+          "max_terminal_elapsed_ms": 8861.392237,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_native_inventory": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.420307Z",
+          "last_payload_line": 17593,
+          "max_terminal_elapsed_ms": 58634.004688,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_projection_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:17.581298Z",
+          "last_payload_line": 16405,
+          "max_terminal_elapsed_ms": 7796.528595,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_retrieval_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:14.866895Z",
+          "last_payload_line": 16316,
+          "max_terminal_elapsed_ms": 5082.075017,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analytic_text": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:25.274386Z",
+          "last_payload_line": 16886,
+          "max_terminal_elapsed_ms": 15485.375487000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "catalog_core": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.324808Z",
+          "last_payload_line": 17589,
+          "max_terminal_elapsed_ms": 43048.709569000006,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "compiler_completion_gate": {
+          "begins": 11,
+          "last_observed_timestamp": "2026-10-16T19:20:25.274426Z",
+          "last_payload_line": 16887,
+          "max_terminal_elapsed_ms": 4309.289983000001,
+          "statuses": {
+            "begin": 11,
+            "returned": 11
+          },
+          "terminals": 11
+        },
+        "compiler_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.536104Z",
+          "last_payload_line": 10,
+          "max_terminal_elapsed_ms": 75.679418,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "completed_input_provider": {
+          "begins": 1096,
+          "last_observed_timestamp": "2026-10-16T19:20:27.216933Z",
+          "last_payload_line": 17302,
+          "max_terminal_elapsed_ms": 1248.323109,
+          "statuses": {
+            "begin": 1096,
+            "returned": 1096
+          },
+          "terminals": 1096
+        },
+        "embedding_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:20.792561Z",
+          "last_payload_line": 16780,
+          "max_terminal_elapsed_ms": 11007.572112,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_logical_closure": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:03.204269Z",
+          "last_payload_line": 3710,
+          "max_terminal_elapsed_ms": 270.91373699999997,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_payload_selection": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:04.506356Z",
+          "last_payload_line": 3712,
+          "max_terminal_elapsed_ms": 1302.067011,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_batch_read": {
+          "begins": 18,
+          "last_observed_timestamp": "2026-10-16T19:10:52.476909Z",
+          "last_payload_line": 2645,
+          "max_terminal_elapsed_ms": 36662.508337,
+          "statuses": {
+            "begin": 18,
+            "returned": 18
+          },
+          "terminals": 18
+        },
+        "native_batch_write": {
+          "begins": 304,
+          "last_observed_timestamp": "2026-10-16T19:21:08.418442Z",
+          "last_payload_line": 17590,
+          "max_terminal_elapsed_ms": 46877.153971,
+          "statuses": {
+            "begin": 304,
+            "failed": 1,
+            "passed": 303
+          },
+          "terminals": 304
+        },
+        "native_call_acknowledgement": {
+          "begins": 3539,
+          "last_observed_timestamp": "2026-10-16T19:21:08.418842Z",
+          "last_payload_line": 17591,
+          "max_terminal_elapsed_ms": 46036.581194,
+          "statuses": {
+            "begin": 3539,
+            "returned": 3539
+          },
+          "terminals": 3539
+        },
+        "native_compound_child_installation": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:56.023556Z",
+          "last_payload_line": 17426,
+          "max_terminal_elapsed_ms": 4011.5218339999997,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_family_union": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:51.950628Z",
+          "last_payload_line": 17422,
+          "max_terminal_elapsed_ms": 139.306592,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_inventory_receiving": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:58.115676Z",
+          "last_payload_line": 17460,
+          "max_terminal_elapsed_ms": 2087.658186,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_compound_selection_assurance": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:51.870405Z",
+          "last_payload_line": 17420,
+          "max_terminal_elapsed_ms": 8963.319286000002,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_connection_bootstrap": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.312035Z",
+          "last_payload_line": 5,
+          "max_terminal_elapsed_ms": 1.128085,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_connection_signin": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.330176Z",
+          "last_payload_line": 7,
+          "max_terminal_elapsed_ms": 18.127714,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_contribution_begin": {
+          "begins": 24,
+          "last_observed_timestamp": "2026-10-16T19:20:27.987426Z",
+          "last_payload_line": 17307,
+          "max_terminal_elapsed_ms": 1369.651767,
+          "statuses": {
+            "begin": 24,
+            "passed": 24
+          },
+          "terminals": 24
+        },
+        "native_inventory_inputs": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:20.948424Z",
+          "last_payload_line": 16852,
+          "max_terminal_elapsed_ms": 11162.116431999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_output": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.418859Z",
+          "last_payload_line": 17592,
+          "max_terminal_elapsed_ms": 47470.42842,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "native_product_mapping_discovery": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:42.905197Z",
+          "last_payload_line": 17414,
+          "max_terminal_elapsed_ms": 2.286471,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_product_retention": {
+          "begins": 10,
+          "last_observed_timestamp": "2026-10-16T19:20:59.312732Z",
+          "last_payload_line": 17463,
+          "max_terminal_elapsed_ms": 16409.200713000002,
+          "statuses": {
+            "begin": 10,
+            "passed": 10
+          },
+          "terminals": 10
+        },
+        "native_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.429442Z",
+          "last_payload_line": 8,
+          "max_terminal_elapsed_ms": 125.338393,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "nominal_closure_pair_batch": {
+          "begins": 385,
+          "last_observed_timestamp": "2026-10-16T19:20:28.299492Z",
+          "last_payload_line": 17331,
+          "max_terminal_elapsed_ms": 407.602458,
+          "statuses": {
+            "begin": 385,
+            "returned": 385
+          },
+          "terminals": 385
+        },
+        "nominal_closure_provider": {
+          "begins": 483,
+          "last_observed_timestamp": "2026-10-16T19:16:26.320947Z",
+          "last_payload_line": 8875,
+          "max_terminal_elapsed_ms": 706.279941,
+          "statuses": {
+            "begin": 483,
+            "returned": 483
+          },
+          "terminals": 483
+        },
+        "nominal_closure_sort_batch": {
+          "begins": 96,
+          "last_observed_timestamp": "2026-10-16T19:20:28.300948Z",
+          "last_payload_line": 17336,
+          "max_terminal_elapsed_ms": 5.665235,
+          "statuses": {
+            "begin": 96,
+            "returned": 96
+          },
+          "terminals": 96
+        },
+        "nominal_closure_sort_start": {
+          "begins": 98,
+          "last_observed_timestamp": "2026-10-16T19:20:28.300740Z",
+          "last_payload_line": 17334,
+          "max_terminal_elapsed_ms": 91.42211999999999,
+          "statuses": {
+            "begin": 98,
+            "returned": 98
+          },
+          "terminals": 98
+        },
+        "normalize_bindings": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:08.978260Z",
+          "last_payload_line": 9123,
+          "max_terminal_elapsed_ms": 56874.827925,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callable_aspects": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:23.474337Z",
+          "last_payload_line": 8836,
+          "max_terminal_elapsed_ms": 56193.395381,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callables": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:14.997856Z",
+          "last_payload_line": 5731,
+          "max_terminal_elapsed_ms": 45477.912843,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_coverage": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:18.315357Z",
+          "last_payload_line": 9350,
+          "max_terminal_elapsed_ms": 9305.636991,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_entities": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:16.178363Z",
+          "last_payload_line": 4216,
+          "max_terminal_elapsed_ms": 65058.316963,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_events": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:12.070840Z",
+          "last_payload_line": 7591,
+          "max_terminal_elapsed_ms": 44788.772925000005,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_projections": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:45.858845Z",
+          "last_payload_line": 9007,
+          "max_terminal_elapsed_ms": 33751.089529,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_receivers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:27.261036Z",
+          "last_payload_line": 6192,
+          "max_terminal_elapsed_ms": 12245.958567000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_relations": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:14:29.500314Z",
+          "last_payload_line": 5236,
+          "max_terminal_elapsed_ms": 73302.23225,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalized_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:20:09.783485Z",
+          "last_payload_line": 15961,
+          "max_terminal_elapsed_ms": 171416.001338,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "provider_bridge_acknowledgement": {
+          "begins": 508,
+          "last_observed_timestamp": "2026-10-16T19:11:47.020207Z",
+          "last_payload_line": 3584,
+          "max_terminal_elapsed_ms": 8579.534580000001,
+          "statuses": {
+            "begin": 508,
+            "returned": 508
+          },
+          "terminals": 508
+        },
+        "provider_completion": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:11:57.196284Z",
+          "last_payload_line": 3707,
+          "max_terminal_elapsed_ms": 81646.22717,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "provider_execution": {
+          "begins": 6,
+          "last_observed_timestamp": "2026-10-16T19:11:47.020346Z",
+          "last_payload_line": 3585,
+          "max_terminal_elapsed_ms": 162245.010065,
+          "statuses": {
+            "begin": 6,
+            "passed": 6
+          },
+          "terminals": 6
+        },
+        "providers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:04.515149Z",
+          "last_payload_line": 3714,
+          "max_terminal_elapsed_ms": 355978.747301,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "semantic_reference_validation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:50.636097Z",
+          "last_payload_line": 10797,
+          "max_terminal_elapsed_ms": 15593.532497,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        }
+      },
+      "producer_context_line_counts": {
+        "analysis_analytics_configuration": 16,
+        "analysis_authored_configuration": 36,
+        "analysis_method_configuration": 24,
+        "analysis_native_inventory": 702,
+        "analysis_projection_configuration": 18,
+        "analysis_retrieval_configuration": 12,
+        "analytic_text": 68,
+        "catalog_core": 640,
+        "embedding_configuration": 28,
+        "normalize_bindings": 1080,
+        "normalize_callable_aspects": 696,
+        "normalize_callables": 456,
+        "normalize_coverage": 215,
+        "normalize_entities": 368,
+        "normalize_events": 718,
+        "normalize_projections": 344,
+        "normalize_receivers": 461,
+        "normalize_relations": 972
+      },
+      "seconds": 900.751,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    },
+    {
+      "case": "cpg-core::fixture_corpus$type_shapes_workspace_batching_behavioral",
+      "incomplete_observations": [],
+      "max_observed_transaction_retries": 6,
+      "observed_transaction_terminals": [
+        {
+          "count": 19,
+          "stage": "intent",
+          "status": "committed"
+        },
+        {
+          "count": 38,
+          "stage": "outcome_reference_settlement",
+          "status": "committed"
+        },
+        {
+          "count": 179,
+          "stage": "payload",
+          "status": "committed"
+        }
+      ],
+      "phases": {
+        "completed_input_provider": {
+          "begins": 290,
+          "last_observed_timestamp": "2026-10-16T19:15:07.441558Z",
+          "last_payload_line": 5389,
+          "max_terminal_elapsed_ms": 11530.06885,
+          "statuses": {
+            "begin": 290,
+            "returned": 290
+          },
+          "terminals": 290
+        },
+        "native_batch_read": {
+          "begins": 180,
+          "last_observed_timestamp": "2026-10-16T19:11:37.161739Z",
+          "last_payload_line": 3042,
+          "max_terminal_elapsed_ms": 56035.256011000005,
+          "statuses": {
+            "begin": 180,
+            "returned": 180
+          },
+          "terminals": 180
+        },
+        "native_batch_write": {
+          "begins": 385,
+          "last_observed_timestamp": "2026-10-16T19:20:34.200926Z",
+          "last_payload_line": 7919,
+          "max_terminal_elapsed_ms": 12014.711931000002,
+          "statuses": {
+            "begin": 385,
+            "passed": 385
+          },
+          "terminals": 385
+        },
+        "native_call_acknowledgement": {
+          "begins": 1495,
+          "last_observed_timestamp": "2026-10-16T19:21:08.318274Z",
+          "last_payload_line": 8452,
+          "max_terminal_elapsed_ms": 11994.952029,
+          "statuses": {
+            "begin": 1495,
+            "returned": 1495
+          },
+          "terminals": 1495
+        },
+        "native_connection_bootstrap": {
+          "begins": 2,
+          "last_observed_timestamp": "2026-10-16T19:16:59.387404Z",
+          "last_payload_line": 6209,
+          "max_terminal_elapsed_ms": 9.002474,
+          "statuses": {
+            "begin": 2,
+            "passed": 2
+          },
+          "terminals": 2
+        },
+        "native_connection_signin": {
+          "begins": 2,
+          "last_observed_timestamp": "2026-10-16T19:16:59.420526Z",
+          "last_payload_line": 6211,
+          "max_terminal_elapsed_ms": 33.108238,
+          "statuses": {
+            "begin": 2,
+            "passed": 2
+          },
+          "terminals": 2
+        },
+        "native_contribution_begin": {
+          "begins": 9,
+          "last_observed_timestamp": "2026-10-16T19:17:15.580462Z",
+          "last_payload_line": 6744,
+          "max_terminal_elapsed_ms": 615.929624,
+          "statuses": {
+            "begin": 9,
+            "passed": 9
+          },
+          "terminals": 9
+        },
+        "native_setup": {
+          "begins": 2,
+          "last_observed_timestamp": "2026-10-16T19:16:59.575775Z",
+          "last_payload_line": 6212,
+          "max_terminal_elapsed_ms": 202.583813,
+          "statuses": {
+            "begin": 2,
+            "passed": 2
+          },
+          "terminals": 2
+        },
+        "nominal_closure_pair_batch": {
+          "begins": 151,
+          "last_observed_timestamp": "2026-10-16T19:16:44.576126Z",
+          "last_payload_line": 6188,
+          "max_terminal_elapsed_ms": 37.900885,
+          "statuses": {
+            "begin": 151,
+            "returned": 151
+          },
+          "terminals": 151
+        },
+        "nominal_closure_sort_batch": {
+          "begins": 74,
+          "last_observed_timestamp": "2026-10-16T19:16:44.576662Z",
+          "last_payload_line": 6193,
+          "max_terminal_elapsed_ms": 2.750095,
+          "statuses": {
+            "begin": 74,
+            "returned": 74
+          },
+          "terminals": 74
+        },
+        "nominal_closure_sort_start": {
+          "begins": 75,
+          "last_observed_timestamp": "2026-10-16T19:16:44.576544Z",
+          "last_payload_line": 6191,
+          "max_terminal_elapsed_ms": 5.970242,
+          "statuses": {
+            "begin": 75,
+            "returned": 75
+          },
+          "terminals": 75
+        },
+        "provider_bridge_acknowledgement": {
+          "begins": 880,
+          "last_observed_timestamp": "2026-10-16T19:20:34.201007Z",
+          "last_payload_line": 7920,
+          "max_terminal_elapsed_ms": 11995.018422,
+          "statuses": {
+            "begin": 880,
+            "returned": 880
+          },
+          "terminals": 880
+        },
+        "provider_bridge_join": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:45.719704Z",
+          "last_payload_line": 6197,
+          "max_terminal_elapsed_ms": 0.060803,
+          "statuses": {
+            "begin": 1,
+            "returned": 1
+          },
+          "terminals": 1
+        },
+        "provider_completion": {
+          "begins": 9,
+          "last_observed_timestamp": "2026-10-16T19:21:08.318724Z",
+          "last_payload_line": 8453,
+          "max_terminal_elapsed_ms": 69481.18298200001,
+          "statuses": {
+            "begin": 9,
+            "failed": 1,
+            "passed": 8
+          },
+          "terminals": 9
+        },
+        "provider_execution": {
+          "begins": 9,
+          "last_observed_timestamp": "2026-10-16T19:20:34.202957Z",
+          "last_payload_line": 7921,
+          "max_terminal_elapsed_ms": 214599.910133,
+          "statuses": {
+            "begin": 9,
+            "passed": 9
+          },
+          "terminals": 9
+        },
+        "semantic_reference_validation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:17.660590Z",
+          "last_payload_line": 5391,
+          "max_terminal_elapsed_ms": 9270.132237,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        }
+      },
+      "producer_context_line_counts": {},
+      "seconds": 900.055,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    },
+    {
+      "case": "lctx-publisher::publication$selected_backup_restores_fresh_ownership_while_foreign_window_binding_coexists",
+      "incomplete_observations": [],
+      "max_observed_transaction_retries": 10,
+      "observed_transaction_terminals": [
+        {
+          "count": 26,
+          "stage": "intent",
+          "status": "committed"
+        },
+        {
+          "count": 77,
+          "stage": "outcome_reference_settlement",
+          "status": "committed"
+        },
+        {
+          "count": 1,
+          "stage": "payload",
+          "status": "cancelled_before_issue"
+        },
+        {
+          "count": 139,
+          "stage": "payload",
+          "status": "committed"
+        }
+      ],
+      "phases": {
+        "analysis_analytics_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:47.670342Z",
+          "last_payload_line": 11050,
+          "max_terminal_elapsed_ms": 7112.1982069999995,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_authored_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:49.935753Z",
+          "last_payload_line": 11074,
+          "max_terminal_elapsed_ms": 9377.537556,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_method_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:48.643932Z",
+          "last_payload_line": 11064,
+          "max_terminal_elapsed_ms": 8085.676808,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_native_inventory": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:50.871413Z",
+          "last_payload_line": 11575,
+          "max_terminal_elapsed_ms": 10312.107007999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_projection_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:46.412394Z",
+          "last_payload_line": 11011,
+          "max_terminal_elapsed_ms": 5854.102379000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analysis_retrieval_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:47.027869Z",
+          "last_payload_line": 11043,
+          "max_terminal_elapsed_ms": 6469.5441120000005,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analytic_embedding": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:15:26.025609Z",
+          "last_payload_line": 14811,
+          "max_terminal_elapsed_ms": 9920.580135,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analytic_text": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:54.305647Z",
+          "last_payload_line": 11768,
+          "max_terminal_elapsed_ms": 13744.968382,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analyze_analytic": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:17:44.791984Z",
+          "last_payload_line": 17744,
+          "max_terminal_elapsed_ms": 50775.720137000004,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analyze_local": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:22.039795Z",
+          "last_payload_line": 13070,
+          "max_terminal_elapsed_ms": 92100.890928,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analyze_structural": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:18.950113Z",
+          "last_payload_line": 16116,
+          "max_terminal_elapsed_ms": 62842.644936,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "analyze_summaries": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:14:29.770867Z",
+          "last_payload_line": 13463,
+          "max_terminal_elapsed_ms": 159831.784704,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "apply_models": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:45.025990Z",
+          "last_payload_line": 12788,
+          "max_terminal_elapsed_ms": 55086.769684,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "assess_analysis_frontier": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:13.003042Z",
+          "last_payload_line": 18905,
+          "max_terminal_elapsed_ms": 18957.451124,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "assess_catalog_frontier": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:08.329525Z",
+          "last_payload_line": 21817,
+          "max_terminal_elapsed_ms": 1945.7769389999999,
+          "statuses": {
+            "begin": 1,
+            "failed": 1
+          },
+          "terminals": 1
+        },
+        "catalog_core": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:22.223561Z",
+          "last_payload_line": 12669,
+          "max_terminal_elapsed_ms": 32282.902985,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "catalog_evidence": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:16:47.042852Z",
+          "last_payload_line": 16343,
+          "max_terminal_elapsed_ms": 90930.257627,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "catalog_selection": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:18:05.523066Z",
+          "last_payload_line": 18171,
+          "max_terminal_elapsed_ms": 71503.10164,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "compiler_completion_gate": {
+          "begins": 46,
+          "last_observed_timestamp": "2026-10-16T19:17:54.044416Z",
+          "last_payload_line": 17830,
+          "max_terminal_elapsed_ms": 79691.861237,
+          "statuses": {
+            "begin": 46,
+            "returned": 46
+          },
+          "terminals": 46
+        },
+        "compiler_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.547739Z",
+          "last_payload_line": 10,
+          "max_terminal_elapsed_ms": 78.310294,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "complete_base": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:12:09.697346Z",
+          "last_payload_line": 12331,
+          "max_terminal_elapsed_ms": 19758.007992,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "completed_input_provider": {
+          "begins": 1684,
+          "last_observed_timestamp": "2026-10-16T19:21:08.328554Z",
+          "last_payload_line": 21816,
+          "max_terminal_elapsed_ms": 2777.599814,
+          "statuses": {
+            "begin": 1684,
+            "returned": 1684
+          },
+          "terminals": 1684
+        },
+        "embedding_configuration": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:45.997902Z",
+          "last_payload_line": 10971,
+          "max_terminal_elapsed_ms": 5439.539532999999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "enrich_execution": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:00.964390Z",
+          "last_payload_line": 12926,
+          "max_terminal_elapsed_ms": 71024.92345500001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "evaluate_base": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:13:42.053261Z",
+          "last_payload_line": 13230,
+          "max_terminal_elapsed_ms": 112113.679855,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_logical_closure": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:08:47.676049Z",
+          "last_payload_line": 2197,
+          "max_terminal_elapsed_ms": 464.098873,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_audit_payload_selection": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:08:47.810194Z",
+          "last_payload_line": 2199,
+          "max_terminal_elapsed_ms": 134.12392,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_batch_read": {
+          "begins": 87,
+          "last_observed_timestamp": "2026-10-16T19:16:54.152828Z",
+          "last_payload_line": 16454,
+          "max_terminal_elapsed_ms": 1730.0652300000002,
+          "statuses": {
+            "begin": 87,
+            "returned": 87
+          },
+          "terminals": 87
+        },
+        "native_batch_write": {
+          "begins": 185,
+          "last_observed_timestamp": "2026-10-16T19:20:02.166049Z",
+          "last_payload_line": 21165,
+          "max_terminal_elapsed_ms": 7383.325589,
+          "statuses": {
+            "begin": 185,
+            "passed": 185
+          },
+          "terminals": 185
+        },
+        "native_call_acknowledgement": {
+          "begins": 3198,
+          "last_observed_timestamp": "2026-10-16T19:21:06.372209Z",
+          "last_payload_line": 21445,
+          "max_terminal_elapsed_ms": 44988.509010999995,
+          "statuses": {
+            "begin": 3198,
+            "returned": 3198
+          },
+          "terminals": 3198
+        },
+        "native_call_admission": {
+          "begins": 12,
+          "last_observed_timestamp": "2026-10-16T19:11:54.305684Z",
+          "last_payload_line": 11769,
+          "max_terminal_elapsed_ms": 489.466048,
+          "statuses": {
+            "begin": 12,
+            "returned": 12
+          },
+          "terminals": 12
+        },
+        "native_compound_child_installation": {
+          "begins": 15,
+          "last_observed_timestamp": "2026-10-16T19:20:32.563415Z",
+          "last_payload_line": 21184,
+          "max_terminal_elapsed_ms": 27374.997637,
+          "statuses": {
+            "begin": 15,
+            "passed": 15
+          },
+          "terminals": 15
+        },
+        "native_compound_family_union": {
+          "begins": 15,
+          "last_observed_timestamp": "2026-10-16T19:20:10.476387Z",
+          "last_payload_line": 21178,
+          "max_terminal_elapsed_ms": 204.46805,
+          "statuses": {
+            "begin": 15,
+            "passed": 15
+          },
+          "terminals": 15
+        },
+        "native_compound_inventory_receiving": {
+          "begins": 15,
+          "last_observed_timestamp": "2026-10-16T19:20:47.727886Z",
+          "last_payload_line": 21250,
+          "max_terminal_elapsed_ms": 15160.877730999999,
+          "statuses": {
+            "begin": 15,
+            "passed": 15
+          },
+          "terminals": 15
+        },
+        "native_compound_selection_assurance": {
+          "begins": 15,
+          "last_observed_timestamp": "2026-10-16T19:20:10.428987Z",
+          "last_payload_line": 21176,
+          "max_terminal_elapsed_ms": 5088.14148,
+          "statuses": {
+            "begin": 15,
+            "passed": 15
+          },
+          "terminals": 15
+        },
+        "native_connection_bootstrap": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.315097Z",
+          "last_payload_line": 5,
+          "max_terminal_elapsed_ms": 1.885156,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_connection_signin": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.332835Z",
+          "last_payload_line": 7,
+          "max_terminal_elapsed_ms": 17.722787,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_contribution_begin": {
+          "begins": 38,
+          "last_observed_timestamp": "2026-10-16T19:19:52.673597Z",
+          "last_payload_line": 21049,
+          "max_terminal_elapsed_ms": 4075.416841,
+          "statuses": {
+            "begin": 38,
+            "passed": 38
+          },
+          "terminals": 38
+        },
+        "native_inventory_completion": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:50.870455Z",
+          "last_payload_line": 11574,
+          "max_terminal_elapsed_ms": 4548.394264,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_inputs": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:45.603889Z",
+          "last_payload_line": 10963,
+          "max_terminal_elapsed_ms": 5044.5815920000005,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_inventory_output": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:46.322045Z",
+          "last_payload_line": 11005,
+          "max_terminal_elapsed_ms": 718.148818,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "native_product_mapping_discovery": {
+          "begins": 15,
+          "last_observed_timestamp": "2026-10-16T19:20:06.636490Z",
+          "last_payload_line": 21174,
+          "max_terminal_elapsed_ms": 8.560521999999999,
+          "statuses": {
+            "begin": 15,
+            "passed": 15
+          },
+          "terminals": 15
+        },
+        "native_product_retention": {
+          "begins": 15,
+          "last_observed_timestamp": "2026-10-16T19:20:48.705646Z",
+          "last_payload_line": 21251,
+          "max_terminal_elapsed_ms": 44988.415547000004,
+          "statuses": {
+            "begin": 15,
+            "passed": 15
+          },
+          "terminals": 15
+        },
+        "native_setup": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:06:08.436477Z",
+          "last_payload_line": 8,
+          "max_terminal_elapsed_ms": 131.811376,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "nominal_closure_pair_batch": {
+          "begins": 373,
+          "last_observed_timestamp": "2026-10-16T19:19:51.076177Z",
+          "last_payload_line": 21027,
+          "max_terminal_elapsed_ms": 91.026558,
+          "statuses": {
+            "begin": 373,
+            "returned": 373
+          },
+          "terminals": 373
+        },
+        "nominal_closure_provider": {
+          "begins": 906,
+          "last_observed_timestamp": "2026-10-16T19:19:51.024544Z",
+          "last_payload_line": 21004,
+          "max_terminal_elapsed_ms": 1204.444638,
+          "statuses": {
+            "begin": 906,
+            "returned": 906
+          },
+          "terminals": 906
+        },
+        "nominal_closure_sort_batch": {
+          "begins": 86,
+          "last_observed_timestamp": "2026-10-16T19:19:51.076831Z",
+          "last_payload_line": 21032,
+          "max_terminal_elapsed_ms": 4.686762,
+          "statuses": {
+            "begin": 86,
+            "returned": 86
+          },
+          "terminals": 86
+        },
+        "nominal_closure_sort_start": {
+          "begins": 86,
+          "last_observed_timestamp": "2026-10-16T19:19:51.076678Z",
+          "last_payload_line": 21030,
+          "max_terminal_elapsed_ms": 11.953083999999999,
+          "statuses": {
+            "begin": 86,
+            "returned": 86
+          },
+          "terminals": 86
+        },
+        "normalize_bindings": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:49.353970Z",
+          "last_payload_line": 7260,
+          "max_terminal_elapsed_ms": 17450.957275,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callable_aspects": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:36.703735Z",
+          "last_payload_line": 6486,
+          "max_terminal_elapsed_ms": 23374.807609,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_callables": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:04.008616Z",
+          "last_payload_line": 3982,
+          "max_terminal_elapsed_ms": 12394.477965,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_coverage": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:54.268413Z",
+          "last_payload_line": 7484,
+          "max_terminal_elapsed_ms": 4884.025407,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_entities": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:09:16.331072Z",
+          "last_payload_line": 2611,
+          "max_terminal_elapsed_ms": 21572.657098,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_events": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:31.880538Z",
+          "last_payload_line": 5802,
+          "max_terminal_elapsed_ms": 18550.675135999998,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_projections": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:47.066178Z",
+          "last_payload_line": 7225,
+          "max_terminal_elapsed_ms": 15161.540241,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_receivers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:10:13.309171Z",
+          "last_payload_line": 4444,
+          "max_terminal_elapsed_ms": 9280.399252000001,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalize_relations": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:09:51.593540Z",
+          "last_payload_line": 3545,
+          "max_terminal_elapsed_ms": 35243.634266,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "normalized_admission": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:40.557888Z",
+          "last_payload_line": 10246,
+          "max_terminal_elapsed_ms": 46238.745629,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "prepare_source_calls": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:14:43.145051Z",
+          "last_payload_line": 13582,
+          "max_terminal_elapsed_ms": 173204.203092,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "provider_bridge_acknowledgement": {
+          "begins": 300,
+          "last_observed_timestamp": "2026-10-16T19:08:24.508839Z",
+          "last_payload_line": 2065,
+          "max_terminal_elapsed_ms": 696.30592,
+          "statuses": {
+            "begin": 300,
+            "returned": 300
+          },
+          "terminals": 300
+        },
+        "provider_completion": {
+          "begins": 5,
+          "last_observed_timestamp": "2026-10-16T19:08:40.257818Z",
+          "last_payload_line": 2192,
+          "max_terminal_elapsed_ms": 102095.222225,
+          "statuses": {
+            "begin": 5,
+            "passed": 5
+          },
+          "terminals": 5
+        },
+        "provider_execution": {
+          "begins": 5,
+          "last_observed_timestamp": "2026-10-16T19:08:24.508976Z",
+          "last_payload_line": 2066,
+          "max_terminal_elapsed_ms": 11351.965972,
+          "statuses": {
+            "begin": 5,
+            "passed": 5
+          },
+          "terminals": 5
+        },
+        "providers": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:08:47.818497Z",
+          "last_payload_line": 2201,
+          "max_terminal_elapsed_ms": 159270.456015,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "retrieval": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:21:00.091089Z",
+          "last_payload_line": 21369,
+          "max_terminal_elapsed_ms": 74121.07059199999,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "retrieval_required_publication": {
+          "begins": 2,
+          "last_observed_timestamp": "2026-10-16T19:19:52.964696Z",
+          "last_payload_line": 21058,
+          "max_terminal_elapsed_ms": 0.049453000000000004,
+          "statuses": {
+            "begin": 2,
+            "passed": 2
+          },
+          "terminals": 2
+        },
+        "retrieval_root_render_verify": {
+          "begins": 2,
+          "last_observed_timestamp": "2026-10-16T19:19:52.964624Z",
+          "last_payload_line": 21056,
+          "max_terminal_elapsed_ms": 5.173978,
+          "statuses": {
+            "begin": 2,
+            "passed": 2
+          },
+          "terminals": 2
+        },
+        "semantic_reference_validation": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:11:38.998456Z",
+          "last_payload_line": 8789,
+          "max_terminal_elapsed_ms": 675.608467,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        },
+        "synthesis": {
+          "begins": 1,
+          "last_observed_timestamp": "2026-10-16T19:19:40.763255Z",
+          "last_payload_line": 19830,
+          "max_terminal_elapsed_ms": 95234.32414,
+          "statuses": {
+            "begin": 1,
+            "passed": 1
+          },
+          "terminals": 1
+        }
+      },
+      "producer_context_line_counts": {
+        "analysis_analytics_configuration": 18,
+        "analysis_authored_configuration": 36,
+        "analysis_method_configuration": 24,
+        "analysis_native_inventory": 609,
+        "analysis_projection_configuration": 16,
+        "analysis_retrieval_configuration": 18,
+        "analytic_embedding": 101,
+        "analytic_text": 75,
+        "analyze_analytic": 256,
+        "analyze_local": 298,
+        "analyze_structural": 879,
+        "analyze_summaries": 379,
+        "apply_models": 263,
+        "assess_analysis_frontier": 328,
+        "assess_catalog_frontier": 371,
+        "catalog_core": 640,
+        "catalog_evidence": 1342,
+        "catalog_selection": 1110,
+        "complete_base": 130,
+        "embedding_configuration": 31,
+        "enrich_execution": 208,
+        "evaluate_base": 163,
+        "normalize_bindings": 1052,
+        "normalize_callable_aspects": 704,
+        "normalize_callables": 437,
+        "normalize_coverage": 212,
+        "normalize_entities": 332,
+        "normalize_events": 675,
+        "normalize_projections": 355,
+        "normalize_receivers": 462,
+        "normalize_relations": 934,
+        "prepare_source_calls": 136,
+        "retrieval": 1401,
+        "synthesis": 1561
+      },
+      "seconds": 900.113,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    },
+    {
+      "case": "lctx-serving::native_search$frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_same_unit",
+      "incomplete_observations": [],
+      "max_observed_transaction_retries": 0,
+      "observed_transaction_terminals": [],
+      "phases": {},
+      "producer_context_line_counts": {},
+      "seconds": 39.958,
+      "source": "build/runs/20261016T190337.280Z-029373/verify-evidence/49584dfdb8244ff7b0d3bb9ec5b81d9f/junit.xml"
+    }
+  ],
+  "invocation": "49584dfdb8244ff7b0d3bb9ec5b81d9f",
+  "limits": [
+    "Historical JUnit-normalized payload; capture truncation is unknown.",
+    "Phase waits overlap, ready operations can emit no phase, and durations are not additive.",
+    "Missing terminal is incomplete observation, not proof of live work or deadlock.",
+    "Flat producer fields identify context, not complete structured span parentage.",
+    "Transaction terminal observations are client events, not a complete count of database transactions."
+  ],
+  "run": "20261016T190337.280Z-029373"
+}

@@ -1,14 +1,14 @@
 # Status
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog efficiency partial delivery: operator-requested closeout,2026-10-16.**
-[Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns decisions/receipts.
-All implementation is on main; no auxiliary worktrees. Subagent assignments finished; no broader acceptance launched at closeout.
-Ordered continuations, same-kernel capture, demand-shaped inputs and checked pin-release dedup are implemented/source-accepted.
-Default CE80 regeneration passed `154634…fe4647`; E1 disposed. Original failures/Unknowns remain protected.
-Focused demand-catalog6 and borrowed-owner5 controls passed; provider6 bodies passed but enclosing ingress finality failed.
-Ordered operation errors now preserve all diagnostics separately from actual joins/finalizers; typed Unknown remains strict.
-Compiler pure protocol owners construct once; actual native moved-binding fixture earns its completed contribution.
-Workspace/all-target compile and current strict keep-going Clippy passed; model lib335 passed. Local runs are terminal.
+**Catalog runtime efficiency review: Revise, 2026-10-16.**
+[Review](docs/design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md) owns 9 unscheduled findings/5 proposed rule directions.
+Retained results/source/library inspection; no new product tests or service effects. Recommendations remain Proposed.
+**Catalog efficiency partial delivery remains at operator-requested closeout,2026-10-16.**
+[Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns execution decisions/receipts.
+Implementation is on main; no auxiliary worktrees. Default CE80 passed `154634…fe4647`; E1 disposed; original Unknowns protected.
+Ordered lifetimes/errors, same-kernel capture, demand-shaped inputs and checked pin-release dedup are implemented.
+Focused demand-catalog6/borrowed-owner5 passed; provider6 bodies passed but enclosing ingress finality failed.
+Prior workspace compile/strict Clippy and model lib335 passed within recorded scope. Local runs are terminal.
 Latest reconstruction `190337…029373`:1 passed/6 timed out900s; host cleanup confirmed, native obligations retained.
 SurrealDB ~143GB resident private memory observed; cache/execution/allocator/leak attribution remains unresolved.
 CE90/CE99 remain open. MCP/embedding/real-library/operator adoption and old-plan edits remain excluded.
