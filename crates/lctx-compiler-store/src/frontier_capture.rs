@@ -175,8 +175,12 @@ impl FrontierCapture {
         let sql = if empty { "SELECT * FROM captured WHERE FALSE".to_owned() } else {
             format!("SELECT * FROM captured WHERE {} ORDER BY id", key_predicate(key_field, &keys))
         };
-        let stream = crate::sql::query(reader.session(), &sql).await.map_err(crate::sql::model_error)?
-            .execute_stream().await.map_err(crate::sql::model_error)?;
+        let frame = crate::sql::query(reader.session(), &sql).await.map_err(crate::sql::model_error)?;
+        // Merely preparing a read must not start physical tasks. In particular, dropping
+        // an unpolled stream releases its private carriers synchronously; actual execution
+        // and its normal parallelism begin only when the consumer demands the first batch.
+        let deferred = futures::stream::once(async move { frame.execute_stream().await }).try_flatten();
+        let stream = Box::pin(datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(schema.clone(), deferred));
         Ok(Box::pin(CapturedRead { inner: Some(stream), reader: Some(reader), query: Some(retained), schema }))
 
     }
