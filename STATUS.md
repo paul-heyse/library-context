@@ -1,19 +1,19 @@
 # Status
 _Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-
-**Catalog efficiency plan set authored, 2026-10-15.** The [coordinator
-§6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns this track's
-nine findings/eight investigations; RC01–RC04 approved. Targets remain Proposed; implementation not_run.
-The [fresh plan review](docs/design_review/reviews/design_review_catalog-efficiency-plan_2026-10-15.md)
-is Accept scoped after correcting cutover-before-acceptance ordering; production findings remain open.
-**Checks:** local title/link/anchor/coverage checks passed; full docs-check failed on the supplied reference's missing H1 (coordinator §9).
-**Next:** detailed execution from CE00 and ready corrections/decision slices. No production changes or new native workloads.
-
+**Catalog efficiency CE00/CD00/CN00–CN05 implemented / focused-Tested, 2026-10-15.** The
+[coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns dispositions, exact receipts and limits. Grouped writes, complete cuts, checked backup exclusion,
+admitted ingress and protected recovery passed focused actual native controls. Query-target and receipt
+allocation defects are fixed; original failures/Unknowns preserved. All four owned campaigns disposed.
+[ADR-0173](docs/adr/0173-catalog-native-admission-and-recovery.md) owns the decision. Full workspace/all-target
+compile and keep-going Clippy passed with zero warnings/errors; Ruff/Pyrefly, dependencies and ADR lint passed.
+Docs check fails on foreign reference missing H1. **Next:** remaining efficiency packages under §5, then
+CE80/CE90 and later old-plan reconciliation. Default required-peer adoption and assembled qualification remain open.
+No active worker/campaign/worktree; shared/operator state, concurrent edits and warm caches preserved.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.
 Eager views, flat codec1/semantic v4 and independent receiving remain.
-
 **Prior verification, 2026-10-15:** coordinator §6 retains focused passes and enclosing cleanup;
 the final admission-alias actual native assertion remains not_run. Full compile (`4beb3a`), strict
 keep-going Clippy (`87373d`), Ruff/warnings-inclusive Pyrefly (`af2992`) and docs/ADR/rules/fixtures passed.

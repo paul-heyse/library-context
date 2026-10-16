@@ -2,8 +2,10 @@
 
 **Proposed, 2026-10-15.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md).
 It specifies F02–F04/F07–F08 and I01/I07 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
-The coordinator §6 alone owns current disposition; all implementations and new native controls
-remain not_run at authorship.
+The coordinator §6 alone owns current disposition and dated verification. CE00/CN00–CN05
+implementation and focused native controls are complete at the coordinator's stated boundary;
+CN06/CN07, CE80 cutover and CE90 assembled qualification remain separate. Specification below
+does not establish broader native qualification.
 
 ## 1. Responsibility and inspected foundations
 

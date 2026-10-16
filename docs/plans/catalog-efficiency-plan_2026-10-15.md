@@ -184,9 +184,11 @@ not reasons to introduce runtime serialization.
 
 ## 6. Sole disposition and current checkpoint
 
-This section alone owns current execution disposition for this review's scope. All rows are
-**open**, target **Proposed**, implementation and functional validation **not_run** at authorship.
-Companions link here. A decision, documentation check or focused historical pass does not close a finding.
+This section alone owns current execution disposition for this review's scope. The approved
+CE00/CD00/CN00–CN05 slice is **implemented / focused-Tested, 2026-10-15**, based at
+`9ccfd842e2c0d5c8bf8341cac8341b5317d57084`. F01/F02/F03/F04/F07/F08 are corrected within this slice;
+CE80 regeneration/adoption and CE90 assembled acceptance remain open. Companions link here. A decision or focused historical pass does not
+establish native or enclosing acceptance.
 
 | Source obligation | Responsible component / package | Closure or decision boundary |
 |---|---|---|
@@ -214,9 +216,157 @@ removal and functional evidence. A retained design can complete an investigation
 credible conforming route. A deferral names its trigger and unsupported boundary; it cannot
 close a dependent mandatory finding or permit an unqualified whole-track completion claim.
 
-At authorship, CE00 is the next executable package. No source remedy, new native workload,
-service change or operator selection was performed to create these documents. Plan-set review
-and publication-check outcomes are recorded in §9.
+**Current execution checkpoint, 2026-10-15 (receipts through 2026-10-16 UTC).**
+CE00 reconciliation and CD00/CN00–CN05 implementation plus selected functional controls are complete.
+Final full compile and keep-going Clippy passed without warnings/errors; source and native scope
+below are independently bounded. This delivers the authorized slice, not the remaining whole plan. ADR-0173 supersedes ADR-0145/0165 self-containedly, preserving
+their unaffected decisions. No enclosing acceptance, adoption or measured speed claim is made.
+
+The native implementation groups full-equality row/relation/hold windows, uses a checked backup-gate
+observation without retirement-side mutation, and installs schema9 with64 attempt stripes. All
+participating intent/payload/freeze/close/history consumers retain exact generation, era, epoch,
+incarnation, request/outcome and complete-cut protections. Public backup-hold APIs remain supported.
+Recovery owns actual factory children, sessions, submitted queries, finalizer reads and pre-issuance
+compact envelopes; callable handback preserves stopped tokens and Unknown. CompactedTerminal is
+separate from a known execution outcome and requires qualified permanent-fence/absent-witness proof.
+
+Ingress uses exact-version SDK/RPC/protocol/engine-api/types/Tonic patches. Admission covers the
+claimed framing, decode, decompression workspace, value conversion, buffered replies, errors and
+owned row queues before their allocations. Shared Bytes are materialized under destination grants.
+Qualified gzip/modern-zstd and QUERY_BATCH_BYTES_V1 are explicit contracts; unqualified Regex and
+legacy-zstd peers refuse. Local decode refusal does not certify physical EOF. Shared H2/TLS/scheduler
+allocation, externally retained bare SDK outputs and full RSS remain outside the claim.
+
+Product CacheSession attaches its explicit factory before bootstrap, scopes actual native effects,
+closes only its child and returns callable handback on uncertainty. Known optional Codec/Resource
+refusals preserve fresh-computation fallback; Conflict remains a refusal. Explicit installation now
+awaits the full maintenance pipeline rather than dropping issued schema work at the serving30s
+aggregate deadline. Bootstrap/DDL/readback/index phases localize failures. Its session guard retains
+the actual client on Unknown; raw DDL futures are not migrated to request recovery. Interrupted raw
+installation requires excluded-target executor drainage and current catalog/index reconciliation,
+or authenticated whole-target discard. Client invalidation alone establishes neither.
+
+**Focused passed receipts and commands:**
+
+- CD00 host/delegation35 controls: `uv run --no-sync pytest tests/scripts/test_run_delegation.py tests/scripts/test_runs.py -k 'test_run_delegation or background_run_is_observed_cancelled or killed_background_owner or survivors_that_ignore_termination or interrupted_run_without_survivors or cancel_request_alone or cancellation_remains_usable' --tb=short --basetemp OWNED_TEMP/pytest`.
+  Foreign `/tmp/pytest-of-paul` was preserved; the pass used an owned TemporaryDirectory.
+- Recovery/Product17: Nextest`e4c18e50-2cc8-4474-9e5a-bffd6dd408b8`; row/retained8:
+  `0241e5d2-f657-49fb-8bde-8ccde3d3e1c9`. Combined updated pure/native-lib/ingress selection53:
+  `3083d783-5844-495a-a0a2-b1f1e7f464d3`. All used release locked `cargo nextest run` with explicit filters.
+- Cold error/owner wire/drop controls5: `414f9cf1-ad95-489d-8efa-a5bab3b92d15`; product ownership4:
+  `54d342d4-3363-466c-9972-49794fadfe52`. These establish local contracts, not remote drainage.
+- Actual code generation passed without warnings for native libtest (session63912) and serving lib
+  (56898); CLI refresh63977 passed without warnings. Budgeted dynamic execution cuts replace deep
+  concrete future propagation while preserving actual owners. Compiler unpolled-drop/budget refusal
+  control passed1 (70628). Earlier RPIT-only check/Clippy passes did not establish code-generation closure.
+- `cargo test --release --locked -p lctx-native --lib attempt_participant_lock_uses_record_parameter_not_field_idiom`
+  passed1 (63593): old dotted FOR UPDATE target is a rejected Idiom; exact local parameter is supported. Native recovery now passes as recorded below.
+- Server host25 and installer schema24 passed. Generated schema correspondence passed1
+  (`4afa168a-db04-4c09-827e-86ec3f6b6d35`); corrected SQL regeneration71115 and `generate --check` passed.
+
+**Independent bounded source review:** lifecycle`0e377d03…`, installer`743dad3b…`, retention adapter
+`95521e47…`, cold errors`2a76cbf2…`, product errors`0c3e15ec…`, and final two execution cuts
+`093f42ab0b594c3596027d61a1da960a467353be9f7f776a94427d49a5945380` found their reported
+allocation/uncertainty/drop defects corrected, with no further material issue in those inspected
+seams. These snapshots exclude later source changes and are not whole-integrated qualification.
+
+**Actual owned native campaigns:**
+
+| Exact campaign / installation receipt | Result and disposition |
+|---|---|
+| A`77a4bd62-3f8b-4cd6-b34e-06f87aca0cdb`, install29428 | Failed at30s in shared schema; native Unknown preserved. Exact whole-target disposal passed32901 |
+| B`2274fec2-5124-4292-99c7-9546a6ffdf7b`, install`20261016T011407.557Z-e66257` | Shared/embedding schema passed; product effect refused missing actual scope. Source migration above fixes this distinct defect. Exact disposal passed38436 |
+| C`16d9f9a9-cf58-45de-be54-bf67689c7994`, install`20261016T013635.963Z-107a87` | Installation including product setup passed. Actual permanent-cut control`20261016T013958.474Z-d8146a` and parallel/wide byte-framed ingress`20261016T014438.376Z-183875` passed |
+| C acknowledgement recovery`20261016T014438.376Z-239543` | Failed100: pinned core rejects dotted `$context.effect` as FOR UPDATE target before evaluation. Both intent and close use the helper. Exact-ID local binding now retains the lock and all predicates; fresh D native rerun passed below. Attachment3899a715-92c5-4740-9d6b-2541f03c567f retained Unknown until authenticated whole-target disposal passed82425 |
+
+Campaign descriptors remain under `/home/paul/.local/share/library-context/catalog-efficiency-2026-10-15{,-b,-c}/installation.json`.
+All listed managed runs have confirmed host cleanup; this alone never proves native drainage. Disposal
+used fresh exact participant/attachment/executor observations and actual daemon/data removal,
+settling whole-target obligations without relabelling original failures or logical cleanup.
+Future campaign use requires a fresh owned descriptor; no shared/operator store was touched.
+
+Candidate server recipe`cb1f97ec9048566bca79c9f4f5ad3584a18ffc4cb39c31db13a5450f5605bd4b`
+passed build37646. Immutable descriptor:
+`/home/paul/.local/share/library-context/catalog-efficiency-2026-10-15.tools/surreal/04a3ce5efe107c03b7e42f92e83ea9aab3b20809ce28d1d3eb6d1c2cfc630297/record.json`;
+binary SHA256`12ee1093c4a9000aa7bfddaadb10f91156e80158db80054d1bada34b69e6e2dc`.
+Existing build/storage owners retain this immediate-use candidate and warm lineage. CE80 must
+select a qualified required peer before ordinary native verification resumes; no old-peer fallback
+is retained and default/shared generation adoption is outside this slice.
+
+**Hygiene:** full release workspace/all-target compile98548 and strict keep-going Clippy
+`20261016T011903.699Z-c62d84` passed without warnings/errors before final scoped corrections.
+Earlier strict run`20261016T010201.928Z-5849b9` failed101; its original diagnostics remain failed,
+with source fixes and subsequent passes recorded separately. The final current-source passes below supersede that hygiene checkpoint
+without changing the earlier failed outcomes. Whole `uv run --no-sync ruff check` and
+`uv run --no-sync pyrefly check --summary=none` passed. `just adr-lint` passed101 records after
+successor owner links/index refresh. `just docs-check` failed on the concurrent foreign
+`docs/surrealdb_technical_reference.md` missing H1; that supplied document was not edited.
+No lint suppression, recursion-limit adjustment, job/thread cap or broad cleanup was used.
+
+CLI refresh70429 passed without warnings; D`842d264f-472b-4fc5-8e72-29055002186f` installed
+with confirmed host cleanup (`20261016T020210.822Z-aff0a1`), using the corrected schema at
+`/home/paul/.local/share/library-context/catalog-efficiency-2026-10-15-d/installation.json`.
+The opaque ErrorResources Debug retains causes/wire/lifetimes while avoiding recursive ownership
+dumps; exact control passed1 (`755a6e7b-4575-4d58-93dc-465f08b98e54`), scoped compile30329/Clippy69801 passed.
+Dependency family/source/fork/shear/Hakari checks (`just deps`,68009) passed.
+
+Fresh pure schema/operation controls passed4 (`00db8754-689a-4b45-be72-d3b130b99b90`,42972),
+with actual code generation free of warnings. D grouped selection`20261016T020656.965Z-d1060a`
+failed100/three cases before their database work: receipt creation returned File exists. Authentic
+native-session receipts already occupied registration0; separately linked native crate instances
+started their local counters at0. Initial receipt allocation now uses atomic create-new as the
+shared claim authority, selecting the next checked numeric registration only on AlreadyExists.
+Existing receipts are never overwritten/adopted; write/fsync/finalization failures are not retried.
+Numeric schema, actual process/attachment/generation and Python consumers remain unchanged.
+The pinned toolchain's deprecated fetch_update was replaced by try_update. Current signal controls
+passed5 (`8c871d65-71ce-42bf-8f5f-65e17584ab8e`), covering independent concurrent allocators,
+existing receipt preservation, failed finalization, exhaustion and cancellation completion;
+strict Clippy11059 passed without warnings. Final CLI build21083 passed without warnings.
+
+**Actual D native controls passed** using the exact D config above and
+`just run --background --label LABEL -- just fixture -- cargo nextest run --release --locked -p lctx-native --lib --run-ignored all -E 'test(CASE)'`.
+The three-case grouped selection used ordinary default parallelism without --run-ignored.
+Global-cut/gate controls ran separately because they own that exact control boundary; no worker cap
+was introduced. Every listed run ended0 with confirmed host cleanup.
+
+| Case / behavior | Managed run |
+|---|---|
+| native_never_issued_owners_settle_after_permanent_cut_without_inventing_outcomes | `20261016T020308.270Z-9bd382` |
+| native_committed_packets_with_unobserved_ack_require_explicit_recovery_policy | `20261016T020656.786Z-f0a915` |
+| native_grouped_window_mixed_rows_relations_and_repeated_blob_parent; native_late_collision_rolls_back_rows_and_holds_together; frozen_immutable_creation_joins_only_equal_planned_successor_and_keeps_holds_atomic | `20261016T021228.251Z-631cbb` |
+| native_attempt_immutable_rows_and_hold_only_windows_overlap_both_commit_orders | `20261016T021549.967Z-fecebf` |
+| native_attempt_disjoint_payloads_overlap_and_complete_cut_fences_late_intent | `20261016T021614.733Z-f6f47b` |
+| native_backup_gate_checked_observation_commit_orders | `20261016T021654.365Z-ed51c6` |
+| native_attempt_immutable_guard_refusals_leave_rows_and_holds_absent | `20261016T021821.613Z-a0d38e` |
+
+C's actual wide/nested/Bytes parallel ingress and negotiated64KiB framing control remains the
+qualified CN03 native receipt (`20261016T014438.376Z-183875`). Acknowledgement recovery models actual
+committed production packets unobserved by the pending owner; it is not network fault injection.
+These are minimal revealing functional cases, not a full real-library journey or timing benchmark.
+
+D whole-target disposal passed77145, enrolling all9 exact installation/control participant runs.
+Fresh authenticated host/attachment/native-executor drainage, daemon shutdown and owned data/
+unit/credential removal settled the whole-target obligation. The earlier grouped failure and
+attachmentcf96c19b-d0e7-4346-9b49-e77c6483b372 original Unknown remain unchanged. All four owned
+campaigns are disposed; no native campaign or worker remains active. Named native/hygiene run
+receipts are retained for this plan; warm build lineage/candidate server remain owner-protected.
+
+Final `cargo check --release --workspace --all-targets --locked --keep-going --message-format=short`
+passed without warnings/errors (`20261016T021845.928Z-cd4ae6`), including Python bindings.
+Full `cargo clippy --release --workspace --all-targets --locked --keep-going --message-format=short -- -D warnings`
+passed without warnings/errors (`20261016T021928.320Z-7a9b55`), with confirmed host cleanup. Ruff/Pyrefly and other applicable leaves above remain passed.
+Python handback bindings are compile-checked; their runtime and broad assembled qualification remain
+CE90 scope. Shared/default required-peer adoption remains CE80 scope.
+
+**Slice handoff:** CE00/CD00/CN00–CN05 are implemented and focused-Tested. Source-led
+mechanism reasoning and actual native controls establish the stated functional correction; no
+quantitative throughput/capacity claim is made. Root scope-end formatting and generated owners
+are refreshed; source is integrated on main, with no auxiliary worktree.
+
+**Next:** execute remaining packages from coordinator §5 prerequisites; CE80 regeneration/default-peer
+selection, CE90 assembled acceptance and old-plan reconciliation remain outside this slice.
+No worktrees were created. Foreign operation-diagnostics/reference edits and warm caches remain
+preserved. Plan-set publication receipts remain in §9.
 
 ## 7. Functional acceptance, integration and cutover
 
