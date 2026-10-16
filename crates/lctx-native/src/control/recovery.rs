@@ -58,6 +58,18 @@ pub enum RecoveryOwner {
     Cleanup(RecordId),
 }
 impl RecoveryOwner {
+    pub(super) fn effect_owner(&self) -> EffectOwner {
+        match self {
+            Self::Installation => EffectOwner::Installation,
+            Self::OpenAttempt(id) => EffectOwner::OpenAttempt(*id),
+            Self::FrozenAttempt(id) => EffectOwner::FrozenAttempt(*id),
+            Self::Pin(id) => EffectOwner::Pin(id.clone()),
+            Self::TerminalAttempt { identity, epoch } => EffectOwner::TerminalAttempt(TerminalAttempt { identity: *identity, epoch: *epoch }),
+            Self::Retirement(id) => EffectOwner::Retirement(id.clone()),
+            Self::RetirementSetup(id) => EffectOwner::RetirementSetup(id.clone()),
+            Self::Cleanup(id) => EffectOwner::Cleanup(id.clone()),
+        }
+    }
     pub(super) fn from_effect(owner: &EffectOwner) -> Self {
         match owner {
             EffectOwner::Installation => Self::Installation,

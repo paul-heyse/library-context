@@ -389,7 +389,28 @@ pub(super) enum EffectOwner {
     RetirementSetup(RecordId),
     Cleanup(RecordId),
 }
+struct ReplayOwnerContext {
+    owner: RecordId,
+    kind: &'static str,
+    attempt: Value,
+    slot: Value,
+    terminal_epoch: Option<i64>,
+}
 impl EffectOwner {
+    fn replay_context(&self, request: NativeRequest) -> ReplayOwnerContext {
+        let attempt = match self {
+            Self::OpenAttempt(attempt) | Self::FrozenAttempt(attempt) => Some(*attempt),
+            Self::TerminalAttempt(attempt) => Some(attempt.identity),
+            _ => None,
+        };
+        ReplayOwnerContext {
+            owner: self.record().unwrap_or_else(|| coordination::operation_owner(request)),
+            kind: self.kind(),
+            attempt: attempt.map(|id| Value::RecordId(RecordId::new("native_attempt", id.hex()))).unwrap_or(Value::None),
+            slot: attempt.map(|_| surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(request.operation))).unwrap_or(Value::None),
+            terminal_epoch: match self { Self::TerminalAttempt(attempt) => Some(attempt.epoch), _ => None },
+        }
+    }
     fn record(&self) -> Option<RecordId> {
         match self {
             Self::OpenAttempt(id) | Self::FrozenAttempt(id) => {
@@ -787,42 +808,17 @@ pub(super) fn owner_effect_plan(
     bindings.insert("__reference_owner", reference_owner);
     bindings.insert("__reference_kind", reference_kind);
     let installation_owner = owner.record().is_none();
-    let owner_id = Some(
-        owner
-            .record()
-            .unwrap_or_else(|| coordination::operation_owner(request)),
-    );
-    let attempt = match &owner {
-        EffectOwner::OpenAttempt(id) | EffectOwner::FrozenAttempt(id) => Some(*id),
-        EffectOwner::TerminalAttempt(owner) => Some(owner.identity),
-        _ => None,
-    };
-    bindings.insert(
-        "__attempt",
-        attempt
-            .map(|id| Value::RecordId(RecordId::new("native_attempt", id.hex())))
-            .unwrap_or(Value::None),
-    );
-    bindings.insert(
-        "__owner_id",
-        owner_id.clone().map(Value::RecordId).unwrap_or(Value::None),
-    );
-    bindings.insert("__owner_kind", owner.kind());
-    bindings.insert(
-        "__attempt_slot",
-        attempt
-            .map(|_| {
-                surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(
-                    request.operation,
-                ))
-            })
-            .unwrap_or(Value::None),
-    );
-    if let EffectOwner::TerminalAttempt(owner) = &owner {
-        bindings.insert("__expected_epoch", owner.epoch);
+    let context = owner.replay_context(request);
+    let attempt = !matches!(context.attempt, Value::None);
+    bindings.insert("__attempt", context.attempt);
+    bindings.insert("__owner_id", context.owner);
+    bindings.insert("__owner_kind", context.kind);
+    bindings.insert("__attempt_slot", context.slot);
+    if let Some(epoch) = context.terminal_epoch {
+        bindings.insert("__expected_epoch", epoch);
     }
     let predicate = owner.predicate();
-    let authorization = if attempt.is_some() {
+    let authorization = if attempt {
         format!(
             "LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.generation!=$__generation OR $__owner.era!=$__era OR !({predicate}) {{ THROW 'native owner fenced'; }}; LET $__epoch=$__owner.epoch;"
         )
@@ -834,7 +830,7 @@ pub(super) fn owner_effect_plan(
         "fn::native_touch($__owner_id); LET $__local=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__local=NONE { CREATE $__owner_id SET generation=$__generation,era=$__era,epoch=1,operation=$__reference_owner,state='open' RETURN NONE; } ELSE IF $__local.generation!=$__generation OR $__local.era!=$__era OR $__local.operation!=$__reference_owner OR $__local.epoch!=1 { THROW 'native installation operation owner collision'; }; LET $__epoch=1;".into()
     };
     let context = "{attempt:$__attempt,effect:$__effect,generation:$__generation,era:$__era,epoch:$__epoch,request:$__request,slot:$__attempt_slot}";
-    let participation = if attempt.is_some() {
+    let participation = if attempt {
         format!(
             "LET $__attempt_context={context}; fn::native_attempt_participate($__attempt_context);"
         )
@@ -1086,7 +1082,11 @@ pub(super) async fn reconcile_pending_envelope(
             "native pending owner reconciliation phase",
         ));
     }
-    let disposition = reconcile_request(client, envelope.request).await?;
+    let (disposition, row) = reconcile_request_observed(client, envelope.request).await?;
+    if disposition == EffectDisposition::Committed {
+        validate_replay_owner(envelope.request, &envelope.owner.effect_owner(),
+            &row.ok_or(ModelError::Conflict("native committed recovery row missing"))?)?;
+    }
     if disposition == EffectDisposition::CompactedTerminal {
         prove_compacted_owner_absent(
             client,
@@ -1134,6 +1134,12 @@ pub(super) async fn settle_reference(
         "known_committed",
         envelope.observed_disposition == EffectDisposition::Committed,
     );
+    let context = envelope.owner.effect_owner().replay_context(request);
+    bindings.insert("expected_owner", context.owner);
+    bindings.insert("expected_owner_kind", context.kind);
+    bindings.insert("expected_attempt", context.attempt);
+    bindings.insert("expected_attempt_slot", context.slot);
+    bindings.insert("expected_terminal_epoch", context.terminal_epoch.map(surrealdb::types::SurrealValue::into_value).unwrap_or(Value::None));
     if !matches!(
         envelope.observed_disposition,
         EffectDisposition::Committed | EffectDisposition::FencedUncommitted
@@ -1149,7 +1155,7 @@ pub(super) async fn settle_reference(
     }
     bindings.insert("__era", current.era);
     coordination::bind_stripe(&mut bindings, request.operation);
-    let check = "LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE AND ($prior.effect!=$effect OR $prior.owner!=$owner OR $prior.kind!=$kind) { THROW 'native recovery reference correspondence'; }; LET $outcome=SELECT * FROM ONLY $effect FOR UPDATE; IF $outcome!=NONE { IF $outcome.request!=$__request OR $outcome.generation!=$__generation OR $outcome.era!=$original_era OR !$outcome.resolved OR $outcome.committed!=$known_committed { THROW 'native recovery terminal outcome correspondence'; }; } ELSE IF $original_era>$__installation.closed_through { THROW 'native recovery terminal witness unexpectedly absent'; };";
+    let check = "LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE AND ($prior.effect!=$effect OR $prior.owner!=$owner OR $prior.kind!=$kind) { THROW 'native recovery reference correspondence'; }; LET $outcome=SELECT * FROM ONLY $effect FOR UPDATE; IF $outcome!=NONE { IF $outcome.request!=$__request OR $outcome.generation!=$__generation OR $outcome.era!=$original_era OR !$outcome.resolved OR $outcome.committed!=$known_committed { THROW 'native recovery terminal outcome correspondence'; }; IF $known_committed AND ($outcome.owner!=$expected_owner OR $outcome.owner_kind!=$expected_owner_kind OR $outcome.attempt!=$expected_attempt OR $outcome.attempt_slot!=$expected_attempt_slot OR $outcome.epoch<=0 OR ($expected_terminal_epoch!=NONE AND $outcome.epoch!=$expected_terminal_epoch)) { THROW 'native recovery committed owner correspondence'; }; } ELSE IF $original_era>$__installation.closed_through { THROW 'native recovery terminal witness unexpectedly absent'; };";
     let action = if envelope.reference_policy == RecoveryReferencePolicy::RetainCaller {
         // An absent-intent fence can establish the explicitly requested caller
         // reference now. Never recreate absent/compacted operation history.
@@ -1632,31 +1638,15 @@ fn validate_replay_owner(
     owner: &EffectOwner,
     row: &Object,
 ) -> Result<(), ModelError> {
-    let expected_owner = owner
-        .record()
-        .unwrap_or_else(|| coordination::operation_owner(request));
-    let expected_attempt = match owner {
-        EffectOwner::OpenAttempt(attempt) | EffectOwner::FrozenAttempt(attempt) => {
-            Value::RecordId(RecordId::new("native_attempt", attempt.hex()))
-        }
-        EffectOwner::TerminalAttempt(attempt) => {
-            Value::RecordId(RecordId::new("native_attempt", attempt.identity.hex()))
-        }
-        _ => Value::None,
-    };
-    let expected_slot = if matches!(expected_attempt, Value::None) {
-        Value::None
-    } else {
-        surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(request.operation))
-    };
-    if row.get("owner_kind") != Some(&Value::String(owner.kind().into()))
-        || row.get("owner") != Some(&Value::RecordId(expected_owner))
-        || row.get("attempt").cloned().unwrap_or(Value::None) != expected_attempt
-        || row.get("attempt_slot").cloned().unwrap_or(Value::None) != expected_slot
+    let context = owner.replay_context(request);
+    if row.get("owner_kind") != Some(&Value::String(context.kind.into()))
+        || row.get("owner") != Some(&Value::RecordId(context.owner))
+        || row.get("attempt").cloned().unwrap_or(Value::None) != context.attempt
+        || row.get("attempt_slot").cloned().unwrap_or(Value::None) != context.slot
         || row.get("committed") != Some(&Value::Bool(true))
         || row.get("resolved") != Some(&Value::Bool(true))
         || int_field(row, "epoch")? <= 0
-        || matches!(owner, EffectOwner::TerminalAttempt(owner) if int_field(row, "epoch")? != owner.epoch)
+        || context.terminal_epoch.is_some_and(|epoch| row.get("epoch") != Some(&surrealdb::types::SurrealValue::into_value(epoch)))
     {
         return Err(request.error(ModelError::Conflict(
             "native committed replay original owner changed",
@@ -1668,6 +1658,12 @@ pub async fn reconcile_request(
     client: &Surreal<Client>,
     request: NativeRequest,
 ) -> Result<EffectDisposition, ModelError> {
+    reconcile_request_observed(client, request).await.map(|(disposition, _)| disposition)
+}
+async fn reconcile_request_observed(
+    client: &Surreal<Client>,
+    request: NativeRequest,
+) -> Result<(EffectDisposition, Option<Object>), ModelError> {
     request.validate()?;
     let current = IssuanceEra::capture(client).await?;
     if current.generation != request.issuance.generation {
@@ -1687,7 +1683,7 @@ pub async fn reconcile_request(
     super::run_recovery_transaction(client, &sql, bindings)
         .await
         .map_err(|error| request.error(error))?;
-    request_disposition(client, request).await
+    observe_request(client, request).await
 }
 /// ID-only observation cannot invent missing authorization. Callers that may retry
 /// use reconcile_request and retain NativeRequest, including its pre-intent era.
