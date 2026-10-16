@@ -2087,3 +2087,6 @@ mod compacted_owner_controls {
 #[cfg(test)]
 #[path = "authorization/recovery_controls.rs"]
 mod recovery_native_controls;
+
+#[cfg(test)]
+mod collision_controls;
