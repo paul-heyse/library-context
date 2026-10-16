@@ -2,14 +2,16 @@
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 **Catalog efficiency through CE99 executing, 2026-10-16.**
 [Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns decisions/receipts.
-Source through `5c117a35` plus reviewed lifecycle/consumer repairs and fallback-guard leak fix.
-Full compile/strict Clippy passed `100051…972c4a`. Prior native rerun `090519…6eeee4`:5 passed,4 failed; three retain3,851
-bytes after finality, one bypassed fixture admission. SDK invalidation leaves detach unjoined.
-Exact-session close and post-owner-drop SDK task join are implemented, runtime pending. ENOSPC
-interrupted the draft; only that abandoned task-owned draft was restored/removed, no truncated source.
-Operator repaired storage;110GiB available on resumption. SDK worker active; no worktree.
-Rehearsal regeneration passed `090429…d27ee3`; default target remains unchanged. **Next:** free
-implement lifecycle fix, qualify fixtures, rebuild/native rerun, CE80/CE90/CE99.
+Source through `5c09255e`: reviewed lifecycle/consumer repairs and fallback-guard leak fix.
+Full compile/strict Clippy passed `100051…972c4a`; Ruff/Pyrefly/ADR/agent/docs passed.
+Native16-control rerun `102612…e85711` finished14 passed,1 failed,1 timed out; host cleanup confirmed.
+Session-release/constructor/pool/sibling controls passed. Public physical completion lacked its
+recovery lease; repair/CLI and post-split full compile/strict Clippy passed through `104333…294f84`.
+Batching timed out360s after four completed trials; split into six same-assertion controls for rerun.
+Native Unknown attachment retained. No weakened assertions, timeout increase or disk purge.
+Rehearsal regeneration passed `104326…dab02c`; native/consumer controls `104419…e765e0` active.
+Default unchanged; no worktree. **Next:**
+finish native acceptance, CE80/CE90/CE99. Coordinator owns exact receipts and unresolved obligations.
 MCP/embedding/real-library and old-plan edits remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)

@@ -2830,6 +2830,16 @@ impl NativeCompilerStore {
         self: &Arc<Self>,
         budget: &ResourceBudget,
     ) -> Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError> {
+        let lease = self.admit(false, "complete_physical_content", true)?;
+        let result = lease.within(self.complete_physical_content_inner(budget)).await;
+        lease.finish_with(result)
+    }
+    // Already-admitted completion/finalization parents enter the same physical
+    // execution without reopening root admission after source closure.
+    async fn complete_physical_content_inner(
+        self: &Arc<Self>,
+        budget: &ResourceBudget,
+    ) -> Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError> {
         self.check_frozen_content()?;
         if let Some(completed) = self
             .physical_completed
@@ -6887,7 +6897,7 @@ impl NativeCompilerStore {
             return CompletedStateIdentity::from_roots(&published.completion().roots);
         }
         self.check_frozen_content()?;
-        let completed = self.complete_physical_content(budget).await?;
+        let completed = self.complete_physical_content_inner(budget).await?;
         CompletedStateIdentity::from_roots(&completed.completion().roots)
     }
     // Import has just independently validated the actual stored type slices. Its checksum

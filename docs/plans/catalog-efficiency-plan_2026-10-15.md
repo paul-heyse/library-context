@@ -225,7 +225,42 @@ no second equivalent guard leak was found in inspected adjacent seams. Relations
 within`20261016T094815.584Z-da9842`. Both source corrections are applied; independent bounded
 reread accepts the factory/fallback split. Final full workspace/all-target compile and strict
 keep-going Clippy`20261016T100051.191Z-972c4a` passed0 without warnings/errors, cleanup confirmed.
-Current CLI build, guard-free refresh, fresh rehearsal and native acceptance remain open.
+Source is committed`5c09255e`. Current CLI build`20261016T100405.557Z-528116` passed0,
+cleanup confirmed; guard-free native refresh`20261016T102445.259Z-1cdf82` passed (already current).
+Ruff, warnings-inclusive Pyrefly, ADR/agent lint and docs checks passed together in
+`20261016T100455.885Z-3034e5`, cleanup confirmed; docs464 pages/zero errors. Fresh owned rehearsal
+regeneration`20261016T102513.526Z-d6aa7c` passed0/cleanup confirmed, both scopes checked/open,
+bootstrap absent; generation`b4030aa10c254ada3b4affde9dbe621cf87c7cf430c5ba29247a7d5ed64d513c`,
+journal`bc1c2e0e5dadd5113f2dd7dd725cb81a06fb1cede398dad426bd86b84e110cf7`. Native16-control
+selection`20261016T102612.165Z-e85711` / nextest`8781f158-c979-4e0d-a171-e05be5634582`
+finished16:14 passed,1 failed,1 timed out; exit100, host cleanup confirmed. The constructor,
+compute-pool and actual session sibling/release controls now pass; the full12-compile batching
+control timed out at360s and remains unqualified. Audit physical completion exposed a genuine
+public operation missing its recovery lease. The bounded repair wraps the public call in its
+actual admission/recovery scope; already-admitted completion/finalization uses the unchanged
+private inner path. This is implemented, compile/runtime pending. The failed run retains native
+Unknown in attachment`c6dad243-0329-450b-bf07-e875b342f476`; original outcomes stay unchanged.
+Default unchanged. Full current compile`20261016T103917.733Z-30fca7` passed0/cleanup confirmed;
+strict Clippy passed within`20261016T103949.946Z-344abe`, which is building the current CLI.
+Independent bounded review accepts the public lease/private admitted-inner distinction and all
+inspected finalization callers. Exact timeout-process receipts show four completed workspace/session
+pairs before the fifth began: both layouts for flow_call_paths in both profiles reached checked
+finality, joined the SDK task and released all reservations. This excludes a stall in those joins;
+it does not qualify the interrupted later cases. The same twelve compiles and six identity comparisons
+are now six independently selectable case/profile controls, using normal test parallelism and the
+unchanged per-control timeout, budget, finality, zero-release and semantic assertions. Current
+native rerun remains required. Full post-refactor workspace/all-target compile and strict keep-going
+Clippy`20261016T104333.983Z-294f84` passed0/cleanup confirmed; CLI/strict Clippy
+`20261016T103949.946Z-344abe` passed0/cleanup confirmed. Guard-free native refresh
+`20261016T104357.554Z-ea6537` passed (already current). Fresh exact rehearsal regeneration
+`20261016T104326.801Z-dab02c` passed0/cleanup confirmed, generation
+`08e0611680c663b7e3a6ea87185d842f60f2fbf628fb93468713655fbd87d3ad`, journal
+`c15d2b854beb117ec40ffccace1ced50700e71633dde84acc57f8af0a4f98f3e`; both scopes
+checked/open and bootstrap absent. Separate whole-target discard acknowledgement settles the prior
+attachment obligation without changing its native Unknown. Current native/consumer selection
+`20261016T104419.245Z-e765e0` is active: same owner controls plus six granular batching comparisons,
+actual lexical/index-plan, corruption, selected-backup reconstruction and Base/SourceCall/Summary
+consumer controls, keep-going with existing allowances. No current pass claim yet.
 
 **Current execution evidence, 2026-10-16:** target-owned default required-peer build
 `20261016T062249.650Z-3b9d62` passed/cleanup confirmed; rehearsal-owned peer build

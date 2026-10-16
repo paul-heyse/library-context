@@ -334,55 +334,83 @@ fn assert_registered_contract(
     Ok(())
 }
 
-#[tokio::test]
-async fn representative_fixtures_preserve_semantics_across_workspace_batching_and_partitions() {
-    for case in ["flow_call_paths", "semantic_documents", "type_shapes"] {
-        for profile in Profile::ALL {
-            let mut contents = Vec::new();
-            for (partitions, batch_rows) in [(1, 1), (4, 4096)] {
-                let resources = budget();
-                let workspace = Workspace::with_budget(
-                    Arc::new(lctx_model::domain::model().unwrap()),
-                    WorkspaceOptions {
-                        memory_bytes: resources.limit(),
-                        partitions,
-                        batch_rows,
-                    },
-                    resources.clone(),
-                    crate::native_fixture::store_with_budget(resources.clone()),
-                )
-                .unwrap();
-                cpg_core::facts::compile_facts(
-                    &workspace,
-                    &capture(case, profile, &resources),
-                    profile,
-                    cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")),
-                    Default::default(),
-                )
-                .await
-                .unwrap();
-                workspace.validate().await.unwrap();
-                contents.push(workspace.identity().unwrap());
-                let connection = workspace
-                    .native()
-                    .recovery_scope()
-                    .unwrap()
-                    .client()
-                    .connection_completion()
-                    .unwrap();
-                let mut finality = workspace.drain_owned_report().await;
-                finality.merge(workspace.native().abandon_finality_report().await);
-                let signal = workspace.complete_signal(&finality).await;
-                finality.step("batching control signal", signal);
-                lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
-                drop(workspace);
-                connection.wait().await.unwrap();
-                drop(connection);
-                assert_eq!(resources.reserved(), 0);
-            }
-            assert_eq!(contents[0], contents[1], "{case} {}", profile.name());
-        }
+// Each case/profile comparison retains both physical layouts but owns its
+// independent deadline and result, allowing ordinary test parallelism.
+async fn run_workspace_batching(case: &str, profile: Profile) {
+    let mut contents = Vec::new();
+    for (partitions, batch_rows) in [(1, 1), (4, 4096)] {
+        println!("{case} {}: partitions={partitions}, batch_rows={batch_rows}", profile.name());
+        let resources = budget();
+        let workspace = Workspace::with_budget(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions {
+                memory_bytes: resources.limit(),
+                partitions,
+                batch_rows,
+            },
+            resources.clone(),
+            crate::native_fixture::store_with_budget(resources.clone()),
+        )
+        .unwrap();
+        cpg_core::facts::compile_facts(
+            &workspace,
+            &capture(case, profile, &resources),
+            profile,
+            cpg_core::facts::providers(ContentHash::of(b"fixture-corpus")),
+            Default::default(),
+        )
+        .await
+        .unwrap();
+        workspace.validate().await.unwrap();
+        contents.push(workspace.identity().unwrap());
+        let connection = workspace
+            .native()
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        let mut finality = workspace.drain_owned_report().await;
+        finality.merge(workspace.native().abandon_finality_report().await);
+        let signal = workspace.complete_signal(&finality).await;
+        finality.step("batching control signal", signal);
+        lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
+        drop(workspace);
+        connection.wait().await.unwrap();
+        drop(connection);
+        assert_eq!(resources.reserved(), 0, "{case} {} partitions={partitions} batch_rows={batch_rows}", profile.name());
     }
+    assert_eq!(contents[0], contents[1], "{case} {}", profile.name());
+}
+
+#[tokio::test]
+async fn flow_call_paths_workspace_batching_catalog() {
+    run_workspace_batching("flow_call_paths", Profile::Catalog).await;
+}
+
+#[tokio::test]
+async fn flow_call_paths_workspace_batching_behavioral() {
+    run_workspace_batching("flow_call_paths", Profile::Behavioral).await;
+}
+
+#[tokio::test]
+async fn semantic_documents_workspace_batching_catalog() {
+    run_workspace_batching("semantic_documents", Profile::Catalog).await;
+}
+
+#[tokio::test]
+async fn semantic_documents_workspace_batching_behavioral() {
+    run_workspace_batching("semantic_documents", Profile::Behavioral).await;
+}
+
+#[tokio::test]
+async fn type_shapes_workspace_batching_catalog() {
+    run_workspace_batching("type_shapes", Profile::Catalog).await;
+}
+
+#[tokio::test]
+async fn type_shapes_workspace_batching_behavioral() {
+    run_workspace_batching("type_shapes", Profile::Behavioral).await;
 }
 
 #[path = "fixtures/native.rs"]
