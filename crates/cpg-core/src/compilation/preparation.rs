@@ -84,6 +84,7 @@ mod controls {
         bindings.as_mut().unwrap().grow(1024).unwrap();
         let mut graphs = Some(StateCharge::new(&budget, "graph-lifetime-control"));
         graphs.as_mut().unwrap().grow(2048).unwrap();
+        let graph_bytes = graphs.as_ref().unwrap().accounted_bytes();
         // Summary can be a cache hit: retiring its demand still releases the binding owner.
         let after_summary = Needs::remaining(
             [Structural, Analytic, Synthesis],
@@ -92,7 +93,8 @@ mod controls {
         );
         release_unused(&mut bindings, after_summary.bindings);
         release_unused(&mut graphs, !after_summary.graphs.is_empty());
-        assert_eq!(budget.reserved(), 2048);
+        assert_eq!(graphs.as_ref().unwrap().reserved(), 2048);
+        assert_eq!(budget.reserved(), graph_bytes);
         let after_structural = Needs::remaining([Analytic, Synthesis], Profile::Behavioral, false);
         release_unused(&mut graphs, !after_structural.graphs.is_empty());
         assert_eq!(budget.reserved(), 0);

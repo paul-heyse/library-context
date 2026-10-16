@@ -1692,8 +1692,8 @@ mod incarnation_controls {
         job: &RecordId,
         parent: &RecordId,
     ) -> Vec<Vec<Object>> {
-        let mut response=client.query("SELECT * FROM $job; SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$parent ORDER BY object; SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job ORDER BY id")
-            .bind(("job",job.clone())).bind(("parent",parent.clone())).await.unwrap().check().unwrap();
+        let mut response=client.query("SELECT * FROM $job; SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$nominated_owner ORDER BY object; SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job ORDER BY id")
+            .bind(("job",job.clone())).bind(("nominated_owner",parent.clone())).await.unwrap().check().unwrap();
         (0..3)
             .map(|index| response.take::<Vec<Object>>(index).unwrap())
             .collect()

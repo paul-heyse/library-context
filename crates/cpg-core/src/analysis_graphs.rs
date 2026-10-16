@@ -434,18 +434,30 @@ mod scoped_loading_controls {
         );
         drop(summary);
         assert!(invocation.upgrade().is_none());
-        assert_eq!(budget.reserved(), size_of::<GraphPreparation>());
+        assert_eq!(owner.charge.reserved(), size_of::<GraphPreparation>());
+        assert_eq!(budget.reserved(), owner.charge.accounted_bytes());
         drop(owner);
         assert_eq!(budget.reserved(), 0);
     }
 
     #[test]
     fn graph_selection_refuses_descriptor_capacity_before_retaining_slots() {
-        let budget = resources::ResourceBudget::fixed(size_of::<GraphPreparation>()).unwrap();
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
         let mut owner = GraphPreparation::new(&budget).unwrap();
+        let retained = budget.reserved();
+        let pressure = budget
+            .reserve(
+                "graph descriptor refusal pressure",
+                budget.limit() - retained,
+            )
+            .unwrap();
         assert!(owner.select(&[ProjectionName::CallableInvocation]).is_err());
         assert!(owner.projections.is_empty());
-        assert_eq!(budget.reserved(), size_of::<GraphPreparation>());
+        drop(pressure);
+        assert_eq!(budget.reserved(), retained);
+        assert_eq!(owner.charge.reserved(), size_of::<GraphPreparation>());
+        drop(owner);
+        assert_eq!(budget.reserved(), 0);
     }
 
     #[tokio::test]

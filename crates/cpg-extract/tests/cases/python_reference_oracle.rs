@@ -89,6 +89,39 @@ fn references(
 }
 
 const CHILD_COMPLETED: &str = "LCTX_TY_REFERENCE_ORACLE_CHILD_COMPLETED";
+const COMMON_REFERENCES: &str = "LCTX_TY_REFERENCE_ORACLE_COMMON_REFERENCES=";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommonReferences {
+    operation: BTreeSet<usize>,
+    decorate: BTreeSet<usize>,
+}
+
+fn common_references(output: &str) -> Result<CommonReferences, String> {
+    let mut records = output
+        .lines()
+        .filter_map(|line| line.strip_prefix(COMMON_REFERENCES));
+    let record = records.next().ok_or("missing ty reference record")?;
+    if records.next().is_some() {
+        return Err("duplicate ty reference record".into());
+    }
+    // Each set contains unique offsets into this exact original source, at most one per
+    // byte. Forty-two bytes per source byte cover two decimal usize values and separators.
+    if record.len() > API.len() * 42 + 64 {
+        return Err("ty reference record exceeds its original-source universe".into());
+    }
+    let references: CommonReferences = serde_json::from_str(record).map_err(|e| e.to_string())?;
+    if references
+        .operation
+        .iter()
+        .chain(&references.decorate)
+        .any(|offset| *offset >= API.len())
+    {
+        return Err("ty reference record contains a foreign source offset".into());
+    }
+    Ok(references)
+}
 
 fn child_test_name() -> String {
     // libtest omits the integration crate name, but retains the module path.
@@ -145,6 +178,10 @@ fn ty_reference_oracle_is_bounded_by_a_joined_process() {
         child_completed(&output),
         "native ty reference child did not affirm completed controls; a successful zero-test exit is insufficient\n{output}"
     );
+    let references = common_references(&output).unwrap();
+    // Real-provider acquisition, normalization and native finality belong to this ordinary
+    // fixture test, outside the joined pure-ty oracle's process deadline.
+    compare_normalized_names(&references);
 }
 
 #[test]
@@ -168,6 +205,20 @@ fn ty_reference_oracle_refuses_successful_zero_test_child() {
     assert!(
         !child_completed(&output),
         "zero-test child unexpectedly affirmed executed controls\n{output}"
+    );
+    assert!(common_references(&output).is_err());
+    assert!(
+        common_references(&format!(
+            "{COMMON_REFERENCES}{{}}\n{COMMON_REFERENCES}{{}}\n"
+        ))
+        .is_err()
+    );
+    assert!(
+        common_references(&format!(
+            "{COMMON_REFERENCES}{{\"operation\":[{}],\"decorate\":[]}}\n",
+            API.len()
+        ))
+        .is_err()
     );
 }
 
@@ -268,11 +319,43 @@ fn ty_reference_oracle_child() {
             .any(|r| r.1 == API.find("copy +=").unwrap()),
         "augmented assignment must retain the native kind, not invented read/write duplicates"
     );
-    compare_normalized_names(&db);
+    let local_sites = |references: &BTreeSet<(String, usize, usize, String)>| {
+        references
+            .iter()
+            .filter_map(|row| (row.0 == "/captured/api.py").then_some(row.1))
+            .collect::<BTreeSet<_>>()
+    };
+    let common = CommonReferences {
+        operation: local_sites(&uses),
+        decorate: local_sites(
+            &references(&db, "api.py", API.find("decorate(function").unwrap(), false).unwrap(),
+        ),
+    };
+    for label in ["reference = ", "result = "] {
+        let site = API.find(label).unwrap() + label.len();
+        assert!(
+            common.operation.contains(&site),
+            "ty missed common operation read at {site}"
+        );
+    }
+    let decorator_site = API.find("@decorate").unwrap() + 1;
+    assert!(
+        common.decorate.contains(&decorator_site),
+        "ty missed common decorator read"
+    );
+    let shadowed = API.find("return operation").unwrap() + "return ".len();
+    assert!(
+        !common.operation.contains(&shadowed),
+        "ty admitted a shadowed binding"
+    );
+    println!(
+        "\n{COMMON_REFERENCES}{}",
+        serde_json::to_string(&common).unwrap()
+    );
     println!(
         "policy=ResolveAliases with requested-spelling filter; empty-search=None; source_view=original; python=3.14; platform=linux; included=api.py,uses.py; dependencies=vendored-typeshed; provider=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301; lexical-overlap=value names; scope-differences=keyword/member references"
     );
-    // Emit only after all semantic and normalized-fact assertions have passed.
+    // Emit only after all pure oracle semantic assertions and reference queries pass.
     // The leading newline keeps this separate from libtest's progress prefix.
     println!("\n{CHILD_COMPLETED}");
 }
@@ -299,7 +382,7 @@ inspector!(ReferenceFacts => {
 });
 
 /// Compare only nominally admitted original name reads, not ty's broader alias/member search.
-fn compare_normalized_names(db: &ProjectDatabase) {
+fn compare_normalized_names(oracle: &CommonReferences) {
     let captured = std::collections::BTreeMap::from([
         ("api.py".to_owned(), API.as_bytes().to_vec()),
         ("uses.py".to_owned(), USES.as_bytes().to_vec()),
@@ -359,12 +442,14 @@ fn compare_normalized_names(db: &ProjectDatabase) {
             let occurrence = data.facts.occurrences.get(reference.read)?;
             (occurrence.source == api.id()).then_some(occurrence.start as usize)
         }).collect::<BTreeSet<_>>();
-        let native = references(db, "api.py", name, false).unwrap();
+        let native = if declaration.starts_with("operation") {
+            &oracle.operation
+        } else {
+            &oracle.decorate
+        };
         for site in sites {
             assert!(
-                native
-                    .iter()
-                    .any(|r| r.0 == "/captured/api.py" && r.1 == site),
+                native.contains(&site),
                 "ty did not report common original name read at {site}: {native:?}"
             );
             assert!(
@@ -378,11 +463,10 @@ fn compare_normalized_names(db: &ProjectDatabase) {
                 !modeled.contains(&shadowed),
                 "same spelling cannot admit a foreign binding"
             );
-            assert!(
-                !native
-                    .iter()
-                    .any(|r| r.0 == "/captured/api.py" && r.1 == shadowed)
-            );
+            assert!(!native.contains(&shadowed));
         }
     }
+    drop(normalized);
+    drop(data);
+    assert_eq!(budget.reserved(), 0);
 }

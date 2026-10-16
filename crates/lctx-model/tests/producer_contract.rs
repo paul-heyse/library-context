@@ -1,7 +1,7 @@
 use lctx_model::domain::{
     ContentHash, Record,
     attribution::{FactFamily, Provider},
-    completed::ContributionSpec,
+    completed::{ContributionSpec, STATE_FORMAT_VERSION},
     graph::{ARTIFACT_FORMAT_VERSION, Manifest},
     input::Package,
     producer_contract::*,
@@ -149,11 +149,9 @@ fn contribution_wire_requires_explicit_binding_and_its_identity_binds_roles() {
 }
 #[test]
 fn old_headers_reject_before_malformed_descriptors_are_reconstructed() {
-    for (artifact, state) in [
-        (2, 2),
-        (ARTIFACT_FORMAT_VERSION, 1),
-        (ARTIFACT_FORMAT_VERSION, 2),
-    ] {
+    for (artifact, state) in std::iter::once((2, 2))
+        .chain((1..STATE_FORMAT_VERSION).map(|state| (ARTIFACT_FORMAT_VERSION, state)))
+    {
         let bytes=serde_json::to_vec(&serde_json::json!({"format_version":artifact,"completed_state":{"format_version":state},"producers":"not a descriptor inventory"})).unwrap();
         let error = Manifest::decode(&bytes).unwrap_err();
         assert!(
@@ -163,8 +161,10 @@ fn old_headers_reject_before_malformed_descriptors_are_reconstructed() {
         );
     }
     use lctx_model::domain::completed::CompletedStateHeader;
-    assert!(CompletedStateHeader::decode(br#"{"format_version":1}"#).is_err());
-    assert!(CompletedStateHeader::decode(br#"{"format_version":2}"#).is_err());
+    for version in 1..STATE_FORMAT_VERSION {
+        let bytes = serde_json::to_vec(&serde_json::json!({"format_version": version})).unwrap();
+        assert!(CompletedStateHeader::decode(&bytes).is_err());
+    }
     assert!(
         CompletedStateHeader::decode(
             br#"{"table":"compiler_contribution","row":"old unframed descriptor"}"#
@@ -172,7 +172,10 @@ fn old_headers_reject_before_malformed_descriptors_are_reconstructed() {
         .is_err()
     );
     assert_eq!(
-        CompletedStateHeader::decode(br#"{"format_version":3}"#).unwrap(),
+        CompletedStateHeader::decode(
+            &serde_json::to_vec(&CompletedStateHeader::current()).unwrap()
+        )
+        .unwrap(),
         CompletedStateHeader::current()
     );
 }

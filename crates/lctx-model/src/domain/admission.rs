@@ -397,6 +397,25 @@ impl FrontierContract {
             .iter()
             .any(|r| r.family == family && r.requested_in.contains(&self.profile))
     }
+    /// An inactive analyzer supplies no attempted semantics. Its only relevant declaration is
+    /// the reporting owner of this profile's actual NotRequested obligations.
+    fn encode_inactive_reporting(
+        &self,
+        declaration: &super::producer_contract::ProducerContract,
+        digest: &mut KeySink,
+    ) -> BTreeSet<FactFamily> {
+        let families = declaration
+            .not_requested
+            .iter()
+            .copied()
+            .filter(|family| !self.requested(*family))
+            .collect::<BTreeSet<_>>();
+        for family in &families {
+            digest.part(b"not-requested-owner", declaration.name.as_bytes());
+            family.encode(digest);
+        }
+        families
+    }
     /// Refuse, before any store effect, a schedule that cannot produce this frontier: one that
     /// reads or writes above it, attempts a family its profile does not request, leaves a
     /// requested family uncovered, writes a family's assertions from a stage that does not report
@@ -424,19 +443,7 @@ impl FrontierContract {
                 return Err(refuse("duplicate producer semantic contract"));
             }
             if !declaration.profiles.contains(&self.profile) {
-                // An inactive analyzer supplies no attempted semantics. Bind only the declared
-                // reporting ownership needed by this profile's NotRequested obligations.
-                for family in declaration
-                    .not_requested
-                    .iter()
-                    .copied()
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .filter(|family| !self.requested(*family))
-                {
-                    digest.part(b"not-requested-owner", declaration.name.as_bytes());
-                    family.encode(&mut digest);
-                }
+                self.encode_inactive_reporting(declaration, &mut digest);
                 continue;
             }
             declaration.identity().encode(&mut digest);
@@ -586,10 +593,8 @@ impl FrontierContract {
             .iter()
             .filter(|declaration| !declaration.profiles.contains(&self.profile))
         {
-            declaration.identity().encode(&mut digest);
-            for family in &declaration.not_requested {
-                if !self.requested(*family) && reporting.insert(*family, declaration.name).is_some()
-                {
+            for family in self.encode_inactive_reporting(declaration, &mut digest) {
+                if reporting.insert(family, declaration.name).is_some() {
                     return Err(refuse("ambiguous inactive reporting"));
                 }
             }
@@ -986,6 +991,34 @@ impl Availability {
 #[cfg(test)]
 mod supplier_product_controls {
     use super::*;
+    #[test]
+    fn inactive_reporting_identity_binds_only_actual_obligations() {
+        let model = super::super::model().unwrap();
+        let frontier = FrontierContract::facts(&model, Profile::Catalog).unwrap();
+        let original = super::super::producer_contract::facts::ty_flow();
+        assert!(!original.profiles.contains(&Profile::Catalog));
+        let identity = |declaration: &super::super::producer_contract::ProducerContract| {
+            let mut digest = KeySink::new("inactive-reporting-control");
+            let families = frontier.encode_inactive_reporting(declaration, &mut digest);
+            (digest.finish(), families)
+        };
+        let baseline = identity(&original);
+        assert_eq!(baseline.1, BTreeSet::from([FactFamily::Flow]));
+        let mut changed = original.clone();
+        changed.suppliers[0].analyzer_revision = "different inactive analyzer";
+        changed.suppliers[0].semantic_revision += 1;
+        assert_ne!(original.identity(), changed.identity());
+        assert_eq!(baseline, identity(&changed));
+        changed.not_requested.push(FactFamily::Syntax);
+        assert!(frontier.requested(FactFamily::Syntax));
+        assert_eq!(baseline, identity(&changed));
+        changed.name = "different-not-requested-owner";
+        assert_ne!(baseline.0, identity(&changed).0);
+        changed = original.clone();
+        changed.not_requested.clear();
+        assert_ne!(baseline.0, identity(&changed).0);
+        assert!(identity(&changed).1.is_empty());
+    }
     #[test]
     fn supplier_domain_matches_whole_frontier_without_unrelated_suppliers() {
         let model = super::super::model().unwrap();

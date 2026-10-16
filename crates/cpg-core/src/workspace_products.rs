@@ -850,7 +850,7 @@ mod controls {
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
-    async fn native_admission_gates_attachment_and_current_ownership() {
+    async fn completion_and_marker_only_admission_cannot_grant_attachment() {
         let config = config();
         let first = workspace(&config).await;
         let produced = output(&first, "pure-package");
@@ -873,49 +873,21 @@ mod controls {
             "completion alone grants no admitted attachment"
         );
         unadmitted.native().abandon().await.unwrap();
-        // This native ownership control exercises the admission gate. Full semantic admission
-        // is established independently by the real-provider compilation matrices.
+        // A Package-only fixture cannot earn full semantic admission. Positive attachment and
+        // fresh-owner checks live in compilation::cache_controls after artifact::admit executes
+        // the actual captured-provider and native premises.
         first.freeze_for_admission(None).await.unwrap();
-        first.native().mark_attempt_admitted().await.unwrap();
-        let old = first
-            .inputs("old", Profile::Catalog, [Package::NAME])
-            .unwrap();
+        assert!(matches!(
+            first.native().mark_attempt_admitted().await,
+            Err(ModelError::Conflict(
+                "native admission requires exact physical completion and executed full premises"
+            ))
+        ));
         let second = workspace(&config).await;
         let hit = output(&second, "pure-package");
-        assert!(matches!(
-            hit.reuse_product().await.unwrap(),
-            Some(ProviderOutcome::Complete)
-        ));
-        hit.finish(ProviderOutcome::Complete).await.unwrap();
-        let new = second
-            .inputs("new", Profile::Catalog, [Package::NAME])
-            .unwrap();
-        assert_eq!(
-            first.relation(Package::NAME).unwrap().view_identity(),
-            second.relation(Package::NAME).unwrap().view_identity()
-        );
-        assert!(old.require_subset(&second, &new).is_err());
-        let native = second.native().clone();
-        let mut rows = native
-            .scan_batches(
-                second.relation(Package::NAME).unwrap().view(),
-                &Relation::of::<Package>(),
-                None,
-                None,
-                second.budget(),
-                32,
-            )
-            .await
-            .unwrap();
-        let batch = rows.try_next().await.unwrap().unwrap();
-        assert_eq!(
-            Package::decode(&batch).unwrap(),
-            vec![Package {
-                name: "expected".into()
-            }]
-        );
-        assert!(rows.try_next().await.unwrap().is_none());
-        second.freeze_for_admission(None).await.unwrap();
+        assert!(hit.reuse_product().await.unwrap().is_none());
+        assert!(second.relation(Package::NAME).is_err());
+        drop(hit);
         first.native().abandon().await.unwrap();
         second.native().abandon().await.unwrap();
     }

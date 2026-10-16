@@ -35,6 +35,8 @@ type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
 
 mod membership_demand;
 use membership_demand::MembershipDemand;
+mod input_catalog;
+use input_catalog::{InputAliases, InputPort, InputSchema};
 
 pub use lctx_compiler_store::admission::{AdmissionOptions as WorkspaceOptions, Cancellation};
 struct WorkspaceFiles {
@@ -1753,7 +1755,7 @@ pub struct CompletedInputs {
 }
 struct PreparedInputSession {
     context: SessionContext,
-    aliases: BTreeMap<String, Arc<dyn datafusion::catalog::TableProvider>>,
+    aliases: Arc<InputAliases>,
     templates: Mutex<(
         BTreeMap<ContentHash, Arc<PreparedLogicalTemplate>>,
         StateCharge,
@@ -1786,7 +1788,10 @@ impl PreparedInputSession {
                 .grow(2048)
                 .map_err(|error| datafusion::error::DataFusionError::External(Box::new(error)))?;
             if let datafusion::logical_expr::LogicalPlan::TableScan(scan) = node {
-                if let Some(canonical) = self.aliases.get(scan.table_name.table()) {
+                if let Some(port) = self.aliases.ports.get(scan.table_name.table()) {
+                    let canonical = port.resolved().map_err(|error| {
+                        datafusion::error::DataFusionError::External(Box::new(error))
+                    })?;
                     let captured = datafusion::datasource::source_as_provider(&scan.source)?;
                     if !Arc::ptr_eq(canonical, &captured) {
                         return Err(datafusion::error::DataFusionError::External(Box::new(
@@ -2118,27 +2123,6 @@ impl CompletedInputs {
     pub fn relations(&self) -> impl Iterator<Item = &Arc<CompletedRelation>> {
         self.relations.values().map(|binding| &binding.source)
     }
-    #[tracing::instrument(skip_all, target="lctx_phase", fields(producer=self.name, relation=source.name(), view=?source.view.identity))]
-    async fn provider(
-        &self,
-        workspace: &Workspace,
-        source: &CompletedRelation,
-    ) -> Result<Arc<dyn datafusion::catalog::TableProvider>, ModelError> {
-        let provider = lctx_native::phase::wait(
-            "completed_input_provider",
-            workspace.native.table_provider(
-                &source.view,
-                source.relation.clone(),
-                workspace.budget.clone(),
-                workspace.options.batch_rows,
-            ),
-        )
-        .await?;
-        match &self.producing_scope {
-            Some(scope) => lctx_compiler_store::compiler_provider::bind_producing(&provider, scope),
-            None => Ok(provider),
-        }
-    }
     pub async fn session(&self, workspace: &Workspace) -> Result<SessionContext, ModelError> {
         // The immutable inventory owns provider registration, so general compatible checks
         // reuse it as well. Selecting ports or changing producing scope creates a fresh cell.
@@ -2171,11 +2155,7 @@ impl CompletedInputs {
             .get()
             .expect("prepared immutable input session");
         let context = SessionContext::new_with_config_rt(base.copied_config(), base.runtime_env());
-        for (alias, provider) in &prepared.aliases {
-            context
-                .register_table(alias, provider.clone())
-                .map_err(ModelError::codec)?;
-        }
+        InputSchema::install(&context, prepared.aliases.clone(), &self.budget)?;
         Ok(context)
     }
     async fn prepare_session(
@@ -2198,16 +2178,33 @@ impl CompletedInputs {
             workspace.context.copied_config(),
             workspace.context.runtime_env(),
         );
+        // Reserve the captured descriptor catalog before its keys, nodes and port cells.
+        // A plain alias can add one name per binding; it shares that binding's port.
+        let mut charge = StateCharge::new(&self.budget, "completed-input-captured-aliases");
+        charge.grow(
+            size_of::<InputAliases>()
+                + self
+                    .relations
+                    .keys()
+                    .map(|(name, prefix)| {
+                        name.len()
+                            .saturating_mul(2)
+                            .saturating_add(
+                                prefix
+                                    .map_or(7, |boundary| boundary.name().len())
+                                    .saturating_mul(2),
+                            )
+                            .saturating_add(512)
+                    })
+                    .sum::<usize>(),
+        )?;
         let mut aliases = BTreeMap::new();
         for ((name, prefix), source) in self.ordered_bindings() {
             let table = Self::table(name, prefix);
-            tracing::info!(target: "lctx_phase", observation="completed_input_binding", producer=self.name,
+            tracing::info!(target: "lctx_phase", observation="captured_input_binding", producer=self.name,
                 relation=name, selector=?prefix, view=?source.view.identity, rows=source.rows());
-            let provider = self.provider(workspace, source).await?;
-            aliases.insert(table.clone(), provider.clone());
-            context
-                .register_table(&table, provider)
-                .map_err(ModelError::codec)?;
+            let port = InputPort::capture(workspace, source, self.producing_scope.clone())?;
+            aliases.insert(table, port);
         }
         // A plain typed read is available only when every declared selector names the same
         // immutable stream. Distinct semantic views require their qualified alias.
@@ -2220,13 +2217,15 @@ impl CompletedInputs {
             if let Some(key) = self.plain_binding(name) {
                 // This is the exact qualified binding already captured above, including its
                 // producing scope and operational guards. An alias needs no second acquisition.
-                let provider = aliases[&Self::table(key.0, key.1)].clone();
-                aliases.insert(name.to_owned(), provider.clone());
-                context
-                    .register_table(name, provider)
-                    .map_err(ModelError::codec)?;
+                let port = aliases[&Self::table(key.0, key.1)].clone();
+                aliases.insert(name.to_owned(), port);
             }
         }
+        let aliases = Arc::new(InputAliases {
+            ports: aliases,
+            _charge: charge,
+        });
+        InputSchema::install(&context, aliases.clone(), &self.budget)?;
         Ok(PreparedInputSession {
             context,
             aliases,
@@ -2334,19 +2333,31 @@ struct ProducerIngressState {
     pending: Option<lctx_compiler_store::compiler::IngressSequence>,
     closed: bool,
 }
+/// Keep every acknowledged operation diagnostic without relabelling a refusal as
+/// a failed join. Genuine nested finality remains typed inside the original error.
+fn ingress_results(
+    primary: Result<(), ModelError>,
+    related: Result<(), ModelError>,
+) -> Result<(), ModelError> {
+    match (primary, related) {
+        (Err(primary), Err(related)) => Err(primary.alongside(related)),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    }
+}
 impl ProducerIngress {
     async fn settle(mut state: ProducerIngressState) -> Result<(), ModelError> {
         let mut completion = lctx_model::domain::completion::Completion::default();
+        let mut operation = Ok(());
         if let Some(sequence) = state.pending.take() {
-            completion.step(
-                "final native ingress acknowledgement",
-                sequence.await_committed().await.map(drop),
-            );
+            operation = sequence.await_committed().await.map(drop);
         }
         if let Some(driver) = state.driver.take() {
-            completion.step("native ingress accepted queue drain", driver.finish().await);
+            let drained = driver.finish_report().await;
+            operation = ingress_results(operation, drained.operation);
+            completion.merge(drained.completion);
         }
-        lctx_model::domain::completion::complete(Ok(()), completion)
+        lctx_model::domain::completion::complete(operation, completion)
     }
     async fn accept(
         &self,
@@ -2381,14 +2392,10 @@ impl ProducerIngress {
             }
             Err(error) => Err(error),
         };
-        let mut completion = lctx_model::domain::completion::Completion::default();
+        let mut result = result;
         if let Some(previous) = previous {
-            completion.step(
-                "preceding native ingress acknowledgement",
-                previous.await_committed().await.map(drop),
-            );
+            result = ingress_results(result, previous.await_committed().await.map(drop));
         }
-        let result = lctx_model::domain::completion::complete(result, completion);
         if result.is_err() {
             let draining = std::mem::replace(
                 &mut *state,
@@ -2398,12 +2405,7 @@ impl ProducerIngress {
                 },
             );
             drop(state);
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step(
-                "failed producer ingress drain",
-                Self::settle(draining).await,
-            );
-            return lctx_model::domain::completion::complete(result, completion);
+            return ingress_results(result, Self::settle(draining).await);
         }
         Ok(())
     }
@@ -2984,14 +2986,10 @@ impl ProducerOutput {
     pub fn finish(self, outcome: ProviderOutcome) -> BoxFuture<'static, Result<(), ModelError>> {
         Box::pin(async move {
             if let Err(error) = self.mark_finished(outcome) {
-                let mut completion = lctx_model::domain::completion::Completion::default();
-                completion.step(
-                    "refused producer ingress drain",
-                    self.finish_ingress().await,
-                );
+                let drained = self.finish_ingress().await;
                 self.workspace.native.fail();
                 self.workspace.cancellation.cancel();
-                return lctx_model::domain::completion::complete(Err(error), completion);
+                return ingress_results(Err(error), drained);
             }
             self.complete().await
         })
@@ -3004,9 +3002,7 @@ impl ProducerOutput {
         let workspace = self.workspace.clone();
         Box::pin(async move {
             let result = self.complete_inner().await;
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step("producer accepted ingress drain", ingress.finish().await);
-            let result = lctx_model::domain::completion::complete(result, completion);
+            let result = ingress_results(result, ingress.finish().await);
             if result.is_err() {
                 // Required completion cannot be caught and relabelled as an optional
                 // capture miss, including local failure after native binding effects.
@@ -3452,6 +3448,26 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
 mod tests {
     use super::*;
     use lctx_model::domain::input::Package;
+    #[test]
+    fn ingress_operation_group_preserves_resource_primary_and_related_unknown() {
+        let budget = ResourceBudget::fixed(1).unwrap();
+        let refused = budget.reserve("ingress-primary", 2).unwrap_err();
+        let related = ModelError::infrastructure(
+            lctx_model::domain::Infrastructure::Unconfirmed,
+            "lost ingress acknowledgement",
+        );
+        let error = ingress_results(Err(refused), Err(related)).unwrap_err();
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Resource {
+                owner: "ingress-primary",
+                ..
+            })
+        ));
+        assert!(!error.permits_storage_cleanup());
+        assert!(matches!(error, ModelError::Operations(ref errors) if errors.related.len()==1));
+        assert_eq!(budget.reserved(), 0);
+    }
     fn model() -> Arc<ValidatedModel> {
         Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap())
     }
@@ -3612,6 +3628,10 @@ mod tests {
                 .is_err(),
             "even an empty optimizer input needs earned native authority before construction"
         );
+        let mut completion = workspace.drain_owned_report().await;
+        let settled = workspace.complete_signal(&completion).await;
+        completion.step("unconnected transfer control signal finality", settled);
+        lctx_model::domain::completion::complete::<()>(Ok(()), completion).unwrap();
     }
     #[tokio::test]
     async fn exact_scheduled_relation_selection_excludes_later_arrival_and_unfinished_peers() {
@@ -3809,7 +3829,7 @@ mod tests {
         let context = SessionContext::new();
         let prepared = PreparedInputSession {
             context: context.clone(),
-            aliases: BTreeMap::new(),
+            aliases: InputAliases::ready(BTreeMap::new(), &budget).unwrap(),
             templates: Mutex::new((
                 BTreeMap::new(),
                 StateCharge::new(&budget, "template-control"),
@@ -3935,13 +3955,19 @@ mod tests {
         context
             .register_table("unrelated_port", unrelated.clone())
             .unwrap();
-        let prepared = PreparedInputSession {
-            context: context.clone(),
-            aliases: [
+        let aliases = InputAliases::ready(
+            [
                 ("fixed_port".into(), used.clone()),
                 ("unrelated_port".into(), unrelated),
             ]
             .into(),
+            &budget,
+        )
+        .unwrap();
+        let alias_baseline = budget.reserved();
+        let prepared = PreparedInputSession {
+            context: context.clone(),
+            aliases,
             templates: Mutex::new((
                 BTreeMap::new(),
                 StateCharge::new(&budget, "template-port-control"),
@@ -4096,11 +4122,11 @@ mod tests {
             let retained = templates
                 .0
                 .values()
-                .map(|template| template._charge.reserved())
+                .map(|template| template._charge.accounted_bytes())
                 .sum::<usize>();
             assert_eq!(
                 budget.reserved(),
-                retained + templates.1.reserved(),
+                alias_baseline + retained + templates.1.accounted_bytes(),
                 "concurrent duplicate misses retain only the winning template reservation"
             );
         }
@@ -4213,6 +4239,17 @@ mod tests {
             }
             let selected = compatible.plain_binding(Package::NAME).unwrap();
             let compatible_session = compatible.session(&workspace).await.unwrap();
+            assert!(
+                compatible
+                    .prepared_session
+                    .get()
+                    .unwrap()
+                    .aliases
+                    .ports
+                    .values()
+                    .all(|port| port.resolved().is_err()),
+                "capturing a real completed inventory does not eagerly earn every native view"
+            );
             let plain = compatible_session
                 .table_provider(Package::NAME)
                 .await
@@ -4233,7 +4270,9 @@ mod tests {
                     .unwrap();
                 assert!(Arc::ptr_eq(
                     &provider,
-                    &prepared.aliases[&CompletedInputs::table(name, prefix)]
+                    prepared.aliases.ports[&CompletedInputs::table(name, prefix)]
+                        .resolved()
+                        .unwrap()
                 ));
             }
             let mut distinct_view = compatible.clone();
@@ -4423,7 +4462,6 @@ mod tests {
     }
     async fn cancelled_final_close_retains_batch_and_writer(late_failure: bool) {
         let batch_budget = ResourceBudget::fixed(1 << 20).unwrap();
-        let task_budget = ResourceBudget::fixed(1 << 20).unwrap();
         let batch = Batch::new(
             &model(),
             vec![Package {
@@ -4435,6 +4473,7 @@ mod tests {
         let charged = batch_budget.reserved();
         assert!(charged > 0);
         let native = crate::test_native::store();
+        let task_budget = native.recovery_scope().unwrap().budget().clone();
         let calls = Arc::new(crate::native_calls::NativeCalls::new(
             native.clone(),
             Cancellation::default(),
@@ -4468,8 +4507,11 @@ mod tests {
             calls: calls.clone(),
             keep_alive: Box::new(CloseOwnerWitness(dropped.clone())),
         };
-        let caller = tokio::spawn(close_writer(Box::new(move || Ok(prepared))));
-        entered.notified().await;
+        let mut caller = tokio::spawn(close_writer(Box::new(move || Ok(prepared))));
+        tokio::select! {
+            () = entered.notified() => {},
+            result = &mut caller => panic!("final close returned before entering the submitted write: {:?}", result.map(|outcome| outcome.map(|_| ()))),
+        }
         caller.abort();
         assert!(caller.await.is_err());
         assert_eq!(batch_budget.reserved(), charged);
@@ -4508,7 +4550,14 @@ mod tests {
     async fn cancelled_final_close_retains_late_failure_without_releasing_batch_early() {
         cancelled_final_close_retains_batch_and_writer(true).await;
     }
-    async fn packages(memory: usize, batch: usize, reverse: bool) -> Arc<CompletedRelation> {
+    // One row beyond the larger transfer batch exercises multiple batches in both
+    // variants; this is a canonical-stream contract control, not a volume benchmark.
+    const CANONICAL_STREAM_ROWS: usize = 4097;
+    async fn packages(
+        memory: usize,
+        batch: usize,
+        reverse: bool,
+    ) -> (Arc<Workspace>, Arc<CompletedRelation>) {
         let workspace = Workspace::new(
             model(),
             WorkspaceOptions {
@@ -4528,7 +4577,7 @@ mod tests {
             [<Package>::NAME],
         );
         output.declare::<Package>().unwrap();
-        let rows: Vec<_> = (0..20000)
+        let rows: Vec<_> = (0..CANONICAL_STREAM_ROWS)
             .map(|n| Package {
                 name: format!("package-{n:08}"),
             })
@@ -4543,7 +4592,8 @@ mod tests {
             }
         }
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        workspace.completed::<Package>().unwrap()
+        let completed = workspace.completed::<Package>().unwrap();
+        (workspace, completed)
     }
     #[tokio::test]
     async fn sync_and_async_declarations_share_registration_before_writer_visibility() {
@@ -4627,11 +4677,18 @@ mod tests {
                 .is_empty()
         );
         assert!(refused.finish(ProviderOutcome::Complete).await.is_err());
-        let duplicate = workspace.output(
+        assert!(workspace.cancellation().check().is_err());
+        let duplicate_workspace = Workspace::new(
+            model(),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let duplicate = duplicate_workspace.output(
             "duplicate-async",
             Profile::Catalog,
             ContentHash::of(b"duplicate-async"),
-            workspace
+            duplicate_workspace
                 .inputs("duplicate-async", Profile::Catalog, [])
                 .unwrap(),
             [Package::NAME],
@@ -4641,7 +4698,23 @@ mod tests {
             matches!(duplicate.declare_async::<Package>().await,Err(ModelError::Invalid(message)) if message.contains("declared twice"))
         );
         assert!(duplicate.finish(ProviderOutcome::Complete).await.is_err());
-        workspace.drain().await.unwrap();
+        for attempt in [workspace, duplicate_workspace] {
+            let budget = attempt.budget().clone();
+            let native = attempt.native().clone();
+            let connection = native
+                .recovery_scope()
+                .unwrap()
+                .client()
+                .connection_completion()
+                .unwrap();
+            attempt.drain().await.unwrap();
+            native.abandon().await.unwrap();
+            drop(attempt);
+            drop(native);
+            connection.wait().await.unwrap();
+            drop(connection);
+            assert_eq!(budget.reserved(), 0);
+        }
     }
     #[tokio::test]
     async fn shared_stream_preserves_order_exact_snapshot_and_read_only_refusal() {
@@ -4739,10 +4812,15 @@ mod tests {
     }
     #[tokio::test]
     async fn canonical_stream_is_independent_of_batching_order_and_memory_limit() {
-        let ordinary = packages(64 << 20, 4096, false).await;
-        let constrained = packages(2 << 20, 128, true).await;
+        let (ordinary_workspace, ordinary) = packages(64 << 20, 4096, false).await;
+        // The pool covers simultaneous native compression and guarded stream preparation,
+        // as well as bounded ingestion and reads; it remains smaller than the ordinary pool.
+        let (constrained_workspace, constrained) = packages(32 << 20, 128, true).await;
         assert_eq!(ordinary.view_identity(), constrained.view_identity());
-        assert_eq!(constrained.rows(), 20000);
+        assert_eq!(
+            constrained.rows(),
+            u64::try_from(CANONICAL_STREAM_ROWS).unwrap()
+        );
         let mut last = None;
         let mut rows = 0;
         for batch in constrained.batches().unwrap() {
@@ -4753,7 +4831,26 @@ mod tests {
                 rows += 1;
             }
         }
-        assert_eq!(rows, 20000);
+        assert_eq!(rows, CANONICAL_STREAM_ROWS);
+        drop(ordinary);
+        drop(constrained);
+        for workspace in [ordinary_workspace, constrained_workspace] {
+            let budget = workspace.budget().clone();
+            let native = workspace.native().clone();
+            let connection = native
+                .recovery_scope()
+                .unwrap()
+                .client()
+                .connection_completion()
+                .unwrap();
+            workspace.drain().await.unwrap();
+            native.abandon().await.unwrap();
+            drop(workspace);
+            drop(native);
+            connection.wait().await.unwrap();
+            drop(connection);
+            assert_eq!(budget.reserved(), 0);
+        }
     }
     #[tokio::test]
     async fn provider_completion_retains_typed_panic_and_terminal_state() {
@@ -5535,8 +5632,11 @@ mod composition_controls {
                 .lock()
                 .unwrap()
                 .insert("paused", pause.clone());
-            let completing = tokio::spawn(output.finish(ProviderOutcome::Complete));
-            pause.ready.notified().await;
+            let mut completing = tokio::spawn(output.finish(ProviderOutcome::Complete));
+            tokio::select! {
+                () = pause.ready.notified() => {},
+                result = &mut completing => panic!("output finish returned before private composition pause: {result:?}"),
+            }
             assert!(
                 workspace.completed::<Package>().is_err(),
                 "private preparations are invisible"

@@ -62,11 +62,9 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 }
 
 async fn contribution(workspace: &Workspace) -> CompletedContribution {
-    let native_operation_budget =
-        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let mut inventory = workspace
         .native()
-        .contributions(&native_operation_budget)
+        .contributions(workspace.budget())
         .await
         .unwrap();
     assert_eq!(inventory.len(), 1);
@@ -80,6 +78,58 @@ async fn contribution(workspace: &Workspace) -> CompletedContribution {
     assert_eq!(contribution.outputs[Provider::NAME].rows, 1);
     assert_eq!(contribution.outputs[Package::NAME].rows, 1);
     contribution
+}
+
+fn assert_owner_hold_plan(
+    plan: &lctx_native::surrealdb::types::Value,
+    parent: &lctx_native::surrealdb::types::RecordId,
+) {
+    use lctx_native::surrealdb::types::{ToSql, Value};
+    fn visit(node: &Value, expected: &str, scans: &mut usize) {
+        let object = node.as_object().expect("native inventory plan object");
+        let Some(Value::String(operator)) = object.get("operator") else {
+            panic!("native inventory plan operator: {node:?}");
+        };
+        match operator.as_str() {
+            "IndexScan" => {
+                *scans += 1;
+                let attributes = object.get("attributes").unwrap().as_object().unwrap();
+                assert_eq!(
+                    attributes.get("index"),
+                    Some(&Value::String("owner_holds".into())),
+                    "{node:?}"
+                );
+                assert_eq!(
+                    attributes.get("access"),
+                    Some(&Value::String(expected.into())),
+                    "exact owner prefix: {node:?}"
+                );
+                assert_eq!(
+                    attributes.get("direction"),
+                    Some(&Value::String("Forward".into())),
+                    "{node:?}"
+                );
+                assert!(
+                    object.get("children").is_none(),
+                    "one native index leaf: {node:?}"
+                );
+            }
+            "SelectProject" | "Sort" | "SortByKey" | "Filter" => {
+                let Some(Value::Array(children)) = object.get("children") else {
+                    panic!("native inventory plan children: {node:?}");
+                };
+                assert_eq!(children.len(), 1, "one owner inventory branch: {node:?}");
+                for child in children.iter() {
+                    visit(child, expected, scans);
+                }
+            }
+            _ => panic!("unexpected native inventory operator: {node:?}"),
+        }
+    }
+    let expected = Value::Array(vec![Value::RecordId(parent.clone())].into()).to_sql();
+    let mut scans = 0;
+    visit(plan, &expected, &mut scans);
+    assert_eq!(scans, 1, "exactly one owner prefix scan: {plan:?}");
 }
 
 #[tokio::test]
@@ -117,8 +167,6 @@ async fn ordinary_output_composes_stage_code_without_rewriting_supplier_identity
 
 #[tokio::test]
 async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_inventory() {
-    let native_operation_budget =
-        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let supplier = supplier();
     let current = produce(supplier.build_digest, &supplier).await;
     let current_descriptor = contribution(&current).await;
@@ -145,7 +193,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             &pending,
             &relations[0],
             &Provider::encode(std::slice::from_ref(&captured_supplier)).unwrap(),
-            &native_operation_budget,
+            source.budget(),
         )
         .await
         .unwrap();
@@ -155,7 +203,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             &pending,
             &relations[1],
             &Package::encode(&[package()]).unwrap(),
-            &native_operation_budget,
+            source.budget(),
         )
         .await
         .unwrap();
@@ -166,7 +214,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             ProviderOutcome::Complete,
             &relations,
             &BTreeMap::new(),
-            &native_operation_budget,
+            source.budget(),
         )
         .await
         .unwrap();
@@ -187,44 +235,75 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     source.restore(Profile::Catalog).await.unwrap();
     let expected = contribution(&source).await;
     assert_eq!(expected.spec, captured);
-    let bindings = source.native().bindings().await.unwrap();
+    let mut bindings = source.native().bindings().await.unwrap();
     let export = tempfile::NamedTempFile::new().unwrap();
     source
         .native()
-        .freeze_content(&native_operation_budget)
+        .freeze_content(source.budget())
         .await
         .unwrap();
+    {
+        // Earn the real compound parent, then EXPLAIN both unchanged production
+        // inventory selectors under this source's actual client, pool and scope.
+        let physical = source
+            .native()
+            .complete_physical_content(source.budget())
+            .await
+            .unwrap();
+        let parent = physical.completion().record().unwrap();
+        let scope = source.native().recovery_scope().unwrap();
+        let reader =
+            lctx_native::NativeReader::private(scope.client().clone()).with_budget(source.budget());
+        let result = lctx_native::control::with_recovery_scope(scope, async {
+            for sql in [
+                lctx_native::completed_state::COMPOUND_BINDING_POINTERS_SQL,
+                lctx_native::completed_state::COMPOUND_PARENT_HOLDS_SQL,
+            ] {
+                let mut bindings = lctx_native::surrealdb::types::Variables::new();
+                bindings.insert("compound_parent", parent.clone());
+                let plan: lctx_native::surrealdb::types::Value = reader
+                    .query_native(&format!("{sql} EXPLAIN"), bindings)
+                    .await?;
+                assert_owner_hold_plan(&plan, &parent);
+            }
+            Ok::<_, lctx_model::domain::ModelError>(())
+        })
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        // This private reader borrows the source session; close drains only its
+        // query operations. The workspace retains the actual session owner.
+        completion.step(
+            "compound inventory explain reader drainage",
+            reader.close().await,
+        );
+        lctx_model::domain::completion::complete(result, completion).unwrap();
+    }
     let state = source
         .native()
-        .export_state(export.path(), &native_operation_budget)
+        .export_state(export.path(), source.budget())
         .await
         .unwrap();
 
     let restored = workspace();
     // Completed-state transport carries contribution/membership state. Its canonical graph
-    // payload is loaded through the independent graph loader before cold state admission.
-    let config_path = std::path::PathBuf::from(
-        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
-    );
-    let config = lctx_native::RuntimeConfig::read(&config_path).unwrap();
-    let admin = lctx_native::reader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        restored.native().namespace().as_str(),
-        restored.native().database().as_str(),
-    )
+    // payload is loaded through the graph loader before cold state admission, using the
+    // restored attempt's actual owned session and resource pool.
+    let recovery = restored.native().recovery_scope().unwrap();
+    let client = recovery.client().clone();
+    lctx_native::control::with_recovery_scope(recovery, async {
+        lctx_native::Loader::for_attempt_views(client, restored.native().attempt(), vec![])
+            .with_budget(restored.budget())
+            .entities(&[
+                Entity::from(captured_supplier.clone()),
+                Entity::from(package()),
+            ])
+            .await
+    })
     .await
     .unwrap();
-    lctx_native::Loader::for_attempt_views(admin, restored.native().attempt(), vec![])
-        .entities(&[
-            Entity::from(captured_supplier.clone()),
-            Entity::from(package()),
-        ])
-        .await
-        .unwrap();
     restored
         .native()
-        .import_state(export.path(), &state, &native_operation_budget)
+        .import_state(export.path(), &state, restored.budget())
         .await
         .unwrap();
     restored.restore(Profile::Catalog).await.unwrap();
@@ -236,15 +315,25 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         "cold restoration retains captured execution rather than current-build composition"
     );
     assert_eq!(imported.identity().unwrap(), expected.identity().unwrap());
+    restored
+        .native()
+        .freeze_content(restored.budget())
+        .await
+        .unwrap();
     assert_eq!(
         restored
             .native()
-            .completed_state(&native_operation_budget)
+            .completed_state(restored.budget())
             .await
             .unwrap(),
         state.semantic
     );
-    assert_eq!(restored.native().bindings().await.unwrap(), bindings);
+    let mut restored_bindings = restored.native().bindings().await.unwrap();
+    // Native iteration orders physical IDs derived from each attempt. Exact logical
+    // inventory comparison uses binding keys while retaining every full descriptor.
+    bindings.sort_by_key(CompletedBinding::key);
+    restored_bindings.sort_by_key(CompletedBinding::key);
+    assert_eq!(restored_bindings, bindings);
     assert_eq!(rows::<Provider>(&restored), vec![captured_supplier]);
     assert_eq!(rows::<Package>(&restored), vec![package()]);
     for relation in &relations {
@@ -253,7 +342,21 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             &views[relation.name()]
         );
     }
-    current.drain().await.unwrap();
-    source.drain().await.unwrap();
-    restored.drain().await.unwrap();
+    for attempt in [current, source, restored] {
+        let budget = attempt.budget().clone();
+        let native = attempt.native().clone();
+        let connection = native
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        attempt.drain().await.unwrap();
+        native.abandon().await.unwrap();
+        drop(attempt);
+        drop(native);
+        connection.wait().await.unwrap();
+        drop(connection);
+        assert_eq!(budget.reserved(), 0);
+    }
 }

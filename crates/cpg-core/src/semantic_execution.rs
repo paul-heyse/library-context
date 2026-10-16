@@ -466,11 +466,18 @@ pub async fn evaluate_base(
                         let window = captured
                             .cohort(local_start, local_width, budget, &runtime.cancellation())
                             .await?;
-                        let syntax = match execution::evaluation::PreparedSyntax::new(
+                        tracing::info!(target:"lctx_phase", observation="base_expression_compute_window",
+                            kernel="Expression", root_first=?window.keys.first(), root_count=window.keys.len(),
+                            start=local_start, width=window.keys.len());
+                        let syntax_phase =
+                            lctx_native::phase::Phase::begin("base_expression_syntax_preparation");
+                        let syntax_result = execution::evaluation::PreparedSyntax::new(
                             window.data.data.view(),
                             invocation.context,
                             budget,
-                        ) {
+                        );
+                        syntax_phase.finish_result(&syntax_result);
+                        let syntax = match syntax_result {
                             Ok(syntax) => syntax,
                             Err(ModelError::Resource { .. }) if window.keys.len() > 1 => {
                                 local_width = (window.keys.len() / 2).max(1);
@@ -480,6 +487,9 @@ pub async fn evaluate_base(
                         };
                         for (partition, key) in window.keys.iter().enumerate() {
                             runtime.cancellation().check()?;
+                            let mut computation_phase = Some(lctx_native::phase::Phase::begin(
+                                "base_expression_computation",
+                            ));
                             let computation = (|| {
                                 let selected = window.partition(partition, budget)?;
                                 let data = selected.evaluation()?;
@@ -533,12 +543,23 @@ pub async fn evaluate_base(
                                     let _headroom =
                                         budget.reserve("Base-cohort-output-headroom", bound)?;
                                 }
-                                produced
+                                computation_phase
+                                    .take()
+                                    .expect("active expression computation observation")
+                                    .finish(lctx_native::phase::Terminal::Passed);
+                                let adoption_phase =
+                                    lctx_native::phase::Phase::begin("base_expression_adoption");
+                                let adoption = produced
                                     .as_mut()
                                     .expect("actual Base frame owner")
-                                    .append_expression(owner)?;
+                                    .append_expression(owner);
+                                adoption_phase.finish_result(&adoption);
+                                adoption?;
                                 Ok::<_, ModelError>(records)
                             })();
+                            if let Some(phase) = computation_phase {
+                                phase.finish_result(&computation);
+                            }
                             let records = match computation {
                                 Ok(records) => records,
                                 Err(error)
@@ -562,7 +583,11 @@ pub async fn evaluate_base(
                                 outcome.reason =
                                     Some(obligation::ObligationKind::UnsupportedControlFlow);
                             }
-                            emit_evaluation(&records, &output).await?;
+                            let emission_phase =
+                                lctx_native::phase::Phase::begin("base_expression_emission");
+                            let emission = emit_evaluation(&records, &output).await;
+                            emission_phase.finish_result(&emission);
+                            emission?;
                             drop(records);
                             local_start += 1;
                             tokio::task::yield_now().await;
@@ -1846,7 +1871,7 @@ pub async fn enrich(
 mod produced_authority_controls {
     use super::*;
     use crate::workspace::WorkspaceOptions;
-    use lctx_model::domain::source::SourceArtifact;
+    use lctx_model::domain::{artifact::ArtifactChunk, source::SourceArtifact};
     fn nominal<R>(value: u8) -> Id<R> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,
@@ -1854,15 +1879,24 @@ mod produced_authority_controls {
         >::new([value; 16].into_iter()))
         .unwrap()
     }
-    async fn publish(runtime: &Arc<Workspace>, name: &'static str, artifact: SourceArtifact) {
+    async fn publish(
+        runtime: &Arc<Workspace>,
+        name: &'static str,
+        artifact: SourceArtifact,
+        bytes: &[u8],
+    ) {
         let output = runtime.output(
             name,
             Profile::Catalog,
             ContentHash::of(name.as_bytes()),
             runtime.inputs(name, Profile::Catalog, []).unwrap(),
-            [<SourceArtifact>::NAME],
+            [SourceArtifact::NAME, ArtifactChunk::NAME],
         );
         output.declare::<SourceArtifact>().unwrap();
+        output.declare::<ArtifactChunk>().unwrap();
+        for chunk in ArtifactChunk::split(&artifact, bytes).unwrap() {
+            output.push(chunk).await.unwrap();
+        }
         output.push(artifact).await.unwrap();
         output.finish(ProviderOutcome::Complete).await.unwrap();
     }
@@ -1876,7 +1910,7 @@ mod produced_authority_controls {
         )
         .unwrap();
         let artifact = SourceArtifact::from_bytes(nominal(1), "source.py".into(), b"x").unwrap();
-        publish(&runtime, "first", artifact.clone()).await;
+        publish(&runtime, "first", artifact.clone(), b"x").await;
         let selected = runtime
             .inputs("consumer", Profile::Catalog, [SourceArtifact::NAME])
             .unwrap();
@@ -1948,7 +1982,7 @@ mod produced_authority_controls {
             crate::test_native::store(),
         )
         .unwrap();
-        publish(&other, "same-content", artifact).await;
+        publish(&other, "same-content", artifact, b"x").await;
         let foreign = other
             .inputs("consumer", Profile::Catalog, [SourceArtifact::NAME])
             .unwrap();
@@ -1968,15 +2002,18 @@ mod produced_authority_controls {
             Profile::Catalog,
             ContentHash::of(b"second"),
             runtime.inputs("second", Profile::Catalog, []).unwrap(),
-            [<SourceArtifact>::NAME],
+            [SourceArtifact::NAME, ArtifactChunk::NAME],
         );
-        let batch = Batch::new(
+        let second = SourceArtifact::from_bytes(nominal(1), "second.py".into(), b"y").unwrap();
+        let chunks = Batch::new(
             runtime.model(),
-            vec![SourceArtifact::from_bytes(nominal(1), "second.py".into(), b"y").unwrap()],
+            ArtifactChunk::split(&second, b"y").unwrap().collect(),
             runtime.budget(),
         )
         .unwrap();
+        let batch = Batch::new(runtime.model(), vec![second], runtime.budget()).unwrap();
         contribution.contribute(batch).unwrap();
+        contribution.contribute(chunks).unwrap();
         contribution
             .finish(ProviderOutcome::Complete)
             .await
@@ -1989,6 +2026,28 @@ mod produced_authority_controls {
             Err(ModelError::Conflict(_))
         ));
         assert_eq!(*produced.borrow(&selected, &runtime).unwrap(), 7);
+        drop(produced);
+        drop(selected);
+        drop(foreign);
+        drop(changed_profile);
+        drop(changed);
+        for attempt in [runtime, other] {
+            let budget = attempt.budget().clone();
+            let native = attempt.native().clone();
+            let connection = native
+                .recovery_scope()
+                .unwrap()
+                .client()
+                .connection_completion()
+                .unwrap();
+            attempt.drain().await.unwrap();
+            native.abandon().await.unwrap();
+            drop(attempt);
+            drop(native);
+            connection.wait().await.unwrap();
+            drop(connection);
+            assert_eq!(budget.reserved(), 0);
+        }
     }
     #[test]
     fn requested_production_refuses_absent_predecessor_owners() {

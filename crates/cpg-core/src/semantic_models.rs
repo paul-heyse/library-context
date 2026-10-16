@@ -751,14 +751,17 @@ mod selected_catalog_controls {
     }
     #[tokio::test]
     async fn captured_catalog_is_selected_before_rich_decode() {
+        // Ingestion and transport truthfully admit both catalogs. Rich consumer state has
+        // its own smaller ceiling, whose allocations remain charged to this same parent.
+        let ingress_bytes = 512 << 20;
         let runtime = Workspace::new(
             Arc::new(model().unwrap()),
             crate::workspace::WorkspaceOptions {
-                memory_bytes: 128 << 20,
+                memory_bytes: ingress_bytes,
                 partitions: 1,
                 batch_rows: 16,
             },
-            crate::test_native::store_with_limit(128 << 20),
+            crate::test_native::store_with_limit(ingress_bytes),
         )
         .unwrap();
         let parsed = models::Catalog::parse(
@@ -767,7 +770,7 @@ mod selected_catalog_controls {
         )
         .unwrap();
         let catalog = parsed.declaration();
-        let huge_source = format!("{}\n#{}", catalog.source, "x".repeat(6 << 20));
+        let huge_source = format!("{}\n#{}", catalog.source, "x".repeat(1 << 20));
         let unrelated = models::ModelCatalog {
             source_name: "unrelated.toml".into(),
             source: huge_source.clone(),
@@ -796,7 +799,8 @@ mod selected_catalog_controls {
             )
             .unwrap();
         let session = access.session(&runtime).await.unwrap();
-        let budget = resources::ResourceBudget::fixed(256 << 10).unwrap();
+        let parent = runtime.budget().clone();
+        let budget = resources::ResourceBudget::scoped(&parent, 256 << 10).unwrap();
         let declaration = ValidationInput::of::<models::ModelCatalog>(&["id"]);
         let mut consumed =
             crate::consumed_rows::ConsumedInputs::new(vec![declaration.clone()], &budget).unwrap();
@@ -811,19 +815,38 @@ mod selected_catalog_controls {
         assert_eq!(budget.reserved(), 0);
         let permit = access.read::<models::ModelCatalog>().unwrap();
         let mut whole = Rows::<models::ModelCatalog>::new(&budget);
+        let error = crate::consumed_rows::stream_at(
+            &permit,
+            &declaration,
+            &access,
+            &session,
+            |_, batch| whole.decode(batch),
+        )
+        .await
+        .unwrap_err();
         assert!(
-            crate::consumed_rows::stream_at(
-                &permit,
-                &declaration,
-                &access,
-                &session,
-                |_, batch| whole.decode(batch)
-            )
-            .await
-            .is_err(),
-            "unused rich catalog would exceed the selected consumer budget"
+            matches!(&error, ModelError::Resource { owner: "normalized-decode", limit, .. } if *limit == budget.limit()),
+            "unused rich catalog must refuse in the bounded rich consumer: {error}"
         );
         drop(whole);
         assert_eq!(budget.reserved(), 0);
+        drop(permit);
+        drop(session);
+        drop(access);
+        let native = runtime.native().clone();
+        let connection = native
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        runtime.drain().await.unwrap();
+        native.abandon().await.unwrap();
+        drop(runtime);
+        drop(native);
+        connection.wait().await.unwrap();
+        drop(connection);
+        assert_eq!(budget.reserved(), 0);
+        assert_eq!(parent.reserved(), 0);
     }
 }

@@ -1600,7 +1600,7 @@ async fn indexed_occurrence_driver_checks_shared_dependencies_late_absence_and_u
     fixture.close().await.unwrap();
 }
 /// Inspect the exact SELECT embedded in production scoring, not a lookalike.
-/// Both IN dimensions must appear in every compound equality key in the plan.
+/// Both scalar dimensions must appear in every compound equality key in the plan.
 async fn qualify_posting_dimensions(reader: &NativeReader<()>) {
     let scope = lctx_native::lexical_stats::scope_identity(reader).unwrap();
     let mut vars = Variables::new();
@@ -1615,60 +1615,86 @@ async fn qualify_posting_dimensions(reader: &NativeReader<()>) {
     vars.insert("query_terms", terms.to_vec());
     let plan: Value = reader
         .query_native(
-            format!(
-                "{} EXPLAIN FULL",
-                lctx_native::lexical_stats::posting_selection_sql()
-            ),
+            lctx_native::lexical_stats::posting_selection_sql(true),
             vars.clone(),
         )
         .await
         .unwrap();
-    let steps = plan.as_array().expect("native EXPLAIN steps");
-    let mut found = false;
+    // Closure SELECTs at the pin use the legacy evaluator, whose EXPLAIN is
+    // flat operation/detail steps. Check that actual route, not the top-level
+    // pipeline planner's different operator-tree representation.
+    use surrealdb::types::ToSql;
+    let mut actual = Vec::new();
+    let steps = plan
+        .as_array()
+        .unwrap_or_else(|| panic!("native point plans: {plan:?}"));
     for step in steps.iter() {
         let step = step.as_object().unwrap();
-        assert_ne!(
-            step.get("operation"),
-            Some(&Value::String("Iterate Table".to_owned())),
-            "postings cannot use a table iterator: {plan:?}"
-        );
-        if step.get("operation") != Some(&Value::String("Iterate Index".to_owned())) {
+        let Some(Value::String(operation)) = step.get("operation") else {
+            panic!("native point operation: {plan:?}");
+        };
+        if matches!(
+            operation.as_str(),
+            "Collector" | "Fetch" | "RecordStrategy" | "StartLimitStrategy"
+        ) {
             continue;
         }
+        assert_eq!(
+            operation, "Iterate Index",
+            "every access must be a compound point seek: {plan:?}"
+        );
         let detail = step.get("detail").unwrap().as_object().unwrap();
-        let index = detail.get("plan").unwrap().as_object().unwrap();
         assert_eq!(
-            index.get("index"),
-            Some(&Value::String("document_term".to_owned()))
+            detail.get("table"),
+            Some(&Value::String("lexical_posting".into())),
+            "{plan:?}"
+        );
+        let point = detail.get("plan").unwrap().as_object().unwrap();
+        assert_eq!(
+            point.get("index"),
+            Some(&Value::String("document_term".into())),
+            "{plan:?}"
         );
         assert_eq!(
-            index.get("operator"),
-            Some(&Value::String("union".to_owned()))
+            point.get("operator"),
+            Some(&Value::String("=".into())),
+            "{plan:?}"
         );
-        let combinations = index.get("value").unwrap().as_array().unwrap();
-        assert_eq!(combinations.len(), documents.len() * terms.len());
-        for document in &documents {
-            for term in terms {
-                assert!(
-                    combinations.iter().any(|key| {
-                        let key = key.as_array().unwrap();
-                        key.len() == 2
-                            && key[0] == Value::RecordId(document.clone())
-                            && key[1] == Value::String(term.to_owned())
-                    }),
-                    "both candidate and query-term dimensions are required in each lookup: {plan:?}"
-                );
-            }
-        }
-        found = true;
+        let key = point.get("value").unwrap();
+        assert_eq!(
+            key.as_array().unwrap().len(),
+            2,
+            "both index dimensions: {plan:?}"
+        );
+        actual.push(key.to_sql());
     }
-    assert!(
-        found,
-        "a compound posting index iteration is required: {plan:?}"
+    let mut expected = Vec::new();
+    for document in &documents {
+        for term in terms {
+            expected.push(
+                Value::Array(
+                    vec![
+                        Value::RecordId(document.clone()),
+                        Value::String(term.into()),
+                    ]
+                    .into(),
+                )
+                .to_sql(),
+            );
+        }
+    }
+    actual.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(
+        actual, expected,
+        "exact candidate/query-term Cartesian seeks: {plan:?}"
     );
     println!("CN07 production posting EXPLAIN FULL: {plan:?}");
     let rows: Vec<Value> = reader
-        .query_native(lctx_native::lexical_stats::posting_selection_sql(), vars)
+        .query_native(
+            lctx_native::lexical_stats::posting_selection_sql(false),
+            vars,
+        )
         .await
         .unwrap();
     for row in rows {

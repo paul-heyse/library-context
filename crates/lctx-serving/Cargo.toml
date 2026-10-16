@@ -31,6 +31,6 @@ tempfile.workspace = true
 [lints]
 workspace = true
 
-# Used by the shared catalog_runtime.rs fixture included from cpg-core tests.
+# Used by the shared catalog_runtime.rs and native.rs fixtures included from cpg-core tests.
 [package.metadata.cargo-shear]
-ignored = ["datafusion", "futures"]
+ignored = ["datafusion", "futures", "lctx-tracing", "tracing-subscriber"]

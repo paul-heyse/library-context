@@ -28,7 +28,9 @@ use futures::{
     FutureExt,
     future::{BoxFuture, Shared},
 };
-pub use ingress::{IngressFailure, IngressSequence, NativeIngress, WriteAcknowledgement};
+pub use ingress::{
+    IngressDrainReport, IngressFailure, IngressSequence, NativeIngress, WriteAcknowledgement,
+};
 use lctx_model::domain::{
     self as d, admission::Frontier, completed::*, completed_transport::*, stages::ProviderOutcome,
     *,
@@ -61,16 +63,8 @@ fn admit_native_continuation<'a, T: 'a>(
     budget: &ResourceBudget,
     owner: &'static str,
     body: impl std::future::Future<Output = Result<T, ModelError>> + Send + 'a,
-) -> Result<BoxFuture<'a, Result<T, ModelError>>, ModelError> {
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<Box<dyn Reservation>>())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema("native operation continuation size"))?;
-    let grant = budget.reserve(owner, bytes)?;
-    Ok(Box::pin(async move {
-        let _grant = grant;
-        body.await
-    }))
+) -> Result<lctx_native::continuation::Continuation<'a, Result<T, ModelError>>, ModelError> {
+    lctx_native::continuation::admit(budget, owner, body)
 }
 
 /// One declaration operation may receive the same singleton and cumulative view.
@@ -138,6 +132,50 @@ pub enum NativePredicate {
         preparation: Vec<String>,
     },
 }
+
+// SurrealDB 3.3.0, commit 238bfeb11f5725bebed370167656748df8067595,
+// IndexAnalyzer::MAX_IN_EXPANSION_SIZE. Larger CONTAINSANY arrays cannot become
+// selective by_scope prefix branches. This limits one physical query, not demand,
+// transport windows or concurrency.
+const ATOMIC_FIELD_QUERY_VALUES: usize = 32;
+
+/// Build the exact bounded atomic-field nomination, including physical ownership screening.
+/// Exposed only so native controls can EXPLAIN the production statement and bindings.
+#[doc(hidden)]
+pub fn atomic_field_nomination_query(
+    relation: &Relation,
+    field: &str,
+    owner: ContentHash,
+    values: &[Value],
+    explain: bool,
+) -> Result<crate::prepared::PreparedQuery, ModelError> {
+    if values.is_empty()
+        || values.len() > ATOMIC_FIELD_QUERY_VALUES
+        || !relation
+            .fields()
+            .iter()
+            .any(|candidate| candidate.name() == field)
+        || !crate::schema::atomic_scope_field(relation.name(), field)
+    {
+        return Err(ModelError::Schema("bounded atomic-field nomination"));
+    }
+    let table = crate::schema::ScopeTable::for_relation(relation.name())?.name();
+    let mut bindings = Variables::new();
+    bindings.insert("relation", relation.name().to_string());
+    bindings.insert("values", values.to_vec());
+    bindings.insert("owner", RecordId::new("compiler_contribution", owner.hex()));
+    let constants = crate::prepared::scope_constants("$relation", field, "$values");
+    let select = format!(
+        "SELECT semantic_type AS relation,semantic_key,id AS node FROM {table} WITH INDEX by_scope WHERE scope_keys CONTAINSANY $__compiler_scope AND semantic_type=$relation AND array::len((SELECT VALUE id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation AND semantic_key=$parent.semantic_key AND node=$parent.id LIMIT 1))>0{}",
+        if explain { " EXPLAIN" } else { "" },
+    );
+    crate::prepared::PreparedQuery::new(
+        bindings,
+        vec![format!("LET $__compiler_scope = {constants}")],
+        vec![select],
+    )
+}
+
 fn read_predicate_bytes(predicate: &NativePredicate) -> usize {
     let values = |values: &Vec<Value>| {
         values.iter().map(crate::loader::native_bytes).fold(
@@ -235,6 +273,7 @@ pub struct NativeCompilerStore {
     published_bindings: Mutex<Option<Vec<CompletedBinding>>>,
     published_completion: Mutex<Option<lctx_native::completed_state::PublishedCompletedState>>,
     physical_completed: Mutex<Option<Arc<lctx_native::completed_state::NativeCompletedState>>>,
+    terminal_product_owner: Mutex<Option<Arc<lctx_native::control::HeldTerminalProduct>>>,
     read_only: AtomicBool,
     read_cancellation: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     signal_stop: crate::control::RetryCancellation,
@@ -1621,7 +1660,10 @@ impl NativeCompilerStore {
         self: &'a Arc<Self>,
         views: &'a [CompletedView],
         budget: &'a ResourceBudget,
-    ) -> Result<BoxFuture<'a, Result<crate::NativeReader<()>, ModelError>>, ModelError> {
+    ) -> Result<
+        lctx_native::continuation::Continuation<'a, Result<crate::NativeReader<()>, ModelError>>,
+        ModelError,
+    > {
         admit_native_continuation(
             budget,
             "selected reader construction continuation",
@@ -2125,7 +2167,10 @@ impl NativeCompilerStore {
         view: &'a CompletedView,
         budget: &'a ResourceBudget,
     ) -> Result<
-        BoxFuture<'a, Result<Arc<lctx_native::installed_view::HeldInstalledView>, ModelError>>,
+        lctx_native::continuation::Continuation<
+            'a,
+            Result<Arc<lctx_native::installed_view::HeldInstalledView>, ModelError>,
+        >,
         ModelError,
     > {
         let body = async move {
@@ -2883,7 +2928,10 @@ impl NativeCompilerStore {
         self: &'a Arc<Self>,
         budget: &'a ResourceBudget,
     ) -> Result<
-        BoxFuture<'a, Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError>>,
+        lctx_native::continuation::Continuation<
+            'a,
+            Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError>,
+        >,
         ModelError,
     > {
         admit_native_continuation(budget, "physical completion continuation", async move {
@@ -3085,45 +3133,52 @@ impl NativeCompilerStore {
         admission: &crate::artifact::ArtifactAdmission,
         budget: &ResourceBudget,
     ) -> Result<lctx_native::completed_state::HeldFrozenCompletedState, ModelError> {
-        self.check_frozen_content()?;
-        let physical = admission.physical();
-        let data = physical.completion();
-        if data.attempt != self.attempt || data.generation != self.generation {
-            return Err(ModelError::Conflict(
-                "artifact admission foreign physical completion",
-            ));
-        }
-        admission.evidence().validate_current(
-            admission.model(),
-            physical.inventory().bindings(),
-            &data.roots,
-            budget,
-        )?;
-        let _copy = budget.reserve(
-            "durable complete artifact evidence construction",
-            admission
-                .retained_bytes()
-                .saturating_mul(3)
-                .saturating_add(65536),
-        )?;
-        let persisted = lctx_native::completed_state::CompletedAdmission {
-            version: 2,
-            completion: data.identity()?,
-            completion_incarnation: physical.incarnation(),
-            generation: data.generation,
-            validity_epoch: data.validity_epoch,
-            evidence: admission.evidence().clone(),
-        };
-        let (sql, variables, _plan_charge) =
-            crate::control::completed_admission_plan(physical, &persisted, budget)?;
-        crate::control::effect_frozen_attempt(&self.client, self.attempt, &sql, variables).await?;
-        lctx_native::completed_state::hold_completed_state_from_source_with_model(
-            self.client.clone(),
-            physical,
-            admission.model(),
-            budget,
-        )
-        .await
+        let lease = self.admit(false, "admit_completed_state", true)?;
+        let result = lease
+            .within(async {
+                self.check_frozen_content()?;
+                let physical = admission.physical();
+                let data = physical.completion();
+                if data.attempt != self.attempt || data.generation != self.generation {
+                    return Err(ModelError::Conflict(
+                        "artifact admission foreign physical completion",
+                    ));
+                }
+                admission.evidence().validate_current(
+                    admission.model(),
+                    physical.inventory().bindings(),
+                    &data.roots,
+                    budget,
+                )?;
+                let _copy = budget.reserve(
+                    "durable complete artifact evidence construction",
+                    admission
+                        .retained_bytes()
+                        .saturating_mul(3)
+                        .saturating_add(65536),
+                )?;
+                let persisted = lctx_native::completed_state::CompletedAdmission {
+                    version: 2,
+                    completion: data.identity()?,
+                    completion_incarnation: physical.incarnation(),
+                    generation: data.generation,
+                    validity_epoch: data.validity_epoch,
+                    evidence: admission.evidence().clone(),
+                };
+                let (sql, variables, _plan_charge) =
+                    crate::control::completed_admission_plan(physical, &persisted, budget)?;
+                crate::control::effect_frozen_attempt(&self.client, self.attempt, &sql, variables)
+                    .await?;
+                lctx_native::completed_state::hold_completed_state_from_source_with_model(
+                    self.client.clone(),
+                    physical,
+                    admission.model(),
+                    budget,
+                )
+                .await
+            })
+            .await;
+        lease.finish_with(result)
     }
     pub fn retain_product_identity<'a>(
         self: &'a Arc<Self>,
@@ -3468,26 +3523,52 @@ impl NativeCompilerStore {
         owner: &Arc<lctx_native::control::HeldTerminalProduct>,
         budget: &ResourceBudget,
     ) -> Result<Arc<Self>, ModelError> {
-        Self::terminal_read_owner(
-            self.client.clone(),
-            self.namespace.clone(),
-            self.database.clone(),
-            owner,
-            budget,
-        )
+        let target = owner.recovery_scope().target();
+        if target.namespace != self.namespace.as_str()
+            || target.database != self.database.as_str()
+            || target.endpoint != self.endpoint
+            || target.generation != self.generation
+        {
+            return Err(ModelError::Conflict("terminal read source target differs"));
+        }
+        Self::terminal_read_owner(owner, budget)
     }
     pub(crate) fn terminal_read_owner(
-        client: Arc<Surreal<Client>>,
-        namespace: d::serving::Name,
-        database: d::serving::Name,
-        owner: &lctx_native::control::HeldTerminalProduct,
+        owner: &Arc<lctx_native::control::HeldTerminalProduct>,
         budget: &ResourceBudget,
     ) -> Result<Arc<Self>, ModelError> {
-        let mut store = Self::from_existing(client, namespace, database);
+        let recovery = owner.recovery_scope();
+        if !recovery.budget().shares_pool(budget)
+            || recovery.target().generation != owner.generation()
+        {
+            return Err(ModelError::Conflict("terminal read source scope differs"));
+        }
+        let mut store = Self::from_existing(
+            recovery.client().clone(),
+            d::serving::Name::new(recovery.target().namespace.clone())
+                .map_err(ModelError::codec)?,
+            d::serving::Name::new(recovery.target().database.clone()).map_err(ModelError::codec)?,
+        );
         let fresh =
             Arc::get_mut(&mut store).ok_or(ModelError::Conflict("terminal fresh read owner"))?;
         fresh.generation = owner.generation();
+        fresh.endpoint = recovery.target().endpoint.clone();
         fresh.read_only.store(true, Ordering::Release);
+        *fresh
+            .admission
+            .recovery
+            .lock()
+            .map_err(|_| ModelError::Conflict("terminal read recovery owner"))? =
+            Some(recovery.clone());
+        *fresh
+            .read_cancellation
+            .lock()
+            .map_err(|_| ModelError::Conflict("terminal read cancellation owner"))? =
+            owner.reader(budget).read_cancellation();
+        *fresh
+            .terminal_product_owner
+            .get_mut()
+            .map_err(|_| ModelError::Conflict("terminal read source owner"))? = Some(owner.clone());
         for source in owner.views().values() {
             source.require_pool(budget)?;
             let installed = source.completion();
@@ -3873,6 +3954,7 @@ impl NativeCompilerStore {
             published_bindings: Mutex::new(None),
             published_completion: Mutex::new(None),
             physical_completed: Mutex::new(None),
+            terminal_product_owner: Mutex::new(None),
             read_only: AtomicBool::new(false),
             read_cancellation,
             signal_stop,
@@ -3909,11 +3991,24 @@ impl NativeCompilerStore {
         namespace: d::serving::Name,
         database: d::serving::Name,
     ) -> Arc<Self> {
+        Self::from_existing_with_signal_owners(
+            client,
+            namespace,
+            database,
+            native_signal_owners(None),
+        )
+    }
+    fn from_existing_with_signal_owners(
+        client: Arc<Surreal<Client>>,
+        namespace: d::serving::Name,
+        database: d::serving::Name,
+        owners: NativeSignalOwners,
+    ) -> Arc<Self> {
         let NativeSignalOwners {
             cancellation: signal_stop,
             reads: read_cancellation,
             registration: signals,
-        } = native_signal_owners(None);
+        } = owners;
         Arc::new(Self {
             client,
             database,
@@ -3923,6 +4018,7 @@ impl NativeCompilerStore {
             published_bindings: Mutex::new(None),
             published_completion: Mutex::new(None),
             physical_completed: Mutex::new(None),
+            terminal_product_owner: Mutex::new(None),
             read_only: AtomicBool::new(false),
             read_cancellation,
             signal_stop,
@@ -4785,6 +4881,7 @@ impl NativeCompilerStore {
         let selection = SelectedRows {
             keys,
             installed,
+            direct_lookup: None,
             direct_members: None,
             direct_position: 0,
             budget: budget.clone(),
@@ -5150,6 +5247,27 @@ impl NativeCompilerStore {
         {
             let finality = signals.complete(&completion).await;
             completion.step("borrowed compiler signal owner", finality);
+        }
+        // The adapter borrows the product's actual source session. Only release
+        // that borrow after its accepted reads and installed caps have drained;
+        // the product owner alone closes its pin/session and factory receipt.
+        match self.terminal_product_owner.lock() {
+            Ok(mut owner) => {
+                if completion.local == d::completion::LocalState::Terminal
+                    && completion.remote == d::completion::RemoteState::Confirmed
+                {
+                    owner.take();
+                } else if let Some(owner) = owner.as_ref() {
+                    owner.retain_unknown();
+                }
+            }
+            Err(_) => {
+                completion.local = d::completion::LocalState::Outstanding;
+                completion.step(
+                    "terminal product source borrow release",
+                    Err(ModelError::Conflict("terminal read source owner")),
+                );
+            }
         }
         completion
     }
@@ -8730,42 +8848,97 @@ impl NativeCompilerStore {
             source_hold: None,
             confirmed: false,
         };
-        let result=async {
-        // Exact empty demand still passes the owner, view and shape checks above. There is
-        // no physical stream to hold or drain, and no fabricated transport receipt. Internal
-        // SQL predicates keep their ordinary execution/error semantics.
-        if supplied_cap {
-            // The captured provider owns this source capability, but every delayed
-            // execution still checks the actual source pin and current installation.
-            // Its immutable closure is already earned beneath that live pin; independent
-            // receiving/final boundaries retain full exact recapture and CAS.
-            // The provider's captured consumer budget owns this check and setup;
-            // the source capability retains its original independent pool charges.
-            let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
-            let result=installed.ensure_borrowed_current(&reader,budget).await;
-            let mut terminal=d::completion::Completion::default();
-            terminal.step("provider held-selector read close",reader.close().await);
-            d::completion::complete(result,terminal)?;
-        }
-        if empty {
-            return Ok(CompilerRows {
-                descendant: None,
-                producing: self.producing_binding()?,
-                rows: None,
-                selection: None,
-                graph: None,
-                store: self.clone(),
-                lease: None,
-                setup: None,
-                installed: None,
-            source_hold: None,
-            });
-        }
-        if let Some(mut keys) = explicit_keys {
-            keys.sort_unstable();
-            keys.dedup();
-            return self.track_selection(
-                SelectionKeys::Known(keys.into_iter()),
+        let result = async {
+            // Exact empty demand still passes the owner, view and shape checks above. There is
+            // no physical stream to hold or drain, and no fabricated transport receipt. Internal
+            // SQL predicates keep their ordinary execution/error semantics.
+            if supplied_cap {
+                // The captured provider owns this source capability, but every delayed
+                // execution still checks the actual source pin and current installation.
+                // Its immutable closure is already earned beneath that live pin; independent
+                // receiving/final boundaries retain full exact recapture and CAS.
+                // The provider's captured consumer budget owns this check and setup;
+                // the source capability retains its original independent pool charges.
+                let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+                let result = installed.ensure_borrowed_current(&reader, budget).await;
+                let mut terminal = d::completion::Completion::default();
+                terminal.step("provider held-selector read close", reader.close().await);
+                d::completion::complete(result, terminal)?;
+            }
+            if empty {
+                return Ok(CompilerRows {
+                    descendant: None,
+                    producing: self.producing_binding()?,
+                    rows: None,
+                    selection: None,
+                    graph: None,
+                    store: self.clone(),
+                    lease: None,
+                    setup: None,
+                    installed: None,
+                    source_hold: None,
+                });
+            }
+            if let Some(mut keys) = explicit_keys {
+                keys.sort_unstable();
+                keys.dedup();
+                return self.track_selection(
+                    SelectionKeys::Known(keys.into_iter()),
+                    view,
+                    installed,
+                    relation,
+                    projections.join(","),
+                    predicate,
+                    b,
+                    preparation,
+                    budget,
+                );
+            }
+            let keys = if let Some((field, values)) = atomic_field {
+                let owners = self.view_owners(view)?;
+                let mut sorted = AsyncCandidateSort::new_registered(
+                    budget,
+                    self.blocking_owner()?,
+                    self.blocking_observer()?,
+                )
+                .await?;
+                // Scope values are bounded, and exact ownership is proved before nominal
+                // deduplication so unrelated retained revisions cannot manufacture a collision.
+                for owner in &owners {
+                    for values in values.chunks(ATOMIC_FIELD_QUERY_VALUES) {
+                        let query =
+                            atomic_field_nomination_query(relation, &field, *owner, values, false)?;
+                        let terminals = query.expected_terminals();
+                        let (sql, bindings) = query.into_request();
+                        let mut rows = self.track_rows(prepared_rows(
+                            &self.client,
+                            sql,
+                            bindings,
+                            terminals,
+                            self.read_cancellation()?.as_ref(),
+                            budget,
+                        )?)?;
+                        rows.installed = Some(installed.clone());
+                        while let Some(row) = rows.next_native().await? {
+                            sorted.push(decode_candidate(row, relation.name())?).await?;
+                        }
+                    }
+                }
+                SelectionKeys::Unverified(sorted.finish().await?)
+            } else {
+                let prepared = self.prepare_memberships(view, budget).await?;
+                SelectionKeys::Verified(
+                    AsyncOrderedCandidates::new_registered(
+                        prepared,
+                        budget,
+                        self.blocking_owner()?,
+                        self.blocking_observer()?,
+                    )
+                    .await?,
+                )
+            };
+            self.track_selection(
+                keys,
                 view,
                 installed,
                 relation,
@@ -8774,69 +8947,9 @@ impl NativeCompilerStore {
                 b,
                 preparation,
                 budget,
-            );
+            )
         }
-        let keys = if let Some((field, values)) = atomic_field {
-            let owners = self.view_owners(view)?;
-            let mut sorted = AsyncCandidateSort::new_registered(
-                budget,
-                self.blocking_owner()?,
-                self.blocking_observer()?,
-            )
-            .await?;
-            let table = crate::schema::ScopeTable::for_relation(relation.name())?.name();
-            // Scope values are bounded, and exact ownership is proved before nominal
-            // deduplication so unrelated retained revisions cannot manufacture a collision.
-            for owner in &owners {
-                for values in values.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
-                    let mut bindings = Variables::new();
-                    bindings.insert("relation", relation.name().to_string());
-                    bindings.insert("values", values.to_vec());
-                    bindings.insert("owner", RecordId::new("compiler_contribution", owner.hex()));
-                    let constants =
-                        crate::prepared::scope_constants("$relation", &field, "$values");
-                    let sql = format!(
-                        "LET $__compiler_scope = {constants}; SELECT semantic_type AS relation,semantic_key,id AS node FROM {table} WITH INDEX by_scope WHERE scope_keys CONTAINSANY $__compiler_scope AND semantic_type=$relation AND array::len((SELECT VALUE id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation AND semantic_key=$parent.semantic_key AND node=$parent.id LIMIT 1))>0"
-                    );
-                    let mut rows = self.track_rows(prepared_rows(
-                        &self.client,
-                        sql,
-                        bindings,
-                        2,
-                        self.read_cancellation()?.as_ref(),
-                        budget,
-                    )?)?;
-                    rows.installed=Some(installed.clone());
-                    while let Some(row) = rows.next_native().await? {
-                        sorted.push(decode_candidate(row, relation.name())?).await?;
-                    }
-                }
-            }
-            SelectionKeys::Unverified(sorted.finish().await?)
-        } else {
-            let prepared = self.prepare_memberships(view, budget).await?;
-            SelectionKeys::Verified(
-                AsyncOrderedCandidates::new_registered(
-                    prepared,
-                    budget,
-                    self.blocking_owner()?,
-                    self.blocking_observer()?,
-                )
-                .await?,
-            )
-        };
-        self.track_selection(
-            keys,
-            view,
-            installed,
-            relation,
-            projections.join(","),
-            predicate,
-            b,
-            preparation,
-            budget,
-        )
-        }.await;
+        .await;
         setup_owner.confirmed = result
             .as_ref()
             .err()
@@ -9419,6 +9532,12 @@ enum SelectionKeys {
 struct SelectedRows {
     keys: SelectionKeys,
     installed: Arc<lctx_native::installed_view::HeldInstalledView>,
+    direct_lookup: Option<
+        lctx_native::continuation::Continuation<
+            'static,
+            Result<lctx_native::installed_view::SelectedMembers, ModelError>,
+        >,
+    >,
     direct_members: Option<lctx_native::installed_view::SelectedMembers>,
     direct_position: usize,
     budget: ResourceBudget,
@@ -9485,6 +9604,23 @@ impl SelectedRows {
     async fn next(&mut self) -> Result<Option<Value>, ModelError> {
         loop {
             let window_rows = crate::loader::NATIVE_WINDOW_ROWS;
+            if let Some(lookup) = &mut self.direct_lookup {
+                let result = lookup.await;
+                self.direct_lookup.take();
+                let members = result?;
+                if compact_key_field(&self.fields, &self.predicate, &self.preparation).is_some() {
+                    self.direct_members = Some(members);
+                } else if !members.rows().is_empty() {
+                    self.start_payload(
+                        members
+                            .rows()
+                            .iter()
+                            .map(|member| member.node.clone())
+                            .collect(),
+                    )?;
+                }
+                continue;
+            }
             if let Some(members) = &self.direct_members {
                 if let Some(member) = members.rows().get(self.direct_position) {
                     self.direct_position += 1;
@@ -9555,23 +9691,15 @@ impl SelectedRows {
             );
             if matches!(&self.keys, SelectionKeys::Known(_)) {
                 let reader = self.store.installed_member_reader(&self.budget)?;
-                let members = self
-                    .installed
-                    .members(&reader, &keys, &self.budget)
-                    .boxed()
-                    .await?;
-                if compact_key_field(&self.fields, &self.predicate, &self.preparation).is_some() {
-                    self.direct_members = Some(members);
-                    continue;
-                }
-                let nodes = members
-                    .rows()
-                    .iter()
-                    .map(|member| member.node.clone())
-                    .collect();
-                if !members.rows().is_empty() {
-                    self.start_payload(nodes)?;
-                }
+                let installed = self.installed.clone();
+                let budget = self.budget.clone();
+                // Keep the exact consumed window and its accepted delivery in the
+                // cursor when a caller drops only its pending next() future.
+                self.direct_lookup = Some(admit_native_continuation(
+                    &self.budget,
+                    "selected installed member continuation",
+                    async move { installed.members(&reader, &keys, &budget).await },
+                )?);
                 continue;
             }
             if matches!(&self.keys, SelectionKeys::Verified(_)) {
@@ -10176,10 +10304,38 @@ mod completion_tests {
         d::completion::complete(result, terminal).unwrap();
     }
     fn local_store() -> Arc<NativeCompilerStore> {
-        NativeCompilerStore::from_existing(
+        local_store_with_cancel_observer(|| {})
+    }
+    fn local_store_with_cancel_observer(
+        observer: impl Fn() + Send + Sync + 'static,
+    ) -> Arc<NativeCompilerStore> {
+        // These unconnected, finite protocol controls own a process listener,
+        // not a native session/receipt. Install the actual cancellation pair and
+        // observer once; replacing a live registration would cancel that pair.
+        let cancellation = crate::control::RetryCancellation::default();
+        let reads = Arc::new(Mutex::new(Some(Arc::new(AtomicBool::new(false)))));
+        let token = cancellation.clone();
+        let read_owner = reads.clone();
+        let registration = lctx_native::signal::SignalRegistration::process(move || {
+            token.cancel();
+            if let Ok(flag) = read_owner.lock()
+                && let Some(flag) = &*flag
+            {
+                flag.store(true, Ordering::Release);
+            }
+            observer();
+        })
+        .map(Arc::new)
+        .map_err(Arc::new);
+        NativeCompilerStore::from_existing_with_signal_owners(
             Arc::new(Surreal::init()),
             d::serving::Name::new("local_control").unwrap(),
             d::serving::Name::new("owned_control").unwrap(),
+            NativeSignalOwners {
+                cancellation,
+                reads,
+                registration,
+            },
         )
     }
     #[tokio::test]
@@ -10272,6 +10428,7 @@ mod completion_tests {
             NativeCompilerStore::membership_preparation_key("packages", &[ids[1]]),
             "different physical copies never share an ingredient key"
         );
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn membership_final_drain_is_retryable_and_does_not_relabel_acknowledged_refusal() {
@@ -10306,6 +10463,7 @@ mod completion_tests {
         assert_eq!(terminal.local, d::completion::LocalState::Terminal);
         assert!(store.membership_preparations.lock().unwrap().is_empty());
         assert_eq!(budget.reserved(), 0);
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn view_earning_continuation_admits_before_gates_and_releases_on_unpolled_drop() {
@@ -10332,6 +10490,7 @@ mod completion_tests {
         drop(pending);
         assert_eq!(budget.reserved(), 0);
         assert!(store.product_retention_gates.lock().unwrap().is_empty());
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn view_final_drain_is_retryable_and_foreign_pool_keeps_original_join_owner() {
@@ -10385,6 +10544,7 @@ mod completion_tests {
         assert_eq!(terminal.local, d::completion::LocalState::Terminal);
         assert!(store.view_preparations.lock().unwrap().is_empty());
         assert_eq!(budget.reserved(), 0);
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn view_actual_join_failure_is_sticky_but_acknowledged_join_error_is_not_outer_finality()
@@ -10500,6 +10660,7 @@ mod completion_tests {
         assert!(store.membership_preparations.lock().unwrap().is_empty());
         drop(run);
         assert_eq!(budget.reserved(), 0);
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn membership_inner_join_error_is_operation_diagnostic_not_owner_join_failure() {
@@ -10535,6 +10696,7 @@ mod completion_tests {
         );
         assert!(store.membership_join_failures.lock().unwrap().is_empty());
         assert_eq!(budget.reserved(), 0);
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn late_preparation_descendants_are_joined_after_parent_quiescence() {
@@ -10762,22 +10924,23 @@ mod completion_tests {
         store
             .remember_view_mapping(&root, &source_closure, &budget)
             .unwrap();
-        let known = store.view_mappings.lock().unwrap();
-        assert_eq!(
-            known[&dependency.identity].as_slice(),
-            vec![chosen],
-            "the receiver preserves its own exact equivalent dependency selection"
-        );
-        assert_eq!(
-            known[&root.identity].as_slice(),
-            source_closure,
-            "root retains its own full closure without replacing the dependency root selection"
-        );
+        {
+            let known = store.view_mappings.lock().unwrap();
+            assert_eq!(
+                known[&dependency.identity].as_slice(),
+                vec![chosen],
+                "the receiver preserves its own exact equivalent dependency selection"
+            );
+            assert_eq!(
+                known[&root.identity].as_slice(),
+                source_closure,
+                "root retains its own full closure without replacing the dependency root selection"
+            );
+        }
         assert!(
             budget.reserved() > 0,
             "mapping allocations retain their budget owner"
         );
-        drop(known);
         let retained_before = budget.reserved();
         let first = store.retained_selected_mappings(&root).unwrap().unwrap();
         let second = store.retained_selected_mappings(&root).unwrap().unwrap();
@@ -10803,6 +10966,7 @@ mod completion_tests {
         drop(first);
         drop(second);
         assert_eq!(budget.reserved(), 0);
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[test]
     fn detached_transport_preserves_distinct_completions_of_one_specification() {
@@ -10928,6 +11092,7 @@ mod completion_tests {
             error,
             ModelError::Conflict("missing explicit selected contributor")
         ));
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn registering_contribution_cannot_complete_or_write_before_checked_attachment() {
@@ -11065,6 +11230,7 @@ mod completion_tests {
         assert!(local.get());
         lease.finish();
         scope.close_and_wait().await.unwrap();
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
 
     #[tokio::test]
@@ -11438,6 +11604,7 @@ mod completion_tests {
         assert!(store.admit(false, "ordinary after seal", false).is_err());
         private.finish();
         assert!(store.begin_finalization().await.is_err());
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
     }
     #[tokio::test]
     async fn cancelled_read_setup_retains_ownership_until_real_completion() {
@@ -11552,42 +11719,108 @@ mod completion_tests {
     }
     #[tokio::test]
     async fn delivered_scan_retains_large_moved_bindings_until_release() {
-        let store = local_store();
-        let budget = ResourceBudget::fixed(2 << 20).unwrap();
-        let relation = Relation::of::<d::input::InputRevision>();
-        let contributor = ContentHash::of(b"binding control contributor");
-        let view = CompletedView::new(relation.name().into(), [contributor].into(), 1).unwrap();
-        store
-            .known_views
-            .lock()
-            .unwrap()
-            .insert(view.identity, view.clone());
-        store
-            .known_contributors
-            .lock()
-            .unwrap()
-            .insert(contributor, contributor);
-        let mut bindings = Variables::new();
-        bindings.insert("large_bound_value", "x".repeat(300_000));
-        let predicate = NativePredicate::KeysSql {
-            keys: vec![[1; 16]],
-            sql: "true".into(),
-            bindings,
-            preparation: vec![],
-        };
-        let rows = store
-            .scan_rows(&view, &relation, None, Some(predicate), &budget)
+        // This control owns a real native view and pool. Its assertion concerns
+        // the moved binding's grant, not the minimum capacity of native transport.
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned validation runtime"),
+        ))
+        .unwrap();
+        let factory = recovery_factory(&config, budget.clone()).unwrap();
+        let store = NativeCompilerStore::begin(&config, Frontier::Facts, &factory)
             .await
             .unwrap();
-        assert!(
-            budget.reserved() >= 300_000,
-            "delivered binding lost its sized owner"
-        );
-        drop(rows);
-        let completion = store.drain_report().await;
-        assert_eq!(completion.remote, d::completion::RemoteState::Confirmed);
-        assert!(completion.failures.is_empty());
-        assert_eq!(budget.reserved(), 0);
+        let connection = store
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let relation = Relation::of::<d::input::InputRevision>();
+            let input = d::input::InputRevision::from_entries(vec![])?;
+            let contribution = store
+                .begin_contribution(ContributionSpec {
+                    captured_binding: None,
+                    producer: format!("moved-bindings-{}", store.attempt().hex()),
+                    profile: OutputProfile::Specific(d::stages::Profile::Catalog),
+                    model: d::model()?.digest(),
+                    implementation: ContentHash::of(b"moved-bindings-control"),
+                    configuration: None,
+                    inputs: vec![],
+                    outputs: [relation.name().into()].into(),
+                })
+                .await?;
+            store
+                .write_batch(
+                    &contribution,
+                    &relation,
+                    &d::input::InputRevision::encode(std::slice::from_ref(&input))?,
+                    &budget,
+                )
+                .await?;
+            let views = store
+                .complete_contribution(
+                    contribution,
+                    ProviderOutcome::Complete,
+                    std::slice::from_ref(&relation),
+                    &BTreeMap::new(),
+                    &budget,
+                )
+                .await?;
+            let view = &views[relation.name()];
+            let mut bindings = Variables::new();
+            bindings.insert("large_bound_value", "x".repeat(300_000));
+            let predicate = NativePredicate::KeysSql {
+                keys: vec![*input.id().bytes()],
+                sql: "true".into(),
+                bindings,
+                preparation: vec![],
+            };
+            let rows = store
+                .scan_rows(view, &relation, None, Some(predicate), &budget)
+                .await?;
+            let setup = rows
+                .setup
+                .as_ref()
+                .expect("delivered scan retains moved setup grant");
+            assert!(
+                setup.size() >= 300_000,
+                "the actual moved binding retains its sized grant"
+            );
+            let retained = Arc::downgrade(setup);
+            assert!(
+                budget.reserved() >= 300_000,
+                "delivered binding lost its sized owner"
+            );
+            drop(rows);
+            let completion = store.drain_report().await;
+            assert_eq!(completion.local, d::completion::LocalState::Terminal);
+            assert_eq!(completion.remote, d::completion::RemoteState::Confirmed);
+            assert!(completion.failures.is_empty(), "{completion:?}");
+            assert!(
+                retained.upgrade().is_none(),
+                "actual scan drainage releases the moved binding grant"
+            );
+            Ok::<_, ModelError>(())
+        })
+        .catch_unwind()
+        .await;
+        let mut completion = store.abandon_finality_report().await;
+        store.append_operation_failures(&mut completion);
+        let closed = d::completion::complete::<()>(Ok(()), completion);
+        drop(store);
+        drop(factory);
+        if closed.is_ok() {
+            connection.wait().await.unwrap();
+            drop(connection);
+            assert_eq!(budget.reserved(), 0);
+        }
+        closed.unwrap();
+        match result {
+            Ok(result) => result.unwrap(),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
     #[tokio::test]
     async fn cancelled_read_setup_retains_a_late_typed_failure_before_quiescence() {
@@ -11764,16 +11997,12 @@ mod completion_tests {
         for retry_acknowledged in [false, true] {
             let abandoned = Arc::new(AtomicBool::new(false));
             let observed = abandoned.clone();
-            let mut store = local_store();
+            let store = local_store_with_cancel_observer(move || {
+                observed.store(true, Ordering::Release);
+            });
             // Use the actual listener/OnceCell protocol without fixture receipt
             // environment mutation or native effects. Drop cancels only an owner
             // whose completion has not been published.
-            Arc::get_mut(&mut store).unwrap().signals =
-                Ok(lctx_native::signal::SignalRegistration::process(move || {
-                    observed.store(true, Ordering::Release);
-                })
-                .unwrap()
-                .into());
             let mut source = SourceFinalization {
                 attempt_closed: true,
                 session_closed: false,
@@ -11804,7 +12033,9 @@ mod completion_tests {
     async fn acknowledged_abandonment_replays_original_failure_without_reopening_session() {
         let cancelled = Arc::new(AtomicBool::new(false));
         let observed = cancelled.clone();
-        let mut store = local_store();
+        let mut store = local_store_with_cancel_observer(move || {
+            observed.store(true, Ordering::Release);
+        });
         let lease = store
             .admit(false, "acknowledged control write", true)
             .unwrap();
@@ -11815,11 +12046,6 @@ mod completion_tests {
             .unwrap_err();
         let owner = Arc::get_mut(&mut store).unwrap();
         owner.owns_session = true;
-        owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
-            observed.store(true, Ordering::Release);
-        })
-        .unwrap()
-        .into());
         // Model the two already received native acknowledgements. The unconnected
         // SDK below makes any accidental repeated remote work fail this control.
         {
@@ -11876,7 +12102,9 @@ mod completion_tests {
     async fn acknowledged_refusal_does_not_hide_unknown_finality_or_finish_source_signal() {
         let cancelled = Arc::new(AtomicBool::new(false));
         let observed = cancelled.clone();
-        let mut store = local_store();
+        let mut store = local_store_with_cancel_observer(move || {
+            observed.store(true, Ordering::Release);
+        });
         let refused = store
             .admit(false, "acknowledged control refusal", true)
             .unwrap();
@@ -11893,11 +12121,6 @@ mod completion_tests {
         drop(unacknowledged);
         let owner = Arc::get_mut(&mut store).unwrap();
         owner.owns_session = true;
-        owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
-            observed.store(true, Ordering::Release);
-        })
-        .unwrap()
-        .into());
         let finality = store.abandon_finality_report().await;
         assert_eq!(finality.local, d::completion::LocalState::Outstanding);
         assert_eq!(finality.remote, d::completion::RemoteState::Unknown);
@@ -11932,7 +12155,9 @@ mod completion_tests {
     async fn acknowledged_refusal_does_not_hide_failed_finality_or_finish_source_signal() {
         let cancelled = Arc::new(AtomicBool::new(false));
         let observed = cancelled.clone();
-        let mut store = local_store();
+        let mut store = local_store_with_cancel_observer(move || {
+            observed.store(true, Ordering::Release);
+        });
         let refused = store
             .admit(false, "acknowledged control refusal", true)
             .unwrap();
@@ -11945,11 +12170,6 @@ mod completion_tests {
         );
         let owner = Arc::get_mut(&mut store).unwrap();
         owner.owns_session = true;
-        owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
-            observed.store(true, Ordering::Release);
-        })
-        .unwrap()
-        .into());
         // Poison the actual admission lock, rather than constructing a failed report.
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -12344,6 +12564,7 @@ mod completion_tests {
                 .is_err()
         );
         unrelated.finish();
+        d::completion::complete::<()>(Ok(()), other.drain_finality_report().await).unwrap();
         let parent = store.begin_finalization().await.unwrap();
         let scan = store.retained_scan().unwrap();
         let mut read =

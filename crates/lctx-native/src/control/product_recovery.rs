@@ -149,6 +149,11 @@ impl HeldTerminalProduct {
     pub fn generation(&self) -> ContentHash {
         self.generation
     }
+    /// Borrow the actual forked source scope. This does not transfer its pin,
+    /// session or finalization authority to a consuming read adapter.
+    pub fn recovery_scope(&self) -> &Arc<RecoveryScope> {
+        self.factory_lease.recovery_scope()
+    }
     pub fn retain_unknown(&self) {
         self.pin().retain_unknown();
     }

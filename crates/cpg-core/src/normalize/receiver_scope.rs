@@ -104,7 +104,8 @@ mod receiver_scope_controls {
     use super::*;
     use crate::workspace::{Workspace, WorkspaceOptions};
     use lctx_model::domain::{
-        assertion::*, attribution::*, normalized::receiver, source::*, stages::*,
+        artifact::ArtifactChunk, assertion::*, attribution::*, normalized::receiver, source::*,
+        stages::*,
     };
     fn nominal<R>(value: u8) -> Id<R> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
@@ -207,10 +208,17 @@ mod receiver_scope_controls {
             Profile::Catalog,
             ContentHash::of(b"receiver-scope-control"),
             input,
-        { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_receiver_inputs!(inventory); inventory },
+        { let mut inventory=vec![ArtifactChunk::NAME]; macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_receiver_inputs!(inventory); inventory },
         );
         macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>().unwrap();)*};}
         lctx_model::normalized_receiver_inputs!(declare);
+        output.declare::<ArtifactChunk>().unwrap();
+        for chunk in ArtifactChunk::split(&artifact, b"value")
+            .unwrap()
+            .chain(ArtifactChunk::split(&unrelated, b"foreign").unwrap())
+        {
+            output.push(chunk).await.unwrap();
+        }
         macro_rules! push {($($row:expr),* $(,)?) => {$(output.push($row).await.unwrap();)*};}
         push!(
             artifact.clone(),
@@ -271,5 +279,26 @@ mod receiver_scope_controls {
                 ..
             })
         ));
+        drop(records);
+        drop(selected);
+        assert_eq!(small.reserved(), 0);
+        drop(scopes);
+        drop(session);
+        drop(access);
+        let budget = runtime.budget().clone();
+        let native = runtime.native().clone();
+        let connection = native
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        runtime.drain().await.unwrap();
+        native.abandon().await.unwrap();
+        drop(runtime);
+        drop(native);
+        connection.wait().await.unwrap();
+        drop(connection);
+        assert_eq!(budget.reserved(), 0);
     }
 }

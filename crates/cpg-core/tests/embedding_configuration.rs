@@ -30,6 +30,13 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
         )
         .unwrap();
         let budget = workspace.budget().clone();
+        let native = workspace.native().clone();
+        let connection = native
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
         let configuration = selected
             .then(|| Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap());
         let empty = workspace
@@ -111,6 +118,9 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
         finality.step("embedding configuration control signal", signal);
         completion::complete(Ok(()), finality).unwrap();
         drop(workspace);
+        drop(native);
+        connection.wait().await.unwrap();
+        drop(connection);
         assert_eq!(budget.reserved(), 0);
     }
 }

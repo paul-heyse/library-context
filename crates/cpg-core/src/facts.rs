@@ -456,6 +456,15 @@ mod recorded_coverage_controls {
             .collect::<BTreeMap<_, _>>();
         let frontier =
             lctx_model::domain::admission::FrontierContract::facts(&model, profile).unwrap();
+        let captured_contract = frontier
+            .captured_preflight(&contracts, &bound)
+            .unwrap()
+            .contract()
+            .digest();
+        assert_ne!(
+            captured_contract, admitted.contract,
+            "captured contracts and admitted declarations retain distinct authority domains"
+        );
         let mut inactive_change = contracts.clone();
         let inactive = inactive_change
             .iter_mut()
@@ -469,7 +478,7 @@ mod recorded_coverage_controls {
                 .unwrap()
                 .contract()
                 .digest(),
-            admitted.contract,
+            captured_contract,
             "inactive analyzer semantics cannot invalidate Catalog capture"
         );
         inactive_change
@@ -483,7 +492,7 @@ mod recorded_coverage_controls {
                 .unwrap()
                 .contract()
                 .digest(),
-            admitted.contract,
+            captured_contract,
             "NotRequested reporting ownership remains bound"
         );
         let acquire = recorded

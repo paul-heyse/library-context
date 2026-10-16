@@ -141,5 +141,9 @@ mod stage_future_controls {
         );
         assert_eq!(runtime.budget().reserved(), reserved);
         assert_eq!(Arc::strong_count(&runtime), owners - 1);
+        let mut completion = runtime.drain_owned_report().await;
+        let settled = runtime.complete_signal(&completion).await;
+        completion.step("normalization lazy control signal finality", settled);
+        lctx_model::domain::completion::complete::<()>(Ok(()), completion).unwrap();
     }
 }

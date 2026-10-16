@@ -1815,12 +1815,14 @@ mod upper_completion_controls {
         let cleaned = Arc::new(AtomicUsize::new(0));
         let mut pending = FuturesUnordered::new();
         let mut release_cleanup = Vec::new();
+        let mut owned_bytes = 0;
         for ordinal in 0..3 {
             let token = cancellation.clone();
             let started = started.clone();
             let cleaned = cleaned.clone();
             let mut owned = charged::StateCharge::new(&budget, "upper-owned-task-control");
             owned.grow(256).unwrap();
+            owned_bytes += owned.accounted_bytes();
             let (release, cleanup) = tokio::sync::oneshot::channel();
             release_cleanup.push(release);
             pending.push(
@@ -1855,7 +1857,7 @@ mod upper_completion_controls {
         assert_eq!(cleaned.load(Ordering::SeqCst), 0);
         assert_eq!(
             budget.reserved(),
-            768,
+            owned_bytes,
             "cancellation has not discarded still-owned tasks"
         );
         for release in release_cleanup {

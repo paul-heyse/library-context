@@ -1569,7 +1569,7 @@ mod tests {
             .unwrap();
             assert!(
                 table_provider(
-                    store,
+                    store.clone(),
                     view,
                     Relation::of::<Release>(),
                     ResourceBudget::fixed(1 << 20).unwrap(),
@@ -1579,6 +1579,11 @@ mod tests {
                 .is_err(),
                 "{eliminated} cannot carry an unearned view into an optimizer"
             );
+            lctx_model::domain::completion::complete::<()>(
+                Ok(()),
+                store.drain_finality_report().await,
+            )
+            .unwrap();
         }
     }
     #[test]
@@ -1715,7 +1720,7 @@ mod tests {
         )
         .unwrap();
         let stream = selected_batches(
-            store,
+            store.clone(),
             None,
             view,
             relation.clone(),
@@ -1775,6 +1780,8 @@ mod tests {
         assert_eq!(budget.reserved(), reserved);
         drop(held);
         assert_eq!(budget.reserved(), 0);
+        lctx_model::domain::completion::complete::<()>(Ok(()), store.drain_finality_report().await)
+            .unwrap();
     }
     #[tokio::test]
     async fn fetch_delegates_after_native_filtering_without_scan_limit() {

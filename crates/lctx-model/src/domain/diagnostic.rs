@@ -143,6 +143,17 @@ impl FailureDiagnostic {
         self.causes.push(cause);
         if let Some(model) = error.downcast_ref::<ModelError>() {
             match model {
+                ModelError::Operations(errors) => {
+                    self.visit(stage, &errors.primary, enrich);
+                    for error in &errors.related {
+                        if self.causes.len() == MAX_CAUSES {
+                            self.truncated = true;
+                            break;
+                        }
+                        self.visit(stage, error, enrich);
+                    }
+                    return;
+                }
                 ModelError::Completion(outcome) => {
                     if let Some(primary) = &outcome.primary {
                         self.visit(stage, primary.as_ref(), enrich);
@@ -195,7 +206,9 @@ fn model_cause(error: &(dyn Error + 'static)) -> DiagnosticCause {
             DiagnosticClass::Model,
             match error {
                 ModelError::Completion(_) => C::Completion,
-                ModelError::SharedCause(_) | ModelError::Cause(_) => C::Context,
+                ModelError::Operations(_) | ModelError::SharedCause(_) | ModelError::Cause(_) => {
+                    C::Context
+                }
                 ModelError::Serving(_) => C::Serving,
                 ModelError::Resource { .. } => C::Resource,
                 ModelError::Invalid(_) => C::Invalid,

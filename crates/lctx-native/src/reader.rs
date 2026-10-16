@@ -1932,6 +1932,26 @@ impl<Context> NativeReader<Context> {
                 rows
             })
     }
+    /// Opt-in attribution for an owner-named finite read. Bindings are never observed.
+    pub(crate) fn stream_prepared_observed(
+        &self,
+        query: crate::prepared::PreparedQuery,
+        stage: Option<&'static str>,
+        window_cardinality: Option<usize>,
+    ) -> Result<ObservedNativeRows, ModelError> {
+        let mut observation = stage.and_then(|stage| {
+            NativeReadObservation::begin(stage, query.sql_shape(), window_cardinality)
+        });
+        match self.stream_prepared(query) {
+            Ok(rows) => Ok(ObservedNativeRows { rows, observation }),
+            Err(error) => {
+                if let Some(observation) = observation.take() {
+                    observation.finish("failed");
+                }
+                Err(error)
+            }
+        }
+    }
     pub async fn query_prepared<T: Serialize + DeserializeOwned + 'static>(
         &self,
         query: crate::prepared::PreparedQuery,
@@ -1955,8 +1975,10 @@ impl<Context> NativeReader<Context> {
     fn checked_native_value(
         &self,
         query: crate::prepared::PreparedQuery,
-    ) -> Result<futures::future::BoxFuture<'_, Result<ChargedNativeValue, ModelError>>, ModelError>
-    {
+    ) -> Result<
+        crate::continuation::Continuation<'_, Result<ChargedNativeValue, ModelError>>,
+        ModelError,
+    > {
         self.ensure_scope_live()?;
         if query.result_positions().len() != 1 {
             return Err(ModelError::Schema("native single result demand"));
@@ -1995,17 +2017,7 @@ impl<Context> NativeReader<Context> {
         // Every typed/native scalar query shares this concrete execution seam.
         // Admit the complete continuation before allocation, stream issuance or
         // registry admission; the grant survives collection and terminal checks.
-        let bytes = std::mem::size_of_val(&body)
-            .checked_add(std::mem::size_of::<
-                Box<dyn lctx_model::domain::resources::Reservation>,
-            >())
-            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-            .ok_or(ModelError::Schema("native value query continuation size"))?;
-        let grant = budget.reserve("native value query continuation", bytes)?;
-        Ok(Box::pin(async move {
-            let _grant = grant;
-            body.await
-        }))
+        crate::continuation::admit(&budget, "native value query continuation", body)
     }
 
     /// Finite owner-selected predicates; source payloads are decoded one at a time.
@@ -3313,6 +3325,75 @@ enum NativeRowsSource {
     ),
     Owned(tokio::sync::mpsc::Receiver<OwnedRow>),
 }
+// This wrapper observes returned read results, not semantic acceptance or remote
+// finality. Interruption emits no terminal, and the actual NativeRows keeps its
+// existing cancellation/drain ownership. Disabled observations do not hash or time.
+pub(crate) struct ObservedNativeRows {
+    rows: NativeRows,
+    observation: Option<NativeReadObservation>,
+}
+impl ObservedNativeRows {
+    pub(crate) fn with_row_bytes(mut self, row_bytes: usize) -> Self {
+        self.rows = self.rows.with_row_bytes(row_bytes);
+        self
+    }
+    pub(crate) async fn next(&mut self) -> Result<Option<Value>, ModelError> {
+        let result = self.rows.next().await;
+        match &result {
+            Err(_) => self.finish("failed"),
+            Ok(None) => self.finish("returned"),
+            Ok(Some(_)) => {}
+        }
+        result
+    }
+    pub(crate) async fn drain_transport(&mut self) -> Result<(), ModelError> {
+        let result = self.rows.drain_transport().await;
+        self.finish(if result.is_ok() { "returned" } else { "failed" });
+        result
+    }
+    fn finish(&mut self, status: &'static str) {
+        if let Some(observation) = self.observation.take() {
+            observation.finish(status);
+        }
+    }
+}
+struct NativeReadObservation {
+    stage: &'static str,
+    sequence: u64,
+    query_digest: String,
+    window_cardinality: Option<usize>,
+    started: std::time::Instant,
+    context: lctx_tracing::Context,
+}
+impl NativeReadObservation {
+    fn begin(stage: &'static str, sql: &str, window_cardinality: Option<usize>) -> Option<Self> {
+        if !tracing::enabled!(target: "lctx_phase", tracing::Level::INFO) {
+            return None;
+        }
+        static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let observation = Self {
+            stage,
+            sequence: SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            query_digest: lctx_model::domain::ContentHash::of(sql.as_bytes()).hex(),
+            window_cardinality,
+            started: std::time::Instant::now(),
+            context: lctx_tracing::Context::current(),
+        };
+        observation.emit("begin", None);
+        Some(observation)
+    }
+    fn emit(&self, status: &'static str, elapsed_ms: Option<f64>) {
+        self.context.scope(|| {
+            tracing::info!(target: "lctx_phase", observation="native_inventory_read",
+                stage=self.stage, sequence=self.sequence, query_digest=%self.query_digest,
+                window_cardinality=self.window_cardinality, status, elapsed_ms,
+                process_id=std::process::id());
+        });
+    }
+    fn finish(self, status: &'static str) {
+        self.emit(status, Some(self.started.elapsed().as_secs_f64() * 1000.0));
+    }
+}
 pub struct NativeRows {
     stream: NativeRowsSource,
     pending: Option<(usize, std::vec::IntoIter<Value>)>,
@@ -4178,6 +4259,7 @@ pub fn canonical_error(error: ModelError) -> ModelError {
         refusal @ (ModelError::Resource { .. }
         | ModelError::Limit { .. }
         | ModelError::Serving(_)
+        | ModelError::Operations(_)
         | ModelError::Completion(_)
         | ModelError::SharedCause(_)
         | ModelError::Cause(_)) => refusal,

@@ -302,7 +302,29 @@ pub async fn run_profile_with_budget<I: Inspector>(
     if reverse_providers {
         providers.reverse();
     }
-    let native = native_fixture::create_native().await?;
+    let native = native_fixture::create_native(&resources).await?;
+    // This SDK observer does not retain the client; capture it before dropping the actual
+    // owners, then join only after their complete native finality permits shutdown.
+    let connection = match native.recovery_scope().and_then(|scope| {
+        scope
+            .client()
+            .connection_completion()
+            .map_err(ModelError::codec)
+    }) {
+        Ok(connection) => connection,
+        Err(error) => {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "provider fixture observer setup abandonment",
+                native.abandon().await,
+            );
+            drop(native);
+            drop(captured);
+            drop(providers);
+            drop(inspect);
+            return lctx_model::domain::completion::complete(Err(error), completion);
+        }
+    };
     let workspace = match Workspace::with_budget(
         model,
         WorkspaceOptions {
@@ -319,6 +341,18 @@ pub async fn run_profile_with_budget<I: Inspector>(
                 "provider fixture setup attempt abandonment",
                 native.abandon().await,
             );
+            let join = completion.is_satisfied();
+            drop(native);
+            drop(captured);
+            drop(providers);
+            drop(inspect);
+            if join {
+                completion.step(
+                    "provider fixture setup SDK connection completion",
+                    connection.wait().await.map_err(ModelError::codec),
+                );
+            }
+            drop(connection);
             return lctx_model::domain::completion::complete(Err(error), completion);
         }
     };
@@ -334,6 +368,20 @@ pub async fn run_profile_with_budget<I: Inspector>(
         "provider fixture attempt abandonment and session invalidation",
         native.abandon().await,
     );
+    let join = completion.is_satisfied();
+    drop(workspace);
+    drop(native);
+    drop(captured);
+    drop(inspect);
+    if join {
+        completion.step(
+            "provider fixture SDK connection completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
+    }
+    // Unknown finality deliberately retains its actual client. Drop this nonretaining
+    // observer without joining it; do not turn uncertainty into an indefinite wait.
+    drop(connection);
     lctx_model::domain::completion::complete(result, completion)
 }
 

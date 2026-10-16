@@ -36,11 +36,14 @@ pub(crate) struct CapturedBase<'a> {
     scopes: &'a BaseScopes,
     ipc: InvocationIpc,
     pub(super) keys: Vec<[u8; 16]>,
+    opaque_literals: bool,
+    kernel: Kernel,
     _charge: charged::StateCharge,
 }
 impl<'a> CapturedBase<'a> {
     pub(super) async fn prepare(
         scopes: &'a BaseScopes,
+        kernel: Kernel,
         keys: Vec<[u8; 16]>,
         charge: charged::StateCharge,
         _context: Id<attribution::AnalysisContext>,
@@ -48,7 +51,20 @@ impl<'a> CapturedBase<'a> {
         cancellation: &crate::workspace::Cancellation,
     ) -> Result<Self, ModelError> {
         cancellation.check()?;
+        if keys.is_empty() || keys.len() > 32 {
+            return Err(ModelError::Schema("Base capture root window"));
+        }
+        let root_table = scopes.root_index(kernel)?;
+        let opaque_literals = matches!(kernel, Kernel::Expression);
+        let root_kind = if opaque_literals {
+            crate::consumed_rows::PreparedRootKind::Virtual
+        } else {
+            crate::consumed_rows::PreparedRootKind::Physical
+        };
+        tracing::info!(target:"lctx_phase", observation="base_capture_window", ?kernel,
+            root_first=?keys.first(), root_count=keys.len());
         let source = scopes.edges.session();
+        let membership_phase = lctx_native::phase::Phase::begin("base_cohort_membership_capture");
         let mut ipc = InvocationIpc::new(source, budget, cancellation, None)?;
         let mut members = ipc.begin(schema())?;
         for (partition, key) in keys.iter().enumerate() {
@@ -58,9 +74,9 @@ impl<'a> CapturedBase<'a> {
                 .edges
                 .batch_with_cancellation(
                     &[crate::consumed_rows::PreparedRoot {
-                        table: scopes.expression,
+                        table: root_table,
                         key: *key,
-                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                        kind: root_kind,
                     }],
                     budget,
                     cancellation,
@@ -84,6 +100,8 @@ impl<'a> CapturedBase<'a> {
             drop(batch);
         }
         members.finish(&mut ipc, MEMBERS).await?;
+        membership_phase.finish(lctx_native::phase::Terminal::Passed);
+        let payload_phase = lctx_native::phase::Phase::begin("base_unique_payload_capture");
         let literals = scopes.index(TypeId::of::<value::Literal>())?;
         let literal_schema = scopes.tables[literals].relation.schema();
         let opaque_schema = Arc::new(
@@ -164,7 +182,7 @@ impl<'a> CapturedBase<'a> {
                             })
                             .collect::<Result<Vec<_>, ModelError>>()?;
                         let point = scopes.edges.point_input(table, keys, budget)?;
-                        if table == literals {
+                        if opaque_literals && table == literals {
                             stream_capture(
                                 point.session(),
                                 &format!(
@@ -213,10 +231,13 @@ impl<'a> CapturedBase<'a> {
             Some(opaque) => opaque.finish(&mut ipc, "base_opaque_literals").await?,
             None => ipc.empty("base_opaque_literals", opaque_schema)?,
         }
+        payload_phase.finish(lctx_native::phase::Terminal::Passed);
         Ok(Self {
             scopes,
             ipc,
             keys,
+            opaque_literals,
+            kernel,
             _charge: charge,
         })
     }
@@ -262,6 +283,9 @@ impl<'a> CapturedBase<'a> {
         budget: &resources::ResourceBudget,
         cancellation: &crate::workspace::Cancellation,
     ) -> Result<BaseWindow<'_>, ModelError> {
+        tracing::info!(target:"lctx_phase", observation="base_local_assembly_window", kernel=?self.kernel,
+            root_first=?self.keys.get(start), root_count=width, start, width);
+        let assembly_phase = lctx_native::phase::Phase::begin("base_pure_local_assembly");
         let mut charge = charged::StateCharge::new(budget, "Base-local-cohort");
         charge.grow(size_of::<BaseData>())?;
         let mut data = Box::new(BaseData::new(budget));
@@ -307,6 +331,15 @@ impl<'a> CapturedBase<'a> {
         drop(stream);
         for (table, input) in self.scopes.inputs.iter().enumerate() {
             cancellation.check()?;
+            // Absence from complete captured membership establishes a known-empty namespace.
+            // A demanded but missing payload remains demanded and follows the existing loader.
+            if (0..width).all(|partition| {
+                membership_keys(&memberships, partition, table)
+                    .next()
+                    .is_none()
+            }) {
+                continue;
+            }
             let sql = format!(
                 "SELECT source.* FROM {} source WHERE source.id IN (SELECT id FROM {MEMBERS} WHERE kind={table} AND root_ordinal>={start} AND root_ordinal<{}) ORDER BY source.id",
                 input_name(table),
@@ -334,7 +367,16 @@ impl<'a> CapturedBase<'a> {
             "SELECT opaque.* FROM base_opaque_literals opaque WHERE opaque.id IN (SELECT id FROM {MEMBERS} WHERE kind={literals} AND root_ordinal>={start} AND root_ordinal<{})",
             start + width
         );
-        project_literals(self.ipc.session(), &opaque, &mut data, budget).await?;
+        if self.opaque_literals
+            && (0..width).any(|partition| {
+                membership_keys(&memberships, partition, literals)
+                    .next()
+                    .is_some()
+            })
+        {
+            project_literals(self.ipc.session(), &opaque, &mut data, budget).await?;
+        }
+        assembly_phase.finish(lctx_native::phase::Terminal::Passed);
         Ok(BaseWindow {
             scopes: self.scopes,
             memberships,
@@ -373,7 +415,10 @@ async fn stream_capture(
     Ok(())
 }
 pub(super) fn local_resource(error: &ModelError) -> bool {
-    if !error.permits_storage_cleanup() || error.has_committed_effect() {
+    if error.has_operation_group()
+        || !error.permits_storage_cleanup()
+        || error.has_committed_effect()
+    {
         return false;
     }
     let mut next: Option<&(dyn std::error::Error + 'static)> = Some(error);

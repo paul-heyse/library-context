@@ -5,6 +5,7 @@ pub mod cache;
 pub mod codec;
 pub use cache::NativeEmbeddingCache;
 pub mod config;
+pub mod continuation;
 pub mod prepared;
 pub mod reader;
 pub mod selection;

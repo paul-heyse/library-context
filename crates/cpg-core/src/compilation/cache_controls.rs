@@ -301,6 +301,14 @@ fn equivalent(expected: &Receipt, actual: &Receipt) {
     assert!(
         expected
             .checked
+            .inputs()
+            .require_subset(&actual.workspace, actual.checked.inputs())
+            .is_err(),
+        "equal admitted content cannot attach a prior attempt's input ownership"
+    );
+    assert!(
+        expected
+            .checked
             .require_subset(&actual.workspace, expected.checked.inputs())
             .is_err(),
         "equal values do not grant a previous physical attempt's checked authority"

@@ -234,14 +234,9 @@ pub(super) async fn transaction_named(
         };
         if stopped {
             tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_after_conflict", "native transaction terminal");
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step(
-                "native transaction retry cancellation",
-                Err(ModelError::Invalid(
-                    "native transaction retry cancelled".into(),
-                )),
-            );
-            return lctx_model::domain::completion::complete(Err(error), completion);
+            return Err(error.alongside(ModelError::Invalid(
+                "native transaction retry cancelled".into(),
+            )));
         }
     }
 }

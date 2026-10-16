@@ -487,10 +487,25 @@ fn posting(
     result.insert("tf", value(tf)?);
     Ok(Value::Object(result))
 }
-/// Candidate and term predicates are both compound-index dimensions. Shared by
-/// scoring and actual EXPLAIN controls so a different test query cannot qualify it.
-pub fn posting_selection_sql() -> &'static str {
-    "SELECT in,term,tf FROM lexical_posting WITH INDEX document_term WHERE in IN $token_documents AND term IN $query_terms ORDER BY in,term"
+/// Scalar predicates use every compound-index dimension at the pinned planner.
+/// Two independent IN lists otherwise produce a whole-index scan with residual filtering.
+fn posting_point_sql() -> &'static str {
+    "SELECT in,term,tf FROM lexical_posting WITH INDEX document_term WHERE in=$posting_document AND term=$posting_term"
+}
+/// One enclosing query visits only the candidate/query-term Cartesian keys.
+/// Explain the actual inner selects in their closure execution context, rather
+/// than qualifying a top-level lookalike that may use a different planner.
+pub fn posting_selection_sql(explain: bool) -> String {
+    let suffix = if explain { " EXPLAIN FULL" } else { "" };
+    let points = format!(
+        "array::flatten($token_documents.map(|$posting_document| array::flatten($query_terms.map(|$posting_term| ({}{suffix})))))",
+        posting_point_sql()
+    );
+    if explain {
+        format!("RETURN {points}")
+    } else {
+        format!("SELECT in,term,tf FROM ({points}) ORDER BY in,term")
+    }
 }
 /// Exact selected-corpus BM25 over bounded candidate documents. The caller binds
 /// corpus_id, lexical_scope, family, query, and the distinct source document window.
@@ -519,7 +534,7 @@ pub fn scoring_sql() -> String {
  LET $ranked=$members.map(|$member| {{ id:$member.source,score:$scores[<string>$member.in] }});
  RETURN SELECT id,score FROM $ranked WHERE score!=NONE;
 }};"#,
-        posting_selection_sql()
+        posting_selection_sql(false)
     )
 }
 fn emit_term(
@@ -757,7 +772,9 @@ mod tests {
     #[test]
     fn posting_and_selected_corpus_scoring_programs_parse_at_the_pin() {
         surrealdb_syn::parse(&definitions()).unwrap();
-        surrealdb_syn::parse(posting_selection_sql()).unwrap();
+        surrealdb_syn::parse(posting_point_sql()).unwrap();
+        surrealdb_syn::parse(&posting_selection_sql(false)).unwrap();
+        surrealdb_syn::parse(&posting_selection_sql(true)).unwrap();
         surrealdb_syn::parse(&scoring_sql()).unwrap();
         assert!(!definitions().contains("terms.*"));
         assert!(crate::derivation::FAMILIES.contains(&"lexical_posting"));

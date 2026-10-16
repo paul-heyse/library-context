@@ -15,6 +15,13 @@ use surrealdb::types::{Object, RecordId, SurrealValue, Value};
 pub use uniform::PublishedUniformOwners;
 
 pub const VERSION: u32 = 2;
+/// Shared with the owning native fixture's EXPLAIN control; bindings grant no authority.
+#[doc(hidden)]
+pub const COMPOUND_BINDING_POINTERS_SQL: &str = "SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$compound_parent AND record::table(object)='compiler_binding_descriptor' ORDER BY object";
+/// Shared with the owning native fixture's EXPLAIN control; complete EOF remains required.
+#[doc(hidden)]
+pub const COMPOUND_PARENT_HOLDS_SQL: &str =
+    "SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$compound_parent ORDER BY id";
 #[cfg(test)]
 #[derive(Clone)]
 pub(crate) struct FinalParentObservationBarrier {
@@ -785,20 +792,11 @@ fn prepare_installed_reference_verification<'a>(
         }
         Ok(())
     };
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema(
-            "installed reference verification continuation size",
-        ))?;
-    let grant = budget.reserve(
+    crate::continuation::admit(
+        budget,
         "native installed reference verification continuation",
-        bytes,
-    )?;
-    Ok(Box::pin(async move {
-        let _grant = grant;
-        body.await
-    }))
+        body,
+    )
 }
 
 async fn verify_installed_copy(
@@ -1056,12 +1054,14 @@ pub(crate) async fn inspect_inventory(
     let parent = data.record()?;
     let mut result = InstalledViewInventory::new(budget)?;
     let mut variables = surrealdb::types::Variables::new();
-    variables.insert("parent", parent.clone());
+    // `$parent` is row-scoped in the pinned planner, even when client-bound.
+    // Use an ordinary bind name so exact owner equality can become an index prefix.
+    variables.insert("compound_parent", parent.clone());
     let _window = budget.reserve(
         "compound exact inventory pointer windows",
         crate::loader::NATIVE_WINDOW_ROWS.saturating_mul(2048),
     )?;
-    let mut copies=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT id,physical FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$parent ORDER BY physical,id".into()])?)?;
+    let mut copies=reader.stream_prepared_observed(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT id,physical FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$compound_parent ORDER BY physical,id".into()])?,Some("compound_contributor_pointers"),None)?;
     let observed = async {
         let mut hasher = ContributorHasher::default();
         let mut previous = None;
@@ -1092,7 +1092,7 @@ pub(crate) async fn inspect_inventory(
         copies.drain_transport().await,
     );
     d::completion::complete(observed, terminal)?;
-    let mut selectors=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT id,logical_view FROM native_completed_view WITH INDEX completion_view WHERE completion=$parent ORDER BY logical_view,id".into()])?)?;
+    let mut selectors=reader.stream_prepared_observed(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT id,logical_view FROM native_completed_view WITH INDEX completion_view WHERE completion=$compound_parent ORDER BY logical_view,id".into()])?,Some("compound_selector_pointers"),None)?;
     let observed = async {
         let mut hasher = RealizationHasher::default();
         let mut previous = None;
@@ -1150,7 +1150,15 @@ pub(crate) async fn inspect_inventory(
             "compound contributor inventory extra/missing selector incidence",
         ));
     }
-    let mut bindings=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$parent AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into()])?)?;
+    let mut bindings = reader.stream_prepared_observed(
+        crate::prepared::PreparedQuery::new(
+            variables,
+            vec![],
+            vec![COMPOUND_BINDING_POINTERS_SQL.into()],
+        )?,
+        Some("compound_binding_pointers"),
+        None,
+    )?;
     let observed = async {
         let mut window = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
         let mut previous = None;
@@ -1324,7 +1332,16 @@ async fn audit_copy_window(
         ids.push(pointer.id.clone());
         ids.push(RecordId::new("compiler_contribution", pointer.key.clone()));
     }
-    let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+    let mut actual = crate::control::held::inspect_expected_window_read_observed(
+        reader,
+        &ids,
+        budget,
+        Some([
+            "compound_contributor_records",
+            "compound_contributor_guards",
+        ]),
+    )
+    .await?;
     for pointer in pointers {
         let child = actual.take_required(&pointer.id)?;
         let _child_decode = inventory_decode_charge(child.row(), budget)?;
@@ -1361,7 +1378,13 @@ async fn audit_selector_window(
         ids.push(pointer.id.clone());
         ids.push(RecordId::new("compiler_view", pointer.key.clone()));
     }
-    let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+    let mut actual = crate::control::held::inspect_expected_window_read_observed(
+        reader,
+        &ids,
+        budget,
+        Some(["compound_selector_records", "compound_selector_guards"]),
+    )
+    .await?;
     for pointer in pointers {
         let selector = actual.take_required(&pointer.id)?;
         let _selector_decode = inventory_decode_charge(selector.row(), budget)?;
@@ -1391,7 +1414,13 @@ async fn audit_binding_window(
     inventory: &mut InstalledViewInventory,
     budget: &d::resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    let mut actual = crate::control::inspect_expected_window_read(reader, ids, budget).await?;
+    let mut actual = crate::control::held::inspect_expected_window_read_observed(
+        reader,
+        ids,
+        budget,
+        Some(["compound_binding_records", "compound_binding_guards"]),
+    )
+    .await?;
     let mut pairs = Vec::with_capacity(ids.len());
     for id in ids {
         let expected = actual.take_required(id)?;
@@ -1409,7 +1438,13 @@ async fn audit_binding_window(
         inventory.retain_binding(binding, expected.incarnation())?;
     }
     actual.finish()?;
-    let mut holds = crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
+    let mut holds = crate::control::held::inspect_hold_window_read_observed(
+        reader,
+        &pairs,
+        budget,
+        Some("compound_binding_holds"),
+    )
+    .await?;
     for (owner, object) in pairs {
         holds.take_required(&owner, &object)?;
     }
@@ -1885,17 +1920,11 @@ fn prepare_published_completed_state<'a>(
     // Admit before allocating the continuation or beginning native observations.
     // The same pool owns the continuation until all preparation checks finish;
     // the returned capability retains its own separately admitted typed backing.
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema(
-            "published completion preparation continuation size",
-        ))?;
-    let grant = budget.reserve("published completion preparation continuation", bytes)?;
-    Ok(Box::pin(async move {
-        let _grant = grant;
-        body.await
-    }))
+    crate::continuation::admit(
+        budget,
+        "published completion preparation continuation",
+        body,
+    )
 }
 
 // Semantic execution belongs to compiler storage (ADR-0151). Native completion
@@ -2516,15 +2545,16 @@ async fn audit_parent_holds(
     let expected = expected.finish()?.into_prepared();
     let mut exact = ParentHoldInventoryCursor::new(&expected, budget)?;
     let mut variables = surrealdb::types::Variables::new();
-    variables.insert("parent", parent.clone());
-    let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(
-        variables,
-        vec![],
-        vec![
-            "SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$parent ORDER BY id"
-                .into(),
-        ],
-    )?)?;
+    variables.insert("compound_parent", parent.clone());
+    let mut rows = reader.stream_prepared_observed(
+        crate::prepared::PreparedQuery::new(
+            variables,
+            vec![],
+            vec![COMPOUND_PARENT_HOLDS_SQL.into()],
+        )?,
+        Some("compound_parent_holds"),
+        None,
+    )?;
     let result = async {
         while let Some(row) = rows.next().await? {
             exact.row(&parent, &row, budget)?;

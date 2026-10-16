@@ -13,6 +13,74 @@ use lctx_model::domain::{
 use lctx_native::RuntimeConfig;
 use std::collections::{BTreeMap, BTreeSet};
 
+fn assert_atomic_nomination_plan(
+    plan: &[lctx_native::surrealdb::types::Value],
+    relation: &str,
+    values: &[lctx_native::surrealdb::types::Value],
+) {
+    use lctx_native::surrealdb::types::{ToSql, Value};
+    fn outer_scans(node: &Value, prefixes: &mut Vec<String>) {
+        match node {
+            Value::Array(nodes) => {
+                for node in nodes.iter() {
+                    outer_scans(node, prefixes);
+                }
+            }
+            Value::Object(node) => {
+                if let Some(Value::String(operator)) = node.get("operator") {
+                    assert!(
+                        !operator.ends_with("Scan")
+                            || matches!(operator.as_str(), "IndexScan" | "UnionIndexScan"),
+                        "unexpected outer scan: {node:?}",
+                    );
+                    if operator == "IndexScan" {
+                        let attributes = node.get("attributes").unwrap().as_object().unwrap();
+                        assert_eq!(
+                            attributes.get("index"),
+                            Some(&Value::String("by_scope".into())),
+                            "outer nomination driver: {node:?}",
+                        );
+                        let Some(Value::String(access)) = attributes.get("access") else {
+                            panic!("bounded outer nomination prefix: {node:?}");
+                        };
+                        prefixes.push(access.clone());
+                    }
+                }
+                // Follow only the outer operator tree. The correlated membership predicate
+                // and its bound contribution_rows lookup are not outer nomination scans.
+                if let Some(children) = node.get("children") {
+                    outer_scans(children, prefixes);
+                }
+            }
+            _ => panic!("native outer nomination plan node: {node:?}"),
+        }
+    }
+    let mut actual = Vec::new();
+    for node in plan {
+        outer_scans(node, &mut actual);
+    }
+    let mut expected = values
+        .iter()
+        .map(|value| {
+            Value::Array(
+                vec![Value::String(format!(
+                    "{relation}|package|{}",
+                    value.to_sql(),
+                ))]
+                .into(),
+            )
+            .to_sql()
+        })
+        .collect::<Vec<_>>();
+    assert!(!expected.is_empty());
+    actual.sort();
+    expected.sort();
+    assert_eq!(
+        actual, expected,
+        "exact one-token by_scope prefixes: {plan:?}"
+    );
+}
+
 async fn fixture_client(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
@@ -1459,35 +1527,34 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     let store = NativeCompilerStore::begin(
         &config,
         lctx_model::domain::admission::Frontier::Facts,
-        &lctx_compiler_store::compiler::recovery_factory(
-            &config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
-        )
-        .expect("owned native control factory"),
+        &lctx_compiler_store::compiler::recovery_factory(&config, native_operation_budget.clone())
+            .expect("owned native control factory"),
     )
     .await
     .unwrap();
-    let admin = fixture_client(&store, &config).await;
+    let scope = store.recovery_scope().unwrap();
+    let admin = scope.client().clone();
+    let connection = admin.connection_completion().unwrap();
     let relation = Relation::of::<Release>();
     let packages = (0..180)
         .map(|index| Package {
             name: format!("selection-{index:04}"),
         })
         .collect::<Vec<_>>();
-    lctx_native::Loader::new(admin.clone())
-        .entities(
-            &packages
-                .iter()
-                .cloned()
-                .map(Entity::from)
-                .collect::<Vec<_>>(),
-        )
-        .await
-        .unwrap();
+    lctx_native::control::with_recovery_scope(scope.clone(), async {
+        lctx_native::Loader::for_attempt_views(admin.clone(), store.attempt(), vec![])
+            .with_budget(&native_operation_budget)
+            .entities(
+                &packages
+                    .iter()
+                    .cloned()
+                    .map(Entity::from)
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .unwrap();
+    })
+    .await;
     let releases = (0..720)
         .map(|index| Release {
             package: packages[index / 4].id(),
@@ -1495,6 +1562,7 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
         })
         .collect::<Vec<_>>();
     let mut views = BTreeMap::new();
+    let mut frozen_owners = Vec::new();
     for (producer, range) in [("selection-a", 0..360), ("selection-b", 240..600)] {
         let mut specification = spec(producer, &relation);
         if let Some(view) = views.get(relation.name()) {
@@ -1508,6 +1576,7 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             );
         }
         let contribution = store.begin_contribution(specification).await.unwrap();
+        frozen_owners.push(contribution);
         let rows = range
             .rev()
             .map(|index| releases[index].clone())
@@ -1607,7 +1676,7 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     expected_keys.sort_by_key(|row| *row.id().bytes());
     let mut expected_fields = releases[40..600].to_vec();
     expected_fields.sort_by_key(|row| *row.id().bytes());
-    let budget = ResourceBudget::fixed(32 << 20).unwrap();
+    let budget = native_operation_budget.clone();
     for completed in [false, true] {
         if completed {
             views = store
@@ -1652,6 +1721,119 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
                 "selected records remain sorted and exact with newer owner completed={completed}"
             );
         }
+        for (package_end, release_end, expected_count) in [(91, 364, 124), (123, 492, 252)] {
+            let mut keys = packages[60..package_end]
+                .iter()
+                .chain([&packages[179], &missing_package])
+                .map(|package| *package.id().bytes())
+                .collect::<Vec<_>>();
+            keys.sort_unstable();
+            keys.dedup();
+            assert_eq!(keys.len(), package_end - 60 + 2);
+            let values = keys
+                .iter()
+                .map(|key| {
+                    Value::Array(
+                        key.iter()
+                            .map(|byte| Value::Number(Number::Int(i64::from(*byte))))
+                            .collect::<Vec<_>>()
+                            .into(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            // Independent fixture answers: four releases per in-view package. The
+            // overlap between physical owners must not duplicate them; package179
+            // belongs only to the newer owner and the missing package has no rows.
+            let mut expected = releases[240..release_end].to_vec();
+            expected.sort_by_key(Record::id);
+            assert_eq!(expected.len(), expected_count);
+            let mut stream = store
+                .scan_batches(
+                    &frozen,
+                    &relation,
+                    None,
+                    Some(NativePredicate::Field {
+                        field: "package".into(),
+                        values: values.clone(),
+                    }),
+                    &budget,
+                    37,
+                )
+                .await
+                .unwrap();
+            let mut observed = Vec::new();
+            while let Some(batch) = stream.try_next().await.unwrap() {
+                observed.extend(Release::decode(&batch).unwrap());
+            }
+            assert_eq!(
+                observed,
+                expected,
+                "{}-key direct field window, newer completed={completed}",
+                keys.len()
+            );
+            drop(stream);
+
+            let provider = store
+                .table_provider(&frozen, relation.clone(), budget.clone(), 37)
+                .await
+                .unwrap();
+            let mut charge = lctx_model::domain::charged::StateCharge::new(
+                &budget,
+                "atomic-boundary-control-keys",
+            );
+            charge.grow(keys.len() * 160 + 4096).unwrap();
+            let provider =
+                select_field_table(&provider, "package", Arc::new(keys), Arc::new(charge))
+                    .unwrap()
+                    .unwrap();
+            let session = datafusion::prelude::SessionContext::new();
+            session.register_table("atomic_boundary", provider).unwrap();
+            let batches = session
+                .table("atomic_boundary")
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let observed = batches
+                .iter()
+                .flat_map(|batch| Release::decode(batch).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                observed, expected,
+                "selected-provider field windows, newer completed={completed}"
+            );
+            drop(batches);
+            drop(session);
+
+            if !completed {
+                // EXPLAIN the actual owner-screened production builder, not a simplified
+                // scope-only query. Its32/1 and32/32/1 windows retain exact token prefixes.
+                for owner in &frozen_owners {
+                    for window in values.chunks(32) {
+                        let query = lctx_compiler_store::compiler::atomic_field_nomination_query(
+                            &relation, "package", *owner, window, true,
+                        )
+                        .unwrap();
+                        assert_eq!(query.expected_terminals(), 2);
+                        let (sql, bindings) = query.into_request();
+                        let mut response =
+                            lctx_native::control::with_recovery_scope(scope.clone(), async {
+                                admin
+                                    .query(sql)
+                                    .bind(bindings)
+                                    .await
+                                    .unwrap()
+                                    .check()
+                                    .unwrap()
+                            })
+                            .await;
+                        let plan: Vec<Value> = response.take(1).unwrap();
+                        assert_atomic_nomination_plan(&plan, relation.name(), window);
+                    }
+                }
+            }
+        }
     }
 
     // Cancel an exact membership-window wait and resume the same returned owner.
@@ -1687,6 +1869,7 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             .map(|row| row.id().hex())
             .collect::<Vec<_>>()
     );
+    drop(resumed);
 
     nominal_keys.sort_unstable();
     nominal_keys.dedup();
@@ -1830,54 +2013,60 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             "both windows must exercise field and residual predicates on real identities"
         );
     }
-    let provider = store
-        .table_provider(&frozen, relation.clone(), budget.clone(), 37)
-        .await
-        .unwrap();
-    let charge = Arc::new(lctx_model::domain::charged::StateCharge::new(
-        &budget,
-        "nested-window-fixture",
-    ));
-    let provider = select_table(&provider, Arc::new(wide_keys), charge.clone())
-        .unwrap()
-        .unwrap();
-    let provider = select_field_table(&provider, "package", Arc::new(field_keys.clone()), charge)
-        .unwrap()
-        .unwrap();
-    let session = datafusion::prelude::SessionContext::new();
-    session.register_table("nested_windows", provider).unwrap();
-    let batches = session
-        .sql("SELECT id,version FROM nested_windows WHERE version = '2'")
-        .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    let mut observed = Vec::new();
-    for batch in batches {
-        let ids = batch
-            .column(0)
-            .as_any()
-            .downcast_ref::<FixedSizeBinaryArray>()
+    {
+        let provider = store
+            .table_provider(&frozen, relation.clone(), budget.clone(), 37)
+            .await
             .unwrap();
-        let versions = batch
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
+        let charge = Arc::new(lctx_model::domain::charged::StateCharge::new(
+            &budget,
+            "nested-window-fixture",
+        ));
+        let provider = select_table(&provider, Arc::new(wide_keys), charge.clone())
+            .unwrap()
             .unwrap();
-        for index in 0..batch.num_rows() {
-            observed.push((ids.value(index).to_vec(), versions.value(index).to_owned()));
+        let provider =
+            select_field_table(&provider, "package", Arc::new(field_keys.clone()), charge)
+                .unwrap()
+                .unwrap();
+        let session = datafusion::prelude::SessionContext::new();
+        session.register_table("nested_windows", provider).unwrap();
+        let batches = session
+            .sql("SELECT id,version FROM nested_windows WHERE version = '2'")
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+        let mut observed = Vec::new();
+        for batch in batches {
+            let ids = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            let versions = batch
+                .column(1)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            for index in 0..batch.num_rows() {
+                observed.push((ids.value(index).to_vec(), versions.value(index).to_owned()));
+            }
         }
+        let expected = expected_keys
+            .iter()
+            .filter(|row| {
+                row.version == "2" && field_keys.binary_search(row.package.bytes()).is_ok()
+            })
+            .map(|row| (row.id().bytes().to_vec(), row.version.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            observed, expected,
+            "every nominal window retains the same field and residual predicates"
+        );
+        drop(session);
     }
-    let expected = expected_keys
-        .iter()
-        .filter(|row| row.version == "2" && field_keys.binary_search(row.package.bytes()).is_ok())
-        .map(|row| (row.id().bytes().to_vec(), row.version.clone()))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        observed, expected,
-        "every nominal window retains the same field and residual predicates"
-    );
     // An unsupported residual stays above the source. Fetch must consume rejected
     // rows before counting output, and cannot stop on the first native candidate.
     let provider = store
@@ -1921,7 +2110,14 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             "2"
         );
     }
+    drop(session);
+    drop(admin);
+    drop(scope);
     store.abandon().await.unwrap();
+    drop(store);
+    connection.wait().await.unwrap();
+    drop(connection);
+    assert_eq!(native_operation_budget.reserved(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]

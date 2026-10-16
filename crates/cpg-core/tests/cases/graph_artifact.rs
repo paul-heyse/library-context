@@ -287,22 +287,10 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
         .lines()
         .filter(|line| line.contains("phase=\"artifact_admission\""))
         .collect::<Vec<_>>();
-    assert_eq!(phases.len(), 2, "{retained}");
     assert!(
-        phases[0].contains("status=\"begin\"") && !phases[0].contains("elapsed_ms="),
-        "{retained}"
+        phases.is_empty(),
+        "missing compilation attestation must reject before lower artifact admission: {retained}"
     );
-    assert!(
-        phases[1].contains("status=\"failed\"") && phases[1].contains("elapsed_ms="),
-        "{retained}"
-    );
-    let phase_id = |line: &str| {
-        line.split_whitespace()
-            .find_map(|field| field.strip_prefix("phase_id="))
-            .unwrap()
-            .to_owned()
-    };
-    assert_eq!(phase_id(phases[0]), phase_id(phases[1]), "{retained}");
     workspace.cancellation().cancel();
     assert!(
         artifact::admit(

@@ -208,29 +208,69 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
         .map_err(|e| e.to_string())?,
     );
     let model = Arc::new(ValidatedModel::declared(facts_relations()).unwrap());
-    let workspace = Workspace::with_budget(
+    let native = native_fixture::create_native(&budget)
+        .await
+        .map_err(|e| e.to_string())?;
+    let connection = match native.recovery_scope().and_then(|scope| {
+        scope
+            .client()
+            .connection_completion()
+            .map_err(ModelError::codec)
+    }) {
+        Ok(connection) => connection,
+        Err(error) => {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "acquisition fixture observer setup abandonment",
+                native.abandon().await,
+            );
+            drop(native);
+            drop(captured);
+            return lctx_model::domain::completion::complete(Err(error), completion)
+                .map_err(|e| e.to_string());
+        }
+    };
+    let workspace = match Workspace::with_budget(
         model,
         WorkspaceOptions {
             memory_bytes: budget.limit(),
             ..WorkspaceOptions::default()
         },
         budget,
-        native_fixture::create_native()
-            .await
-            .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    cpg_core::facts::compile_facts(
-        &workspace,
-        &captured,
-        Profile::Catalog,
-        vec![Box::new(Acquire::of(&inventory))],
-        TransferLimits::default(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    workspace.validate().await.map_err(|e| e.to_string())?;
-    let rows = || -> Result<Rows, ModelError> {
+        native.clone(),
+    ) {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "acquisition fixture setup attempt abandonment",
+                native.abandon().await,
+            );
+            let join = completion.is_satisfied();
+            drop(native);
+            drop(captured);
+            if join {
+                completion.step(
+                    "acquisition fixture setup SDK connection completion",
+                    connection.wait().await.map_err(ModelError::codec),
+                );
+            }
+            drop(connection);
+            return lctx_model::domain::completion::complete(Err(error), completion)
+                .map_err(|e| e.to_string());
+        }
+    };
+    let result: Result<Rows, ModelError> = async {
+        cpg_core::facts::compile_facts(
+            &workspace,
+            &captured,
+            Profile::Catalog,
+            vec![Box::new(Acquire::of(&inventory))],
+            TransferLimits::default(),
+        )
+        .await?;
+        workspace.validate().await?;
+        // Return owned decoded rows before invalidating the native attempt/session.
         Ok(Rows {
             digest: Some(workspace.identity()?),
             revisions: all(&workspace)?,
@@ -246,8 +286,25 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
             corpus_libraries: all(&workspace)?,
             releases: all(&workspace)?,
         })
-    };
-    rows().map_err(|e| e.to_string())
+    }
+    .await;
+    let mut completion = workspace.drain_report().await;
+    completion.step(
+        "acquisition fixture attempt abandonment and session invalidation",
+        native.abandon().await,
+    );
+    let join = completion.is_satisfied();
+    drop(workspace);
+    drop(native);
+    drop(captured);
+    if join {
+        completion.step(
+            "acquisition fixture SDK connection completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
+    }
+    drop(connection);
+    lctx_model::domain::completion::complete(result, completion).map_err(|e| e.to_string())
 }
 /// Every file and directory under `roots`, with its bytes.
 fn snapshot(roots: &[&Path]) -> BTreeMap<PathBuf, Option<Vec<u8>>> {

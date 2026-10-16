@@ -14,6 +14,7 @@ lctx-compiler-store = { path = "../lctx-compiler-store" }
 cpg-extract = { path = "../cpg-extract" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
+async-trait = "=0.1.92"
 datafusion.workspace = true
 futures.workspace = true
 hex.workspace = true

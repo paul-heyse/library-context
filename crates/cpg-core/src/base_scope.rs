@@ -919,21 +919,27 @@ impl BaseScopes {
             "SELECT r.id FROM {root} r {joins} {qualified} WHERE {filter}{qualified_filter}{kind} ORDER BY r.id"
         ))
     }
-    #[tracing::instrument(skip_all, target="lctx_phase", fields(?kernel, ?key))]
-    pub(super) async fn scope(
-        &self,
-        kernel: Kernel,
-        key: [u8; 16],
-        budget: &resources::ResourceBudget,
-    ) -> Result<PreparedClosure, ModelError> {
-        let index = match kernel {
+    // Several kernels share a physical relation but intentionally have different dependency
+    // closure namespaces. Discovery, capture and single-root loading must use this same map.
+    fn root_index(&self, kernel: Kernel) -> Result<usize, ModelError> {
+        Ok(match kernel {
             Kernel::Expression => self.expression,
             Kernel::DynamicCall => self.dynamic_call,
             Kernel::DynamicAttribute => self.dynamic_attribute,
             Kernel::FieldCall => self.field_call,
             Kernel::FieldGlobal => self.field_global,
             _ => self.index(kernel.type_id())?,
-        };
+        })
+    }
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(?kernel, ?key))]
+    #[cfg(test)]
+    pub(super) async fn scope(
+        &self,
+        kernel: Kernel,
+        key: [u8; 16],
+        budget: &resources::ResourceBudget,
+    ) -> Result<PreparedClosure, ModelError> {
+        let index = self.root_index(kernel)?;
         lctx_native::phase::wait(
             "base_selected_grain",
             self.edges.grain(
@@ -944,12 +950,15 @@ impl BaseScopes {
         )
         .await
     }
-    pub(super) fn admit_expression_window(
+    fn admit_window(
         &self,
         remaining: usize,
         budget: &resources::ResourceBudget,
     ) -> Result<(usize, charged::StateCharge), ModelError> {
         let mut width = remaining.min(32);
+        if width == 0 {
+            return Err(ModelError::Schema("Base capture root window empty"));
+        }
         loop {
             let mut charge = charged::StateCharge::new(budget, "Base-cohort-admission");
             match charge.grow(
@@ -962,6 +971,14 @@ impl BaseScopes {
             }
         }
     }
+    pub(super) fn admit_expression_window(
+        &self,
+        remaining: usize,
+        budget: &resources::ResourceBudget,
+    ) -> Result<(usize, charged::StateCharge), ModelError> {
+        self.admit_window(remaining, budget)
+    }
+
     pub(super) async fn capture_expressions<'a>(
         &'a self,
         keys: Vec<[u8; 16]>,
@@ -970,7 +987,30 @@ impl BaseScopes {
         budget: &resources::ResourceBudget,
         cancellation: &crate::workspace::Cancellation,
     ) -> Result<CapturedBase<'a>, ModelError> {
-        CapturedBase::prepare(self, keys, charge, context, budget, cancellation).await
+        CapturedBase::prepare(
+            self,
+            Kernel::Expression,
+            keys,
+            charge,
+            context,
+            budget,
+            cancellation,
+        )
+        .await
+    }
+    async fn capture_reads<'a>(
+        &'a self,
+        kernel: Kernel,
+        keys: Vec<[u8; 16]>,
+        charge: charged::StateCharge,
+        context: Id<attribution::AnalysisContext>,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<CapturedBase<'a>, ModelError> {
+        if matches!(kernel, Kernel::Expression) {
+            return Err(ModelError::Schema("Base read capture kernel"));
+        }
+        CapturedBase::prepare(self, kernel, keys, charge, context, budget, cancellation).await
     }
     pub(super) fn data<'a>(
         &'a self,
@@ -1378,37 +1418,72 @@ impl BaseScopes {
                     "Base-read-root-transfer",
                     lctx_model::domain::logical_batch_bytes(&batch)?,
                 )?;
-                for row in 0..batch.num_rows() {
+                let mut start = 0;
+                while start < batch.num_rows() {
                     runtime.cancellation().check()?;
-                    let key = crate::scoped_admission::column(&batch, "id", row)?
-                        .ok_or(ModelError::Schema("Base read root ID"))?;
-                    let scope = self.scope(kernel, key, budget).await?;
-                    let data = self.data(access, &scope, budget, false).await?;
-                    if matches!(kernel, Kernel::FieldRoot) {
-                        let _key = budget.reserve("Base-field-root-key", 128)?;
-                        let roots = [nominal(&key)?].into_iter().collect();
-                        prepared.field_roots(&data.data, &data.entry, inv, &roots)?;
-                    } else {
-                        let (roots, _root_charge) = data.roots(budget)?;
-                        let values = ReadEntries {
-                            witnesses: &data.witnesses,
-                            sources: &data.sources,
-                            actual,
-                        };
-                        let records = prepared.produce(
-                            &data.data,
-                            &data.entry,
-                            inv,
-                            &roots,
-                            kernel.read(key)?,
+                    let (width, charge) = self.admit_window(batch.num_rows() - start, budget)?;
+                    let keys = (start..start + width)
+                        .map(|row| {
+                            crate::scoped_admission::column(&batch, "id", row)?
+                                .ok_or(ModelError::Schema("Base read root ID"))
+                        })
+                        .collect::<Result<Vec<_>, ModelError>>()?;
+                    // Same kernel/context, exact immutable ports. Native acquisition finishes
+                    // once; subsequent assembly uses only the private captured files.
+                    let captured = self
+                        .capture_reads(
+                            kernel,
+                            keys,
+                            charge,
+                            inv.context,
                             budget,
-                            values,
-                        )?;
-                        write_reads(output, &records).await?;
+                            &runtime.cancellation(),
+                        )
+                        .await?;
+                    for (partition, key) in captured.keys.iter().enumerate() {
+                        runtime.cancellation().check()?;
+                        // Read production mutates shared work/field state. Assemble one exact
+                        // root and invoke it once: there is no speculative semantic retry.
+                        let window = captured
+                            .cohort(partition, 1, budget, &runtime.cancellation())
+                            .await?;
+                        let data = &window.data;
+                        let production_phase =
+                            lctx_native::phase::Phase::begin("base_mutable_read_production");
+                        if matches!(kernel, Kernel::FieldRoot) {
+                            let _key = budget.reserve("Base-field-root-key", 128)?;
+                            let roots = [nominal(key)?].into_iter().collect();
+                            let result = prepared.field_roots(&data.data, &data.entry, inv, &roots);
+                            production_phase.finish_result(&result);
+                            result?;
+                        } else {
+                            let (roots, _root_charge) = data.roots(budget)?;
+                            let values = ReadEntries {
+                                witnesses: &data.witnesses,
+                                sources: &data.sources,
+                                actual,
+                            };
+                            let result = prepared.produce(
+                                &data.data,
+                                &data.entry,
+                                inv,
+                                &roots,
+                                kernel.read(*key)?,
+                                budget,
+                                values,
+                            );
+                            production_phase.finish_result(&result);
+                            let records = result?;
+                            let emission_phase =
+                                lctx_native::phase::Phase::begin("base_read_emission");
+                            let emission = write_reads(output, &records).await;
+                            emission_phase.finish_result(&emission);
+                            emission?;
+                        }
+                        drop(window);
+                        tokio::task::yield_now().await;
                     }
-                    drop(data);
-                    drop(scope);
-                    tokio::task::yield_now().await;
+                    start += width;
                 }
             }
         }
@@ -1451,7 +1526,9 @@ impl BaseScopes {
                 sources: &data.sources,
                 actual,
             };
-            let records = prepared.produce(
+            let production_phase =
+                lctx_native::phase::Phase::begin("base_field_assessment_production");
+            let result = prepared.produce(
                 &data.data,
                 &data.entry,
                 inv,
@@ -1462,8 +1539,13 @@ impl BaseScopes {
                 },
                 budget,
                 values,
-            )?;
-            write_reads(output, &records).await?;
+            );
+            production_phase.finish_result(&result);
+            let records = result?;
+            let emission_phase = lctx_native::phase::Phase::begin("base_read_emission");
+            let emission = write_reads(output, &records).await;
+            emission_phase.finish_result(&emission);
+            emission?;
             previous = Some((class, name));
             previous_charge = Some(key_charge);
             drop(data);
@@ -2553,6 +2635,433 @@ mod controls {
         let (reads, metadata) = prepared.metadata(&session, &inv, &budget).await.unwrap();
         drop(metadata);
         drop(reads);
+        drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+    async fn table_rows<R: Record>(session: &SessionContext) -> Vec<R> {
+        crate::sql::query(session, &format!("SELECT * FROM {}", identifier(R::NAME)))
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap()
+            .iter()
+            .flat_map(|batch| R::decode(batch).unwrap())
+            .collect()
+    }
+    #[tokio::test]
+    async fn read_cohort_preserves_independent_reads_shared_support_and_absent_root() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(32 << 20).unwrap();
+        let (initial, expression, inv) = fixture(&session, &budget, false, true).await;
+        drop(initial);
+        let q = table_rows::<AssertionQualification>(&session)
+            .await
+            .pop()
+            .unwrap();
+        let declaration = table_rows::<DeclarationObservation>(&session)
+            .await
+            .pop()
+            .unwrap()
+            .declaration;
+        let other = Occurrence {
+            structural_path: vec![5],
+            ..expression.clone()
+        };
+        let mut occurrences = table_rows::<Occurrence>(&session).await;
+        occurrences.push(other.clone());
+        register(&session, &occurrences);
+        drop(occurrences);
+        let mut placements = table_rows::<SyntaxPlacement>(&session).await;
+        placements.push(SyntaxPlacement {
+            qualification: q.id(),
+            occurrence: other.id(),
+            parent: Some(declaration),
+            field: SyntaxField::Body,
+            ordinal: 1,
+        });
+        register(&session, &placements);
+        drop(placements);
+        let owner = id(6);
+        register(
+            &session,
+            &[
+                OccurrenceOwnership {
+                    occurrence: expression.id(),
+                    owner: declaration,
+                    entity: owner,
+                },
+                OccurrenceOwnership {
+                    occurrence: other.id(),
+                    owner: declaration,
+                    entity: owner,
+                },
+            ],
+        );
+        let uses = [
+            FlowUse {
+                occurrence: expression.id(),
+                place: id(100),
+            },
+            FlowUse {
+                occurrence: other.id(),
+                place: id(101),
+            },
+        ];
+        let observations = uses
+            .iter()
+            .map(|row| FlowUseObservation {
+                qualification: q.id(),
+                use_: row.id(),
+                scope: id(102),
+                annotation: false,
+            })
+            .collect::<Vec<_>>();
+        register(&session, &uses);
+        register(&session, &observations);
+        let prepared = prepare(&session, &budget).await;
+        let retained = budget.reserved();
+        let cancellation = crate::workspace::Cancellation::default();
+        let keys = vec![
+            *observations[0].id().bytes(),
+            *observations[1].id().bytes(),
+            [254; 16],
+        ];
+        let (_, charge) = prepared.admit_window(keys.len(), &budget).unwrap();
+        let captured = prepared
+            .capture_reads(
+                Kernel::Use,
+                keys,
+                charge,
+                inv.context,
+                &budget,
+                &cancellation,
+            )
+            .await
+            .unwrap();
+        assert_eq!(captured.captured_rows::<SourceArtifact>().await.unwrap(), 1);
+        assert_eq!(
+            captured
+                .captured_rows::<AssertionQualification>()
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            captured
+                .captured_rows::<FlowUseObservation>()
+                .await
+                .unwrap(),
+            2
+        );
+        let (mut reads, metadata) = prepared.metadata(&session, &inv, &budget).await.unwrap();
+        let (mut oracle, oracle_metadata) =
+            prepared.metadata(&session, &inv, &budget).await.unwrap();
+        let actual = local_semantics::ProducedLocal::empty(&budget);
+        let mut observed = ReadRecords::new(&budget);
+        let mut expected = ReadRecords::new(&budget);
+        for (partition, observation) in observations.iter().enumerate() {
+            let window = captured
+                .cohort(partition, 1, &budget, &cancellation)
+                .await
+                .unwrap();
+            assert!(
+                window
+                    .data
+                    .entry
+                    .use_observations
+                    .get(observation.id())
+                    .is_some()
+            );
+            assert!(
+                window
+                    .data
+                    .entry
+                    .use_observations
+                    .get(observations[1 - partition].id())
+                    .is_none()
+            );
+            let (roots, root_charge) = window.data.roots(&budget).unwrap();
+            let result = reads
+                .produce(
+                    &window.data.data,
+                    &window.data.entry,
+                    &inv,
+                    &roots,
+                    ReadRoot::Use(observation.id()),
+                    &budget,
+                    ReadEntries {
+                        witnesses: &window.data.witnesses,
+                        sources: &window.data.sources,
+                        actual: &actual,
+                    },
+                )
+                .unwrap();
+            // Independent expected semantics: one unresolved native-place read per request,
+            // retaining its exact observation, owner and qualification; no invented support.
+            assert_eq!(result.reads.len(), 1);
+            let read = result.reads.iter().next().unwrap();
+            assert_eq!(read.observation, observation.id());
+            assert_eq!(read.owner, owner);
+            assert_eq!(read.qualification, q.id());
+            assert!(read.premise.is_none());
+            assert_eq!(read.status, analysis::policy::EvidenceStatus::Unresolved);
+            assert_eq!(
+                read.location,
+                execution::read_channels::ReadLocation::NativePlace
+            );
+            assert_eq!(result.dependencies.len(), 0);
+            observed.append(&result).unwrap();
+            drop(result);
+            drop(root_charge);
+            drop(window);
+            let scope = prepared
+                .scope(Kernel::Use, *observation.id().bytes(), &budget)
+                .await
+                .unwrap();
+            let singleton = data(&session, &prepared, Some(&scope), &budget, false).await;
+            let (roots, _roots) = singleton.roots(&budget).unwrap();
+            let result = oracle
+                .produce(
+                    &singleton.data,
+                    &singleton.entry,
+                    &inv,
+                    &roots,
+                    ReadRoot::Use(observation.id()),
+                    &budget,
+                    ReadEntries {
+                        witnesses: &singleton.witnesses,
+                        sources: &singleton.sources,
+                        actual: &actual,
+                    },
+                )
+                .unwrap();
+            expected.append(&result).unwrap();
+        }
+        assert!(observed.same(&expected));
+        assert_eq!(observed.reads.len(), 2);
+        let absent = captured.cohort(2, 1, &budget, &cancellation).await.unwrap();
+        assert!(absent.data.entry.use_observations.is_empty());
+        assert!(absent.data.data.artifacts.is_empty());
+        drop(absent);
+        drop(observed);
+        drop(expected);
+        drop(reads);
+        drop(oracle);
+        drop(metadata);
+        drop(oracle_metadata);
+        drop(actual);
+        drop(captured);
+        assert_eq!(budget.reserved(), retained);
+        drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn read_cohort_field_call_namespace_keeps_full_literal_and_once_only_field_order() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(32 << 20).unwrap();
+        let (initial, expression, inv) = fixture(&session, &budget, false, true).await;
+        drop(initial);
+        let q = table_rows::<AssertionQualification>(&session)
+            .await
+            .pop()
+            .unwrap();
+        let calls = (0..2)
+            .map(|ordinal| {
+                let site = Occurrence {
+                    syntax_kind: SyntaxKind::ExprCall,
+                    structural_path: vec![7, ordinal],
+                    ..expression.clone()
+                };
+                let call = CallSyntax {
+                    qualification: q.id(),
+                    site: site.id(),
+                    callee: expression.id(),
+                    arguments: ContentHash::of(b"args"),
+                    in_annotation: false,
+                };
+                (site, call)
+            })
+            .collect::<Vec<_>>();
+        let mut occurrences = table_rows::<Occurrence>(&session).await;
+        occurrences.extend(calls.iter().map(|(site, _)| site.clone()));
+        register(&session, &occurrences);
+        drop(occurrences);
+        register(
+            &session,
+            &calls
+                .iter()
+                .map(|(_, call)| call.clone())
+                .collect::<Vec<_>>(),
+        );
+        register(
+            &session,
+            &calls
+                .iter()
+                .map(|(_, call)| CallArgument {
+                    call: call.id(),
+                    ordinal: 1,
+                    kind: ArgumentKind::Positional,
+                    keyword: None,
+                    value: expression.id(),
+                })
+                .collect::<Vec<_>>(),
+        );
+        let literal = value::Literal::String {
+            value: "α\0雪".into(),
+        };
+        let detail = SyntaxDetail::Literal {
+            literal: literal.id(),
+        };
+        register(
+            &session,
+            &[SyntaxDetailObservation {
+                qualification: q.id(),
+                occurrence: expression.id(),
+                ordinal: 0,
+                detail: detail.id(),
+            }],
+        );
+        register(&session, &[detail]);
+        register(&session, std::slice::from_ref(&literal));
+        let prepared = prepare(&session, &budget).await;
+        let retained = budget.reserved();
+        assert_ne!(
+            prepared.root_index(Kernel::FieldCall).unwrap(),
+            prepared.root_index(Kernel::DynamicCall).unwrap()
+        );
+        let cancellation = crate::workspace::Cancellation::default();
+        let keys = calls
+            .iter()
+            .map(|(_, call)| *call.id().bytes())
+            .collect::<Vec<_>>();
+        let (_, charge) = prepared.admit_window(keys.len(), &budget).unwrap();
+        let captured = prepared
+            .capture_reads(
+                Kernel::FieldCall,
+                keys,
+                charge,
+                inv.context,
+                &budget,
+                &cancellation,
+            )
+            .await
+            .unwrap();
+        assert_eq!(captured.captured_rows::<value::Literal>().await.unwrap(), 1);
+        let (mut reads, metadata) = prepared.metadata(&session, &inv, &budget).await.unwrap();
+        let actual = local_semantics::ProducedLocal::empty(&budget);
+        let artifact = table_rows::<SourceArtifact>(&session).await.pop().unwrap();
+        let rootscope = prepared
+            .scope(Kernel::FieldRoot, *artifact.id().bytes(), &budget)
+            .await
+            .unwrap();
+        let rootdata = data(&session, &prepared, Some(&rootscope), &budget, false).await;
+        let roots = [artifact.id()].into_iter().collect();
+        reads
+            .field_roots(&rootdata.data, &rootdata.entry, &inv, &roots)
+            .unwrap();
+        drop(rootdata);
+        drop(rootscope);
+        reads.begin_field_candidates().unwrap();
+        for (partition, (_, call)) in calls.iter().enumerate() {
+            let window = captured
+                .cohort(partition, 1, &budget, &cancellation)
+                .await
+                .unwrap();
+            assert_eq!(window.data.data.literals.get(literal.id()), Some(&literal));
+            assert_eq!(window.data.data.call_arguments.len(), 1);
+            assert!(window.data.data.call_syntax.get(call.id()).is_some());
+            assert!(
+                window
+                    .data
+                    .data
+                    .call_syntax
+                    .get(calls[1 - partition].1.id())
+                    .is_none()
+            );
+            let (roots, _roots) = window.data.roots(&budget).unwrap();
+            let records = reads
+                .produce(
+                    &window.data.data,
+                    &window.data.entry,
+                    &inv,
+                    &roots,
+                    ReadRoot::FieldCall(call.id()),
+                    &budget,
+                    ReadEntries {
+                        witnesses: &window.data.witnesses,
+                        sources: &window.data.sources,
+                        actual: &actual,
+                    },
+                )
+                .unwrap();
+            assert!(records.reads.is_empty());
+            assert!(records.dynamic.is_empty());
+        }
+        reads.seal_fields().unwrap();
+        drop(reads);
+        drop(metadata);
+        drop(actual);
+        drop(captured);
+        assert_eq!(budget.reserved(), retained);
+        drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn read_cohort_cancellation_and_local_refusal_release_without_production_retry() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        empty(&session);
+        let prepared = prepare(&session, &budget).await;
+        let retained = budget.reserved();
+        let cancelled = crate::workspace::Cancellation::default();
+        cancelled.cancel();
+        let (_, charge) = prepared.admit_window(1, &budget).unwrap();
+        assert!(
+            prepared
+                .capture_reads(
+                    Kernel::Use,
+                    vec![[1; 16]],
+                    charge,
+                    id(2),
+                    &budget,
+                    &cancelled
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(budget.reserved(), retained);
+        let cancellation = crate::workspace::Cancellation::default();
+        let (_, charge) = prepared.admit_window(1, &budget).unwrap();
+        let captured = prepared
+            .capture_reads(
+                Kernel::Use,
+                vec![[1; 16]],
+                charge,
+                id(2),
+                &budget,
+                &cancellation,
+            )
+            .await
+            .unwrap();
+        let capture_reserved = budget.reserved();
+        let pressure = budget
+            .reserve(
+                "read-cohort-singleton-refusal",
+                budget.limit() - capture_reserved,
+            )
+            .unwrap();
+        // No mutable PreparedReads owner has been invoked. A singleton local refusal exits;
+        // it cannot repeat source acquisition or replay already mutated semantic work.
+        assert!(matches!(
+            captured.cohort(0, 1, &budget, &cancellation).await,
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(budget.reserved(), budget.limit());
+        drop(pressure);
+        drop(captured);
+        assert_eq!(budget.reserved(), retained);
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }

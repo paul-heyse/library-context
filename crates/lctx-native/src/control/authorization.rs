@@ -147,6 +147,13 @@ impl IssuanceEra {
             .map_err(ModelError::codec)?
             .check()
             .map_err(ModelError::codec)?;
+        // A missing statement is not an observed empty installation. The SDK permits
+        // empty envelopes for skipped control flow, but this fixed SELECT must return one.
+        if response.num_statements() != 1 {
+            tracing::warn!(target: "lctx_phase", observation="native_issuance_statement_inventory",
+                expected=1, observed=response.num_statements(), "native issuance response inventory refused");
+            return Err(ModelError::Schema("native issuance response inventory"));
+        }
         let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
         let [row] = rows.as_slice() else {
             return Err(ModelError::Conflict("native issuance installation"));
@@ -915,8 +922,7 @@ fn execute_owner_plan<'a>(
     client: &'a Surreal<Client>,
     request: NativeRequest,
     plan: OwnerEffectPlan,
-) -> Result<futures::future::BoxFuture<'a, Result<(), ModelError>>, ModelError> {
-    use futures::FutureExt;
+) -> Result<crate::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
     use lctx_model::domain::completion::{Completion, LocalState, RemoteState, complete};
     let scope = capture_recovery_scope().ok_or_else(|| {
         request.error(ModelError::Conflict(
@@ -1005,18 +1011,7 @@ fn execute_owner_plan<'a>(
             }
         }
     };
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<
-            Box<dyn lctx_model::domain::resources::Reservation>,
-        >())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema("native effect continuation size"))?;
-    let charge = budget.reserve("native effect continuation", bytes)?;
-    Ok(async move {
-        let _charge = charge;
-        body.await
-    }
-    .boxed())
+    crate::continuation::admit(&budget, "native effect continuation", body)
 }
 
 /// Settle only exact original request metadata, never original production SQL.
@@ -1044,7 +1039,8 @@ fn recovery_settlement_body<'a>(
     scope: &'a Arc<RecoveryScope>,
     pending: &'a PendingRecovery,
     admission: &'a RetryCancellation,
-) -> Result<futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>>, ModelError> {
+) -> Result<crate::continuation::Continuation<'a, Result<EffectDisposition, ModelError>>, ModelError>
+{
     use futures::FutureExt;
     let body = async move {
         if admission.stopped() {
@@ -1076,21 +1072,11 @@ fn recovery_settlement_body<'a>(
         pending.settle(disposition)?;
         Ok(disposition)
     };
-    // The returned future owns both its body and the grant through completion.
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<
-            Box<dyn lctx_model::domain::resources::Reservation>,
-        >())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema("native settlement future size"))?;
-    let charge = scope
-        .budget()
-        .reserve("native exact request settlement future", bytes)?;
-    Ok(async move {
-        let _charge = charge;
-        body.await
-    }
-    .boxed())
+    crate::continuation::admit(
+        scope.budget(),
+        "native exact request settlement future",
+        body,
+    )
 }
 // Only this protocol's still-pending owner can discharge a compacted/never-issued
 // request. Permanent era fencing plus atomically retained witnesses is the proof;
@@ -1292,7 +1278,8 @@ fn source_finalization_body<'a>(
     marker: &'a super::SourceFinalizationMarker,
     admission: &'a RetryCancellation,
     abandon: bool,
-) -> Result<futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>>, ModelError> {
+) -> Result<crate::continuation::Continuation<'a, Result<EffectDisposition, ModelError>>, ModelError>
+{
     use futures::FutureExt;
     let body = async move {
         if admission.stopped() {
@@ -1384,20 +1371,7 @@ fn source_finalization_body<'a>(
         }
         Ok(disposition)
     };
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<
-            Box<dyn lctx_model::domain::resources::Reservation>,
-        >())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema("native source finalization future size"))?;
-    let charge = scope
-        .budget()
-        .reserve("native source finalization future", bytes)?;
-    Ok(async move {
-        let _charge = charge;
-        body.await
-    }
-    .boxed())
+    crate::continuation::admit(scope.budget(), "native source finalization future", body)
 }
 pub async fn release_factory_source_references_admitted(
     scope: &Arc<RecoveryScope>,
@@ -1434,8 +1408,7 @@ fn release_factory_references_body<'a>(
     scope: &'a Arc<RecoveryScope>,
     release: FactoryReferenceRelease<'a>,
     admission: &'a RetryCancellation,
-) -> Result<futures::future::BoxFuture<'a, Result<(), ModelError>>, ModelError> {
-    use futures::FutureExt;
+) -> Result<crate::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
     let body = async move {
         let (allocation, phase, disposition, identity, table, reference, terminal_error) =
             match release {
@@ -1498,22 +1471,11 @@ fn release_factory_references_body<'a>(
         )
         .await
     };
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<
-            Box<dyn lctx_model::domain::resources::Reservation>,
-        >())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema(
-            "native witness release continuation size",
-        ))?;
-    let charge = scope
-        .budget()
-        .reserve("native source/pin witness release continuation", bytes)?;
-    Ok(async move {
-        let _charge = charge;
-        body.await
-    }
-    .boxed())
+    crate::continuation::admit(
+        scope.budget(),
+        "native source/pin witness release continuation",
+        body,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -1559,8 +1521,8 @@ fn pin_finalization_body<'a>(
     marker: &'a super::PinFinalizationMarker,
     admission: &'a RetryCancellation,
     authority: PinFinalizationAuthority,
-) -> Result<futures::future::BoxFuture<'a, Result<EffectDisposition, ModelError>>, ModelError> {
-    use futures::FutureExt;
+) -> Result<crate::continuation::Continuation<'a, Result<EffectDisposition, ModelError>>, ModelError>
+{
     let body = async move {
         if admission.stopped() {
             return Err(ModelError::Conflict("native pin recovery issuance stopped"));
@@ -1636,20 +1598,7 @@ fn pin_finalization_body<'a>(
         }
         Ok(disposition)
     };
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<
-            Box<dyn lctx_model::domain::resources::Reservation>,
-        >())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema("native pin finalization future size"))?;
-    let charge = scope
-        .budget()
-        .reserve("native pin finalization future", bytes)?;
-    Ok(async move {
-        let _charge = charge;
-        body.await
-    }
-    .boxed())
+    crate::continuation::admit(scope.budget(), "native pin finalization future", body)
 }
 pub async fn release_factory_pin_references_admitted(
     scope: &Arc<RecoveryScope>,

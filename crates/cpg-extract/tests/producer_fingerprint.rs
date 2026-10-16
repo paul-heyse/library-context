@@ -342,6 +342,7 @@ fn repository_provider_closure_has_only_its_local_production_members() {
             "crates/cpg-flow/Cargo.toml",
             "crates/lctx-model-macros/Cargo.toml",
             "crates/lctx-model/Cargo.toml",
+            "crates/lctx-tracing/Cargo.toml",
         ]
     );
     let compiler = fingerprint::capture(&root, &root.join("crates/cpg-core"));

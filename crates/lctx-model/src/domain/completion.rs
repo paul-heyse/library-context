@@ -71,6 +71,11 @@ pub struct Completion {
     pub failures: Vec<Finalization>,
 }
 impl Completion {
+    /// Whether this owner report has successful, conclusive finality on every axis.
+    /// This does not change a primary operation failure or establish later work's finality.
+    pub fn is_satisfied(&self) -> bool {
+        self.satisfied()
+    }
     /// Compose actual owner reports without converting successful metadata into `()`.
     /// Outstanding work and unknown acknowledgements remain sticky; outcomes retain order.
     pub fn merge(&mut self, report: Self) {
@@ -118,6 +123,12 @@ impl Completion {
         if let ModelError::SharedCause(error) = error {
             self.observe(error);
         }
+        if let ModelError::Operations(errors) = error {
+            self.observe(&errors.primary);
+            for error in &errors.related {
+                self.observe(error);
+            }
+        }
         if let ModelError::Cause(error) = error
             && let Some(error) = contextual_model(error.as_ref())
         {
@@ -140,6 +151,27 @@ impl Completion {
                 .storage
                 .iter()
                 .any(|s| matches!(s, StorageState::Orphan(_)))
+    }
+}
+/// Owned operation errors in observation order. Actual finality remains in each
+/// nested typed Completion rather than being invented for a related diagnostic.
+#[derive(Debug)]
+pub struct OperationErrors {
+    pub primary: ModelError,
+    pub related: Vec<ModelError>,
+}
+impl std::fmt::Display for OperationErrors {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.primary)?;
+        for error in &self.related {
+            write!(formatter, "; related operation: {error}")?;
+        }
+        Ok(())
+    }
+}
+impl std::error::Error for OperationErrors {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.primary)
     }
 }
 #[derive(Debug)]
@@ -218,8 +250,48 @@ fn contextual_model<'a>(
     }
 }
 impl ModelError {
+    /// Optional fallback for one cause must not hide other operation diagnostics.
+    pub fn has_operation_group(&self) -> bool {
+        match self {
+            Self::Operations(_) => true,
+            Self::SharedCause(error) => error.has_operation_group(),
+            Self::Cause(error) => {
+                contextual_model(error.as_ref()).is_some_and(Self::has_operation_group)
+            }
+            Self::Completion(outcome) => {
+                outcome
+                    .primary
+                    .as_deref()
+                    .is_some_and(Self::has_operation_group)
+                    || outcome
+                        .completion
+                        .failures
+                        .iter()
+                        .any(|failure| failure.error.has_operation_group())
+            }
+            _ => false,
+        }
+    }
+    /// Preserve the first operation and every related owned diagnostic. This does
+    /// not assert that a task joined, a request was acknowledged or cleanup passed.
+    pub fn alongside(self, related: Self) -> Self {
+        match self {
+            Self::Operations(mut errors) => {
+                errors.related.push(related);
+                Self::Operations(errors)
+            }
+            primary => Self::Operations(Box::new(OperationErrors {
+                primary,
+                related: vec![related],
+            })),
+        }
+    }
     pub fn primary(&self) -> Option<&ModelError> {
         match self {
+            Self::Operations(errors) => errors
+                .primary
+                .primary()
+                .or_else(|| errors.related.iter().find_map(Self::primary)),
             Self::Completion(outcome) => outcome.primary.as_deref().and_then(Self::primary),
             Self::SharedCause(error) => error.primary(),
             Self::Cause(error) => match contextual_model(error.as_ref()) {
@@ -231,6 +303,10 @@ impl ModelError {
     }
     pub fn permits_storage_cleanup(&self) -> bool {
         match self {
+            Self::Operations(errors) => {
+                errors.primary.permits_storage_cleanup()
+                    && errors.related.iter().all(Self::permits_storage_cleanup)
+            }
             Self::Completion(outcome) => {
                 outcome.completion.local == LocalState::Terminal
                     && outcome.completion.remote == RemoteState::Confirmed
@@ -257,6 +333,10 @@ impl ModelError {
     }
     pub fn has_committed_effect(&self) -> bool {
         match self {
+            Self::Operations(errors) => {
+                errors.primary.has_committed_effect()
+                    || errors.related.iter().any(Self::has_committed_effect)
+            }
             Self::Completion(outcome) => {
                 !outcome.completion.committed.is_empty()
                     || outcome
@@ -280,6 +360,116 @@ impl ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn related_operation_refusals_keep_primary_identity_without_inventing_finalizers() {
+        let primary = std::sync::Arc::new(ModelError::Resource {
+            owner: "operation",
+            requested: 17,
+            used: 0,
+            limit: 16,
+        });
+        let error = ModelError::SharedCause(primary.clone())
+            .alongside(ModelError::Invalid("acknowledged cancellation".into()));
+        assert!(std::ptr::eq(error.primary().unwrap(), primary.as_ref()));
+        assert!(error.permits_storage_cleanup());
+        assert!(!error.has_committed_effect());
+        let error = complete::<()>(Err(error), Completion::default()).unwrap_err();
+        assert!(matches!(&error, ModelError::Operations(errors) if errors.related.len() == 1));
+        assert!(error.to_string().contains("acknowledged cancellation"));
+        let diagnostic =
+            super::super::diagnostic::FailureDiagnostic::project("operation", &error, |_| None);
+        assert_eq!(
+            diagnostic
+                .causes
+                .iter()
+                .map(|cause| cause.code)
+                .collect::<Vec<_>>(),
+            vec![
+                super::super::diagnostic::DiagnosticCode::Context,
+                super::super::diagnostic::DiagnosticCode::Context,
+                super::super::diagnostic::DiagnosticCode::Resource,
+                super::super::diagnostic::DiagnosticCode::Invalid,
+            ]
+        );
+    }
+    #[test]
+    fn related_operation_preserves_nested_uncertainty_effects_and_true_finalizers() {
+        let mut finality = Completion {
+            local: LocalState::Outstanding,
+            remote: RemoteState::Unknown,
+            ..Default::default()
+        };
+        finality.committed("publication", "exact-effect");
+        finality.cleanup("owned-scratch", Err(ModelError::Schema("cleanup refused")));
+        let related = complete::<()>(
+            Err(ModelError::Invalid("related operation".into())),
+            finality,
+        )
+        .unwrap_err();
+        let error = ModelError::Resource {
+            owner: "primary",
+            requested: 2,
+            used: 0,
+            limit: 1,
+        }
+        .alongside(related);
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Resource {
+                owner: "primary",
+                ..
+            })
+        ));
+        assert!(!error.permits_storage_cleanup());
+        assert!(error.has_committed_effect());
+        // A successful owner report carries metadata, so composition observes
+        // the group's nested uncertainty instead of returning it unchanged.
+        let mut observed = Completion::default();
+        observed.committed("observer", "completed-owner-effect");
+        let error = complete::<()>(Err(error), observed).unwrap_err();
+        let ModelError::Completion(outcome) = &error else {
+            panic!("related uncertainty must remain observed")
+        };
+        assert_eq!(outcome.completion.local, LocalState::Outstanding);
+        assert_eq!(outcome.completion.remote, RemoteState::Unknown);
+        assert!(
+            outcome.completion.failures.is_empty(),
+            "observation does not relabel related operations as finalizers"
+        );
+        assert!(error.has_committed_effect());
+        let ModelError::Operations(operations) = outcome.primary.as_deref().unwrap() else {
+            panic!("owned operation group")
+        };
+        let ModelError::Completion(related) = &operations.related[0] else {
+            panic!("original typed finality")
+        };
+        assert_eq!(
+            related.completion.storage,
+            [StorageState::Orphan("owned-scratch".into())]
+        );
+        assert_eq!(related.completion.failures.len(), 1);
+        assert_eq!(related.completion.committed[0].identity, "exact-effect");
+    }
+    #[test]
+    fn related_operation_primary_does_not_relabel_a_finalization_only_error() {
+        let mut finality = Completion::default();
+        finality.step("actual cleanup", Err(ModelError::Schema("cleanup refusal")));
+        let cleanup = complete::<()>(Ok(()), finality).unwrap_err();
+        assert!(cleanup.primary().is_none());
+        let resource = std::sync::Arc::new(ModelError::Resource {
+            owner: "operation",
+            requested: 2,
+            used: 0,
+            limit: 1,
+        });
+        let error = cleanup.alongside(ModelError::SharedCause(resource.clone()));
+        let wrapped = ModelError::Cause(Box::new(ModelError::SharedCause(std::sync::Arc::new(
+            error,
+        ))));
+        assert!(std::ptr::eq(wrapped.primary().unwrap(), resource.as_ref()));
+        assert!(wrapped.has_operation_group());
+        assert!(wrapped.to_string().contains("actual cleanup"));
+    }
     #[derive(Debug)]
     struct Context(ModelError);
     impl std::fmt::Display for Context {

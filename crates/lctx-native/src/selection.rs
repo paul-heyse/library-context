@@ -743,19 +743,11 @@ impl SelectedPayloads {
                 budget: budget.clone(),
             })
         };
-        let bytes = std::mem::size_of_val(&body)
-            .checked_add(std::mem::size_of::<
-                Box<dyn lctx_model::domain::resources::Reservation>,
-            >())
-            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-            .ok_or(ModelError::Schema(
-                "exact selection preparation continuation size",
-            ))?;
-        let grant = budget.reserve("native exact selection preparation continuation", bytes)?;
-        Ok(Box::pin(async move {
-            let _grant = grant;
-            body.await
-        }))
+        crate::continuation::admit(
+            budget,
+            "native exact selection preparation continuation",
+            body,
+        )
     }
 
     async fn owned_alias_topology(
@@ -1838,39 +1830,58 @@ impl SelectedPayloads {
                 .len()
                 .saturating_mul(std::mem::size_of::<ContentHash>()),
         )?;
-        let views = exact.views.clone();
+        // The driver may be refused before invocation. Capturing this owner as
+        // a whole keeps the cloned vector before its charge in every drop path.
+        struct RelationViews {
+            views: Vec<ContentHash>,
+            charge: StateCharge,
+        }
+        impl RelationViews {
+            fn into_parts(self) -> (Vec<ContentHash>, StateCharge) {
+                (self.views, self.charge)
+            }
+        }
+        let input = RelationViews {
+            views: exact.views.clone(),
+            charge,
+        };
         // The future owns this vector and its admission until all nominations drain.
         let selected = self.clone();
         let relation = relation.to_owned();
         let table = table.to_owned();
         let budget = budget.clone();
-        NativeRows::owned(budget.clone(), move |sender| async move {
-            let _charge = charge;
-            let mut rows = Self::candidate_rows_from(
-                selected.source.clone(),
-                Some(selected),
-                views,
-                CandidateNominations::Relation(relation),
-                &table,
-                "semantic_key",
-                &budget,
-            )?;
-            let result = async {
-                while let Some(row) = rows.next().await? {
-                    if !sender.send(row).await? {
-                        rows.cancel_delivery();
-                        break;
+        NativeRows::owned(budget.clone(), move |sender| {
+            let (views, charge) = input.into_parts();
+            crate::continuation::retain(
+                async move {
+                    let mut rows = Self::candidate_rows_from(
+                        selected.source.clone(),
+                        Some(selected),
+                        views,
+                        CandidateNominations::Relation(relation),
+                        &table,
+                        "semantic_key",
+                        &budget,
+                    )?;
+                    let result = async {
+                        while let Some(row) = rows.next().await? {
+                            if !sender.send(row).await? {
+                                rows.cancel_delivery();
+                                break;
+                            }
+                        }
+                        Ok(())
                     }
-                }
-                Ok(())
-            }
-            .await;
-            let mut completion = Completion::default();
-            completion.step(
-                "exact relation candidates drainage",
-                rows.drain_transport().await,
-            );
-            complete(result, completion)
+                    .await;
+                    let mut completion = Completion::default();
+                    completion.step(
+                        "exact relation candidates drainage",
+                        rows.drain_transport().await,
+                    );
+                    complete(result, completion)
+                },
+                charge,
+            )
         })
     }
     pub fn candidate_rows(

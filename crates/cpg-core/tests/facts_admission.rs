@@ -238,6 +238,13 @@ async fn real_pyrefly_document_predecessor(profiles: impl IntoIterator<Item = Pr
                 .contributions
                 .contains(&predecessor.identity().unwrap())
         );
+        // Every scheduled provider has completed; no further content mutation is
+        // needed. Earn the native freeze before requesting whole-state identity.
+        workspace
+            .native()
+            .freeze_content(&native_operation_budget)
+            .await
+            .unwrap();
         let native = workspace
             .native()
             .completed_state(&native_operation_budget)

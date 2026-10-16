@@ -40,15 +40,11 @@ fn transaction_errors(mut errors: Vec<(usize, surrealdb::Error)>) -> Result<(), 
     let Some(index) = decisive else {
         return Ok(());
     };
-    let primary = ModelError::Cause(Box::new(errors.remove(index).1));
-    let mut completion = lctx_model::domain::completion::Completion::default();
+    let mut primary = ModelError::Cause(Box::new(errors.remove(index).1));
     for (_, error) in errors {
-        completion.step(
-            "native transaction secondary statement",
-            Err(ModelError::Cause(Box::new(error))),
-        );
+        primary = primary.alongside(ModelError::Cause(Box::new(error)));
     }
-    lctx_model::domain::completion::complete(Err(primary), completion)
+    Err(primary)
 }
 fn retryable_transaction(error: &ModelError) -> bool {
     fn native(error: &ModelError) -> Option<&surrealdb::Error> {
@@ -57,21 +53,22 @@ fn retryable_transaction(error: &ModelError) -> bool {
             _ => None,
         }
     }
+    fn secondary(error: &ModelError) -> bool {
+        match error {
+            ModelError::Operations(errors) => {
+                secondary(&errors.primary) && errors.related.iter().all(secondary)
+            }
+            _ => native(error).is_some_and(|error| {
+                matches!(
+                    error.query_details(),
+                    Some(surrealdb::types::QueryError::NotExecuted)
+                ) || retryable_conflict(error)
+            }),
+        }
+    }
     match error {
-        ModelError::Completion(outcome) => {
-            outcome
-                .primary
-                .as_deref()
-                .and_then(native)
-                .is_some_and(retryable_conflict)
-                && outcome.completion.failures.iter().all(|failure| {
-                    native(&failure.error).is_some_and(|error| {
-                        matches!(
-                            error.query_details(),
-                            Some(surrealdb::types::QueryError::NotExecuted)
-                        ) || retryable_conflict(error)
-                    })
-                })
+        ModelError::Operations(errors) => {
+            retryable_transaction(&errors.primary) && errors.related.iter().all(secondary)
         }
         _ => native(error).is_some_and(retryable_conflict),
     }
@@ -619,7 +616,9 @@ pub async fn release_pin_checked(
         let mut bindings = Variables::new();
         bindings.insert("pin", id.clone());
         bindings.insert("holds", holds);
-        effect(client,None,"LET $prior=SELECT * FROM ONLY $pin FOR UPDATE; IF $prior=NONE OR !$prior.released { THROW 'native pin release not fenced'; }; LET $owned=SELECT * FROM $holds WHERE owner=$pin; FOR $hold_row IN $owned { fn::native_incidence($hold_row); DELETE $hold_row.id RETURN NONE; }",bindings).await?;
+        // The fence committed separately: this page still touches the pin, once,
+        // along with every exact hold/object target before any deletion commits.
+        effect(client,None,"LET $prior=SELECT * FROM ONLY $pin FOR UPDATE; IF $prior=NONE OR !$prior.released { THROW 'native pin release not fenced'; }; LET $owned=SELECT * FROM $holds WHERE owner=$pin; LET $incidence_targets=array::distinct(array::flatten($owned.map(|$hold_row| fn::native_incidence_targets($hold_row)))); FOR $target IN $incidence_targets { fn::native_touch($target); }; FOR $hold_row IN $owned { DELETE $hold_row.id RETURN NONE; }",bindings).await?;
     }
     Ok(())
 }
@@ -1238,10 +1237,10 @@ mod tests {
         let error =
             transaction_errors(vec![(0, aborted()), (1, conflict()), (2, aborted())]).unwrap_err();
         assert!(retryable_transaction(&error));
-        let ModelError::Completion(outcome) = error else {
+        let ModelError::Operations(outcome) = error else {
             panic!("secondary errors retained");
         };
-        assert_eq!(outcome.completion.failures.len(), 2);
+        assert_eq!(outcome.related.len(), 2);
         for permanent in [
             surrealdb::Error::validation("bad row".into(), None),
             surrealdb::Error::internal("unclassified failure".into()),
@@ -1249,11 +1248,11 @@ mod tests {
             let error = transaction_errors(vec![(0, aborted()), (1, conflict()), (2, permanent)])
                 .unwrap_err();
             assert!(!retryable_transaction(&error));
-            let ModelError::Completion(outcome) = error else {
+            let ModelError::Operations(outcome) = error else {
                 panic!("secondary errors retained");
             };
-            assert_eq!(outcome.completion.failures.len(), 2);
-            let Some(ModelError::Cause(primary)) = outcome.primary.as_deref() else {
+            assert_eq!(outcome.related.len(), 2);
+            let ModelError::Cause(primary) = &outcome.primary else {
                 panic!("typed primary retained");
             };
             assert!(!retryable_conflict(
@@ -1263,5 +1262,20 @@ mod tests {
         assert!(!retryable_transaction(
             &transaction_errors(vec![(0, aborted())]).unwrap_err()
         ));
+        let conflict_error = || ModelError::Cause(Box::new(conflict()));
+        assert!(!retryable_transaction(&conflict_error().alongside(
+            ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                "related outcome unknown",
+            )
+        )));
+        let mut actual = lctx_model::domain::completion::Completion::default();
+        actual.committed("publication", "already-committed");
+        let actual = lctx_model::domain::completion::complete::<()>(Err(conflict_error()), actual)
+            .unwrap_err();
+        assert!(
+            !retryable_transaction(&actual),
+            "actual owned completion must never be mistaken for retryable statement diagnostics"
+        );
     }
 }

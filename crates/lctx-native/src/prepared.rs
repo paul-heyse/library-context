@@ -73,6 +73,9 @@ impl PreparedQuery {
     pub fn expected_terminals(&self) -> usize {
         self.terminals
     }
+    pub(crate) fn sql_shape(&self) -> &str {
+        &self.sql
+    }
     pub fn into_request(self) -> (String, Variables) {
         (self.sql, self.bindings)
     }

@@ -40,7 +40,7 @@ impl ServiceUnavailable {
                 ModelError::SharedCause(cause) => return Self::detail(cause.as_ref()),
                 // Finalization has independent obligations; a primary availability cause
                 // cannot make the enclosing terminal/cleanup result optional.
-                ModelError::Completion(_) => return None,
+                ModelError::Completion(_) | ModelError::Operations(_) => return None,
                 _ => {}
             }
         }
@@ -73,5 +73,23 @@ mod controls {
             let wrapped = ModelError::Cause(Box::new(Context(error)));
             assert_eq!(ServiceUnavailable::detail(&wrapped), None);
         }
+    }
+    #[test]
+    fn related_failure_cannot_be_discarded_as_optional_service_availability() {
+        let mut finality = crate::domain::completion::Completion::default();
+        finality.step(
+            "actual driver join",
+            Err(ModelError::infrastructure(
+                crate::domain::Infrastructure::Unconfirmed,
+                "lost driver",
+            )),
+        );
+        let related = crate::domain::completion::complete::<()>(Ok(()), finality).unwrap_err();
+        let error = ServiceUnavailable::cause("offline").alongside(related);
+        let wrapped = ModelError::Cause(Box::new(Context(ModelError::SharedCause(
+            std::sync::Arc::new(error),
+        ))));
+        assert_eq!(ServiceUnavailable::detail(&wrapped), None);
+        assert!(!wrapped.permits_storage_cleanup());
     }
 }

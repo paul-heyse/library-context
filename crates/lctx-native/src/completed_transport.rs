@@ -397,15 +397,7 @@ fn selected_inventory<'a>(
     };
     // One complete inventory operation owns its continuation through audit cleanup.
     // Admit the concrete execution body before allocation or the first native read.
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema("selected inventory continuation size"))?;
-    let grant = budget.reserve("native selected inventory continuation", bytes)?;
-    Ok(Box::pin(async move {
-        let _grant = grant;
-        body.await
-    }))
+    crate::continuation::admit(budget, "native selected inventory continuation", body)
 }
 
 pub async fn prepare_selected(

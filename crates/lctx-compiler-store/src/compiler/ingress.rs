@@ -48,6 +48,12 @@ pub struct NativeIngress {
     next: u64,
     stopped: Arc<AtomicBool>,
 }
+/// The accepted driver's operation outcome is distinct from joining its actual owner.
+/// Native operation diagnostics remain sticky in the store's admission owner.
+pub struct IngressDrainReport {
+    pub operation: Result<(), ModelError>,
+    pub completion: d::completion::Completion,
+}
 impl NativeIngress {
     pub async fn accept(
         &mut self,
@@ -82,18 +88,45 @@ impl NativeIngress {
         });
         Ok(IngressSequence { sequence, result })
     }
-    pub async fn finish(mut self) -> Result<(), ModelError> {
+    pub async fn finish(self) -> Result<(), ModelError> {
+        let report = self.finish_report().await;
+        d::completion::complete(report.operation, report.completion)
+    }
+    pub async fn finish_report(mut self) -> IngressDrainReport {
         self.sender.take();
-        let terminal = self
-            .terminal
-            .take()
-            .ok_or(ModelError::Conflict("native ingress finish"))?;
-        terminal.await.map_err(|error| {
-            ModelError::infrastructure(
-                Infrastructure::Unconfirmed,
-                format!("native ingress driver lost: {error}"),
-            )
-        })?
+        let mut completion = d::completion::Completion::default();
+        let operation = match self.terminal.take() {
+            Some(terminal) => match terminal.await {
+                Ok(operation) => operation,
+                Err(error) => {
+                    completion.step(
+                        "native ingress driver join",
+                        Err(ModelError::Cause(Box::new(error)).alongside(
+                            ModelError::infrastructure(
+                                Infrastructure::Unconfirmed,
+                                "native ingress driver lost",
+                            ),
+                        )),
+                    );
+                    Ok(())
+                }
+            },
+            None => {
+                completion.local = d::completion::LocalState::Outstanding;
+                completion.step(
+                    "native ingress driver join",
+                    Err(ModelError::infrastructure(
+                        Infrastructure::Unconfirmed,
+                        "native ingress finish lacks its driver owner",
+                    )),
+                );
+                Ok(())
+            }
+        };
+        IngressDrainReport {
+            operation,
+            completion,
+        }
     }
 }
 impl Drop for NativeIngress {
@@ -253,7 +286,70 @@ mod tests {
         let accepted = ingress.accept(batch).await.unwrap();
         assert_eq!(accepted.sequence(), 0);
         assert!(accepted.await_committed().await.is_err());
-        assert!(ingress.finish().await.is_err());
+        let drained = ingress.finish_report().await;
+        assert!(
+            drained.operation.is_err(),
+            "the joined driver's write refusal remains an operation error"
+        );
+        assert!(
+            drained.completion.is_satisfied(),
+            "a conclusive write refusal is not a failed driver join"
+        );
+        assert!(d::completion::complete(drained.operation, drained.completion).is_err());
         assert_eq!(budget.reserved(), 0);
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
+    }
+    #[tokio::test]
+    async fn lost_acknowledgement_and_failed_driver_join_remain_unconfirmed() {
+        let (sender, result) = oneshot::channel();
+        drop(sender);
+        let sequence = IngressSequence {
+            sequence: 7,
+            result,
+        };
+        let Err(error) = sequence.await_committed().await else {
+            panic!("lost acknowledgement cannot commit")
+        };
+        assert!(matches!(
+            error,
+            ModelError::Infrastructure {
+                class: Infrastructure::Unconfirmed,
+                ..
+            }
+        ));
+
+        let terminal: tokio::task::JoinHandle<Result<(), ModelError>> = tokio::spawn(async {
+            panic!("controlled ingress driver panic");
+        });
+        let ingress = NativeIngress {
+            sender: None,
+            terminal: Some(terminal),
+            next: 0,
+            stopped: Arc::new(AtomicBool::new(false)),
+        };
+        let report = ingress.finish_report().await;
+        assert_eq!(
+            report.completion.remote,
+            d::completion::RemoteState::Unknown
+        );
+        assert!(!report.completion.is_satisfied());
+        assert_eq!(report.completion.failures.len(), 1);
+        assert_eq!(
+            report.completion.failures[0].step,
+            "native ingress driver join"
+        );
+        let ModelError::Operations(errors) = &report.completion.failures[0].error else {
+            panic!("the failed join retains its typed cause and uncertainty");
+        };
+        let ModelError::Cause(cause) = &errors.primary else {
+            panic!("original join error")
+        };
+        assert!(
+            cause
+                .downcast_ref::<tokio::task::JoinError>()
+                .unwrap()
+                .is_panic()
+        );
+        assert!(d::completion::complete(report.operation, report.completion).is_err());
     }
 }

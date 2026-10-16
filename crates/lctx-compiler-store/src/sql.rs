@@ -54,6 +54,10 @@ pub fn product_fallback_allowed(error: &lctx_model::domain::ModelError) -> bool 
             if let ModelError::SharedCause(cause) = model {
                 return allowed(cause.as_ref());
             }
+            if let ModelError::Operations(errors) = model {
+                return allowed(&errors.primary)
+                    && errors.related.iter().all(|error| allowed(error));
+            }
         }
         if let Some(datafusion::error::DataFusionError::Collection(errors)) =
             error.downcast_ref::<datafusion::error::DataFusionError>()
@@ -74,6 +78,26 @@ mod completion_controls {
         completion::{self, Completion, LocalState, RemoteState},
     };
     use std::sync::Arc;
+
+    #[test]
+    fn operation_group_fallback_checks_related_uncertainty_and_committed_effects() {
+        use lctx_model::domain::Infrastructure;
+        let acknowledged =
+            ModelError::Schema("primary refusal").alongside(ModelError::Schema("related refusal"));
+        assert!(product_fallback_allowed(&acknowledged));
+        let uncertain = ModelError::Schema("primary refusal").alongside(
+            ModelError::infrastructure(Infrastructure::Unconfirmed, "related acknowledgement lost"),
+        );
+        assert!(!product_fallback_allowed(&uncertain));
+        let mut actual = Completion::default();
+        actual.committed("publication", "related committed view");
+        let committed =
+            completion::complete::<()>(Err(ModelError::Schema("related refusal")), actual)
+                .unwrap_err();
+        assert!(!product_fallback_allowed(
+            &ModelError::Schema("primary refusal").alongside(committed)
+        ));
+    }
 
     #[test]
     fn shared_execution_context_preserves_native_completion_metadata() {

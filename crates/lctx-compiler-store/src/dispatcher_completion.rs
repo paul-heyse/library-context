@@ -108,6 +108,11 @@ fn children<'a>(
         for failure in &outcome.completion.failures {
             visit(&failure.error);
         }
+    } else if let Some(ModelError::Operations(errors)) = error.downcast_ref::<ModelError>() {
+        visit(&errors.primary);
+        for related in &errors.related {
+            visit(related);
+        }
     } else if let Some(ModelError::SharedCause(error)) = error.downcast_ref::<ModelError>() {
         visit(error.as_ref());
     } else if let Some(ModelError::Cause(error)) = error.downcast_ref::<ModelError>() {
@@ -256,6 +261,80 @@ mod tests {
             assert_eq!(finality.remote, RemoteState::Confirmed);
             operation.append_diagnostics("operation", &mut finality);
             assert_eq!(finality.failures.len(), usize::from(dropped));
+        }
+    }
+
+    #[test]
+    fn operation_groups_keep_distinct_diagnostics_and_project_every_finality_axis() {
+        use lctx_model::domain::{Infrastructure, resources::ResourceBudget};
+        for case in 0..3 {
+            let budget = ResourceBudget::fixed(1).unwrap();
+            let primary = budget.reserve("group-primary", 2).unwrap_err();
+            let related = match case {
+                0 => ModelError::Schema("distinct acknowledged refusal"),
+                1 => ModelError::infrastructure(
+                    Infrastructure::Unconfirmed,
+                    "related acknowledgement lost",
+                ),
+                _ => {
+                    let mut finality = Completion::default();
+                    finality
+                        .storage
+                        .push(StorageState::Orphan("actual-held-storage".into()));
+                    finality.committed("publication", "actual-committed-view");
+                    finality.step(
+                        "actual owned finalizer",
+                        Err(ModelError::Schema("finalizer refused")),
+                    );
+                    completion::complete::<()>(
+                        Err(ModelError::Schema("related operation")),
+                        finality,
+                    )
+                    .unwrap_err()
+                }
+            };
+            let error = primary.alongside(related);
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            let observed = OperationResult::deliver(sender, Err::<(), _>(error));
+            let delivered = receiver.blocking_recv().unwrap().unwrap_err();
+            assert!(matches!(
+                delivered.primary(),
+                Some(ModelError::Resource {
+                    owner: "group-primary",
+                    ..
+                })
+            ));
+            let mut actual = Completion::default();
+            observed.finality(&mut actual);
+            match case {
+                0 => {
+                    assert!(actual.is_satisfied());
+                    assert!(
+                        matches!(delivered, ModelError::Operations(ref errors) if errors.related.len()==1
+                        && matches!(errors.related[0], ModelError::Schema("distinct acknowledged refusal")))
+                    );
+                }
+                1 => {
+                    assert_eq!(actual.remote, RemoteState::Unknown);
+                    assert!(!actual.is_satisfied());
+                    assert!(!delivered.permits_storage_cleanup());
+                }
+                _ => {
+                    assert_eq!(
+                        actual.storage,
+                        vec![StorageState::Orphan("actual-held-storage".into())]
+                    );
+                    assert_eq!(actual.committed[0].identity, "actual-committed-view");
+                    assert_eq!(actual.failures.len(), 1);
+                    assert_eq!(actual.failures[0].step, "actual owned finalizer");
+                    assert!(matches!(
+                        actual.failures[0].error.primary(),
+                        Some(ModelError::Schema("finalizer refused"))
+                    ));
+                    assert!(!actual.is_satisfied());
+                }
+            }
+            assert_eq!(budget.reserved(), 0);
         }
     }
 

@@ -20,7 +20,13 @@ impl AdmissionRuntime {
         planner: &'a dyn ValidationPlanner,
     ) -> BoxFuture<'a, Result<bool, ModelError>> {
         Box::pin(async move {
-            if self.model.factory_contract(invariant.identity()).is_none()
+            // Generated scoped checks retain their nominal identity while narrowing the
+            // ordered premise domain. The fixed driver resolves the registered full factory,
+            // so a different definition must execute the ordinary scoped checker instead.
+            if self
+                .model
+                .factory_contract(invariant.identity())
+                .is_none_or(|factory| factory.definition != invariant.digest())
                 || invariant.inputs.is_empty()
                 || !uniform.is_empty()
                 || !inputs.companions.is_empty()
@@ -78,14 +84,17 @@ impl AdmissionRuntime {
                 uniform,
                 self.budget(),
             )?;
-            let mut pending = PendingValidation::prepare(
-                self.model.clone(),
-                invariant,
-                profile,
-                sources,
-                caps.into_values().collect(),
-                uniform,
-                self.budget(),
+            let mut pending = lctx_native::control::with_recovery_scope(
+                self.native.recovery_scope()?,
+                PendingValidation::prepare(
+                    self.model.clone(),
+                    invariant,
+                    profile,
+                    sources,
+                    caps.into_values().collect(),
+                    uniform,
+                    self.budget(),
+                ),
             )
             .await?;
             let result: Result<(), ModelError> = async {
@@ -173,6 +182,31 @@ mod controls {
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     static FINISHED: AtomicUsize = AtomicUsize::new(0);
+    #[test]
+    fn scoped_generated_derivation_differs_from_the_registered_whole_factory() {
+        let model = d::model().unwrap();
+        let full = model.invariant("derivation_acyclic").unwrap();
+        assert!(full.inputs.len() > 1);
+        let factory = model.factory_contract(full.identity()).unwrap();
+        assert_eq!(factory.definition, full.digest());
+        let scope = BTreeSet::from([full.inputs[0].name()]);
+        let scoped = model
+            .generated_invariant_for_scope(&scope)
+            .unwrap()
+            .unwrap();
+        assert_eq!(scoped.identity(), full.identity());
+        assert_eq!(scoped.inputs.len(), 1);
+        assert_eq!(scoped.inputs[0].name(), full.inputs[0].name());
+        assert_ne!(factory.definition, scoped.digest());
+        // Equal cardinality alone is insufficient: the registered definition also binds
+        // ordered roles and purpose, not merely the generated check's nominal ID.
+        let mut reordered = full.clone();
+        reordered.inputs.swap(0, 1);
+        assert_ne!(factory.definition, reordered.digest());
+        let mut different_purpose = full.clone();
+        different_purpose.purpose = InvariantPurpose::DiagnosticReplay;
+        assert_ne!(factory.definition, different_purpose.digest());
+    }
     // Native ingress accepts the canonical record's TypeId and schema only.
     // Its existing relation-owned reference selects this fixture-local whole-input
     // check; registering an unreferenced factory alone would exercise no reuse.

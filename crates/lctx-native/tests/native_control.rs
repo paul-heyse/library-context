@@ -10,6 +10,123 @@ fn config() -> RuntimeConfig {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn pin_release_touches_each_exact_page_target_once_and_preserves_independent_holds() {
+    use lctx_model::domain::{admission::Frontier, completion};
+    use std::collections::BTreeMap;
+    use surrealdb::types::RecordIdKey;
+
+    let cfg = config();
+    let budget =
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = lctx_compiler_store::compiler::recovery_factory(&cfg, budget.clone()).unwrap();
+    let native =
+        lctx_compiler_store::compiler::NativeCompilerStore::begin(&cfg, Frontier::Facts, &factory)
+            .await
+            .unwrap();
+    let scope = native.recovery_scope().unwrap();
+    let client = scope.client().clone();
+    let connection = client.connection_completion().unwrap();
+    let reader = lctx_native::NativeReader::private(client.clone()).with_budget(&budget);
+    control::with_recovery_scope(scope.clone(), async {
+        let nonce = control::fresh_identity("pin-release-page-control").unwrap();
+        let roots = (0..2).map(|index| RecordId::new("native_guard", format!("pin_release_{}_{index}", nonce.hex()))).collect::<Vec<_>>();
+        let rows = roots.iter().cloned().map(|id| {
+            let mut row = Object::new();
+            row.insert("id", id);
+            row.insert("revision", 0i64);
+            row.insert("retired", false);
+            row.insert("phase", "active");
+            row.insert("incarnation", 1i64);
+            row.insert("tombstone_revision", 0i64);
+            Value::Object(row)
+        }).collect();
+        control::ensure_rows(&client, None, rows).await.unwrap();
+        let pin = control::ReaderPin::acquire(client.clone(), &[]).await.unwrap();
+        let peer = control::ReaderPin::acquire(client.clone(), &[]).await.unwrap();
+        let pin_id = RecordId::new("native_pin", pin.identity.hex());
+        let peer_id = RecordId::new("native_pin", peer.identity.hex());
+        let attempt = RecordId::new("native_attempt", native.attempt().hex());
+        let objects = roots.iter().cloned().chain(std::iter::once(attempt.clone())).collect::<Vec<_>>();
+        for object in &objects {
+            pin.protect(object.clone()).await.unwrap();
+        }
+        peer.protect(roots[0].clone()).await.unwrap();
+        let targets = std::iter::once(pin_id.clone()).chain(objects.iter().cloned()).chain(objects.iter().map(|object| control::hold_record_id(&pin_id, object).unwrap())).collect::<Vec<_>>();
+        let predicates = targets.iter().map(|target| RecordId::new("native_predicate", RecordIdKey::Array(vec![Value::RecordId(target.clone())].into()))).collect::<Vec<_>>();
+        let mut bindings = Variables::new();
+        bindings.insert("predicates", predicates.clone());
+        bindings.insert("peer_pin", peer_id);
+        bindings.insert("source_attempt", attempt);
+        let before: Vec<Object> = reader.query_native("SELECT id,revision FROM $predicates ORDER BY id", bindings.clone()).await.unwrap();
+        let before = before.into_iter().map(|row| {
+            let Some(Value::RecordId(id)) = row.get("id") else { panic!("exact predicate identity") };
+            let Some(Value::Number(surrealdb::types::Number::Int(revision))) = row.get("revision") else { panic!("exact predicate revision") };
+            (id.clone(), *revision)
+        }).collect::<BTreeMap<_, _>>();
+        assert_eq!(before.len(), targets.len());
+        let peer_before: Vec<Object> = reader.query_native("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$peer_pin ORDER BY id", bindings.clone()).await.unwrap();
+        assert_eq!(peer_before.len(), 1);
+        let stripes_before: Vec<Object> = reader.query_native("SELECT slot,revision FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$source_attempt ORDER BY slot", bindings.clone()).await.unwrap();
+        pin.release().await.unwrap();
+        let after: Vec<Object> = reader.query_native("SELECT id,revision FROM $predicates ORDER BY id", bindings.clone()).await.unwrap();
+        assert_eq!(after.len(), targets.len());
+        for row in after {
+            let Some(Value::RecordId(id)) = row.get("id") else { panic!("exact predicate identity") };
+            let Some(Value::Number(surrealdb::types::Number::Int(revision))) = row.get("revision") else { panic!("exact predicate revision") };
+            let expected = if id == &predicates[0] { 2 } else { 1 };
+            assert_eq!(*revision - before[id], expected, "one page touch per distinct target; pin also retains its separate release fence: {id:?}");
+        }
+        let stripes_after: Vec<Object> = reader.query_native("SELECT slot,revision FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$source_attempt ORDER BY slot", bindings.clone()).await.unwrap();
+        assert_eq!(stripes_before.len(), 64);
+        assert_eq!(stripes_after.len(), 64);
+        for (slot, (before, after)) in stripes_before.iter().zip(&stripes_after).enumerate() {
+            assert_eq!(before.get("slot"), Some(&Value::Number(surrealdb::types::Number::Int(slot as i64))));
+            assert_eq!(after.get("slot"), before.get("slot"));
+            let Some(Value::Number(surrealdb::types::Number::Int(before))) = before.get("revision") else { panic!("attempt stripe revision") };
+            assert_eq!(after.get("revision"), Some(&Value::Number(surrealdb::types::Number::Int(*before + 1))), "every source-attempt stripe remains in the incidence cut");
+        }
+        let peer_after: Vec<Object> = reader.query_native("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$peer_pin ORDER BY id", bindings.clone()).await.unwrap();
+        assert_eq!(peer_after, peer_before);
+        bindings.insert("released_pin", pin_id);
+        bindings.insert("objects", objects);
+        let holds: Vec<Object> = reader.query_native("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$released_pin", bindings.clone()).await.unwrap();
+        assert!(holds.is_empty(), "complete released-pin hold inventory");
+        let retained: Vec<RecordId> = reader.query_native("SELECT VALUE id FROM $objects", bindings).await.unwrap();
+        assert_eq!(retained.len(), 3, "release removes holds, preserving their payloads");
+        peer.release().await.unwrap();
+        drop(pin);
+        drop(peer);
+        let mut retired = control::retire_reachable(&client, roots, 16).await.unwrap();
+        while !retired.remaining.is_empty() {
+            assert!(retired.retained.is_empty());
+            retired = control::resume_retirement(&client, retired.identity, 16).await.unwrap();
+        }
+        assert_eq!(retired.retired, 2);
+    }).await;
+    let mut finality = completion::Completion::default();
+    finality.step(
+        "pin release control borrowed reader drainage",
+        reader.close().await,
+    );
+    drop(reader);
+    finality.merge(native.abandon_finality_report().await);
+    let joined = finality.is_satisfied();
+    drop(client);
+    drop(scope);
+    drop(native);
+    drop(factory);
+    if joined {
+        finality.step(
+            "pin release control SDK completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
+    }
+    drop(connection);
+    completion::complete::<()>(Ok(()), finality).unwrap();
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn phased_retirement_charges_actual_edges_and_fences_both_hold_ends_until_finalization() {
     let cfg = config();
     let client = lctx_compiler_store::compiler::check_installation(&cfg)
@@ -48,8 +165,8 @@ async fn phased_retirement_charges_actual_edges_and_fences_both_hold_ends_until_
         first.retired, 0,
         "claim plus one nominated/deleted edge cannot finalize a high-degree parent"
     );
-    let mut response=client.query("SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$parent; SELECT VALUE id FROM $parent")
-        .bind(("parent",parent.clone())).await.unwrap().check().unwrap();
+    let mut response=client.query("SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$held_parent; SELECT VALUE id FROM $held_parent")
+        .bind(("held_parent",parent.clone())).await.unwrap().check().unwrap();
     let holds: Vec<RecordId> = response.take(0).unwrap();
     let payload: Vec<RecordId> = response.take(1).unwrap();
     assert_eq!(
@@ -109,8 +226,8 @@ async fn phased_retirement_charges_actual_edges_and_fences_both_hold_ends_until_
         "done items never become pending after content reactivation"
     );
     let mut response = client
-        .query("SELECT VALUE id FROM $parent")
-        .bind(("parent", parent.clone()))
+        .query("SELECT VALUE id FROM $held_parent")
+        .bind(("held_parent", parent.clone()))
         .await
         .unwrap()
         .check()
@@ -172,8 +289,8 @@ async fn retirement_high_degree_parent_spans_the_actual_128_edge_window() {
         "128 nominations plus 128 hold deletions exhaust the pass before finalization"
     );
     let job = RecordId::new("native_retirement", first.identity.hex());
-    let mut response=client.query("SELECT owner,object FROM native_hold WITH INDEX owner_holds WHERE owner=$parent; SELECT VALUE id FROM $payloads; SELECT id,object,state FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job")
-        .bind(("parent",parent.clone())).bind(("payloads",std::iter::once(parent.clone()).chain(children.iter().cloned()).collect::<Vec<_>>())).bind(("job",job)).await.unwrap().check().unwrap();
+    let mut response=client.query("SELECT owner,object FROM native_hold WITH INDEX owner_holds WHERE owner=$held_parent; SELECT VALUE id FROM $payloads; SELECT id,object,state FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job")
+        .bind(("held_parent",parent.clone())).bind(("payloads",std::iter::once(parent.clone()).chain(children.iter().cloned()).collect::<Vec<_>>())).bind(("job",job)).await.unwrap().check().unwrap();
     let holds: Vec<Object> = response.take(0).unwrap();
     let payloads: Vec<RecordId> = response.take(1).unwrap();
     let items: Vec<Object> = response.take(2).unwrap();
@@ -215,8 +332,8 @@ async fn retirement_high_degree_parent_spans_the_actual_128_edge_window() {
     }
     assert_eq!(progress.retired, 130);
     assert!(progress.retained.is_empty());
-    let mut response=client.query("SELECT VALUE id FROM $payloads; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$parent")
-        .bind(("payloads",std::iter::once(parent.clone()).chain(children).collect::<Vec<_>>())).bind(("parent",parent)).await.unwrap().check().unwrap();
+    let mut response=client.query("SELECT VALUE id FROM $payloads; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$held_parent")
+        .bind(("payloads",std::iter::once(parent.clone()).chain(children).collect::<Vec<_>>())).bind(("held_parent",parent)).await.unwrap().check().unwrap();
     let payloads: Vec<RecordId> = response.take(0).unwrap();
     let holds: Vec<RecordId> = response.take(1).unwrap();
     assert!(

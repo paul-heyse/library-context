@@ -195,7 +195,8 @@ fn chunk_window_end(lengths: impl Iterator<Item = usize>) -> usize {
     rows
 }
 fn optional_refusal(error: &ModelError) -> bool {
-    error.permits_storage_cleanup()
+    !error.has_operation_group()
+        && error.permits_storage_cleanup()
         && (matches!(error, ModelError::Codec(_) | ModelError::Resource { .. })
             || matches!(error, ModelError::Cause(_))
                 && matches!(error.primary(), Some(ModelError::Cause(_))))
@@ -1157,16 +1158,18 @@ impl NativeProductCache {
         let owned = product.clone();
         let this = self.clone();
         let budget = budget.clone();
-        tokio::spawn(async move {
-            let _charge = charge;
-            match this.session.run(this.insert_owned(owned, &budget)).await {
-                Err(error) if optional_refusal(&error) => {
-                    tracing::warn!(%error, "known product-cache refusal; compute fresh");
-                    Ok(false)
+        tokio::spawn(lctx_native::continuation::retain(
+            async move {
+                match this.session.run(this.insert_owned(owned, &budget)).await {
+                    Err(error) if optional_refusal(&error) => {
+                        tracing::warn!(%error, "known product-cache refusal; compute fresh");
+                        Ok(false)
+                    }
+                    result => result,
                 }
-                result => result,
-            }
-        })
+            },
+            charge,
+        ))
         .await
         .map_err(ModelError::codec)?
     }

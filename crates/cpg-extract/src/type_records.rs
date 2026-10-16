@@ -379,6 +379,7 @@ impl Builder<'_, '_> {
             | ModelError::Codec(_)
             | ModelError::Infrastructure { .. }
             | ModelError::Serving(_)
+            | ModelError::Operations(_)
             | ModelError::Completion(_)
             | ModelError::SharedCause(_)
             | ModelError::Cause(_)) => error,

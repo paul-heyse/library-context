@@ -266,7 +266,7 @@ mod tests {
     #[tokio::test]
     async fn typed_acknowledgement_follows_failure_and_success_can_retire() {
         let native = crate::test_native::store();
-        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let budget = native.recovery_scope().unwrap().budget().clone();
         let cancellation = Cancellation::default();
         let calls = NativeCalls::new(native.clone(), cancellation.clone(), &budget);
         assert_eq!(calls.call(async { Ok(17u64) }).await.unwrap(), 17);
@@ -290,7 +290,7 @@ mod tests {
     #[tokio::test]
     async fn failed_native_join_is_retained_for_repeated_drain() {
         let native = crate::test_native::store();
-        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let budget = native.recovery_scope().unwrap().budget().clone();
         let calls = NativeCalls::new(native.clone(), Cancellation::default(), &budget);
         assert!(
             calls
@@ -323,18 +323,15 @@ mod tests {
     }
     #[tokio::test]
     async fn interrupted_native_drain_keeps_submitted_join() {
-        let budget = ResourceBudget::fixed(1 << 20).unwrap();
-        let calls = Arc::new(NativeCalls::new(
-            crate::test_native::store(),
-            Cancellation::default(),
-            &budget,
-        ));
+        let native = crate::test_native::store();
+        let budget = native.recovery_scope().unwrap().budget().clone();
+        let calls = Arc::new(NativeCalls::new(native, Cancellation::default(), &budget));
         let entered = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
         let owner = calls.clone();
         let running = entered.clone();
         let finish = release.clone();
-        let caller = tokio::spawn(async move {
+        let mut caller = tokio::spawn(async move {
             owner
                 .call(async move {
                     running.notify_one();
@@ -343,7 +340,10 @@ mod tests {
                 })
                 .await
         });
-        entered.notified().await;
+        tokio::select! {
+            () = entered.notified() => {},
+            result = &mut caller => panic!("native caller returned before entering the submitted request: {result:?}"),
+        }
         caller.abort();
         assert!(caller.await.is_err());
         let mut first = Box::pin(calls.drain());
@@ -359,7 +359,8 @@ mod tests {
         use lctx_model::domain::{Batch, Record, input::Package};
         let model = lctx_model::domain::model().unwrap();
         let batch_budget = ResourceBudget::fixed(1 << 20).unwrap();
-        let task_budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let native = crate::test_native::store();
+        let task_budget = native.recovery_scope().unwrap().budget().clone();
         let batch = Batch::new(
             &model,
             vec![Package {
@@ -371,7 +372,7 @@ mod tests {
         let charged = batch_budget.reserved();
         assert!(charged > 0);
         let calls = Arc::new(NativeCalls::new(
-            crate::test_native::store(),
+            native,
             Cancellation::default(),
             &task_budget,
         ));
@@ -380,7 +381,7 @@ mod tests {
         let owner = calls.clone();
         let running = entered.clone();
         let finish = release.clone();
-        let caller = tokio::spawn(async move {
+        let mut caller = tokio::spawn(async move {
             owner
                 .call(async move {
                     running.notify_one();
@@ -390,7 +391,10 @@ mod tests {
                 })
                 .await
         });
-        entered.notified().await;
+        tokio::select! {
+            () = entered.notified() => {},
+            result = &mut caller => panic!("native caller returned before entering the submitted request: {result:?}"),
+        }
         caller.abort();
         assert!(caller.await.is_err());
         assert_eq!(batch_budget.reserved(), charged);
@@ -404,7 +408,8 @@ mod tests {
         use lctx_model::domain::{Batch, Record, input::Package};
         let model = lctx_model::domain::model().unwrap();
         let batch_budget = ResourceBudget::fixed(1 << 20).unwrap();
-        let task_budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let native = crate::test_native::store();
+        let task_budget = native.recovery_scope().unwrap().budget().clone();
         let batch = Batch::new(
             &model,
             vec![Package {
@@ -416,11 +421,7 @@ mod tests {
         let charged = batch_budget.reserved();
         assert!(charged > 0);
         let cancellation = Cancellation::default();
-        let calls = Arc::new(NativeCalls::new(
-            crate::test_native::store(),
-            cancellation.clone(),
-            &task_budget,
-        ));
+        let calls = Arc::new(NativeCalls::new(native, cancellation.clone(), &task_budget));
         let bridge =
             Arc::new(crate::native_bridge::NativeBridge::new(cancellation.clone()).unwrap());
         let entered = Arc::new(tokio::sync::Notify::new());
@@ -429,8 +430,9 @@ mod tests {
         let running = entered.clone();
         let finish = release.clone();
         let call_owner = calls.clone();
+        let (returned, mut premature_return) = tokio::sync::oneshot::channel();
         let caller = std::thread::spawn(move || {
-            owner.call(async move {
+            let result = owner.call(async move {
                 call_owner
                     .call(async move {
                         running.notify_one();
@@ -439,9 +441,14 @@ mod tests {
                         Ok(())
                     })
                     .await
-            })
+            });
+            let _ = returned.send(());
+            result
         });
-        entered.notified().await;
+        tokio::select! {
+            () = entered.notified() => {},
+            _ = &mut premature_return => panic!("sync native caller returned before entering the submitted request: {:?}", caller.join()),
+        }
         cancellation.cancel();
         assert!(caller.join().unwrap().is_err());
         assert_eq!(batch_budget.reserved(), charged);
@@ -454,14 +461,14 @@ mod tests {
     #[tokio::test]
     async fn cancelled_caller_retains_late_native_failure_in_completion() {
         let native = crate::test_native::store();
-        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let budget = native.recovery_scope().unwrap().budget().clone();
         let calls = Arc::new(NativeCalls::new(native, Cancellation::default(), &budget));
         let entered = Arc::new(tokio::sync::Notify::new());
         let release = Arc::new(tokio::sync::Notify::new());
         let owner = calls.clone();
         let running = entered.clone();
         let finish = release.clone();
-        let caller = tokio::spawn(async move {
+        let mut caller = tokio::spawn(async move {
             owner
                 .call(async move {
                     running.notify_one();
@@ -470,7 +477,10 @@ mod tests {
                 })
                 .await
         });
-        entered.notified().await;
+        tokio::select! {
+            () = entered.notified() => {},
+            result = &mut caller => panic!("native caller returned before entering the submitted request: {result:?}"),
+        }
         caller.abort();
         assert!(caller.await.is_err());
         release.notify_one();
@@ -499,7 +509,7 @@ mod tests {
     #[tokio::test]
     async fn cancelled_caller_stops_submissions_but_submitted_native_call_finishes() {
         let native = crate::test_native::store();
-        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let budget = native.recovery_scope().unwrap().budget().clone();
         let cancellation = Cancellation::default();
         let calls = Arc::new(NativeCalls::new(
             native.clone(),
@@ -507,23 +517,30 @@ mod tests {
             &budget,
         ));
         let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
         let completed = Arc::new(AtomicBool::new(false));
         let call_owner = calls.clone();
         let call_entered = entered.clone();
         let call_completed = completed.clone();
-        let caller = tokio::spawn(async move {
+        let finish = release.clone();
+        let mut caller = tokio::spawn(async move {
             call_owner
                 .call(async move {
                     call_entered.notify_one();
-                    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+                    finish.notified().await;
                     call_completed.store(true, Ordering::Release);
                     Ok(17)
                 })
                 .await
         });
-        entered.notified().await;
+        tokio::select! {
+            () = entered.notified() => {},
+            result = &mut caller => panic!("native caller returned before entering the submitted request: {result:?}"),
+        }
         caller.abort();
         assert!(caller.await.is_err());
+        assert!(!completed.load(Ordering::Acquire));
+        release.notify_one();
         calls.drain().await.unwrap();
         assert!(completed.load(Ordering::Acquire));
         assert!(cancellation.check().is_err());

@@ -247,6 +247,7 @@ async fn catalog_profile_binds_selection_without_dependency_expansion_or_flow() 
             .all(|c| c.status == CoverageStatus::NotRequested)
     );
     let resources = budget();
+    let original = CatalogSelection::parse("model-context.toml", SOURCE, &resources).unwrap();
     let changed = captured(
         &SOURCE.replace("Child.ping", "Missing.ping"),
         Profile::Catalog,
@@ -260,10 +261,16 @@ async fn catalog_profile_binds_selection_without_dependency_expansion_or_flow() 
             .is_none()
     );
     assert_ne!(
+        original.catalog().declaration().id(),
+        changed.config().catalog().declaration().id(),
+        "changed authored selection retains its own catalog identity"
+    );
+    assert_eq!(
         context,
         cpg_extract::pyrefly_stage::analysis_context(&changed.inputs()[0], None, changed.config())
             .unwrap()
-            .id()
+            .id(),
+        "unchanged Catalog analyzer inputs share context independently of model selection"
     );
     assert!(changed.config().check_profile(Profile::Behavioral).is_err());
 }

@@ -461,12 +461,24 @@ pub async fn inspect_expected_window_read<Context>(
     records: &[RecordId],
     budget: &ResourceBudget,
 ) -> Result<ExpectedRecords, ModelError> {
+    inspect_expected_window_read_observed(reader, records, budget, None).await
+}
+pub(crate) async fn inspect_expected_window_read_observed<Context>(
+    reader: &crate::NativeReader<Context>,
+    records: &[RecordId],
+    budget: &ResourceBudget,
+    stages: Option<[&'static str; 2]>,
+) -> Result<ExpectedRecords, ModelError> {
     let mut observed = ExpectedRecords::new(records, budget)?;
     if records.is_empty() {
         return Ok(observed);
     }
     let mut stream = reader
-        .stream_prepared(observation_query(records.to_vec(), false)?)?
+        .stream_prepared_observed(
+            observation_query(records.to_vec(), false)?,
+            stages.map(|stages| stages[0]),
+            Some(records.len()),
+        )?
         .with_row_bytes(lctx_model::domain::resources::MAX_ROW_BYTES);
     let result = async {
         while let Some(row) = stream.next().await? {
@@ -483,8 +495,11 @@ pub async fn inspect_expected_window_read<Context>(
     lctx_model::domain::completion::complete(result, terminal)?;
     let mut guards = observed.guard_records()?;
     if !guards.is_empty() {
-        let mut stream =
-            reader.stream_prepared(observation_query(guards.keys().cloned().collect(), true)?)?;
+        let mut stream = reader.stream_prepared_observed(
+            observation_query(guards.keys().cloned().collect(), true)?,
+            stages.map(|stages| stages[1]),
+            Some(guards.len()),
+        )?;
         let result = async {
             while let Some(row) = stream.next().await? {
                 observed.observe_guard(&mut guards, row)?;
@@ -518,15 +533,24 @@ pub async fn inspect_hold_window_read<Context>(
     pairs: &[(RecordId, RecordId)],
     budget: &ResourceBudget,
 ) -> Result<ExpectedHolds, ModelError> {
+    inspect_hold_window_read_observed(reader, pairs, budget, None).await
+}
+pub(crate) async fn inspect_hold_window_read_observed<Context>(
+    reader: &crate::NativeReader<Context>,
+    pairs: &[(RecordId, RecordId)],
+    budget: &ResourceBudget,
+    stage: Option<&'static str>,
+) -> Result<ExpectedHolds, ModelError> {
     let mut observed = ExpectedHolds::new(pairs, budget)?;
     if pairs.is_empty() {
         return Ok(observed);
     }
     let mut stream = reader
-        .stream_prepared(observation_query(
-            observed.rows.keys().cloned().collect(),
-            false,
-        )?)?
+        .stream_prepared_observed(
+            observation_query(observed.rows.keys().cloned().collect(), false)?,
+            stage,
+            Some(pairs.len()),
+        )?
         .with_row_bytes(lctx_model::domain::resources::MAX_ROW_BYTES);
     let result = async {
         while let Some(row) = stream.next().await? {

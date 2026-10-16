@@ -95,6 +95,10 @@ pub use record::{
 
 #[derive(Debug, thiserror::Error)]
 pub enum ModelError {
+    /// Ordered operation diagnostics; none becomes a finalization failure merely by
+    /// being reported alongside another operation error.
+    #[error(transparent)]
+    Operations(Box<completion::OperationErrors>),
     #[error(transparent)]
     Completion(#[from] Box<completion::OperationFailure>),
     #[error(transparent)]

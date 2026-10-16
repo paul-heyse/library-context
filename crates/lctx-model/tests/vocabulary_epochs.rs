@@ -1,4 +1,5 @@
 use lctx_model::domain::{input::Package, stages::*, value::Literal, *};
+use std::collections::BTreeSet;
 fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>) -> Stage {
     Stage {
         captured_binding: None,
@@ -14,7 +15,7 @@ fn stage(name: &'static str, inputs: Vec<RelationUse>, outputs: Vec<RelationUse>
     }
 }
 #[test]
-fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_dependencies() {
+fn epoch_schedule_requires_exact_ready_owners_and_refuses_unbounded_multiwriter_or_self_reads() {
     let model =
         ValidatedModel::declared(vec![Relation::of::<Literal>(), Relation::of::<Package>()])
             .unwrap();
@@ -51,7 +52,7 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
         )
         .is_err()
     );
-    let self_read = vec![
+    let same_group_read = vec![
         stage("v0", vec![], vec![RelationUse::of::<Literal>()]),
         stage(
             "r",
@@ -59,19 +60,78 @@ fn epoch_schedule_refuses_unbounded_reads_ordinary_multiwriters_and_self_group_d
             vec![RelationUse::of::<Package>()],
         ),
     ];
-    assert!(
-        Schedule::build_with_publications(
-            &model,
-            self_read,
-            &[],
-            Profile::Catalog,
-            vec![PublicationGroup::new(
-                PublicationBoundary::Facts,
-                vec!["v0", "r"]
-            )]
-        )
-        .is_err()
+    let schedule = Schedule::build_with_publications(
+        &model,
+        same_group_read,
+        &[],
+        Profile::Catalog,
+        vec![PublicationGroup::new(
+            PublicationBoundary::Facts,
+            vec!["v0", "r"],
+        )],
+    )
+    .unwrap();
+    // Whole-prefix publication remains separate from this exact completed relation read.
+    assert_eq!(
+        schedule.prerequisites("r").unwrap(),
+        &BTreeSet::from(["v0"])
     );
+    assert!(!schedule.ready("r", &BTreeSet::new()).unwrap());
+    assert!(schedule.ready("r", &BTreeSet::from(["v0"])).unwrap());
+    let selections = schedule.selections("r").unwrap();
+    assert_eq!(selections.len(), 1);
+    assert_eq!(selections[0].producers, BTreeSet::from(["v0"]));
+    let published = schedule
+        .prefix_selections(PublicationBoundary::Facts)
+        .unwrap();
+    assert_eq!(
+        published
+            .iter()
+            .find(|r| r.relation == Literal::NAME)
+            .unwrap()
+            .producers,
+        BTreeSet::from(["v0"])
+    );
+    assert!(
+        published
+            .iter()
+            .all(|selection| selection.relation != Package::NAME)
+    );
+    let reader = schedule
+        .stages()
+        .iter()
+        .find(|stage| stage.name == "r")
+        .unwrap();
+    assert_eq!(reader.outputs.len(), 1);
+    assert_eq!(reader.outputs[0].name(), Package::NAME);
+    assert_eq!(
+        schedule.publication_groups()[0]
+            .stages
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from(["v0", "r"])
+    );
+    // A stage's own unfinished result is still forbidden; being in the same group does
+    // not grant authority to read it, even when there are no other writers.
+    let self_read = vec![stage(
+        "self",
+        vec![RelationUse::completed::<Literal>().at_epoch(PublicationBoundary::Facts)],
+        vec![RelationUse::of::<Literal>()],
+    )];
+    let error = Schedule::build_with_publications(
+        &model,
+        self_read,
+        &[],
+        Profile::Catalog,
+        vec![PublicationGroup::new(
+            PublicationBoundary::Facts,
+            vec!["self"],
+        )],
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("unfinished output"), "{error}");
 }
 #[test]
 fn epoch_schedule_filters_inactive_writers_and_refuses_two_writers_in_a_later_epoch() {
@@ -271,7 +331,22 @@ fn schedule_accepts_distinct_completed_views_and_refuses_exact_duplicate_selecto
     );
     let mut reversed = selected.clone();
     reversed.reverse();
-    assert_eq!(schedule.digest(), build(reversed).unwrap().digest());
+    let reversed_schedule = build(reversed).unwrap();
+    // Input roles are ordered semantic ports. Reordering distinct prefix selectors must
+    // change the recipe identity without changing which exact owners each role selects.
+    assert_ne!(schedule.digest(), reversed_schedule.digest());
+    let roles = schedule.selections("consume").unwrap();
+    let reversed_roles = reversed_schedule.selections("consume").unwrap();
+    assert_eq!(roles[0].role, 0);
+    assert_eq!(roles[0].requested, Some(PublicationBoundary::Facts));
+    assert_eq!(roles[0].producers, BTreeSet::from(["facts"]));
+    assert_eq!(roles[1].role, 1);
+    assert_eq!(roles[1].requested, Some(PublicationBoundary::Local));
+    assert_eq!(roles[1].producers, BTreeSet::from(["facts", "local"]));
+    assert_eq!(reversed_roles[0].requested, roles[1].requested);
+    assert_eq!(reversed_roles[0].producers, roles[1].producers);
+    assert_eq!(reversed_roles[1].requested, roles[0].requested);
+    assert_eq!(reversed_roles[1].producers, roles[0].producers);
     let duplicate = build(vec![selected[0], selected[0]])
         .err()
         .unwrap()
@@ -355,9 +430,42 @@ fn canonical_value_epochs_are_shared_without_becoming_semantic_vocabulary() {
             .position(|s| s.name == name)
             .unwrap()
     };
-    assert!(position("structural") < position("e1"));
     assert!(position("e1") < position("analytics"));
-    assert!(position("analytics") < position("e0"));
+    assert!(position("e1") < position("e0"));
+    // Publication positions still order public visibility; unrelated groups are not
+    // execution prerequisites for exact private completed-value selections.
+    assert!(schedule.prerequisites("e1").unwrap().is_empty());
+    assert_eq!(
+        schedule.prerequisites("analytics").unwrap(),
+        &BTreeSet::from(["e1"])
+    );
+    assert_eq!(
+        schedule.prerequisites("e0").unwrap(),
+        &BTreeSet::from(["e1"])
+    );
+    assert!(schedule.ready("e1", &BTreeSet::new()).unwrap());
+    assert!(!schedule.ready("analytics", &BTreeSet::new()).unwrap());
+    assert!(!schedule.ready("e0", &BTreeSet::new()).unwrap());
+    assert!(
+        schedule
+            .ready("analytics", &BTreeSet::from(["e1"]))
+            .unwrap()
+    );
+    assert!(schedule.ready("e0", &BTreeSet::from(["e1"])).unwrap());
+    assert_eq!(
+        schedule
+            .prefix_for(PublicationBoundary::Structural)
+            .unwrap()
+            .ordinal(),
+        1
+    );
+    assert_eq!(
+        schedule
+            .prefix_for(PublicationBoundary::Analytic)
+            .unwrap()
+            .ordinal(),
+        3
+    );
     assert_eq!(PublicationBoundary::AnalyticEmbedding.code(), 19);
     assert_eq!(PublicationBoundary::Retrieval.code(), 18);
     assert_eq!(

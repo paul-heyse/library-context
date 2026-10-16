@@ -248,21 +248,25 @@ async fn receipt_target_reservation_refuses_before_read_and_preserves_resource_c
             resources.clone(),
         )
         .await;
+    let error = result.unwrap_err();
     assert!(
         matches!(
-            result,
-            Err(ModelError::Resource {
+            error.primary(),
+            Some(ModelError::Resource {
                 owner: "deployment_receipt_target",
                 ..
             })
         ),
-        "{result:?}"
+        "{error:?}"
     );
-    assert!(rows::<TaskReport>(&tables).is_empty());
+    // Sibling cancellation and acknowledged ingress refusals retain their diagnostics
+    // around the original allocation error. They must still have conclusive finality.
+    assert!(error.permits_storage_cleanup(), "{error:?}");
     assert!(
-        !rows::<DeploymentObservation>(&tables)
-            .iter()
-            .any(|row| row.field == "task_receipt" && row.interpretation == CheckStatus::Failed)
+        tables.lock().unwrap().is_empty(),
+        "a failed producer must not be inspected as a completed observation"
     );
+    // The diagnostic owns admitted ingress backing until its last consumer releases it.
+    drop(error);
     assert_eq!(resources.reserved(), 0);
 }

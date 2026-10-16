@@ -350,22 +350,11 @@ impl FactoryLease {
         };
         // Charge the body, its owned reservation and alignment/discriminant
         // padding before allocating the single erased logical continuation.
-        let bytes = std::mem::size_of_val(&closing)
-            .checked_add(size_of::<Box<dyn Reservation>>())
-            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&closing)))
-            .ok_or(ModelError::Conflict(
-                "native factory close continuation size",
-            ))?;
-        let charge = self
-            .0
-            .child
-            .scope
-            .budget
-            .reserve("native factory close continuation", bytes)?;
-        Ok(Box::pin(async move {
-            let _charge = charge;
-            closing.await
-        }))
+        crate::continuation::admit(
+            &self.0.child.scope.budget,
+            "native factory close continuation",
+            closing,
+        )
     }
     /// Source-specific query/borrower drainage has already been established.
     pub async fn complete(&self) -> Result<(), ModelError> {
@@ -764,20 +753,11 @@ impl Child {
                 .take();
             Ok(())
         };
-        let bytes = std::mem::size_of_val(&body)
-            .checked_add(size_of::<Box<dyn Reservation>>())
-            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-            .ok_or(ModelError::Conflict(
-                "native finalize_source continuation size",
-            ))?;
-        let charge = self
-            .scope
-            .budget
-            .reserve("native finalize_source continuation", bytes)?;
-        Ok(Box::pin(async move {
-            let _charge = charge;
-            body.await
-        }))
+        crate::continuation::admit(
+            &self.scope.budget,
+            "native finalize_source continuation",
+            body,
+        )
     }
 }
 impl FactoryLease {
@@ -1474,20 +1454,7 @@ impl Child {
                     .take();
             }
         };
-        let bytes = std::mem::size_of_val(&body)
-            .checked_add(size_of::<Box<dyn Reservation>>())
-            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-            .ok_or(ModelError::Conflict(
-                "native finalize_pin continuation size",
-            ))?;
-        let charge = self
-            .scope
-            .budget
-            .reserve("native finalize_pin continuation", bytes)?;
-        Ok(Box::pin(async move {
-            let _charge = charge;
-            body.await
-        }))
+        crate::continuation::admit(&self.scope.budget, "native finalize_pin continuation", body)
     }
 }
 impl FactoryLease {

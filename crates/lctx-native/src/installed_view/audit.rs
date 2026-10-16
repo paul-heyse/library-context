@@ -3581,10 +3581,10 @@ mod tests {
             let parent = completion.record().unwrap();
             for table in ["native_completed_contributor", "native_completed_view"] {
                 let mut variables = Variables::new();
-                variables.insert("parent", parent.clone());
+                variables.insert("completed_parent", parent.clone());
                 let children: Vec<Value> = reader
                     .query_native(
-                        &format!("SELECT * FROM {table} WHERE completion=$parent ORDER BY id"),
+                        &format!("SELECT * FROM {table} WHERE completion=$completed_parent ORDER BY id"),
                         variables,
                     )
                     .await
@@ -4695,17 +4695,7 @@ fn prepare_local_aliases_execution<'a>(
             }
         }
     };
-    let bytes = std::mem::size_of_val(&body)
-        .checked_add(std::mem::size_of::<Box<dyn d::resources::Reservation>>())
-        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-        .ok_or(ModelError::Schema(
-            "local alias preparation continuation size",
-        ))?;
-    let grant = budget.reserve("native local alias preparation continuation", bytes)?;
-    Ok(Box::pin(async move {
-        let _grant = grant;
-        body.await
-    }))
+    crate::continuation::admit(budget, "native local alias preparation continuation", body)
 }
 
 async fn prepare_local_aliases_window(
