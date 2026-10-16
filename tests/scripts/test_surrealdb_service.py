@@ -128,6 +128,31 @@ def test_regeneration_refuses_unexpected_scopes_and_identity_before_discard(rege
     assert (installation.directory / "data/store/MANIFEST").read_text() == "cold-owned-data"
 
 
+@pytest.mark.parametrize("kind,purpose", [("stable", service.LIFECYCLE_PURPOSE), ("campaign", None)])
+def test_regeneration_refuses_unauthorized_borrowed_origin_before_discard(
+    regeneration_ready, kind, purpose
+):
+    import service_regeneration as regeneration
+
+    installation, candidate, descriptor, _, actions = regeneration_ready
+    root = installation.directory
+    installation.record.update(kind=kind, purpose=purpose, binary_origin=str(root.parent / "origin"))
+    installation.record["unit"] = service.installation_unit(installation.record)
+    service.private_json(root / "installation.json", installation.record)
+    with pytest.raises(service.FixtureBlocked, match="not a lifecycle campaign"):
+        regeneration.regenerate(
+            installation,
+            installation.id,
+            scopes="main,validation",
+            installer=candidate,
+            descriptor=descriptor,
+        )
+    assert not actions
+    assert not (root / "maintenance.json").exists()
+    assert not (root / "regenerations").exists()
+    assert (root / "data/store/MANIFEST").read_text() == "cold-owned-data"
+
+
 @pytest.mark.parametrize(
     "damage", [None, "namespace", "database", "user", "table", "unknown", "missing"]
 )
@@ -217,11 +242,34 @@ def test_regeneration_only_recognizes_pristine_generated_bootstrap(
     assert (installation.directory / "data/store/MANIFEST").read_text() == "cold-owned-data"
 
 
-def test_regeneration_failure_resumes_without_discarding_successor(regeneration_ready, monkeypatch):
+@pytest.mark.parametrize("borrowed", [False, True])
+def test_regeneration_failure_resumes_without_discarding_successor(
+    regeneration_ready, monkeypatch, borrowed
+):
     import service_regeneration as regeneration
 
     installation, candidate, descriptor, state, actions = regeneration_ready
     root = installation.directory
+    origin = root
+    if borrowed:
+        origin = root.parent / "original-service"
+        installation.record.update(
+            kind="campaign", purpose=service.LIFECYCLE_PURPOSE, binary_origin=str(origin)
+        )
+        installation.record["unit"] = service.installation_unit(installation.record)
+        service.private_json(root / "installation.json", installation.record)
+    server = service._owned_server_generation(origin, descriptor)
+    validated_origins = []
+
+    def owned_server(directory, selected_descriptor):
+        # A provenance validator must be invoked against the unchanged authorized owner,
+        # including when the installed descriptor has already become the successor.
+        assert directory == origin
+        assert selected_descriptor == descriptor
+        validated_origins.append(directory)
+        return server
+
+    monkeypatch.setattr(service, "_owned_server_generation", owned_server)
     previous = installation.record["service_generation"]
     state["fail"] = "check"
     with pytest.raises(service.FixtureFailed, match="controlled init failure"):
@@ -260,6 +308,12 @@ def test_regeneration_failure_resumes_without_discarding_successor(regeneration_
     assert (root / "data/store/current").read_text() == "new generation data"
     assert not (root / "maintenance.json").exists()
     final = json.loads((root / "installation.json").read_text())
+    assert validated_origins == [origin, origin]
+    assert service._server_binary_origin(service.Installation(root, final)) == origin
+    _, plan = regeneration.load_plan(service.Installation(root, final), final["regeneration"])
+    assert plan["previous"].get("binary_origin") == plan["successor"].get("binary_origin")
+    assert final.get("binary_origin") == (str(origin) if borrowed else None)
+    assert plan["server"] == server
     assert final["service_generation"] != previous
     assert final["installation_id"] == installation.id
     assert not list((root / "regenerations").glob("*/staged/*"))
