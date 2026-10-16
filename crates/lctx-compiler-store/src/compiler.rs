@@ -10439,45 +10439,24 @@ mod completion_tests {
         let receiver = NativeCompilerStore::begin(
             &config,
             Frontier::Normalized,
-            &crate::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &crate::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
         let equal = NativeCompilerStore::begin(
             &config,
             Frontier::Normalized,
-            &crate::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &crate::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
         let unequal = NativeCompilerStore::begin(
             &config,
             Frontier::Facts,
-            &crate::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &crate::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -10494,6 +10473,8 @@ mod completion_tests {
             }
             assert_eq!(selected[0].completion().view,selected[1].completion().view);assert_eq!(selected[0].completion().view,selected[2].completion().view);
             assert_ne!(selected[0].completion().mappings,selected[1].completion().mappings);
+            let lease=receiver.admit_mutation("retained receiver fixture attachment",true)?;
+            let attached_result=lease.within(async {
             let _root_gate=receiver.root_gates([selected[0].completion().view.identity],&budget).await?;
             let existing=receiver.receiver_root_under_gate(selected[1].clone(),&budget).await?;
             assert!(Arc::ptr_eq(&existing,&selected[0]),"equivalent roots retain the receiver's protected physical copies");
@@ -10509,6 +10490,8 @@ mod completion_tests {
             let after=receiver.view_mappings.lock().map_err(|_|ModelError::Conflict("retained test mapping"))?.get(&existing.completion().view.identity).map(|row|row.as_slice().to_vec()).unwrap();assert_eq!(before,after);
             assert!(Arc::ptr_eq(receiver.installed_views.lock().map_err(|_|ModelError::Conflict("retained test protected root"))?.get(&existing.completion().view.identity).unwrap(),&selected[0]));
             Ok::<_,ModelError>(())
+            }).await;
+            lease.finish_with(attached_result)
         }.await;
         let mut terminal = d::completion::Completion::default();
         terminal.step("retained unequal source close", unequal.abandon().await);

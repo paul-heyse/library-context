@@ -3148,6 +3148,36 @@ mod tests {
         stages::Profile,
     };
     use surrealdb::types::SurrealValue;
+
+    // The compiler-store dev dependency has a distinct native crate instance in
+    // unit builds. Its task locals cannot authorize this crate's inspection pins.
+    pub(super) async fn inspection_session(
+        budget: &ResourceBudget,
+    ) -> (
+        std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+        std::sync::Arc<crate::control::RecoveryFactoryOwner>,
+        crate::control::FactoryLease,
+    ) {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
+        ))
+        .unwrap();
+        let factory = crate::control::RecoveryFactoryOwner::new(
+            config.receipt_binding().unwrap(),
+            budget.clone(),
+        )
+        .unwrap();
+        let (client, lease) = crate::reader::connect_owned(
+            &config.endpoint,
+            &config.writer_credentials(),
+            config.namespace.as_str(),
+            config.database.as_str(),
+            &factory,
+        )
+        .await
+        .unwrap();
+        (client, factory, lease)
+    }
     #[tokio::test(flavor = "multi_thread")]
     async fn completed_blob_observation_survives_peer_hold_and_equal_replay_under_exact_pin() {
         use d::{
@@ -3159,41 +3189,36 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let store = NativeCompilerStore::begin(
             &config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let client = lctx_compiler_store::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            store.namespace().as_str(),
-            store.database().as_str(),
-        )
-        .await
-        .unwrap();
-        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let (client, observer_factory, observer_lease) = inspection_session(&budget).await;
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let audit = InstallationAudit::new(client.clone(), &budget)
-            .await
-            .unwrap();
-        let peer = crate::control::ReaderPin::acquire(client.clone(), &[])
-            .await
-            .unwrap();
-        let closing_audit = InstallationAudit::new(client.clone(), &budget)
-            .await
-            .unwrap();
-        let result = std::panic::AssertUnwindSafe(async {
+        let audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
+        let peer = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            crate::control::ReaderPin::acquire(client.clone(), &[]),
+        )
+        .await
+        .unwrap();
+        let closing_audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
+        let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async {
             let sources = Relation::of::<SourceArtifact>();
             let chunks = Relation::of::<ArtifactChunk>();
             let relations = [sources.clone(), chunks.clone()];
@@ -3354,17 +3379,24 @@ mod tests {
             assert!(closing_audit.work.draining.lock().await.workers.is_empty());
             assert!(source.inspection_scope(&reader, &budget).is_err());
         })
-        .catch_unwind()
-        .await;
+        .catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("peer blob reader close", reader.close().await);
         cleanup.step("peer blob audit pin close", audit.close().await);
         cleanup.step("closing blob audit pin close", closing_audit.close().await);
         cleanup.step("peer blob other pin close", peer.release().await);
         cleanup.step("peer blob attempt cleanup", store.abandon().await);
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
-            "peer blob observer invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "native audit observer owner completion",
+            observer_completion,
+        );
+        drop(observer_lease);
+        cleanup.step(
+            "native audit observer factory drain",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
         );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
@@ -3384,35 +3416,24 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let store = NativeCompilerStore::begin(
             &config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let client = lctx_compiler_store::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            store.namespace().as_str(),
-            store.database().as_str(),
-        )
-        .await
-        .unwrap();
-        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let (client, observer_factory, observer_lease) = inspection_session(&budget).await;
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let audit = InstallationAudit::new(client.clone(), &budget)
-            .await
-            .unwrap();
-        let result = std::panic::AssertUnwindSafe(async {
+        let audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
+        let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async {
             let relation = Relation::of::<Package>();
             let mut specification = contribution("protected-source-inventory", vec![]).spec;
             specification.outputs = [relation.name().into()].into();
@@ -3608,9 +3629,10 @@ mod tests {
                         .unwrap()
                         .check()
                         .unwrap();
+                    let refused = received.err().expect("missing inventory item must refuse");
                     assert!(
-                        received.is_err(),
-                        "complete actual {table} inventory refuses a missing {kind}"
+                        !refused.to_string().contains("recovery"),
+                        "complete actual {table} inventory must refuse missing {kind}, not its operation owner: {refused:?}"
                     );
                 }
             }
@@ -3636,8 +3658,7 @@ mod tests {
             assert!(crate::installed_view::hold_physical_view(foreign_client, received, view.identity, &budget).await.is_err());
 
         })
-        .catch_unwind()
-        .await;
+        .catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step(
             "protected source inventory reader close",
@@ -3648,9 +3669,17 @@ mod tests {
             "protected source inventory attempt cleanup",
             store.abandon().await,
         );
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
-            "protected source inventory observer invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "native audit observer owner completion",
+            observer_completion,
+        );
+        drop(observer_lease);
+        cleanup.step(
+            "native audit observer factory drain",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
         );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
@@ -3877,35 +3906,24 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let store = NativeCompilerStore::begin(
             &config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let client = lctx_compiler_store::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            store.namespace().as_str(),
-            store.database().as_str(),
-        )
-        .await
-        .unwrap();
-        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let (client, observer_factory, observer_lease) = inspection_session(&budget).await;
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let audit = InstallationAudit::new(client.clone(), &budget)
-            .await
-            .unwrap();
-        let result=std::panic::AssertUnwindSafe(async{
+        let audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
+        let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async{
             let relation=Relation::of::<Package>();let mut specification=contribution("late-terminal",vec![]).spec;specification.outputs=[relation.name().into()].into();
             let producer=store.begin_contribution(specification).await.unwrap();
             let rows=(0..129).map(|index|Package{name:format!("terminal-package-{index}")}).collect::<Vec<_>>();
@@ -3960,14 +3978,22 @@ mod tests {
             let reused = audit_aliases_scoped(&reader, &closure, &budget, &audit).await.unwrap();
             assert_eq!(logical_roots_scoped(&reader, &closure, &[], &reused, &budget, &audit).await.unwrap(), cold);
             assert_eq!(audit.alias_observations(), 1);
-        }).catch_unwind().await;
+        }).catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("terminal audit reader close", reader.close().await);
         cleanup.step("terminal audit pin close", audit.close().await);
         cleanup.step("terminal audit attempt cleanup", store.abandon().await);
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
-            "terminal audit observer invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "native audit observer owner completion",
+            observer_completion,
+        );
+        drop(observer_lease);
+        cleanup.step(
+            "native audit observer factory drain",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
         );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
@@ -3987,32 +4013,18 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let store = NativeCompilerStore::begin(
             &config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let client = lctx_compiler_store::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            store.namespace().as_str(),
-            store.database().as_str(),
-        )
-        .await
-        .unwrap();
-        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let (client, observer_factory, observer_lease) = inspection_session(&budget).await;
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let result=std::panic::AssertUnwindSafe(async{
+        let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async{
             let packages=Relation::of::<Package>();let releases=Relation::of::<Release>();let relations=[packages.clone(),releases.clone()];
             let mut specification=contribution("set-correspondence",vec![]).spec;specification.outputs=relations.iter().map(|relation|relation.name().into()).collect();
             let producer=store.begin_contribution(specification).await.unwrap();
@@ -4037,15 +4049,31 @@ mod tests {
                 let failed=audit_memberships_scoped(&reader,&closure,&budget,&audit).await;
                 variables.insert("row",original[0].clone());client.query("UPSERT $id CONTENT $row RETURN NONE").bind(variables).await.unwrap().check().unwrap();
                 let observations=audit.observations();audit.close().await.unwrap();
-                assert!(failed.is_err(),"missing {kind} cannot be replaced by matching counts or nominal identity");assert_eq!(observations,(0,0),"failed {kind} audit cannot publish reuse");
+                let failed=failed.err().expect("missing set correspondence must refuse");
+                let cause=match kind {
+                    "backing"=>"installed membership backing missing",
+                    "backing guard"|"endpoint guard"=>"installed set guard missing",
+                    "endpoint"=>"installed canonical endpoint missing before freeze",
+                    "backing hold"|"endpoint hold"=>"installed set hold missing",
+                    _=>unreachable!("declared set-correspondence defect"),
+                };
+                assert!(failed.to_string().contains(cause),"missing {kind} must refuse its actual correspondence: {failed:?}");assert_eq!(observations,(0,0),"failed {kind} audit cannot publish reuse");
             }
-        }).catch_unwind().await;
+        }).catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("set correspondence reader close", reader.close().await);
         cleanup.step("set correspondence attempt cleanup", store.abandon().await);
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
-            "set correspondence observer invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "native audit observer owner completion",
+            observer_completion,
+        );
+        drop(observer_lease);
+        cleanup.step(
+            "native audit observer factory drain",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
         );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
@@ -4100,50 +4128,32 @@ mod tests {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
         ))
         .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let first = NativeCompilerStore::begin(
             &config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
         let second = NativeCompilerStore::begin(
             &config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let client = lctx_compiler_store::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            first.namespace().as_str(),
-            first.database().as_str(),
-        )
-        .await
-        .unwrap();
-        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let (client, observer_factory, observer_lease) = inspection_session(&budget).await;
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let audit = InstallationAudit::new(client.clone(), &budget)
-            .await
-            .unwrap();
-        let result = std::panic::AssertUnwindSafe(async {
+        let audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
+        let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async {
             let (dependency, dependency_mappings) = produce(&first, "shared-family-dependency", vec![], &budget).await;
             let (other_dependency, other_mappings) = produce(&second, "shared-family-dependency", vec![], &budget).await;
             assert_eq!(dependency, other_dependency);
@@ -4229,13 +4239,16 @@ mod tests {
             vars.insert("row", rows[0].clone());
             client.query("UPSERT $id CONTENT $row RETURN NONE").bind(vars).await.unwrap().check().unwrap();
             let refused = match refused {
-                Err(_) => true,
+                Err(error) => {
+                    assert!(!error.to_string().contains("recovery"), "invalid unbound selector must reach its actual input refusal: {error:?}");
+                    true
+                },
                 Ok(retained) => { retained.close().await.unwrap(); false }
             };
             let after: Vec<Value> = reader.query_native("SELECT object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND record::table(object)='native_completed_state' ORDER BY id", inventory_vars).await.unwrap();
             assert!(refused, "unbound invalid selector cannot be hidden by semantic root filtering");
             assert_eq!(after, before, "late selector refusal publishes no prefix boundary");
-        }).catch_unwind().await;
+        }).catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("streamed families reader close", reader.close().await);
         cleanup.step("streamed families audit close", audit.close().await);
@@ -4247,9 +4260,17 @@ mod tests {
             "streamed families second attempt cleanup",
             second.abandon().await,
         );
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
-            "streamed families observer invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "native audit observer owner completion",
+            observer_completion,
+        );
+        drop(observer_lease);
+        cleanup.step(
+            "native audit observer factory drain",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
         );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
@@ -7071,38 +7092,28 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
         ))
         .unwrap();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let store = NativeCompilerStore::begin(
             &store_config,
             d::admission::Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &store_config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&store_config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let client = crate::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            store.namespace().as_str(),
-            store.database().as_str(),
-        )
-        .await
-        .unwrap();
-        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let (client, observer_factory, observer_lease) = tests::inspection_session(&budget).await;
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let audit = InstallationAudit::new(client.clone(), &budget)
-            .await
-            .unwrap();
+        let audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
         let mut admin = None;
+        let mut admin_lease = None;
         let mut restore_epoch = None;
         let mut boundary_owner = None;
-        let result = std::panic::AssertUnwindSafe(async {
+        let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async {
             let source = audit.protected_source(&client, &budget).await.unwrap();
             let mut scope = source.inspection_scope(&reader, &budget).unwrap().for_boundary();
             let before = audit.context_observations.load(std::sync::atomic::Ordering::Relaxed);
@@ -7137,9 +7148,10 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             assert_eq!(installer.database, config.database);
             assert_eq!(installer.service_generation, config.service_generation);
             assert_eq!(installer.authentication, crate::AuthenticationScope::Root);
-            let connected = crate::reader::connect(&installer.endpoint, &installer.writer_credentials(),
-                store.namespace().as_str(), store.database().as_str()).await.unwrap();
+            let (connected, lease) = crate::reader::connect_owned(&installer.endpoint, &installer.writer_credentials(),
+                store.namespace().as_str(), store.database().as_str(), &observer_factory).await.unwrap();
             admin = Some(connected);
+            admin_lease = Some(lease);
             let admin = admin.as_ref().unwrap();
             let old = audit.context.1;
             let new = old.checked_add(1).unwrap();
@@ -7164,7 +7176,7 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
                 "final live acquisition must compare the captured context atomically: {error:?}");
             let error = ordinary.check(&reader, &audit, &budget).await.unwrap_err();
             assert!(error.to_string().contains("installation audit validity context changed"));
-        }).catch_unwind().await;
+        }).catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         if let (Some(admin), Some(epoch)) = (admin.as_ref(), restore_epoch) {
             let mut variables = Variables::new();
@@ -7184,16 +7196,23 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
         cleanup.step("boundary context reader close", reader.close().await);
         cleanup.step("boundary context audit close", audit.close().await);
         cleanup.step("boundary context attempt cleanup", store.abandon().await);
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
-            "boundary context observer invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "native audit observer owner completion",
+            observer_completion,
         );
-        if let Some(admin) = admin {
-            cleanup.step(
-                "context drift installer invalidation",
-                admin.invalidate().await.map_err(ModelError::codec),
-            );
+        drop(observer_lease);
+        if let Some(lease) = admin_lease {
+            let completion = lease.complete_with(&cleanup).await;
+            cleanup.step("context drift installer owner completion", completion);
+            drop(lease);
         }
+        cleanup.step(
+            "native audit observer factory drain",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
+        );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
             if let Err(error) = cleaned {

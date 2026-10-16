@@ -1253,8 +1253,73 @@ mod tests {
             stages::{Profile, ProviderOutcome},
         };
         use surrealdb::types::{RecordId, Value};
-        let (source, releases, budget) = installed_releases(2).await;
-        let receiver = crate::test_native::store();
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned validation runtime"),
+        ))
+        .unwrap();
+        let source = NativeCompilerStore::begin(
+            &config,
+            lctx_model::domain::admission::Frontier::Catalog,
+            &crate::compiler::recovery_factory(&config, budget.clone()).unwrap(),
+        )
+        .await
+        .unwrap();
+        let receiver = NativeCompilerStore::begin(
+            &config,
+            lctx_model::domain::admission::Frontier::Catalog,
+            &crate::compiler::recovery_factory(&config, budget.clone()).unwrap(),
+        )
+        .await
+        .unwrap();
+        let release_relation = Relation::of::<Release>();
+        let release_owner = source
+            .begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: "provider-planning".into(),
+                profile: OutputProfile::Specific(Profile::Catalog),
+                model: ContentHash::of(b"provider-model"),
+                implementation: ContentHash::of(b"provider-implementation"),
+                configuration: None,
+                inputs: vec![],
+                outputs: [Release::NAME.into()].into(),
+            })
+            .await
+            .unwrap();
+        let release_package = Package {
+            name: format!("provider-{}", source.attempt().hex()),
+        }
+        .id();
+        let mut releases = (0..2)
+            .map(|index| Release {
+                package: release_package,
+                version: format!("version-{index}"),
+            })
+            .collect::<Vec<_>>();
+        releases.sort_by_key(Record::id);
+        source
+            .write_batch(
+                &release_owner,
+                &release_relation,
+                &Release::encode(&releases).unwrap(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let release_views = source
+            .complete_contribution(
+                release_owner,
+                ProviderOutcome::Complete,
+                std::slice::from_ref(&release_relation),
+                &Default::default(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let releases = release_views[Release::NAME].clone();
+        let receiving = receiver
+            .producing_scope(ContentHash::of(b"attachment-reference-control"), &budget)
+            .unwrap();
         let package = Package {
             name: format!("attached-{}", source.attempt().hex()),
         };
@@ -1353,17 +1418,28 @@ mod tests {
             .unwrap()
             .check()
             .unwrap();
-        assert!(
-            lctx_native::installed_view::attach_live_views(
-                source.client.clone(),
-                receiver.attempt(),
-                &sources,
-                vec![expected],
-                &budget
-            )
+        receiving
+            .run(async {
+                let refused = lctx_native::installed_view::attach_live_views(
+                    receiver.client.clone(),
+                    receiver.attempt(),
+                    &sources,
+                    vec![expected],
+                    &budget,
+                )
+                .await
+                .err()
+                .expect("stale source must refuse before attachment");
+                assert!(
+                    refused
+                        .to_string()
+                        .contains("earned contributor incarnation/full bytes changed"),
+                    "{refused:?}"
+                );
+                Ok(())
+            })
             .await
-            .is_err()
-        );
+            .unwrap();
         let mut response=source.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object IN $objects").bind(("owner",RecordId::new("native_attempt",receiver.attempt().hex()))).bind(("objects",contributor_ids.clone())).await.unwrap().check().unwrap();
         assert!(
             response.take::<Vec<Value>>(0).unwrap().is_empty(),
@@ -1413,18 +1489,28 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert!(
-            lctx_native::installed_view::attach_live_views(
-                source.client.clone(),
-                receiver.attempt(),
-                &sources,
-                vec![expected, extra],
-                &budget
-            )
+        receiving
+            .run(async {
+                let refused = lctx_native::installed_view::attach_live_views(
+                    receiver.client.clone(),
+                    receiver.attempt(),
+                    &sources,
+                    vec![expected, extra],
+                    &budget,
+                )
+                .await
+                .err()
+                .expect("extra supplied contributor refuses the whole receiving effect");
+                assert!(
+                    refused
+                        .to_string()
+                        .contains("attached contributor outside selected inventory"),
+                    "{refused:?}"
+                );
+                Ok(())
+            })
             .await
-            .is_err(),
-            "extra supplied contributor refuses the whole receiving effect"
-        );
+            .unwrap();
         let mut response=source.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object IN $objects").bind(("owner",RecordId::new("native_attempt",receiver.attempt().hex()))).bind(("objects",contributor_ids)).await.unwrap().check().unwrap();
         assert!(
             response.take::<Vec<Value>>(0).unwrap().is_empty(),
@@ -1434,15 +1520,16 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let attached = lctx_native::installed_view::attach_live_views(
-            source.client.clone(),
-            receiver.attempt(),
-            &sources,
-            vec![expected],
-            &budget,
-        )
-        .await
-        .unwrap();
+        let attached = receiving
+            .run(lctx_native::installed_view::attach_live_views(
+                receiver.client.clone(),
+                receiver.attempt(),
+                &sources,
+                vec![expected],
+                &budget,
+            ))
+            .await
+            .unwrap();
         for ((attached, source_view), original) in attached.iter().zip(&sources).zip(original_rows)
         {
             assert_eq!(
@@ -1462,6 +1549,7 @@ mod tests {
         }
         drop(attached);
         drop(sources);
+        receiving.close_and_wait().await.unwrap();
         receiver.abandon().await.unwrap();
         source.abandon().await.unwrap();
     }
