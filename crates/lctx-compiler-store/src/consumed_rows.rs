@@ -584,15 +584,30 @@ impl EdgeSource {
                 .await.map_err(ModelError::codec)
         }).await
     }
-    async fn source(&self, source: usize, budget: &ResourceBudget) -> Result<&PreparedAdjacency, ModelError> {
+    async fn provider_with_capture(
+        &self, table: usize, mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
+    ) -> Result<&std::sync::Arc<dyn datafusion::catalog::TableProvider>, ModelError> {
+        // A cached successful provider is already earned. A fresh lazy schema lookup may
+        // perform native work, so its failures retain the acquisition's terminal meaning.
+        if let Some(provider) = self.providers.get(table).and_then(tokio::sync::OnceCell::get) {
+            return Ok(provider);
+        }
+        if let Some(capture) = capture.as_deref_mut() { capture.begin_acquisition(); }
+        let provider = self.provider(table).await?;
+        if let Some(capture) = capture { capture.complete_acquisition(); }
+        Ok(provider)
+    }
+    async fn source(&self, source: usize, budget: &ResourceBudget,
+        mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
+    ) -> Result<&PreparedAdjacency, ModelError> {
         if self._provider_charge.budget().is_none_or(|owner| !owner.shares_pool(budget)) {
             return Err(ModelError::Conflict("scope preparation foreign resource pool"));
         }
         // Even an edge-free reached root earns its physical port. Failed initialization is
         // never memoized as success; native recovery remains with the operation owner.
-        self.provider(source).await?;
+        self.provider_with_capture(source, capture.as_deref_mut()).await?;
         self.adjacency.get(source).ok_or(ModelError::Schema("scope adjacency namespace"))?
-            .get_or_try_init(|| self.prepare_adjacency(source, budget)).await
+            .get_or_try_init(|| self.prepare_adjacency(source, budget, capture)).await
     }
     /// Project nominal edges once for an immutable dependency set into an external ordered IPC
     /// stream. All subsequent grains reuse these compact edges without rescanning rich inputs.
@@ -601,6 +616,7 @@ impl EdgeSource {
         &self,
         source_kind: usize,
         budget: &ResourceBudget,
+        mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
     ) -> Result<PreparedAdjacency, ModelError> {
         use datafusion::{
             arrow::{
@@ -635,9 +651,9 @@ impl EdgeSource {
         let mut contextual = Vec::with_capacity(count);
         for (source, target, sql) in self.pairs.range((source_kind, 0, String::new())..(source_kind + 1, 0, String::new())) {
             if let Some(edge) = self.native.get(&(*source, *target, sql.clone()))
-                && crate::compiler_provider::is_native_table(self.provider(edge.table).await?)
+                && crate::compiler_provider::is_native_table(self.provider_with_capture(edge.table, capture.as_deref_mut()).await?)
                 && (!edge.require_owner_presence
-                    || crate::compiler_provider::is_native_table(self.provider(edge.source).await?))
+                    || crate::compiler_provider::is_native_table(self.provider_with_capture(edge.source, capture.as_deref_mut()).await?))
             {
                 native_edges.push(*edge);
                 continue;
@@ -712,6 +728,10 @@ impl EdgeSource {
             &ordering_schema,
         )
         .map_err(ModelError::codec)?;
+        // Everything above is local preparation except explicitly guarded provider earning.
+        // Contextual SQL can resolve more providers and start native streams. Retain failure
+        // through the complete checked EOF, ordering and sealed IPC publication below.
+        if let Some(capture) = capture.as_deref_mut() { capture.begin_acquisition(); }
         for (source, target, sql) in contextual {
             // Only detached finite sources and owner-authored contextual pair queries need
             // a compact bulk adjacency universe. Native declared references use the frontier.
@@ -825,6 +845,7 @@ impl EdgeSource {
             .saturating_mul(2)
             .saturating_add(batches.len().saturating_mul(64))
             .saturating_add(4096);
+        if let Some(capture) = capture { capture.complete_acquisition(); }
         Ok(PreparedAdjacency {
             path: Some(path),
             batches,
@@ -1014,7 +1035,7 @@ impl PreparedEdges {
         mut accept: impl FnMut([u8; 16], usize, [u8; 16]) -> Result<(), ModelError>,
     ) -> Result<Option<std::sync::Arc<Vec<[u8; 16]>>>, ModelError> {
         use arrow_array::{Array, FixedSizeBinaryArray};
-        let NativeFrontier { keys, charge, capture } = frontier;
+        let NativeFrontier { keys, charge, mut capture } = frontier;
         let presence = edges.iter().any(|edge| edge.require_owner_presence);
         if !presence && !edges.iter().any(|edge| !edge.reverse) {
             return Ok(None);
@@ -1045,21 +1066,24 @@ impl PreparedEdges {
         projection.sort_unstable();
         projection.dedup();
         let projected = std::sync::Arc::new(schema.project(&projection).map_err(ModelError::codec)?);
-        let issue = |selected_keys: std::sync::Arc<Vec<[u8; 16]>>| {
+        let provider = self.0.provider_with_capture(source, capture.as_deref_mut()).await?;
+        let prepare = |selected_keys: std::sync::Arc<Vec<[u8; 16]>>| {
             let charge = charge.clone();
             let projection = projection.clone();
             async move {
                 let selected = crate::compiler_provider::select_table(
-                    self.0.provider(source).await?, selected_keys, charge)?
+                    provider, selected_keys, charge)?
                     .ok_or(ModelError::Schema("native nominal edge binding"))?;
                 let state = self.0.session.state();
-                let plan = selected.scan(&state, Some(&projection), &[], None).await.map_err(crate::sql::model_error)?;
-                plan.execute(0, self.0.session.task_ctx()).map_err(crate::sql::model_error)
+                selected.scan(&state, Some(&projection), &[], None).await.map_err(crate::sql::model_error)
             }
         };
+        let start = |plan: std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>| {
+            plan.execute(0, self.0.session.task_ctx()).map_err(crate::sql::model_error)
+        };
         let mut stream = if let Some(capture) = capture {
-            capture.read(format!("forward_{source}"), "id", keys.clone(), projected, issue).await?
-        } else { issue(keys.clone()).await? };
+            capture.read(format!("forward_{source}"), "id", keys.clone(), projected, prepare, start).await?
+        } else { start(prepare(keys.clone()).await?)? };
         // The existing frontier charge covers this additional compact key vector, and follows
         // any reverse selected provider that borrows it. No rich owner rows are retained.
         let mut present = if presence {
@@ -1129,7 +1153,7 @@ impl PreparedEdges {
         keys: std::sync::Arc<Vec<[u8; 16]>>,
         charge: std::sync::Arc<charged::StateCharge>,
         cancellation: Option<&crate::admission::Cancellation>,
-        capture: Option<&mut crate::frontier_capture::FrontierCapture>,
+        mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
         mut accept: impl FnMut([u8; 16], [u8; 16]) -> Result<(), ModelError>,
     ) -> Result<(), ModelError> {
         use arrow_array::{Array, FixedSizeBinaryArray};
@@ -1139,22 +1163,25 @@ impl PreparedEdges {
             schema.index_of(edge.field).map_err(ModelError::codec)?,
         ];
         let projected = std::sync::Arc::new(schema.project(&projection).map_err(ModelError::codec)?);
-        let issue = |selected_keys: std::sync::Arc<Vec<[u8; 16]>>| {
+        let provider = self.0.provider_with_capture(edge.table, capture.as_deref_mut()).await?;
+        let prepare = |selected_keys: std::sync::Arc<Vec<[u8; 16]>>| {
             let charge = charge.clone();
             let projection = projection.clone();
             async move {
                 let selected = crate::compiler_provider::select_field_table(
-                    self.0.provider(edge.table).await?, edge.field, selected_keys, charge)?
+                    provider, edge.field, selected_keys, charge)?
                     .ok_or(ModelError::Schema("native nominal edge binding"))?;
                 let state = self.0.session.state();
-                let plan = selected.scan(&state, Some(&projection), &[], None).await.map_err(crate::sql::model_error)?;
-                plan.execute(0, self.0.session.task_ctx()).map_err(crate::sql::model_error)
+                selected.scan(&state, Some(&projection), &[], None).await.map_err(crate::sql::model_error)
             }
+        };
+        let start = |plan: std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>| {
+            plan.execute(0, self.0.session.task_ctx()).map_err(crate::sql::model_error)
         };
         let mut stream = if let Some(capture) = capture {
             capture.read(format!("reverse_{}_{}_{}_{}", edge.source, edge.target, edge.table, edge.field),
-                edge.field, keys.clone(), projected, issue).await?
-        } else { issue(keys.clone()).await? };
+                edge.field, keys.clone(), projected, prepare, start).await?
+        } else { start(prepare(keys.clone()).await?)? };
         while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             check_cancellation(cancellation)?;
             let ids = batch
@@ -1267,18 +1294,23 @@ impl PreparedEdges {
                 arrow_schema::Field::new("kind", arrow_schema::DataType::Int64, false),
                 arrow_schema::Field::new("id", arrow_schema::DataType::FixedSizeBinary(16), false),
             ]));
-            let issue = |keys: std::sync::Arc<Vec<[u8; 16]>>| async move {
+            self.0.provider_with_capture(kind as usize, capture.as_deref_mut()).await?;
+            let prepare = |keys: std::sync::Arc<Vec<[u8; 16]>>| async move {
                 let predicate = if keys.is_empty() { "FALSE".into() } else {
                     format!("id IN ({})", keys.iter().map(|key| format!("X'{}'",hex::encode(key))).collect::<Vec<_>>().join(","))
                 };
                 let sql = format!("SELECT CAST({kind} AS BIGINT) AS kind,id FROM {} WHERE {predicate} ORDER BY id",
                     identifier(&self.0.tables[kind as usize].alias));
-                crate::sql::query(&self.0.session, &sql).await.map_err(crate::sql::model_error)?
-                    .execute_stream().await.map_err(crate::sql::model_error)
+                let frame = crate::sql::query(&self.0.session, &sql).await.map_err(crate::sql::model_error)?;
+                let task = std::sync::Arc::new(frame.task_ctx());
+                let plan = frame.create_physical_plan().await.map_err(crate::sql::model_error)?;
+                Ok((plan, task))
             };
+            let start = |(plan, task)| datafusion::physical_plan::execute_stream(plan, task)
+                .map_err(crate::sql::model_error);
             let mut stream = if let Some(capture) = capture.as_deref_mut() {
-                capture.read(format!("presence_{kind}"), "id", source_keys, schema, issue).await?
-            } else { issue(source_keys).await? };
+                capture.read(format!("presence_{kind}"), "id", source_keys, schema, prepare, start).await?
+            } else { start(prepare(source_keys).await?)? };
             while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
                 check_cancellation(cancellation)?;
                 let _transfer = budget.reserve(
@@ -1553,9 +1585,7 @@ impl PreparedEdges {
                         .map(|(_, key)| *key)
                         .collect::<Vec<_>>(),
                 );
-                if let Some(capture) = capture.as_deref_mut() { capture.begin_acquisition(); }
-                let source = self.0.source(usize::try_from(kind).map_err(ModelError::codec)?, budget).await?;
-                if let Some(capture) = capture.as_deref_mut() { capture.complete_acquisition(); }
+                let source = self.0.source(usize::try_from(kind).map_err(ModelError::codec)?, budget, capture.as_deref_mut()).await?;
                 let mut cursor = EdgeCursor::new(source, budget)?;
             for key in &frontier[offset..end] {
                 cursor.targets(*key, budget, |target| {
@@ -2536,6 +2566,33 @@ mod nominal_closure_controls {
     }
 
     #[tokio::test]
+    async fn pure_adjacency_metadata_refusal_does_not_fail_frontier_acquisition() {
+        let (session, tables, _, _) = fixture();
+        let mut plan = NominalClosure::new(tables).unwrap();
+        plan.follow(0, "package", 1).unwrap();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        {
+            let edges = plan.prepare(&session, &budget).await.unwrap();
+            // Earn the port before applying local pressure. This exercises the actual
+            // adjacency metadata reservation, before contextual SQL or native execution.
+            edges.0.provider(0).await.unwrap();
+            let mut capture = edges.capture_discovery(&budget, &crate::admission::Cancellation::default()).unwrap();
+            let pressure = budget.reserve("local-membership-pressure", budget.limit() - budget.reserved() - 1).unwrap();
+            let error = edges.0.source(0, &budget, Some(&mut capture)).await.err().unwrap();
+            assert!(matches!(error, ModelError::Resource { owner: "semantic-edge-batch-index", .. }));
+            assert!(capture.permits_local_retry());
+            capture.require_owner(&edges, &budget).unwrap();
+            assert!(edges.0.adjacency[0].get().is_none());
+            // A narrower membership group releases pressure, without replacing the
+            // source owner or interpreting a failed native operation as a local refusal.
+            drop(pressure);
+            edges.0.source(0, &budget, Some(&mut capture)).await.unwrap();
+            assert!(edges.0.adjacency[0].get().is_some());
+            assert!(capture.permits_local_retry());
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
     async fn unused_invalid_namespace_is_lazy_but_explicit_empty_demand_still_refuses() {
         let (session, mut tables, releases, _) = fixture();
         tables[1].alias = "unavailable_companion".into();
@@ -2573,8 +2630,8 @@ mod nominal_closure_controls {
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
-        edges.0.source(0, &budget).await.unwrap();
-        edges.0.source(1, &budget).await.unwrap();
+        edges.0.source(0, &budget, None).await.unwrap();
+        edges.0.source(1, &budget, None).await.unwrap();
         let prepared_charge = budget.reserved();
         let physical = |table, key| PreparedRoot {
             table,
@@ -2813,8 +2870,8 @@ mod nominal_closure_controls {
             session.copied_config().target_partitions(),
             "preparation preserves available parallelism"
         );
-        edges.0.source(0, &budget).await.unwrap();
-        edges.0.source(1, &budget).await.unwrap();
+        edges.0.source(0, &budget, None).await.unwrap();
+        edges.0.source(1, &budget, None).await.unwrap();
         let index_usage = budget.reserved();
         assert!(index_usage > 0);
         let scope = edges
@@ -2922,8 +2979,8 @@ mod nominal_closure_controls {
         plan.own(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
-        let source_edges = edges.0.source(1, &budget).await.unwrap();
-        edges.0.source(0, &budget).await.unwrap();
+        let source_edges = edges.0.source(1, &budget, None).await.unwrap();
+        edges.0.source(0, &budget, None).await.unwrap();
         let index_usage = budget.reserved();
         assert_eq!(
             source_edges.batches.len(),
@@ -3059,8 +3116,8 @@ mod nominal_closure_controls {
         assert_eq!(plan.pairs.len(), 1, "identical follow demands are a set");
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
-        let source_edges = edges.0.source(0, &budget).await.unwrap();
-        edges.0.source(1, &budget).await.unwrap();
+        let source_edges = edges.0.source(0, &budget, None).await.unwrap();
+        edges.0.source(1, &budget, None).await.unwrap();
         assert_eq!(
             source_edges
                 .batches
@@ -3090,8 +3147,8 @@ mod nominal_closure_controls {
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
-        let source_edges = edges.0.source(0, &budget).await.unwrap();
-        edges.0.source(1, &budget).await.unwrap();
+        let source_edges = edges.0.source(0, &budget, None).await.unwrap();
+        edges.0.source(1, &budget, None).await.unwrap();
         let index_usage = budget.reserved();
         let descriptor = &source_edges.batches[0];
         let mut cursor = EdgeCursor::new(source_edges, &budget).unwrap();
@@ -3304,7 +3361,7 @@ mod nominal_closure_controls {
         assert!(edges.0.adjacency.iter().all(|slot| slot.get().is_none()));
         let mut seen = 0;
         for (binding, expected) in expected_sources.iter().enumerate() {
-            let prepared = edges.0.source(binding, workspace.budget()).await.unwrap();
+            let prepared = edges.0.source(binding, workspace.budget(), None).await.unwrap();
             assert_eq!(prepared.batches.len(), ROWS.div_ceil(resources::TRANSFER_ROWS));
             let index_usage = workspace.budget().reserved();
             let mut cursor = EdgeCursor::new(prepared, workspace.budget()).unwrap();
@@ -3325,7 +3382,7 @@ mod nominal_closure_controls {
             assert_eq!(workspace.budget().reserved(), index_usage);
         }
         assert_eq!(seen, ROWS * BINDINGS);
-        edges.0.source(BINDINGS, workspace.budget()).await.unwrap();
+        edges.0.source(BINDINGS, workspace.budget(), None).await.unwrap();
         let index_usage = workspace.budget().reserved();
         let scope = edges
             .grain(0, &id_predicate(selected.id()), workspace.budget())

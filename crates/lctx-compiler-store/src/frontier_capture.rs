@@ -74,12 +74,13 @@ impl FrontierCapture {
         }
         Ok(routes)
     }
-    pub(crate) async fn read<F, Fut>(
+    pub(crate) async fn read<F, Fut, Prepared, Start>(
         &mut self, group: String, key_field: &'static str, keys: Arc<Vec<[u8; 16]>>,
-        schema: SchemaRef, issue: F,
+        schema: SchemaRef, prepare: F, start: Start,
     ) -> Result<SendableRecordBatchStream, ModelError>
     where F: FnOnce(Arc<Vec<[u8; 16]>>) -> Fut,
-        Fut: Future<Output = Result<SendableRecordBatchStream, ModelError>>,
+        Fut: Future<Output = Result<Prepared, ModelError>>,
+        Start: FnOnce(Prepared) -> Result<SendableRecordBatchStream, ModelError>,
     {
         self.cancellation.check()?;
         if self.acquisition_failed { return Err(ModelError::Conflict("failed native frontier acquisition")); }
@@ -119,8 +120,12 @@ impl FrontierCapture {
             let _buffer = self.budget.reserve("native-capture-nominal-buffer",
                 lctx_model::domain::resources::TRANSFER_ROWS * schema.fields().len() * 64 + 4096)?;
             let mut buffer = NominalBuffer::new(schema.clone())?;
+            // Only this closure's local plan construction may refuse without poisoning
+            // acquisition. Provider earning is guarded by the caller before preparation;
+            // start admits the producing stream and must never be replayed on failure.
+            let prepared = prepare(missing.clone()).await?;
             self.begin_acquisition();
-            let mut source = issue(missing.clone()).await?;
+            let mut source = start(prepared)?;
             if source.schema() != schema { return Err(ModelError::Schema("native capture issued schema")); }
             let mut previous = None;
             while let Some(batch) = source.try_next().await.map_err(crate::sql::model_error)? {
@@ -309,6 +314,7 @@ mod tests {
     fn stream(rows: Vec<Result<RecordBatch, DataFusionError>>) -> SendableRecordBatchStream {
         Box::pin(RecordBatchStreamAdapter::new(schema(), futures::stream::iter(rows)))
     }
+    const START_STREAM: fn(SendableRecordBatchStream) -> Result<SendableRecordBatchStream, ModelError> = Ok;
     async fn owner(budget: &ResourceBudget) -> PreparedEdges {
         NominalClosure::new(vec![ClosureTable { alias: "unused".into(), relation: Relation::of::<Package>() }])
             .unwrap().prepare(&SessionContext::new(), budget).await.unwrap()
@@ -332,7 +338,7 @@ mod tests {
                 issued.fetch_add(1, Ordering::Relaxed);
                 assert_eq!(&*keys, &[[1;16], [2;16], [3;16]]);
                 async { Ok(stream(vec![Ok(batch(&[[1;16], [3;16]]))])) }
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert_eq!(ids(first).await, [[1;16], [3;16]]);
             assert!(capture.permits_local_retry());
             // Simulate the later local membership refusal, preserving its typed cause.
@@ -342,13 +348,65 @@ mod tests {
                 issued.fetch_add(1, Ordering::Relaxed);
                 assert_eq!(&*keys, &[[4;16]]);
                 async { Ok(stream(vec![Ok(batch(&[[4;16]]))])) }
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert_eq!(ids(second).await, [[3;16], [4;16]]);
             let empty = capture.read("ids".into(), "id", Arc::new(vec![[2;16]]), schema(), |_| async {
                 panic!("complete-empty source key must not be reissued")
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert!(ids(empty).await.is_empty());
             assert_eq!(issued.load(Ordering::Relaxed), 2);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn pure_plan_refusal_preserves_successful_coverage_and_permits_narrower_demand() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        {
+            let owner = owner(&budget).await;
+            let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
+            let started = AtomicUsize::new(0);
+            let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
+                Ok(stream(vec![Ok(batch(&[[1;16]]))]))
+            }, |source| { started.fetch_add(1, Ordering::Relaxed); Ok(source) }).await.unwrap();
+            assert_eq!(ids(rows).await, [[1;16]]);
+            let preparation_budget = &budget;
+            let error = capture.read("ids".into(), "id", Arc::new(vec![[1;16],[2;16],[3;16]]), schema(), |keys| async move {
+                assert_eq!(&*keys, &[[2;16],[3;16]]);
+                let _preparation = preparation_budget.reserve("pure-plan-control", preparation_budget.limit() + 1)?;
+                Ok(stream(vec![]))
+            }, |_| { panic!("pure plan refusal cannot start the native stream") }).await.err().unwrap();
+            assert!(matches!(error, ModelError::Resource { owner: "pure-plan-control", .. }));
+            assert!(capture.permits_local_retry());
+            capture.require_owner(&owner, &budget).unwrap();
+            assert_eq!(capture.groups["ids"].windows.len(), 1);
+            let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16],[2;16]]), schema(), |keys| async move {
+                assert_eq!(&*keys, &[[2;16]], "successful input must not be reacquired");
+                Ok(stream(vec![Ok(batch(&keys))]))
+            }, |source| { started.fetch_add(1, Ordering::Relaxed); Ok(source) }).await.unwrap();
+            assert_eq!(ids(rows).await, [[1;16],[2;16]]);
+            assert_eq!(started.load(Ordering::Relaxed), 2);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn stream_start_refusal_and_unknown_are_terminal_before_first_batch() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        for error in [
+            ModelError::Resource { owner: "producing-start-control", requested: 2, used: 1, limit: 1 },
+            ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed, "source acknowledgement unknown"),
+        ] {
+            let owner = owner(&budget).await;
+            let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
+            let failure = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
+                Ok(stream(vec![]))
+            }, |_| Err(error)).await.err().unwrap();
+            assert!(failure.to_string().contains("producing-start-control") || failure.to_string().contains("source acknowledgement unknown"));
+            assert!(!capture.permits_local_retry());
+            assert!(capture.groups["ids"].windows.is_empty());
+            assert!(capture.require_owner(&owner, &budget).is_err());
+            assert!(capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
+                panic!("admitted or unknown acquisition cannot be reissued")
+            }, START_STREAM).await.is_err());
         }
         assert_eq!(budget.reserved(), 0);
     }
@@ -361,14 +419,14 @@ mod tests {
             let error = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
                 Ok(stream(vec![Ok(batch(&[[1;16]])), Err(DataFusionError::External(Box::new(
                     ModelError::Resource { owner: "active-native-control", requested: 2, used: 1, limit: 1 })))]))
-            }).await.err().unwrap();
+            }, START_STREAM).await.err().unwrap();
             assert!(error.to_string().contains("active-native-control"));
             assert!(!capture.permits_local_retry());
             assert!(capture.groups["ids"].windows.is_empty());
             assert!(capture.require_owner(&owner, &budget).is_err());
             assert!(capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
                 panic!("failed acquisition cannot be retried")
-            }).await.is_err());
+            }, START_STREAM).await.is_err());
         }
         assert_eq!(budget.reserved(), 0);
     }
@@ -385,11 +443,11 @@ mod tests {
                 issued.fetch_add(1, Ordering::Relaxed);
                 assert!(keys.is_empty());
                 async { Ok(stream(vec![])) }
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert!(ids(rows).await.is_empty());
             let rows = capture.read("empty".into(), "id", Arc::new(vec![]), schema(), |_| async {
                 panic!("same earned empty demand does not reissue")
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert!(ids(rows).await.is_empty());
             assert_eq!(issued.load(Ordering::Relaxed), 1);
         }
@@ -404,7 +462,7 @@ mod tests {
             for n in 1..=32u8 {
                 let rows = capture.read("ids".into(), "id", Arc::new(vec![[n;16]]), schema(), |keys| async move {
                     Ok(stream(vec![Ok(batch(&keys))]))
-                }).await.unwrap();
+                }, START_STREAM).await.unwrap();
                 assert_eq!(ids(rows).await, [[n;16]]);
             }
             let _keys = budget.reserve("index-route-control", 4096).unwrap();
@@ -419,7 +477,7 @@ mod tests {
             }));
             let rows = capture.read("ids".into(), "id", Arc::new(vec![[3;16],[29;16]]), schema(), |_| async {
                 panic!("indexed historical keys cannot reissue native work")
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert_eq!(ids(rows).await, [[3;16],[29;16]]);
         }
         assert_eq!(budget.reserved(), 0);
@@ -432,18 +490,18 @@ mod tests {
             let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
             let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
                 Ok(stream(vec![Ok(batch(&[[1;16]]))]))
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert_eq!(ids(rows).await, [[1;16]]);
             let retained = budget.reserved();
             let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
                 panic!("same input cannot reissue")
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert!(budget.reserved() > retained);
             assert_eq!(ids(rows).await, [[1;16]]);
             assert_eq!(budget.reserved(), retained);
             let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
                 panic!("same input cannot reissue")
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert!(budget.reserved() > retained);
             drop(rows);
             assert_eq!(budget.reserved(), retained);
@@ -459,7 +517,7 @@ mod tests {
             for n in 1..=2u8 {
                 let rows = capture.read("ids".into(), "id", Arc::new(vec![[n;16]]), schema(), |keys| async move {
                     Ok(stream(vec![Ok(batch(&keys))]))
-                }).await.unwrap();
+                }, START_STREAM).await.unwrap();
                 assert_eq!(ids(rows).await, [[n;16]]);
             }
             // Represent two successful immutable runs before optional adoption. No source
@@ -472,7 +530,7 @@ mod tests {
             for keys in [vec![[1;16],[2;16]], vec![[2;16]]] {
                 let rows = capture.read("ids".into(), "id", Arc::new(keys.clone()), schema(), |_| async {
                     panic!("pure refusal must not reissue successful native acquisition")
-                }).await.unwrap();
+                }, START_STREAM).await.unwrap();
                 assert_eq!(ids(rows).await, keys);
                 assert_eq!(capture.groups["ids"].indexes.len(), 2);
                 assert!(capture.permits_local_retry());
@@ -510,7 +568,7 @@ mod tests {
                     ]).unwrap())
                 }));
                 Ok(Box::pin(RecordBatchStreamAdapter::new(reverse.clone(), batches)) as SendableRecordBatchStream)
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             async fn count(mut rows: SendableRecordBatchStream, expected: Option<[u8;16]>) -> usize {
                 let mut count = 0;
                 while let Some(batch) = rows.try_next().await.unwrap() {
@@ -531,7 +589,7 @@ mod tests {
             let pressure = budget.reserve("reverse-singleton-pressure", budget.limit() - retained - available).unwrap();
             let rows = capture.read("reverse".into(), "owner", Arc::new(vec![[2;16]]), shape_for_reverse(), |_| async {
                 panic!("successful high-fanout native source must never be replayed")
-            }).await.unwrap();
+            }, START_STREAM).await.unwrap();
             assert_eq!(count(rows, Some([2;16])).await, BATCHES / 2 * transfer);
             assert_eq!(budget.reserved(), retained + pressure.size());
             drop(pressure);
