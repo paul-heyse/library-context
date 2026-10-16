@@ -99,6 +99,11 @@ rows from genuinely new rows, then use grouped native ordinary/relation insertio
 Pinned INSERT capabilities do not erase per-record storage/index work. INSERT IGNORE and
 unconditional duplicate updates are not acceptable substitutes for full equality. Deduplicate
 incidence work only after documenting exactly which predicates each logical effect invalidates.
+**Implemented / focused-Tested,2026-10-16:** bounded hold cleanup unions the existing
+native_incidence_targets of its exact checked page and skips only the exact owner already touched.
+Every other target still uses native_touch. The complete owner cut, origin/page/incarnation and
+retirement-nomination guards stay in one transaction. Actual one/two-hold and five rollback cases
+passed; coordinator §6 owns receipts, unresolved broader finality and the unmeasured latency boundary.
 [Completed control](../../crates/lctx-native/src/control/completed.rs) and
 [live boundaries](../../crates/lctx-native/src/control/live_view.rs) compare observed revision plus
 one; their meaning must survive, with affected consumers migrated in the same package if necessary.
@@ -258,6 +263,12 @@ from successful fragment decoding alone.
 
 ## 8. CN07 — I07 query-shaped lexical access: decision and delivery
 
+**Related selector correction implemented / native acceptance pending,2026-10-16.** Reverse
+atomic-field nomination submits key windows of32, matching the pinned planner's IN expansion
+limit. Transfer batches,1024-root reference windows and execution concurrency retain their
+separate owners. The production query builder also supplies EXPLAIN controls for33/65-key
+selections, exact frozen membership and newer-owner exclusion; no measured latency claim follows.
+
 **Select shared postings, 2026-10-15 (ADR-0174).** Native document v2 stores length; one immutable
 `lexical_posting` per analyzed-document/term stores frequency, shared across selected scopes/occurrences.
 Scoring uses bounded document/query-term compound lookup and one matched-row grouping. Selected-corpus
@@ -267,7 +278,14 @@ lifecycle. This is a definition/derivation-qualified physical schema migration; 
 regenerate, with no legacy reader. Actual two-dimensional EXPLAIN and scoring controls are required;
 coordinator §6 owns their outcome. Shared/operator adoption remains CE80.
 
-Native scoring currently selects eligible documents then filters each complete stored term
+Actual current EXPLAIN exposed whole-index iteration for two independent IN lists at the pin.
+The selected application correction maps candidate documents and distinct query terms to scalar
+two-column equality selects within one enclosing query, flattens matches and orders once before
+unchanged grouping. Both pinned planner paths support those full compound equality keys. Explain
+inside the same closure route, because a top-level lookalike can use another planner. This needs
+no schema/server change; runtime exact-key and scoring acceptance remain with coordinator §6.
+
+The original diagnosis was eligible-document selection followed by filtering each complete stored term
 array. Compare indexed postings or another candidate/query-term intersection access path with
 compact arrays and bounded candidate windows. Decide whether actual unrelated-term work justifies
 added rows/indexes and their construction, reconciliation, backup and retirement.
@@ -291,6 +309,16 @@ corpus differing from global corpus, excluded candidates before caps, ties, fusi
 identity. Use independent known scoring answers and actual native selection for access claims.
 
 ## 9. Integration, acceptance and retirement
+
+**Closeout refinements,2026-10-16:** pin release deduplicates incidence endpoints within its
+checked bounded page; the separately committed release fence and exact owner/current holds remain.
+Its actual native revision/peer-preservation control passed, with receipt in coordinator §6.
+The proposed read-only admission-stripe replacement is rejected: tracked RocksDB reads alone
+cannot force the maintenance-first/intent-first predicate interleavings to conflict. Retain all
+current stripe writes. Ordered operation errors now remain separate from actual finalization;
+retry inspects every related cause and rejects mixed/uncertain/finalization-bearing outcomes.
+Original Unknowns remain protected. Source acceptance is distinct from outstanding enclosing
+compiler/native/reconstruction controls, owned by coordinator §6.
 
 CN01 and CN02 can proceed independently; CN00 precedes CN05, and CN03/CN04 need their decision
 slices before delivery. Shared authorization/schema/reader files have one integrator even when

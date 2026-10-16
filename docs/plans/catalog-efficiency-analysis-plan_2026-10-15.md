@@ -32,6 +32,21 @@ run`439eeb31-9cd3-4e44-bb6a-b297f3c12b9b`; native persistence and enclosing acce
 No catch-and-requery of failed native acquisition is authorized. [ADR-0176](../adr/0176-bounded-behavioral-preparation.md)
 records the bounded preparation decisions and retained analytic representation.
 
+The same capture owner now supports same-kernel read cohorts with Physical root checks and full
+literals; expression Virtual activation/opaque literals remain separate. Each read assembles one
+exact singleton before once-only mutable production. Complete singleton membership permits empty
+namespace skipping. Kernel order and field begin/seal transitions are unchanged; varying class/name
+FieldAssessment keeps its separate route. Six selected expression/read capture controls passed in
+`20261016T150928.870Z-e7ad61` on 2026-10-16. They cover partition/capture semantics, literal hydration,
+pre-acquisition cancellation and local refusal/release, not field-universe assessment or cancellation
+during acquisition/after mutation. Those routes are source-accepted and await integrated consumers.
+
+**Operator closeout,2026-10-16:** the latest actual consumer run again timed out900s for paired
+layout, Base, SourceCall and both Summary variants. This does not establish an algorithmic cause
+or close their persistence/consumer contracts. The same run's frozen-view BM25 control passed;
+selected backup timed out. Coordinator §6 retains exact receipts, native obligations and resumption
+order. No job cap, larger deadline or weakened answer/proof assertion is selected.
+
 ## 1. Responsibility and foundations
 
 The model owns root/frame meaning, provider qualifications, call binding, conditions, work,
@@ -52,11 +67,11 @@ unbounded retained indexes and prematurely exposing malformed unconsumed data.
 
 ## 2. CA00 — F05 bounded Base cohorts with independent root semantics
 
-Current [Base execution](../../crates/cpg-core/src/semantic_execution.rs) selects, hydrates and
-evaluates each expression root separately. [BaseScopes](../../crates/cpg-core/src/base_scope.rs)
-walks declared inputs for each grain, while
-[PreparedExecution](../../crates/lctx-model/src/domain/execution/evaluation.rs) reconstructs
-syntax preparation despite shared frame metadata.
+The original diagnosis was per-root input/syntax preparation. Implemented
+[Base execution](../../crates/cpg-core/src/semantic_execution.rs) now uses bounded capture and adaptive
+local expression assembly/adoption; [BaseScopes](../../crates/cpg-core/src/base_scope.rs) shares read
+acquisition by kernel/context, then performs exact singleton production. The old singleton loader
+is retained only as a test oracle. The contracts below remain the acceptance requirements.
 
 Consume bounded compatible root cohorts under exact frame/input selection. Share immutable
 dependency acquisition, source/position correspondence and syntax indexes when roots overlap.
@@ -87,9 +102,10 @@ Inspect preparation reuse under exact inputs; historical phase counts are not RP
 
 ## 3. CA01 — F06 charged ordered Summary correspondence
 
-Current [Summary production](../../crates/lctx-model/src/domain/execution/summary_production.rs)
-caches consumed attempts, but first-use preparation scans broad immutable headers, declarations,
-parameters, links and arguments; residuals search events/seeds again.
+The original diagnosis concerned broad first-use/residual scans in
+[Summary production](../../crates/lctx-model/src/domain/execution/summary_production.rs). The ordered
+borrowed inventory described above is implemented and focused-tested; actual recent native controls
+stopped in earlier Base work and provide no new Summary success or algorithm-defect evidence.
 
 Build charged borrowed correspondence buckets once per exact immutable Summary invocation.
 Index by the actual attempt/symbol/declaration/signature/origin keys needed by consumers, preserving
@@ -117,6 +133,10 @@ witnesses; exhausted pair work; residual identity and independent finite known a
 Existing replay can supplement comparisons, but is not the sole oracle for changed correspondence.
 
 ## 4. CA02 — I05 analytic expansion and representation
+
+The comparison and representation decision are complete as stated above. The following preserves
+the decision criteria and consumer qualification requirements, rather than scheduling another
+representation investigation. The new Base controls provide no additional CA02 runtime evidence.
 
 Identify the actual consumers of co-use target pairs, weights/evidence, communities/centrality,
 FCA/RCA concepts and lattice relationships. Current degree-squared admission and row/column

@@ -578,12 +578,17 @@ including finalizer replacement order and profile-bound NotRequested results (**
 explicit heap-state prerequisite. The detailed plan owns these receipts; scoped assembled acceptance passed, 2026-10-01.
 
 **Implemented / focused verification in progress, 2026-10-16:** Base captures bounded compatible
-expression groups into invocation-owned schema-checked spillable IPC. Membership discovery and
+expression groups and same-kernel read roots into invocation-owned schema-checked spillable IPC. Membership discovery and
 unique rich source demand remain at singleton grain; only pure local typed/syntax assembly and
 unconsumed computation adapt on resource refusal. Shared syntax borrows the immutable captured
 view. Every root lookup retains its exact membership; work, proofs and outcomes remain separate.
 Expression adoption is failure-atomic and native emission remains terminal. IPC supplies no
-completed authority. The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+completed authority. Read roots retain Physical presence and full literal fidelity; expressions retain
+Virtual activation and opaque string/byte payloads. Read production assembles one exact partition
+and mutates work/field state once, without semantic retry. Complete empty membership can skip local
+input assembly; payload absence cannot. Field-root preparation still precedes candidate construction
+and sealing; varying class/name FieldAssessment retains its separate route.
+The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
 owns current acceptance and its native/persistence limits.
 
 > Decision: ADR-0176
@@ -851,6 +856,14 @@ and evidence that remain in the semantic graph.
 Algorithms borrow branded native visit views over shared prepared topology. Explicit completed-input
 selectors preserve the required Facts, Local, Model or later semantic view; they are static dependency
 metadata, without persisted read permits or generations.
+
+**Implemented / Interface-checked,2026-10-16:** completed-input sessions capture charged immutable
+ports. DataFusion earns only named ports before logical planning/optimization, using the unchanged
+native provider and exact producing owner; metadata and zero-row counts grant no authority.
+Qualified/plain aliases share a successfully earned provider, while predicate candidate tables
+remain private. Logical templates preserve captured-provider identity checks. The existing native
+owner governs failed/cancelled earning and finality; local refusal does not poison a retryable port.
+The efficiency coordinator owns focused controls and remaining consumer acceptance.
 
 **Accepted ownership refinement, 2026-10-10 (ADR-0145); qualification open.** Prepared
 graphs and bindings follow actual remaining selected consumers, including optional stages and

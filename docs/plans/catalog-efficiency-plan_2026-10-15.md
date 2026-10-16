@@ -184,15 +184,557 @@ not reasons to introduce runtime serialization.
 
 ## 6. Sole disposition and current checkpoint
 
-**Remaining scope resumed after storage repair, 2026-10-16.** Source based at`18fa4e0f`, with
-independently reviewed tracing-lifetime, lexical SQL and fixture-release repairs. Three tracing
-controls,87 verification inventory controls, full compile, strict Clippy and CLI passed within
-the exact receipts below. Native extension refresh failed on disk exhaustion; operator repair now
-leaves77GiB free. Guard-free rerun`20261016T141058.388Z-0c897e` is active. Operator approved all
-remaining scope through CE99, lightweight source context, and exact default installation
-`58abe9ea-2088-4109-95ab-8440a3749c51` main+validation regeneration after authenticated drainage.
-Default remains unchanged; owned rehearsal E1 remains installed. Original failures/Unknown stay.
-Lexical/analysis/reconstruction actual controls, CE80/default cutover and CE90/CE99 remain open.
+**Current: operator-requested bounded closeout,2026-10-16.** CE80 is delivered; CE90 and CE99
+remain open. All current edits are integrated in the main working tree; no auxiliary worktree
+exists. Subagents have finished their implementation/review assignments. This checkpoint controls
+resumption; the dated records below retain their original scope and outcomes.
+
+The latest repair separates ordered, owned operation errors from actual owner finalization.
+`ModelError::Operations` retains the primary and every related error; diagnostic, cleanup,
+committed-effect, uncertainty, transaction-retry, canonical-reader and optional-fallback consumers
+inspect the relevant members. Ingress separately reports its operation result and actual driver
+join. Acknowledged refusals/cancellation remain diagnostics and poison admission as appropriate;
+lost acknowledgements, missing owners, failed joins, nested Unknown and actual finalizers remain
+strict. The original typed JoinError is retained. This implements the existing finality contract;
+no receipt schema, native schema, admission guard or approved rule direction changes.
+Independent source review accepts the consumer separation and fixture ownership. It found one new
+model control incorrectly expecting an outer Completion from the existing identity-preserving fast
+path. The control now composes a successful metadata-bearing owner report to exercise uncertainty
+observation; production `complete` behavior is unchanged. Run`20261016T191228.173Z-9223fb`
+retains its original2 passed/1 failed result, exit100/host cleanup confirmed19:15:46UTC.
+Full workspace/all-target release check`20261016T191550.601Z-86bc68` passed0, host cleanup
+confirmed19:21:11UTC; the final typed-join refinement and corrected control were included in
+closeout runs`20261016T192119.865Z-80f27b` and`20261016T192137.905Z-8447bc`.
+The first closeout Clippy pass found one await-holding-lock diagnostic in the receiver-mapping
+fixture's explicit-drop form. Guarded assertions now occupy a lexical scope before the actual
+drain await; no assertion or lint is suppressed. Both runs were interrupted by SIGTERM to their
+launchers during the session interruption; host cleanup confirmed19:29:59UTC/no survivors. The
+selected compiler/ingress/native controls did not execute, and the keep-going Clippy collection
+did not complete. Current Clippy and model-only controls resume in
+`20261016T193501.402Z-c13b5c` and`20261016T193501.752Z-e692b8`; final results follow below.
+Model-only`e692b8` passed335/skip0, nextest`d8e7179c-e596-44fb-b60e-2af308c0b7cb`, exit0/
+host cleanup confirmed19:35:04UTC. This includes all current lib controls and the corrected group
+observation; model integration/doc/compile-fail boundaries and native consumers remain separate.
+Full workspace/all-target strict keep-going Clippy`c13b5c` passed0 with `-D warnings`, host
+cleanup confirmed19:37:07UTC/no survivors. The corrected mutex scope and final typed join cause
+compile cleanly. All local closeout runs are terminal; no further validation is left running.
+Implementation is integrated on main, with no auxiliary worktree to merge/remove. The final
+closeout commits preserve this partial boundary; CE90/CE99 and the native obligations below stay open.
+Earlier full Python`20261016T173929.279Z-6056dd` passed1428/skip1 and applicable tooling/leaves
+passed within their dated scope; Python sources have not changed subsequently. Closeout
+`just docs-check` passed465 canonical pages/zero link errors and ADR/agent lint.
+
+Compiler protocol controls construct their process-only cancellation/read signal owner once;
+public/actual-native constructors still acquire the receipt-backed owner. Replacing an unfinished
+signal owner is removed. Settled borrowed-store controls use actual finality drainage. The moved
+large-binding control now earns a real InputRevision contribution through the factory/pool instead
+of fabricating a completed view. Its source is accepted; actual native execution remains not_run
+after this last fixture correction.
+
+Reconstruction run`20261016T190337.280Z-029373` completed naturally with exit100 before the
+closeout cancellation request took effect:1 passed/6 timed out900s, nextest
+`4d5fdfd1-f7a5-46e0-9c1e-6d7e65f08b4a`, ended19:21:12UTC/host cleanup confirmed19:21:19UTC/no survivors.
+Frozen-view BM25 passed; paired layout, Base, SourceCall, both Summary variants and selected backup
+remain unqualified. These binaries precede the operation/finality repair. Attachment
+`f67a78df-8cc9-45e3-95d3-70b2761074f9` retains native obligations:12 complete and8 started
+native-drain records were observed after host cleanup. No native completion or resource disposal
+follows from that local exit; original timeouts/Unknowns and cited run captures remain protected.
+
+**New efficiency observation,2026-10-16:** the default daemon PID1842725 held140133300KiB RSS,
+140107336KiB private dirty memory and4714492KiB swapped memory at the operator's question
+(approximately143GB resident). It is the service exercised by this track. Generated configuration selects
+RocksDB without explicit cache/memtable/server-memory limits; the application product-cache budget
+is not a daemon cap. Attribution among engine caches, outstanding execution, allocator retention
+and a leak is unresolved. Existing phase/query/finality receipts do not measure server heap bytes.
+On resumption, first assess retained lifecycle obligations and source-level memory ownership;
+use an authorized maintenance/diagnostic route if runtime evidence is needed. No restart, cache
+purge, job cap or shared query was performed to reduce the number.
+
+**Remaining on resumption:** verify the enclosing provider Resource-negative path after the
+operation/finality repair, full current model boundary, actual corrected compiler owner/large-binding
+controls, compiler producer/CLI, native/compiler/publication store controls, Rust serving and flow
+oracle. Resolve the six reconstruction timeouts from their actual phases and retained obligations
+without weakening guards, capacities or assertions. Refresh only affected evidence after corrections,
+then complete CE90 integrated acceptance and CE99 documentation handback. Embedding inference,
+submitted MCP runtime, real-library/operator adoption and older-plan edits remain excluded.
+
+**Dated CE80/initial acceptance record,2026-10-16.** Default regeneration
+`20261016T154634.590Z-fe4647` passed0/host cleanup confirmed15:47:31UTC. Exact installation
+`58abe9ea-2088-4109-95ab-8440a3749c51` now uses generation
+`880b51cb809f3b0697ff56a45a4f6efb22d758b5eab076bcd88b2c6a4ff80fcf`, required patched peer
+`9fbab612b96f62d2e88070ffd2cb7f1d8ec7b7a3a5cf304592c1c041ed3c761e`, regeneration journal
+`fd0f108d2ed2e72c2a70b18026f77f00344a7429e17cebdc5f9a5e463d055bea`. Both project scopes were
+initialized/checked/open; actual successor inventory excludes bootstrap, while the result's scope
+field retains the predecessor's authenticated empty-bootstrap proof. Ready/maintenance=false/
+borrowers=[] was observed before acceptance. Four predecessor Unknown obligations have separate
+discard acknowledgements, preserving original outcomes. E1 rehearsal disposal passed as detailed below.
+CE90 run`20261016T154844.226Z-8b8832` explicitly attaches this installation, with177 Rust targets/
+63 Python files in static inventory and five agreed MCP-runtime Python exclusions. Selected coverage
+is complete; global coverage is not. Embedding inference, real-library/operator activation and
+older-plan edits remain excluded. Initial model boundary:924 run,920 passed,4 failed; corrected
+header/ordered-role/owner-readiness controls passed11 in`20261016T155714.907Z-f66d43`.
+The original broad run was cancelled by the coordinator after its compiler binaries became stale
+under the source corrections below: exit137, host cleanup confirmed16:50:06UTC/no survivors.
+Compiler attachment`8a037d17-6cf2-487d-a511-e616c2bb797b` remains unreleased with native-drain
+obligations. Its interrupted compiler boundary and all unstarted later boundaries remain open;
+native Unknown is not host cleanup. Run`20261016T160725.049Z-7e9e5d` passed full workspace/all-target release check, strict keep-going
+Clippy and five budget-accounting controls, with host cleanup confirmed. Accounting assertions
+include retained StateCharge metadata; payload sizes and final zero remain separately checked.
+Provider extraction failed on the original independent-pool fixture; its actual same-pool/physical
+SDK-finality repair is source-accepted, with focused native rerun pending. Compiler acceptance is
+still collecting, including unresolved360/900s timeouts. CE99 remains open pending acceptance.
+
+**Current-source follow-up,2026-10-16.** Independent source review accepts the inactive-provider
+identity correction: captured/admitted hash domains stay distinct, both bind only actual inactive
+reporting ownership, and active identities/assurance remain. Provider fingerprints include the
+actual direct tracing dependency. Source-reviewed fixture corrections retain real original chunks,
+parent-backed256KiB rich-consumer capacity after truthful native source ingestion, fresh attempts after
+cancellation and physical connection completion before zero. Marker-only admission remains refused;
+positive attachment/content/current-owner checks stay in the real artifact-admitted cache matrix.
+Early negative admission expects no lower admission phase; predecessor whole-state inspection now
+earns native freeze first. Focused runs`20261016T161916.748Z-3d119e` and
+`20261016T161917.487Z-704e29` are pending. Earlier`7664e1`/`05b858` background invocations received
+no script stdin and performed no checks; their exit0 is not validation evidence. Final artifact
+admission's missing recovery-owner scope is separately corrected in source; its integrated check
+and native control remain pending. Durable-validation preparation now enters the actual source
+scope before forking its owned reader; lookup/persistence/close retain their existing child scopes.
+Terminal-product reading now uses the actual forked source scope/client/cancellation and retains
+that product owner through adapter drainage; unresolved drainage preserves Unknown. The read-only
+adapter never closes/abandons the source. Independent source review accepts all three recovery
+routes, including exact target/generation/pool checks. Guards remain strict.
+Additional source-accepted fixtures supply receiver originals, retain canonical-stream workspace
+ownership through actual reads, use honest8MiB startup capacity versus64MiB ordinary capacity,
+register both summary-input directories and join SDK completion before zero. Cold restoration's
+graph loader uses the restored attempt's exact owned session/pool rather than a bare admin session.
+No timeout cause or measured speed claim follows these repairs.
+
+**Latest focused evidence,2026-10-16.** Run`20261016T161917.487Z-704e29` passed check/strict Clippy
+then4 of5 controls; selected-catalog failed during source ingress, before selection. Its unrelated
+payload is now1MiB with the same honest512MiB ingress pool. A subsequent selected-read failure
+in`d12e09` showed that256KiB total native headroom cannot admit the pinned2.6MiB compression
+workspace. The source-reviewed correction uses existing ResourceBudget::scoped(parent,256KiB)
+for rich ModelData/Rows/ConsumedInputs while native framing/EOF retains its honest parent pool.
+The whole-read negative now requires direct normalized-decode Resource refusal; transport Unknown
+cannot satisfy it. Both local and parent zero remain after strict finality/drop/SDKjoin. Affected
+rerun is pending; neither original failure is rewritten.
+Run`20261016T161916.748Z-3d119e` provider selection passed3/timeout1: foreign-pool/profile
+refusals and acquisition passed; Catalog model context timed out360s during abandonment after
+transaction conflicts. Attachment`b323b570-a542-42fa-a01d-1f059c17b983` retains native Unknown.
+The reverse-field control did not run because the new target Name conversions failed compilation;
+explicit error conversion is repaired. Pure identity/fingerprint steps are still collecting.
+Latest run`20261016T163200.445Z-bdb87b` passed full workspace/all-target release check and strict
+keep-going Clippy, cleanup confirmed16:32:34UTC. Current-source native controls run in
+`20261016T163056.893Z-d12e09`; its earlier check/Clippy failures remain failed, independently of
+the later repaired hygiene pass. Model-boundary rerun`20261016T163358.865Z-1642e5` is pending.
+Full current model boundary passed`20261016T163358.865Z-1642e5`, cleanup confirmed16:38:30UTC.
+Pure inactive identity passed1 and provider fingerprints passed5 within`3d119e`; these do not
+close that enclosing run's timeout/not-run boundaries. Current CE90 journey traces place SourceCalls in normalization, Recursive Summary in normalized
+admission and Base execution channels in normalize_callables before cancellation. None entered
+the new Base capture/computation phases. This localizes prerequisites, not a stall cause, and
+does not justify changing the Base/Summary algorithms or deadlines.
+
+**Cleanup amplification follow-up,2026-10-16.** Source inspection found each hold deletion
+repeating the same complete64-stripe attempt cut. The accepted bounded correction keeps the
+existing owner cut and all origin/page/incarnation/nomination checks, unions actual checked-page
+incidence targets and touches every distinct target except the exact already-touched owner, then
+deletes the same holds atomically. Other attempt targets retain their cuts. It composes existing
+native_incidence_targets/native_touch and array built-ins; no schema/server change or new protocol
+is needed. Implementation and owned-fixture1/2-hold stripe/root-set/peer controls are source-accepted;
+five existing atomic rollback cases remain. Native controls run in`20261016T165017.959Z-d15f80`.
+This removes repeated cut work in CN01/CN05 cleanup, without establishing timeout causality.
+
+Latest compile`20261016T165140.913Z-0eaa70` passed after correcting a test count's usize/u64
+comparison; `d15f80`'s earlier check/Clippy failures retain their outcomes. Latest strict Clippy
+rerun is pending. `d12e09`'s first native group passed the receiver-scope control, failed the
+superseded total-native256KiB fixture and timed out the20000-row canonical writer before reading;
+attachment`46f7963b-c310-4b75-9251-38ebf3fd575a` retains native Unknown. The canonical control now
+uses4097 rows, the minimal case crossing4096 and128 transfer batches, retaining full count/order/
+identity, distinct real pool capacities and finality/zero assertions. Independent source review
+accepts this functional scope; no volume/stress claim follows. Cold restoration reached imported
+provenance assertions then refused unfrozen whole-state inspection; its required native freeze is
+now added/source-accepted. Its enclosing six-control group continues collecting. Python/ADR/docs
+hygiene run`20261016T165237.080Z-1edbfa` passed ADR/docs and failed11 Ruff line-length findings
+plus one Pyrefly mapping-unpack type error. Scoped corrections retain the acknowledgement logic;
+rerun`20261016T165508.419Z-9188db` passed Ruff/warnings-inclusive Pyrefly, and the26 focused
+pure regeneration-binding controls passed`20261016T165508.793Z-64f08a` using run-owned pytest
+temporary state. No shared service effects follow from those pure controls. CE90/CE99 stay open.
+
+**Current source after native follow-up,2026-10-16.** `d15f80` passed both actual cleanup controls
+(one/two-hold stripe deltas, exact nominations/peer preservation and five atomic rollback cases)
+and the parent-backed selected-catalog control. Its reverse-selector control failed before
+assertions through a bare loader session; it now uses the actual store client/scope/attempt and
+one256MiB pool for creation/selection, releasing providers/sessions/cursors before finality/join/zero.
+The canonical control's8MiB read failed the simultaneous native compression/guard-stream floor;
+its honest constrained capacity is now32MiB versus64MiB ordinary, preserving4097 rows and all
+invariance/finality assertions, with no minimum-capacity claim. Cold restore now uses each actual
+workspace pool for contributions/physical completion/import/export; foreign-pool refusal remains.
+Provider Catalog context reached its final assertion and exposed an obsolete expectation:
+authored selection changes its own ModelCatalog identity, while unchanged analyzer bytes/profile/
+Ruff settings retain context identity; requirements/Flow/dependency/profile negatives remain.
+Original`d15f80` failures and attachments`af1e7850-0574-4b49-bd0a-14a4c8cc8b51`,
+`adcb090e-4ad9-4dd5-a0f5-1664bcd8a420`, `9acf7fa8-7321-40e8-b346-abc0150d9316` stay retained.
+`d12e09`'s six-control group ended2 passed/2 failed/2 timed out: restore freeze, two360s journeys
+and Behavioral Facts' fixed-driver cardinality failure retain their exact outcomes. The latter
+is now traced to scoped derivation_acyclic retaining its nominal ID with a different ordered
+definition from the registered full factory. Durable whole-input reuse now declines that mismatch
+before native preparation; the existing genuine scoped checker still executes, without padding
+upper inputs or weakening cardinality. Independent review accepts this source correction.
+Pure control`20261016T170606.458Z-cce601` passed1. Latest full compile/strict keep-going Clippy
+and guard-free native refresh passed within`20261016T170418.166Z-b8b99f`; that enclosing run
+failed4 because its initial pure filter matched no tests, which is not a passed control.
+Native/CLI run`20261016T171004.131Z-7ea2d9` ended100 with host cleanup confirmed17:25:53UTC.
+CLI build passed. The four compiler controls ended1 passed/3 failed: the4097-row canonical
+stream control passed; cold export, focused Facts export and Behavioral Facts failed with the
+server's10s timeout during compound inventory receiving. No particular query or contention cause
+is established by the enclosing phase. Attachment`917d4f86-8d3e-4373-a9a2-46eb03c5701c` retains
+Unknown. Bounded read-stage attribution is being added before selecting a remedy.
+The reverse-selector control failed456-versus348 rows after dropping a pending next call;
+the348 were exactly the suffix after108 missing frozen members. This exposed a production cursor
+defect: its consumed key window lived only in the dropped delivery future. SelectedRows now owns
+the charged membership continuation across calls, preserving accepted work and removing completed
+continuations before propagating errors. Existing selection/EXPLAIN/resumption assertions stay intact.
+Its original attachment`26cd9420-134d-4c69-958c-ed3719c8b298` retains Unknown.
+Full provider-boundary run`20261016T171004.355Z-39ce09` was coordinator-cancelled137 after
+source corrections made its binaries stale; host cleanup confirmed17:32:12UTC/no survivors.
+Its partial provider results include61 timeout headers and26 failure headers, including24 during
+cancellation; later unstarted cases are not_run. Both failed bodies and body-success cleanup failures occur, so one common
+abandonment cause is not established. Its oracle60s failure exposed database-backed provider work inside the pure ty
+child deadline; the child now returns bounded actual ty references, and the parent performs the
+unchanged normalized comparison/strict native finality outside that deadline. Resource-refusal
+controls inspect the original primary classification through composed sibling diagnostics and
+still require conclusive cleanup and zero resources. Requested provider tracing now follows the
+existing compiler-fixture pattern. These source corrections do not erase the original failures.
+Targeted rerun`20261016T172530.144Z-d3bbcf` passed the unchanged reverse-selector control,
+including33/65-key direct/provider and actual EXPLAIN checks, cancelled/resumed full456-member
+equality, finality, SDK join and resource zero. Its provider controls are still pending. Source review
+accepts the oracle/resource-class/tracing corrections at their stated boundary. Selection compile passed
+`20261016T172313.581Z-163bd3`; full workspace/all-target check passed within
+`20261016T172416.003Z-26cfa0`, whose Clippy invocation failed on unsupported no-fail-fast syntax.
+The corrected strict keep-going Clippy command passed`20261016T172455.951Z-ad9933`, cleanup confirmed.
+Read attribution now follows inventory discovery, exact record/guard windows and canonical hold
+windows with stage/query-shape digest/requested cardinality/elapsed and returned/failed read status.
+It logs no bindings, preserves existing finality and guards, adds no deadlines/concurrency changes
+and leaves interruption without a terminal event. Disabled observations do not hash or time.
+Initial attribution/check/strict-Clippy run`20261016T173023.102Z-795085` failed101 on four misplaced
+closing delimiters in the new wrappers; native controls were not_run. The same compile failure
+prevented the provider portion of`d3bbcf`; its prior selection pass remains separately scoped.
+Delimiters are corrected; current-source check/strict-Clippy/cold-export/provider run
+`20261016T173259.745Z-b28768` passed full workspace/all-target check and strict keep-going Clippy;
+its native controls ended with host cleanup confirmed17:49:47UTC, enclosing100. Cold export/import
+completed both inventory passes, then failed an obsolete physical binding-order assertion;
+the comparison now sorts full descriptors by canonical logical key while retaining multiplicity.
+Attachment`678cfee7-f332-4b22-a203-a5ff4ac1db1f` retains Unknown. Provider controls ended3 passed/
+1 failed: both joined oracle controls and the Catalog-context control passed; the resource-negative
+control reached its correct primary/finality checks, then called the observed-row helper on
+wholly unobserved tables. It now asserts that no completed inspection occurred, retaining the
+exact resource owner, conclusive cleanup and zero reservations, without claiming absent rows.
+Independent source review accepts that correction. Provider fixture setup now directly awaits its actual
+factory on the caller runtime, removing duplicate runtime workers and detached blocking setup;
+this source correction is not an established cause of the earlier timeouts.
+
+Host run`20261016T172948.793Z-5c3f1f` performed no checks because complete-scope refuses the
+run-owned pytest temporary-directory override. Ordinary explicit-boundary rerun
+`20261016T173133.449Z-49f5e2` retained that override and completed: Python1414 passed/14 failed/
+1 skipped, with no report-log warnings; eight leaves passed, including Ruff/warnings-inclusive
+Pyrefly, ADR/docs, agent/fixture/gold and rule controls. The SQL scan incorrectly matched the
+zero-argument prepared-query getter; its rule now targets the actual one-argument executor and
+adds a valid getter control. Dependency scanning could not see tracing imports in shared path
+fixtures; the existing documented metadata now names those actual uses. Rules/controls/dependencies
+passed`20261016T173723.326Z-9018c7`, cleanup confirmed. Thirteen evaluator failures came from
+the hermetic SnapshotHandle fixture missing required eligibility; the fixture now supplies its
+controlled identity without weakening native eligibility. One gRPC drift control expected an
+obsolete diagnostic phrase; it now matches the current exact composed-patch/path refusal.
+Both files passed45 controls`20261016T173826.607Z-2f4b41`, cleanup confirmed; these are hermetic
+in-process controls without live submitted queries or embedding. Full current Python-tooling
+boundary`20261016T173929.279Z-6056dd` passed1428/one skipped, no report-log warnings, with host
+cleanup confirmed17:42:32UTC. Current CLI build`20261016T174248.897Z-4c24ba` and pure Rust/tooling/
+doc controls plus affected Python leaves`20261016T174333.121Z-98582b` passed; CLI build passed,
+and both managed runs confirmed cleanup. All original receipts remain retained.
+
+**Inventory access correction,2026-10-16.** Attribution in`b28768` localized the slow reads:
+two binding-pointer observations took9.37/7.80s and two complete-parent-hold observations5.37/5.58s,
+while their two/four-record guarded windows returned in milliseconds. This is an observed failure
+lead, not a speedup benchmark. Exact pinned3.3 SELECT planner source explains the defect:
+SELECT_ITERATION_PARAMS keeps this/self/parent unresolved before client binding lookup; unresolved
+parameters cannot form the required indexed literal prefix and WITH INDEX can fall back to a table
+scan. All four production receiving selectors now bind compound_parent. Genuine correlated parent
+uses remain; after/before/value/input/event are not in that SELECT-reserved list and need no rename.
+Analogous indexed fixture queries in audit/retirement/native_control are corrected. No stored schema,
+checkpoint field, original request, effect identity or semantic comparison changes. Shared production
+hold-query constants feed a strict actual EXPLAIN control in cold restore: exactly one owner_holds
+IndexScan, exact actual compound owner prefix and Forward direction, with no other scan/union.
+Full provenance, EOF, binding/extra-hold and finality assertions remain. Plain EXPLAIN is a scalar
+Object at this pin; raw SDK Vec normalization does not change that NativeReader contract.
+Full check/strict keep-going Clippy passed within`20261016T175338.931Z-b83a1e`. Its cold control
+correctly exposed the actual SortByKey wrapper; the decoder now accepts that unary sort while
+retaining the exact sole index/prefix/direction checks. Rerun`20261016T175705.390Z-4b2a7e` passed
+the full unchanged cold-restoration obligation, including both actual EXPLAIN checks, provenance,
+logical binding equality, all three attempts' finality, SDK joins and zero reservations; host cleanup
+confirmed17:58:38UTC. This establishes the named index access correction, not whole-plan acceptance.
+`b83a1e`'s other compiler controls failed: focused Facts timed out371.8s; Behavioral Facts failed
+472.5s after an issuance lookup refusal during already-committed effect settlement. Attachment
+`3f83a807-caec-44b1-879e-0ea0e3e35a9d` retains Unknown. Resource negative then reached its final
+zero check with66,123 bytes still owned by its retained diagnostic; it now drops that diagnostic
+after classification/finality assertions before checking zero. Its original attachment
+`b824ac0b-ac80-4a95-ad8d-e1ded90dd673` remains protected.
+
+**Provider runtime regression corrected,2026-10-16.** Run`20261016T175506.780Z-54e6a1` recorded
+new timeouts after60 passing controls. Exact source tracing proves the direct caller-runtime
+fixture simplification above was wrong for acquisition: synchronous completed-row inspection
+blocks its current-thread test runtime, starving the SDK router placed there. The independent
+SDK runtime is restored with the actual pool/factory, requested tracing and strict existing joins.
+This explains the two acquisition deadlocks; it does not assign every timeout that cause. The
+coordinator cancelled stale`54e6a1`, exit137/host cleanup confirmed18:08:43UTC/no survivors;
+original partial failures and native Unknown remain. Focused restored-runtime/provider controls
+run`20261016T181032.595Z-69ebfa` ended100:4 passed/2 timed out, host cleanup confirmed18:19:36UTC.
+Both acquisition controls, the pure ty oracle and the resource-refusal/zero control passed. The
+joined ty/normalized comparison and Catalog-context controls timed out with native transaction
+conflicts; attachment`34b6ac6e-b532-4276-bc71-75354522fc68` retains Unknown. This confirms the
+acquisition runtime repair and diagnostic release at their named boundary, not all provider scope.
+Remaining compiler/store/serving/flow-oracle acceptance runs`20261016T180032.094Z-21bab5` with
+normal parallelism/deadlines; numerous native timeouts remain under source-led diagnosis.
+The issuance refusal does not prove installation data disappeared: pinned SDK take(Vec) accepts
+a missing statement as empty, while check() examines only present errors. The fixed issuance SELECT
+now checks exactly one statement before reading rows, distinguishing missing response inventory
+from an observed empty installation. Independent source review accepts this narrow distinction;
+already-committed effect evidence and Outstanding/Unknown handback remain. No ordinary unignored
+installation mutator was found in the inspected consumers; actual cause remains unresolved.
+Later remaining boundaries and CE90/CE99 are still open.
+
+**Cancellation-fixture correspondence,2026-10-16.** The two final-close controls and seven
+NativeCalls controls supplied an independent operation pool to a borrowed native factory. The
+production foreign-pool guard correctly refused before the fake writer was polled, leaving the
+fixtures waiting for an entry notification that could never arrive. They now use the actual
+factory pool for operations and retain the independent batch pool as the lifetime witness.
+Two adjacent scoped-admission controls likewise construct their factory with their original256MiB
+pool; equal capacity never substitutes for pool identity. Private composition also detects an
+early finish instead of waiting indefinitely for its pause. Inspection did not establish a broader
+pool mismatch for compiler cache/publication controls; these fixture repairs do not explain their
+timeouts.
+Entry waits also observe premature caller completion; submitted-call release uses explicit
+notification instead of elapsed time. Production ownership guards and finality/zero assertions
+remain unchanged. Source review accepts the correction. Initial run`20261016T182243.600Z-7160f4`
+failed2 on duplicate --lib arguments; corrected`20261016T182329.090Z-44b60e` failed101 before
+compilation because the compiler-cache server was unavailable. The existing cache server was
+started without purging data; focused run`20261016T182406.607Z-ec6541` passed all9 controls
+(nextest`adddbfb3-0d25-4a1b-a187-9f161fffca08`), including batch/writer retention and late
+failure completion; host cleanup confirmed18:26:45UTC. Adjacent scoped-admission/private-composition
+run`20261016T182612.795Z-a29401` passed all3 controls (nextest`68f4a200-c98b-4ded-ba62-cb491ee4bbe1`),
+host cleanup confirmed18:28:42UTC. These establish their exact native reuse, foreign-pool rejection,
+failed/cancelled/closed-owner refusal and private-composition behavior, not the broader compiler scope.
+
+**Bounded pin-release work,2026-10-16 (Implemented / focused-Tested).** Each checked
+release page now touches the distinct union of its exact hold/pin/object incidence targets once,
+then deletes the same observed owned holds atomically. Unlike cleanup's same-transaction owner
+cut, this page still includes its pin because the release fence committed earlier. Global issuance
+and any source-attempt cuts, nominated IDs, owner checks, predicates and delayed-writer fencing
+remain. Inspected consumers use predicate revision change checks, not per-edge counts. The
+actual owned control in`20261016T183334.001Z-552680` checks three holds, every target delta, all64
+source-attempt stripes, independent peer preservation, complete hold removal, retirement and
+physical SDK joining/resource zero. Independent source review accepts the production/test slice.
+Initial`552680` failed101 before runtime on two numeric Value conversions in the new control;
+explicit pinned Number::Int conversions are corrected. Rerun`20261016T183537.490Z-4d2b37`
+passed1 (nextest`13d12318-0e3a-4706-941a-a88d5e1073d4`), host cleanup confirmed.
+This removes repeated work; it is not an established timeout remedy.
+
+**Demand-shaped completed input preparation,2026-10-16 (Accepted / implementation in progress).**
+Captured phase logs for the provider Catalog-context case show210 distinct view preparations,
+including128 zero-row bindings, before useful queries. Current prepare_session eagerly earns every
+declared input provider sequentially. This is demonstrable broader preparation than each query
+requires, not a measured explanation of every timeout. Locked DataFusion55.1.0 resolves named
+tables via async SchemaProvider::table before SqlToRel and optimization. The selected private
+captured-port schema earns the unchanged NativeTable only when named, shares actual provider
+identity between qualified/plain aliases and gives predicates independent mutable overlays.
+Requested empty/unearned views must still fail before false/NULL/zero-limit optimization; no scan-time
+authority shortcut or trust in view.rows is selected. Template identity, actual producing scope,
+owner/pool correspondence, charged state and cancellation/finality remain required. This is a
+CC00/CA00 preparation refinement, with no schema, rule, deadline or concurrency change.
+The source refinement is implemented. Compile`20261016T184147.979Z-3dc85a` passed all cpg-core
+release targets, cleanup confirmed18:42:26UTC. Focused`20261016T184148.218Z-546a47` ended100:
+4 passed, including actual inventory/alias earning and the two new pre-optimizer/metadata controls;
+one template-accounting assertion omitted the newly retained alias state (32,256 versus29,856
+bytes). Its exact duplicate-winner and final-zero assertions remain required. Host cleanup confirmed
+18:43:42UTC. Independent review found the new fixed metadata allowance did not cover library
+DashMap shard arrays; the correction replaces duplicated candidate maps with one charged BTree
+overlay and reuses the existing default catalog. No new host-size estimator or concurrency cap is selected.
+Existing pinned async-trait0.1.92 is added directly to cpg-core; lockfile changes one dependency edge
+without a version move. Independent review accepts authority, producing scope, alias/template identity and existing retry/finality
+composition. Metadata repair now uses one charged candidate BTreeMap, full retained String capacity
+and the existing default catalog; missing defaults refuse before mutation. Template accounting
+includes an independently captured alias baseline while retaining exact winner count and zero.
+Repaired focused controls run`20261016T184944.754Z-c37fab`; six provider controls, including the
+previously timed-out joined oracle and Catalog-context case, run`20261016T184944.985Z-2d7145`.
+Final independent metadata reread accepts the repaired source without a material finding. Wide-key
+capacity is exercised through the actual SchemaProvider (SessionContext copies caller names).
+Full workspace/all-target release compile`20261016T185030.520Z-b466e8` passed0, host cleanup
+confirmed18:50:51UTC. Repaired`c37fab` passed all6 test bodies (nextest
+`4d3da1c7-5c77-4c30-9762-754bc8df5c14`) but its enclosing fixture failed1/Unknown; host cleanup
+confirmed18:51:04UTC. Exact attachment`d586ccfe-b8ec-4170-83e1-f2860c05d7d8` has two completed
+actual-inventory receipts and one Started owner from the new unconnected negative control. That
+control dropped its borrowed store without using the existing actual drain_finality_report route,
+which closes admission, joins accepted work and settles only its borrowed execution signal. The
+test is being corrected to drain explicitly; no attempt abandonment, receipt override or production
+finality weakening is selected. Original Unknown remains protected. Finality-corrected rerun
+`20261016T185531.584Z-647adb` passed all6 bodies (nextest`719e66c2-d234-4b26-994d-690346cb27d2`)
+and enclosing0, host cleanup confirmed18:56:34UTC. Five analogous borrowed-owner fixture controls
+passed`20261016T185824.660Z-c8359a` with enclosing0/host cleanup confirmed18:59:49UTC. They now
+drain the actual execution owner and signal, preserving refusals/cancellation/charge assertions.
+Full strict keep-going Clippy`20261016T185448.985Z-cc778f` passed0, cleanup confirmed18:55:30UTC.
+
+Six-provider`20261016T184944.985Z-2d7145` passed all6 bodies, including both former timeouts
+(nextest`546ff6be-8daf-43f2-8fb0-dfc9de43dda6`), but enclosing fixture failed1, host cleanup
+confirmed18:56:56UTC. Attachment`1964f2e8-94cf-4911-a5da-3b7effbd520d` retains its original Unknown.
+All16 process receipts are Complete, with one workspace receipt carrying acknowledged final
+ingress cancellation as a finalizer failure despite LocalTerminal/RemoteConfirmed. Source trace
+localizes this to ProducerIngress::settle composing acknowledgement/driver operation errors via
+Completion::step; downstream dispatcher finality faithfully retains that misclassification. The
+selected correction must preserve operation diagnostics and genuine join/lost-ack/nested-Unknown
+finality separately; filtering receipt text or dropping failure lists is not a remedy. Investigation
+and integration remain open. Current seven-control analysis/reconstruction run
+`20261016T190337.280Z-029373` retains all original assertions and900s compound allowance.
+The coordinator requested cancellation of stale broad run`20261016T180032.094Z-21bab5`; its
+original failed/timeout cases remain. It ended137 with host cleanup confirmed18:32:13UTC/no survivors.
+Structured compiler events record275 started/144 passed/131 failed at interruption (98 time-limit
+failures and33 body/signal failures, including interruption-time exits); later unstarted cases and
+compiler CLI/store/serving/flow-oracle boundaries are not_run. Its invocation records attachment
+`3bc97416-0581-4f01-953a-ab1364e57d7f`, still protected by the service owner; native finality remains
+unproven independently of host process termination. Source investigation also rejects
+removing the global admission-stripe write: RocksDB tracked FOR UPDATE reads alone cannot
+force a maintenance cut with a stale empty predicate to recheck when a normal intent commits
+first on disjoint keys. The existing conflicting stripe write remains required; no fencing
+protocol change is selected.
+
+The dated receipts below retain earlier partial/failure boundaries; subsequent delivery does not
+rewrite their outcomes or qualify older plans.
+
+**Remaining scope resumed after storage repair, 2026-10-16.** Reviewed tracing-lifetime, lexical
+SQL and fixture-release repairs committed`685d0ce1`. Three tracing controls,87 verification inventory
+controls, full compile, strict Clippy and CLI passed within the exact receipts below. Guard-free
+native refresh`20261016T141058.388Z-0c897e` passed0/host cleanup confirmed after space restoration.
+Owned rehearsal regeneration`20261016T141320.292Z-c65272` passed0/cleanup confirmed; both scopes
+checked/open, bootstrap absent. Generation`97bdc704d04d432f1e1fcb5001984dc0b85eb2af878766988ecdc48b9558d5dd`,
+journal`0c3ec8c6db04bc25e0e64a6b7ede9c3fc3f91b4bd40d98dab1a5680b358b8198`.
+Original8d934f28 native Unknown remains with separate authenticated discard acknowledgement.
+Run`20261016T141446.811Z-68c6de` finished100:7 passed,2 failed,1 timeout, host cleanup confirmed;
+attachment`04cdcb69-531e-41e2-b9c6-377a8734afae` retains native Unknown. Five case/profile layout
+pairs, selective full-text and actual lexical-posting corruption/cold audit passed. Frozen-BM25
+failed on the obsolete flat EXPLAIN consumer; backup aborted on setup stack overflow. Type-shapes
+Behavioral completed/validated/released its first layout, began the second14:28:04 and timed out900s
+with provider/native batches still returning. Some attributed payload retries committed after
+multiple conflicts in~12–18s; these observations do not bound all SQL or establish a deadlock.
+The initial14-control description was an orchestration error: Base/SourceCall/Summary targets were
+omitted. Correct-target run`20261016T142426.622Z-f7334a` finished100:0 passed,4 timed out900s,
+host cleanup confirmed; attachment`845ebce2-c778-45a7-b8ba-5b29729b4d17` retains native Unknown.
+All4 completed providers/normalization admission. SourceCall was still analyze_local, both Summary
+cases evaluate_base, and Base analysis_native_inventory writes at termination; later SourceCall/
+Summary algorithms are not qualified or established causes. Source/log investigation finds
+remaining read-root Base input hydration amplification under F05; a bounded same-kernel cohort
+extension is implemented and source-accepted against per-root closure, work/proof/error and kernel-order contracts.
+
+Exact current binary inspection attributes ~990KiB and~1.52MiB inline poll frames to publication
+fixture/sealing composition. Production early erasure now reserves actual owning budget before
+one allocation, then composes existing recovery/issuance scopes. Source review identified anonymous
+async grant capture as insufficient for never-polled destruction. A shared pinned named native
+continuation owner puts future before grant, preserves BoxFuture APIs, and migrates the matching
+compiler/native-read/publication/recovery/completion/selection/audit wrappers. Two distinct payload
+boundaries now retain their existing grants in the same ordered carrier; selection also captures
+its views/charge as one named owner through pre-driver queue refusal. Shared audit-flight metadata
+is separately retained through flight records/worker joins and stays unchanged. No re-reservation,
+per-row allocation, stack/job/thread cap or finality/assertion weakening is selected. Pure !Unpin
+Drop-observer controls cover ready/pending/unpolled ownership. Final source review accepts this
+carrier and payload refinements; compile/runtime evidence is pending.
+
+Existing native scalar-prefix controls, Context7 official docs and exact pinned planner source
+establish3.3’s operator-tree contract. The lexical plan consumer now requires every leaf to seek
+the exact candidate/term Cartesian key set on `document_term`, refusing table/dynamic/other leaves.
+This preserves the actual production-query and numerical assertions. Formatted-source CLI rebuild
+`20261016T141639.057Z-88980a` passed0/cleanup confirmed. Initial publication/EXPLAIN integration
+compile and strict Clippy`20261016T142646.797Z-c642b5` passed0. Broader carrier integration
+`20261016T143720.798Z-642dcf` passed compile, then root cancelled143/cleanup confirmed while
+Clippy ran because source review expanded the exact matching owner migration. Final carrier
+run`20261016T144618.135Z-b401d0` passed full compile, the pure !Unpin ready/pending/unpolled
+destruction control and current CLI build. Strict Clippy failed on one redundant must_use
+attribute; removed rather than suppressed. Enclosing run remains failed101/cleanup confirmed.
+Corrected native/compiler-store strict Clippy`20261016T150557.091Z-b216b0` passed0/cleanup confirmed.
+A focused independent source assessment accepts the CA00/F05 same-kernel read-cohort extension:
+centralized kernel namespace mapping, physical root-presence checks (expression Virtual unchanged),
+full read literal fidelity, exact singleton assembly, membership-derived local empty skipping,
+unchanged begin/seal/work transitions and no semantic retry. The varying class/name
+FieldAssessment boundary stays separate. Six selected read/expression capture controls passed in
+`20261016T150928.870Z-e7ad61`; CLI build passed. That enclosing run remains failed101 because
+strict Clippy found the now test-only singleton loader in production; it is explicitly cfg(test).
+The controls establish capture/partition semantics, literal hydration, pre-acquisition cancellation
+and local refusal/release. Field-universe assessment and cancellation during acquisition/after
+mutation remain source-only or integrated-consumer obligations. Full workspace/all-target compile,
+strict keep-going Clippy and guard-free native refresh`20261016T151619.374Z-96ac3a` passed0,
+host cleanup confirmed. Fresh rehearsal regeneration`20261016T151708.897Z-89c3d8` passed0,
+generation`be77f29e11cf9794c67fb3d6d663f06dd1b548a1e5370626c26d1408cfa49684`,
+journal`f383b379b276c028db6d5f4b7dd8f005efba07d315f067a3dbef4480f8ae5247`;
+both scopes checked/open, bootstrap absent. Original Unknown receipts remain unchanged, with
+separate whole-target-discard acknowledgements. Seven actual controls for the outstanding paired
+layout, Base/SourceCall/Summary, frozen lexical plan and backup reconstruction are running in
+`20261016T151754.961Z-10f723`. Frozen lexical EXPLAIN now reaches the corrected tree parser and
+fails its strict criterion: the production selector uses a whole `document_term` index scan
+(`access=""`,38 emitted index rows) followed by the candidate/term residual filter, rather than
+four exact Cartesian seeks. This is a CN07 access-path defect, not an obsolete test shape. An
+application route using the pinned planner's scalar compound equality capability is source-supported
+and implemented: nested candidate/term mapping within one query, flatten, then one deterministic
+sort before unchanged grouping. The exact scalar SELECT is shared with EXPLAIN in its actual
+closure context. No schema/server change is required; the strict physical criterion and numerical/
+eligibility assertions remain. Pure parser/compile control is running`20261016T152517.867Z-426b0b`;
+six other controls continue on the pre-correction binary. Pure parser control passed1 in
+`20261016T152517.867Z-426b0b`. Actual selector/scoring run`20261016T152723.833Z-19f2bd`
+passed2 (nextest`fae7bf6a-df7e-4f8c-a330-826a2fb5580c`), including the exact four scalar seeks,
+frozen-corpus/unrelated-data/changed-window behavior and complete analyzer-BM25 comparisons.
+Full workspace/all-target compile, strict keep-going Clippy and CLI build
+`20261016T152815.715Z-4c0085` passed0. Independent final source review accepts shared query
+generation and strict actual-closure EXPLAIN decoding. No quantitative performance claim.
+
+Default regeneration`20261016T153010.306Z-02aa93` blocked75 before destructive effects: two
+authenticated old released attachments lack native_drain bindings and remain Unknown under the
+current observer. The installed generation/service remain unchanged and open. The repair is to
+authenticate exact private attachment runtime target/scope/generation bindings, preserve original
+native uncertainty, and permit separate acknowledgement only after checked whole-executor shutdown
+and datastore discard. Missing native metadata alone cannot establish closure or bypass ownership.
+This CE80 preflight/acknowledgement correction is being implemented with pure refusal/resume controls.
+The correction is source-accepted and passed38 pure regeneration controls. It authenticates exact
+private runtime identity/scope/generation and any present native binding, then acknowledges only
+canonical pending obligations after checked executor shutdown/discard. Ordinary settled attachments
+with removed scratch/runtime remain unchanged; existing immutable native-bound discard proofs
+retain authority. Missing native plus missing runtime/proof binding refuses before effects.
+Read-only current-default preflight and all158 attachment runtime checks passed. Actual retry
+`20261016T154634.590Z-fe4647` is pending its owned result; no closure is inferred from static checks.
+
+Seven-control run`20261016T151754.961Z-10f723` finished100/host cleanup confirmed15:34:15UTC:
+0 passed,1 lexical failure (corrected and passed in19f2bd),6 timed out900. Attachment
+`06b80791-e4f2-425f-b19e-c29759e01424` retains native Unknown. Base case remained analyze_local;
+SourceCall and recursive Summary remained Base. Ordinary Summary passed Base, BaseCompletion and
+enrichment, then timed out with model/catalog-evidence work active; Summary itself was unreached.
+This establishes execution through the new read route within that Base producer, not later
+independent fixture assertions. TypeShapes Behavioral completed its first layout/validation/drain/
+zero-reservation controls; second layout reached invariant admission, with final equality unreached.
+Backup passed the former setup overflow, compile/facts/reference checks, then timed out during
+artifact invariant admission before seal/backup/restore. No new pre-cancellation semantic error is
+established. Timeout/shutdown diagnostics retain their cleanup/finality meaning; they do not prove
+an initiating deadlock or SCC defect. Bounded phase observations around Base capture, assembly and
+consumption will distinguish the remaining unobserved interval without changing execution limits.
+Guard-free current native refresh`20261016T153501.993Z-0e3982` passed (already current).
+The coarse observations are implemented with existing Phase owners and bounded kernel/window
+identity, no new async wrappers or per-row trace machinery. Full workspace/all-target compile,
+strict keep-going Clippy, six read/expression controls, current CLI build and guard-free native
+refresh`20261016T154301.142Z-320b3a` passed0. These observations identify pending work; they
+establish no semantic completion or quantitative performance claim.
+Owned rehearsal disposal`20261016T154532.732Z-740258` passed0/host cleanup confirmed15:46:30UTC.
+Logical drain failed at its existing allowance and remains failed; authenticated whole-executor
+shutdown, datastore discard, attachment release, exact installer/unit/credential removal and storage
+release passed. Original Unknown/timeout evidence remains unchanged and cited. No rehearsal worker,
+daemon, datastore or private credentials remain active. The separately retained peer generation is
+released through its owner, not broadly removed with warm caches.
+Original failures/Unknown remain unchanged; default CE80 and CE90/CE99 are still open.
+Operator approved all remaining scope through CE99, lightweight source context, and exact default
+installation`58abe9ea-2088-4109-95ab-8440a3749c51` main+validation regeneration after authenticated drainage.
+Default remains unchanged; CE80/default cutover and CE90/CE99 remain open. Old-plan edits,
+embedding/MCP submitted runtime and real-library qualification remain excluded.
 
 Source write failed with ENOSPC; operator repair now leaves110GiB available. The partial SDK lifecycle
 draft was removed and only its task-owned tracked files restored to `0fac2df8`; no truncated source

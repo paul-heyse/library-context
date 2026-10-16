@@ -84,6 +84,12 @@ audit needs agreement. Pure stateless replay consumes explicit completed input s
 premises. Missing coverage or undeclared input refuses; an explicitly unrequested profile domain
 cannot establish absence. Independent hand-known expectations are separate from producer replay.
 
+**Implemented / Interface-checked,2026-10-16:** durable whole-input reuse requires the exact
+registered factory definition, including ordered input contracts and purpose. A frontier-specific
+generated check with the same nominal identity but a different definition executes through its
+ordinary genuine scoped checker. It cannot borrow full-factory assurance, pad absent upper inputs
+or bypass fixed-driver cardinality. The efficiency coordinator owns focused and native evidence.
+
 **Assurance policy (ADR-0126/0128).** During this stage, run focused affected model, provider,
 compiler and analytics controls, then applicable leaves at functional completion. Assembled
 `just qualify` remains the assembled assurance route. For this execution, the user selected

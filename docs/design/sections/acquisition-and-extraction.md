@@ -35,6 +35,11 @@ and explicit NotRequested reporting ownership. Availability and manifests consum
 result. The [correction plan PC2](../../plans/persisted-execution-corrections-plan_2026-10-07.md#32-captured-suppliers-bind-a-declared-semantic-contract--f02)
 owns the migration and its independently expected compatibility controls.
 
+**Implemented / acceptance in progress,2026-10-16.** Captured and independently admitted facts
+contracts use distinct authority domains. Both bind an inactive analyzer only to the reporting
+owner and actual unrequested families it supplies; unused analyzer semantics cannot invalidate
+Catalog. Active identities, supplier assurance and ambiguous-owner refusal remain unchanged.
+
 > Decision: ADR-0173
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0162).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.

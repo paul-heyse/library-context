@@ -1,16 +1,17 @@
 # Status
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog efficiency through CE99 executing, 2026-10-16.**
+**Catalog efficiency partial delivery: operator-requested closeout,2026-10-16.**
 [Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns decisions/receipts.
-Repair slice based at `18fa4e0f` adds tracing lifetime, SQL and fixture cleanup fixes.
-Traced run `112422…6c31fc`:2 passed,4 failed,1 timeout; host cleanup confirmed, native Unknown retained.
-Direct imports and Flow Catalog paired layouts passed. Summary exposed tracing destruction; lexical controls exposed SQL/retained fixture loaders. Base progressed at360s.
-Existing900s compound allowance now covers Base/SourceCall/paired layouts; assertions and resource limits unchanged.
-ADR-0177 shared tracing leaf preserves originating dispatch through polling/destruction and unstarted callbacks.
-All3 pure controls/full compile passed `120415…459a62`; strict Clippy/CLI passed within failed `115521…7a8773`.
-Inventory controls passed87. Native refresh `121217…71bd2a` failed: disk full; host cleanup confirmed.
-Space restored77GiB; native refresh rerun `141058…0c897e` active. **Next:** rehearsal/controls, CE80–CE99.
-MCP/embedding/real-library and old-plan edits remain excluded.
+All implementation is on main; no auxiliary worktrees. Subagent assignments finished; no broader acceptance launched at closeout.
+Ordered continuations, same-kernel capture, demand-shaped inputs and checked pin-release dedup are implemented/source-accepted.
+Default CE80 regeneration passed `154634…fe4647`; E1 disposed. Original failures/Unknowns remain protected.
+Focused demand-catalog6 and borrowed-owner5 controls passed; provider6 bodies passed but enclosing ingress finality failed.
+Ordered operation errors now preserve all diagnostics separately from actual joins/finalizers; typed Unknown remains strict.
+Compiler pure protocol owners construct once; actual native moved-binding fixture earns its completed contribution.
+Workspace/all-target compile and current strict keep-going Clippy passed; model lib335 passed. Local runs are terminal.
+Latest reconstruction `190337…029373`:1 passed/6 timed out900s; host cleanup confirmed, native obligations retained.
+SurrealDB ~143GB resident private memory observed; cache/execution/allocator/leak attribution remains unresolved.
+CE90/CE99 remain open. MCP/embedding/real-library/operator adoption and old-plan edits remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.
@@ -23,7 +24,6 @@ The [partial assessment](docs/design_review/reviews/design_review_catalog-comple
 independent admission. Recursive `8a3347` records operator cancellation and a 900s timeout, exit100;
 host cleanup confirmed, recursive answers/native finality unproven. All10 owned campaigns were drained/
 disposed, preserving failures/Unknowns and evidence. B remains retained, empty and unselected; no active validation.
-
 **Later existing-track resumption:** after efficiency delivery and plan reconciliation, run the admission
 alias's native control; inspect recursive/mutation/cancellation evidence; finish compact/linked composition,
 mutations/analyzer/epoch and FastMCP V03, then final acceptance/V04/V05 reconciliation. Current
@@ -34,7 +34,7 @@ and warm caches unchanged. Embedding, submitted MCP runtime, extensive environme
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator
 §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns sole dispositions and exact receipts. Shared
 SA9/HS11/UP9/NE9/GK7/GR6/PC6/PJ5/CU6 acceptance remains open. ADR-0146's checked recovery and format3→4→5 transitions completed; installed
-format5/eec4, immutable0dcc maintenance executable and patched server405f6c02 remain preserved. No migration is replayed. Atomic progress,
+format5/eec4/0dcc/server405f6c02 evidence remains historical; CE80 above regenerated project state. Atomic progress,
 operation-valid catalog preparation, selected access, nomination, hydration and retirement registration are implemented/source-accepted.
 
 **Last verified boundary,2026-10-11:** focused completion, admission/export, cache and native access controls passed within their recorded scope.

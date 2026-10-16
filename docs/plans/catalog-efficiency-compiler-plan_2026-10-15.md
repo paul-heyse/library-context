@@ -141,6 +141,23 @@ with a supported explanation and mutation-related revisit trigger.
 files; configuration/doc inputs; interrupted provider; concurrent borrowers; original attribution
 and exact provider completion. Known-good provider outputs alone do not establish integrity.
 
+**Implementation follow-up,2026-10-16:** immutable completed-input catalogs now capture charged
+ports without eagerly earning every declared table. DataFusion resolves a requested port into the
+unchanged earned NativeTable before logical planning/optimization, under its captured producing
+owner. Qualified/plain aliases share that exact port; predicates have private charged candidate
+overlays, and fixed-port templates retain exact provider identity checks. Captured aliases are
+immutable. Unknown/empty views gain no authority from metadata or row counts. This CC00/CA00
+preparation refinement changes no native schema, admission guard or deadline. The coordinator §6
+owns review, focused failures/corrections and remaining consumer acceptance.
+
+**Closeout implementation,2026-10-16:** ingress operation acknowledgements/refusals and actual
+driver joins now have distinct results. Ordered related operation errors preserve diagnostics
+without inventing finalizer failures. Lost acknowledgements, missing driver owners, typed join
+errors and nested Unknown remain strict. Protocol-only controls construct their process signal
+owner once; actual native controls retain receipt-backed factories and strict drainage. The moved
+binding control now earns its real completed contribution. Source review accepts these corrections;
+coordinator §6 owns current checks, original failures and pending native/provider acceptance.
+
 ## 5. CC02 — I04 useful Catalog requests and cross-window preparation
 
 **Selected, 2026-10-15:** one charged complete-key request moved through lookup/computation/retention;

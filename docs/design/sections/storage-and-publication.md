@@ -8,6 +8,20 @@ receipts retain their original scope and do not qualify shared persistence.
 
 ## §5 Projections
 
+**Implemented correction / focused-Tested,2026-10-16.** An exact installed-key cursor owns its
+charged in-flight membership continuation across dropped pending delivery calls. Cancellation
+of one caller poll cannot discard the consumed key window or replay an accepted lookup.
+The existing exact selection/cancellation-resumption native control passed; the efficiency
+coordinator owns that receipt and the still-open enclosing acceptance.
+
+**Implemented query correction / native qualification pending,2026-10-16.** Compound inventory
+discovery binds an ordinary application parameter for its exact completion owner. SurrealDB3.3's
+SELECT planner leaves `this`, `self` and `parent` row-scoped before resolving client bindings;
+using one of those names can prevent indexed equality lowering. `WITH INDEX` is an eligibility
+hint and does not prove an index was selected. Actual owner-prefix EXPLAIN controls share the
+production query text; EOF, exact guarded children, full binding identity and extra-hold checks
+remain independent. The efficiency coordinator owns current evidence and unresolved outcomes.
+
 **Implemented bounded access, 2026-10-09; enclosing planner qualification remains open.** Native prepared
 demand owns bindings, result positions and expected terminals. Scope layout follows each physical
 table's actual inventory; graph scope_context and independently owned search columns remain.
@@ -248,6 +262,22 @@ failed join or close. Native finality-only drain/abandon reports supply the encl
 artifact execution report. Aggregate diagnostic APIs append historical operation failures after
 actual finality signals settle. Genuine cleanup errors, storage orphans and Unknown remain strict;
 cleanup permission never substitutes for acknowledgement. No receipt-schema or fixture-policy change.
+
+**Implemented / focused verification in progress,2026-10-16:** ordered related operation errors
+retain their typed causes separately from actual finalizer failures. Ingress reports acknowledged
+operation outcomes and the real driver join independently; a joined refusal does not invent a
+failed join. Typed lost acknowledgements, join errors and nested Unknown remain strict. Diagnostic,
+retry and fallback consumers inspect the group rather than discarding related causes. Existing
+Completion fast paths and receipt semantics remain unchanged. The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns current controls and enclosing acceptance.
+
+**Implemented / focused verification in progress,2026-10-16.** Native continuations use one pinned
+named carrier whose future/payload is destroyed before its retained grant, including cancellation
+before first poll. Early type erasure reserves the actual carrier layout before its sole allocation;
+retaining an already admitted payload adds no allocation or second reservation. Publication erases
+large private continuations before composing recovery/issuance wrappers. Compiler, read, selection,
+audit and recovery consumers share that lower owner while retaining their own admission/finality
+contracts. This destruction order establishes local resource lifetime, not remote acknowledgement.
 The [Catalog coordinator F03](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns the thirteen pure controls and fresh six-native/seven-compiler enclosing fixture passes;
 broader interruption matrices and Catalog composition remain separate.
@@ -621,6 +651,22 @@ and drainage, and checks precede atomic publication of only the installer bindin
 predecessor/successor evidence permits same-candidate reconciliation; failure keeps admission closed.
 Specialized recovery completes first and its original receipts remain unchanged. Same-digest
 stabilization retains its narrower contract; incompatible state uses current-design regeneration.
+
+**Implemented / functional verification in progress,2026-10-16:** durable artifact admission and
+validation-reader preparation enter their actual source recovery scopes. A terminal-product read
+adapter uses the product's forked client, target, pool and cancellation and retains that owner
+through its own drainage. It grants no source-session close/abandon authority; unknown drainage
+keeps the source obligation. Native client, target and opaque-premise checks remain strict.
+
+**Implemented / focused-Tested,2026-10-16:** cleanup touches the distinct incidence targets of
+its exact checked hold page, reusing the complete owner cut already performed in that transaction.
+Other affected attempts retain their cuts. Original origin, incarnation, page, nomination and
+atomic deletion guards remain; predicate revisions witness invalidation rather than hold counts.
+Pin-release pages likewise touch the distinct checked incidence targets once before deletion;
+they include the pin because its release fence committed in an earlier transaction. Source-attempt
+cuts remain complete. The actual three-hold control passed with exact predicate/64-stripe deltas,
+peer preservation, EOF, SDK joining and zero reservations.
+The efficiency coordinator owns actual stripe/root-set/peer/rollback receipts and wider acceptance.
 
 **Implemented / functional verification in progress, 2026-10-16:** explicit project regeneration
 requires the exact installation ID, both main/validation scopes, actual root/namespace inventory,

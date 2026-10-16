@@ -84,6 +84,12 @@ release current obligations. No rollback data or old-format reader is retained. 
 operation keeps admission closed; rerun the exact command/candidates to resume its private journal.
 Resumption never discards initialized successor data. Ordinary tests never trigger this operation.
 
+An unsettled attachment without native-drain metadata remains Unknown. Regeneration may bind it
+to the exact owned executor using its authenticated private runtime identity/scope/generation;
+any present native binding must agree. Only the completed whole-target discard can acknowledge
+that obligation. Settled attachments need no new runtime/scratch dependency or acknowledgement,
+and existing immutable discard proofs retain their authority.
+
 Maintenance closes host and native admission, drains identified borrowers and native effects,
 checks exact service/storage identity, then performs the selected operation. Reopening requires
 native reconciliation and compatibility. Local child cleanup, a missing heartbeat or an empty

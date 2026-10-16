@@ -171,6 +171,20 @@ Preserve the source review's narrower independent conclusions:
 - [Phase](../../crates/lctx-native/src/phase.rs) captures its actual span/dispatcher and emits through
   that owner. Drop does not invent a terminal. Earlier propagation and omitted event kinds remain questions.
 
+**Implemented / focused-Tested,2026-10-16:** the specific unobserved Base interval now has coarse
+membership/payload capture, pure local assembly, expression computation/adoption/emission and
+mutable read consumption/emission phases. Bounded kernel/window fields identify the work; no
+per-row tracing, async wrapper or new observer is added. Interruption leaves incomplete phases.
+Six cohort controls and full compile/strict Clippy passed; actual consumer completion and any
+performance claim remain separate in coordinator §6.
+
+**Implemented / focused-Tested,2026-10-16:** optional native inventory-read observations identify
+the existing discovery, exact record/guard and canonical hold requests by stage, SQL-shape digest,
+requested point-window cardinality and elapsed time. Bindings are not logged; disabled observations
+do not hash/time, and interruption emits no terminal. Returned reads do not imply semantic acceptance
+or remote finality. The cold-restoration control exercised the signal and actual exact-index access;
+the coordinator retains the original timeouts, subsequent correction and broader qualification limits.
+
 ### Decision questions
 
 Identify which consumer needs structured parentage rather than retained flat association, which
@@ -206,6 +220,13 @@ G7's bounded uncertainty resolves only for the covered sources/consumers. F01 an
 do not become closed merely because their observations improve.
 
 ## 6. Integration, verification and release
+
+**Closeout observation,2026-10-16:** the operator reported approximately140GB of SurrealDB memory.
+Live process accounting confirmed approximately143GB resident private process memory on this
+track's default daemon, plus swapped memory. Existing client budgets and phase/query receipts do
+not attribute server heap usage; cache, unfinished execution, allocator retention and leak remain
+unresolved alternatives. Coordinator §6 owns exact readings and the resumption obligation.
+No daemon restart, cache purge, concurrency cap or new monitoring infrastructure was introduced.
 
 Use existing command, run, capture and storage owners. CD00 may change registered host request
 state; CD01 may change public discovery continuation; CD02/CD03 may change evidence schemas or
