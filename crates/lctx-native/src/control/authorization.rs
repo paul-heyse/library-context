@@ -2121,7 +2121,8 @@ mod compacted_owner_controls {
             lease
                 .register_attempt(allocation.attempt, allocation.request)
                 .unwrap();
-            let request = NativeRequest::issue(&client, ContentHash::of(b"never-issued-request"))
+            let payload = PreparedNativePayload::new("RETURN true", Variables::new()).unwrap();
+            let request = NativeRequest::issue(&client, payload.digest)
                 .await
                 .unwrap();
             let reference =
@@ -2135,7 +2136,7 @@ mod compacted_owner_controls {
                     RecoveryReferencePolicy::ReleaseRecovery,
                 )
                 .unwrap();
-            let delayed = lower_owner_effect_plan(request, &EffectOwner::Installation, "RETURN true", Variables::new(), false, true).unwrap();
+            let delayed = lower_owner_effect_plan(request, &EffectOwner::Installation, payload.sql, payload.bindings, false, true).unwrap();
             super::super::set_admission(&client, false).await.unwrap();
             super::super::history::cut_era(&client).await.unwrap();
             assert!(super::super::checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap()).is_err(), "permanent era cut refuses the original delayed atomic apply");
