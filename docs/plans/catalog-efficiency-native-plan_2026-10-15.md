@@ -4,7 +4,7 @@
 It specifies F02–F04/F07–F08 and I01/I07 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
 The coordinator §6 alone owns current disposition and dated verification. CE00/CN00–CN05
 implementation and focused native controls are complete at the coordinator's stated boundary;
-CN06/CN07, CE80 cutover and CE90 assembled qualification remain separate. Specification below
+CN06/CN07 are in the approved continuation; CE80 cutover and CE90 assembled qualification remain separate. Specification below
 does not establish broader native qualification.
 
 ## 1. Responsibility and inspected foundations
@@ -224,6 +224,13 @@ release. Assert no issuance after handback and no false terminal/cleanup or lost
 
 ## 7. CN06 — I01 selector representation: decision and delivery
 
+**Retain persisted flat / improve private sharing, 2026-10-15 (ADR-0174).** Root-qualified flat
+codec1/semantic-v4 mappings remain. Async consumers share protected descriptor/cap handles or admitted
+live vector owners; synchronous consumers borrow slices and public vectors materialize once. Fragment
+persistence would add receiving/identity/GC machinery while original root/copy/incarnation checks
+remain necessary. Reopen if residual flat emission/reconstruction becomes material; no semantic or
+wire rule change is selected. Coordinator §6 owns delivery and actual controls.
+
 Compare current flat root-qualified mappings with immutable qualified fragments over reconvergent
 suffixes. First inventory actual root/copy/selector consumers and ordinary overlap, using
 representative model shapes rather than assuming flat output is the bottleneck. Include compiler
@@ -250,6 +257,15 @@ backup/export/import and cold reconstruction. Retained flat identity rules canno
 from successful fragment decoding alone.
 
 ## 8. CN07 — I07 query-shaped lexical access: decision and delivery
+
+**Select shared postings, 2026-10-15 (ADR-0174).** Native document v2 stores length; one immutable
+`lexical_posting` per analyzed-document/term stores frequency, shared across selected scopes/occurrences.
+Scoring uses bounded document/query-term compound lookup and one matched-row grouping. Selected-corpus
+statistics and scoring policy stay. Existing frequency construction, generic immutable endpoint holds,
+derivation inventory, five-family expected reconciliation and cold regeneration provide the complete
+lifecycle. This is a definition/derivation-qualified physical schema migration; fresh owned targets
+regenerate, with no legacy reader. Actual two-dimensional EXPLAIN and scoring controls are required;
+coordinator §6 owns their outcome. Shared/operator adoption remains CE80.
 
 Native scoring currently selects eligible documents then filters each complete stored term
 array. Compare indexed postings or another candidate/query-term intersection access path with

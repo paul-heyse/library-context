@@ -1,10 +1,10 @@
 # Catalog efficiency: compiler preparation and independent admission
 
-**Proposed, 2026-10-15.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md),
+**Accepted directions / implementation in progress, 2026-10-15.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md),
 which alone owns disposition. This document carries I02, the capture-integrity half of I03,
 I04 and I06 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
-Each investigation includes delivery of its selected worthwhile improvement; current implementation
-and new functional validation remain not_run.
+[ADR-0174](../adr/0174-catalog-preparation-and-lexical-postings.md) owns the selected decisions.
+The coordinator §6 alone owns implementation, focused receipts and remaining acceptance.
 
 ## 1. Functional responsibility and foundations
 
@@ -19,12 +19,12 @@ Read [acquisition/extraction](../design/sections/acquisition-and-extraction.md),
 
 | Foundation | Reuse and assessed limit |
 |---|---|
-| [Workspace composition](../../crates/cpg-core/src/workspace.rs) and [production](../../crates/lctx-compiler-store/src/compiler/production.rs) | Singleton/private completion precedes handoff; changed aggregate merges still occur under the gate |
+| [Workspace composition](../../crates/cpg-core/src/workspace.rs) and [production](../../crates/lctx-compiler-store/src/compiler/production.rs) | Private per-relation exact composition precedes gate-held predecessor recheck/bind/handoff; only changed outputs rebase |
 | [Compiler ingredients](../../crates/lctx-compiler-store/src/compiler.rs) and [membership demand](../../crates/cpg-core/src/workspace/membership_demand.rs) | Binary partitions reuse unchanged leaves/subtrees and retain according to actual consumers; not repeated native rereading of every contributor |
 | [Compilation driver](../../crates/cpg-core/src/compilation.rs) | Exact ready scheduling and within-phase overlap are implemented; broader phase barriers may protect shared epochs/admission |
 | [Captured bundle](../../crates/cpg-extract/src/bundle.rs) and [capture](../../crates/cpg-extract/src/capture.rs) | Writable captured inputs justify opening/post-provider checks; immutable ownership is not already supplied by readonly permissions |
-| [Catalog core](../../crates/cpg-core/src/catalog_core.rs) and [products](../../crates/cpg-core/src/catalog_products.rs) | Bounded public-name windows and whole-stage reuse; rich preparation precedes granular requests and fresh retention reconstructs requests |
-| [Reference admission](../../crates/lctx-compiler-store/src/admission.rs) | Protected current-owner, schema/subtype/empty and failure-atomic premise obligations; compatible fields repeat target preparation |
+| [Catalog core](../../crates/cpg-core/src/catalog_core.rs) and [products](../../crates/cpg-core/src/catalog_products.rs) | Bounded public-name windows and whole-stage reuse; one admitted granular request survives lookup/build/retention with pure-only fallback |
+| [Reference admission](../../crates/lctx-compiler-store/src/admission.rs) | Protected current-owner, schema/subtype/empty and failure-atomic premise obligations; invocation IPC shares original inputs and exact target-family projections without sharing validity |
 
 Distinct Pyrefly resolver States, independent latest Ruff and ty role/source correspondence have
 real consumers. Pyrefly pool/source-buffer and canonical span reuse are already useful. Do not
@@ -49,6 +49,11 @@ and the existing ADR route. These choices are not covered by the four already-ap
 
 ### Composition decision
 
+**Selected, 2026-10-15:** private eager composition outside the gate, exact affected-predecessor
+recheck and per-relation rebase, followed by gate-held binding/coherent visibility. Native failure and
+Unknown remain terminal. Existing binary ingredients and actual ownership are reused. Demand-visible
+assembly is not selected; exact selected consumers still require an earned view. ADR-0174 owns rationale.
+
 Trace actual current/frozen/running/remaining consumers and the point at which they require an
 exact cumulative union. Compare:
 
@@ -68,6 +73,11 @@ earlier selected-port contract rather than replace an exact view with pending me
 Retain optional retention's genuine pre-effect decline and release according to actual demand.
 
 ### Readiness decision
+
+**Retain, 2026-10-15:** current Facts/Normalized barriers. Six input-free configuration producers
+are legal early work, but moving them changes the admission inventory/frontier and overlaps lifecycles
+without a substantive early consumer. Reopen for a material consumer with a complete earlier authority
+slice; this is a supported retain decision, not an assertion that no early computation is legal.
 
 Treat cross-phase readiness as a separate question, not an automatic consequence of changing unions.
 Find a concrete upper consumer that could earn exact epoch/input authority before all facts or
@@ -95,6 +105,13 @@ cut, and CN06 only if physical selector representation changes.
 
 <a id="cc01"></a>
 ## 4. CC01 — I03 captured-input integrity at justified grain
+
+**Retain, 2026-10-15:** full opening and post-provider byte/membership checks of the mutable captured
+closure. Support/docs/examples/configuration remain revision inputs, and readonly permissions are not
+an immutable owner. Provider close verifies before final flush/outcome; Acquisition/Assembly retain
+explicit exclusions. Existing persistent-mutation/sticky-poison and interrupted-provider controls
+provide the narrow functional route. Reopen for a complete immutable owner or an adopted narrower
+provider contract, not an mtime/checksum cache. ADR-0174 owns the comparison.
 
 This package owns actual analysis inputs. [CD02](catalog-efficiency-development-plan_2026-10-15.md#cd02)
 owns auxiliary repository source observations; one cannot prove the other's guarantees.
@@ -126,6 +143,12 @@ and exact provider completion. Known-good provider outputs alone do not establis
 
 ## 5. CC02 — I04 useful Catalog requests and cross-window preparation
 
+**Selected, 2026-10-15:** one charged complete-key request moved through lookup/computation/retention;
+cache absence constructs none, while fresh-only eligibility can still retain. Optional Resource
+pressure releases it and retries only the refused pure preparation once; prepared rows survive and
+output headroom is checked before effects. Keep window-local borrowed indexes: rich global backing
+extends lifetimes and signature-only sharing omits context/evidence distinctions. ADR-0174 owns rationale.
+
 C0's bounded public-name windows are a strength. Alias scope already preselects module/name
 dependencies, and whole-stage reuse precedes C0. The issue is overlapping useful ingredients
 and request preparation within actual granular-cache demand, not a proven release-wide
@@ -153,6 +176,12 @@ pre-effect decline; stale keys; equal public names with different context; exact
 Demonstrate reuse scope or removed construction directly; no arbitrary cache-size/thread policy.
 
 ## 6. CC03 — I06 independently earned reference-admission preparation
+
+**Selected, 2026-10-15:** lazy invocation-owned, full-schema Arrow IPC captures demanded original
+inputs once; exact target-set ID/subtype projections reuse local spillable preparation. Full-payload
+null-sensitive pairwise SQL remains against local IPC because a grouped replacement has not qualified
+all supported types. Original owner/current checks, empty/memo applicability, complete EOF and
+failure-atomic memo commit remain. Local IPC is preparation, never completed authority (ADR-0174).
 
 Independent receiving validates original protected sources in the receiving owner. Never replace
 it with producer success, a portable memo, a reused digest or diagnostic replay.

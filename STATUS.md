@@ -1,15 +1,16 @@
 # Status
 _Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog efficiency CE00/CD00/CN00–CN05 implemented / focused-Tested, 2026-10-15.** The
+**Catalog efficiency CN06/CN07 and CC00–CC03 implemented / Interface-checked, 2026-10-15.** The
 [coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
-owns dispositions, exact receipts and limits. Grouped writes, complete cuts, checked backup exclusion,
-admitted ingress and protected recovery passed focused actual native controls. Query-target and receipt
-allocation defects are fixed; original failures/Unknowns preserved. All four owned campaigns disposed.
-[ADR-0173](docs/adr/0173-catalog-native-admission-and-recovery.md) owns the decision. Full workspace/all-target
-compile and keep-going Clippy passed with zero warnings/errors; Ruff/Pyrefly, dependencies and ADR lint passed.
-Docs check fails on foreign reference missing H1. **Next:** remaining efficiency packages under §5, then
-CE80/CE90 and later old-plan reconciliation. Default required-peer adoption and assembled qualification remain open.
-No active worker/campaign/worktree; shared/operator state, concurrent edits and warm caches preserved.
+owns decisions, receipts and limits. Source `13c4dfcf`/ADR-0174 delivers private selector/reference preparation,
+checked outside-gate composition, one Catalog request and postings; full mutable-capture checks stay.
+Independent review accepted revised source. Six Catalog request and three capture controls passed; full
+workspace/all-target compile, strict keep-going Clippy, Ruff/Pyrefly, dependencies/ADR lint passed, zero warnings/errors.
+**Blocked:** pure/new native control builds exhausted disk before tests; CN07 actual compound EXPLAIN/scoring,
+composition and original-owner/cold controls remain open. No campaign was created. CE00/CD00/CN00–CN05 prior
+focused-Tested through `29a1a689`; four prior campaigns disposed. All executors drained; no worktree. **Next:**
+free storage, resume coordinator §6 exact focused controls on fresh owned target, then checkpoint. CE80/default
+adoption, CE90/assembled acceptance remain open. Docs check fails on foreign reference missing H1; foreign state preserved.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.
@@ -18,7 +19,6 @@ Eager views, flat codec1/semantic v4 and independent receiving remain.
 the final admission-alias actual native assertion remains not_run. Full compile (`4beb3a`), strict
 keep-going Clippy (`87373d`), Ruff/warnings-inclusive Pyrefly (`af2992`) and docs/ADR/rules/fixtures passed.
 The [partial assessment](docs/design_review/reviews/design_review_catalog-completion-final-integrated_2026-10-15.md) accepts inspected source; enclosing completion remains unresolved.
-
 **Open exits:** both actual document/lexical controls (`7c15e3`) timed out before mutation during
 independent admission. Recursive `8a3347` records operator cancellation and a 900s timeout, exit100;
 host cleanup confirmed, recursive answers/native finality unproven. All10 owned campaigns were drained/

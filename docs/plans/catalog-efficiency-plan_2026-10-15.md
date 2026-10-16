@@ -216,6 +216,87 @@ removal and functional evidence. A retained design can complete an investigation
 credible conforming route. A deferral names its trigger and unsupported boundary; it cannot
 close a dependent mandatory finding or permit an unqualified whole-track completion claim.
 
+**Approved continuation checkpoint, 2026-10-15 (receipts through 2026-10-16 UTC):
+CN06/CN07 and CC00–CC03 implemented / Interface-checked; selected native acceptance open.**
+Baseline `29a1a68997d97641db498f87bd53216c1e0f8c7b`; implementation committed as `13c4dfcf` on shared main. All three bounded executors
+finished and drained; no worktree or new campaign was created. [ADR-0174](../adr/0174-catalog-preparation-and-lexical-postings.md)
+owns the decisions and architecture owners changed with it. This is not completion of the selected
+functional acceptance or the enclosing plan.
+
+- **CN06 / I01:** retain flat codec1/semantic-v4; private charged live/protected descriptor handles
+  remove intermediate vector copies. Public boundary materializes once. Persisted fragments are
+  unselected until residual flat emission/reconstruction warrants their receiving/GC burden.
+- **CC00 / I02:** exact per-relation unions, mapping discovery and charged host carriers prepare
+  outside the gate. Recheck affected predecessors; reprepare only changed outputs. Declaration,
+  registry retention, binding and coherent handoff follow acceptance under the gate. Independent
+  review found speculative declarations retained stale closures; corrected by retaining mappings
+  privately and pruning settled stale ingredients via actual schedule demand before rebase.
+  Native errors/Unknown stay terminal, old ports exact. Manual unscheduled clients retain their
+  established owner-lifetime cache. Keep phase barriers: six legal early configuration producers
+  do not justify a changed admission inventory/lifecycle without a substantive early consumer.
+- **CC01 / I03 capture half:** supported retain of complete mutable-closure opening/post-provider
+  verification; no actual immutable owner replaces it. Support/docs/examples/configuration remain
+  revision inputs. Closing checks precede final flush/outcome; existing explicit exclusions stay.
+  CD02 source-observation half remains outside this continuation and open.
+- **CC02 / I04:** carry one charged complete-key optional request through lookup/build/retention;
+  cache absence constructs none. Pure Resource fallback drops it and retries only that refused
+  step once; previous results survive, and output headroom is checked before effects. Keep existing
+  window-local borrowed indexes; no rich global or signature-only cache.
+- **CC03 / I06:** lazy invocation-owned full-schema Arrow IPC scans each demanded original once;
+  local null-sensitive full-row pairwise checks and exact target-set ID/subtype projections share
+  preparation. Original/current/empty/EOF and failure-atomic memo authority remain independent.
+- **CN07 / I07:** shared analyzed-document/term postings plus separate lengths replace term arrays.
+  Compound document/query-term access and matched-row grouping retain selected-corpus N/df/analyzer/
+  scoring/caps/ties/witnesses. Five-family construction/reconciliation, derivation/staging inventories,
+  endpoint holds and canonical cold regeneration migrate together. Native document v2 plus generated
+  definitions is a physical schema migration; fresh targets regenerate, no compatibility reader.
+  Actual two-dimensional EXPLAIN/scoring/corruption/cold controls are not yet executed.
+
+**Independent implementation review:** revised source accepted with no remaining material findings;
+reviewer did not execute compile/native controls. No Measured speed claim. Foreign diagnostics/reference
+edits, shared/operator targets, warm caches and old-plan dispositions remain preserved.
+
+All cited managed runs are retained. No active executor/campaign/worktree remains. Filesystem
+exhaustion is an external build prerequisite, not a production diagnosis or authorization for cache
+purges; the operator was asked to free space or provide another build volume. No further heavy build
+retry ran after the failures. The compiler emitted an empty ICE placeholder, removed after the worker
+terminated; no diagnostic bytes were discarded.
+
+**Continuation evidence:**
+
+| Command / receipt | Outcome and boundary |
+|---|---|
+| `cargo check --release --locked -p cpg-core --tests`; compiler-store `--tests --message-format=short`; serving `--test native_search` plus publisher `--test stream_search` | passed, zero warnings after corrected test-only errors; metadata, not runtime |
+| `cargo nextest run --release --locked -p cpg-core --lib -E 'test(catalog_products::window_controls)'`, native Nextest `bb41fb02-3e9d-49ab-a06d-f62f448e6dbb` | passed6; optional ownership/complete-key distinctions and pure Resource fallback; no native cache journey |
+| Capture controls managed `20261016T032615.289Z-ec46a2`, Nextest `17105228-4308-4c29-998c-5c7b14aca872` | passed3: full closure mutation, final-close sticky poison and explicit interrupted-provider drainage; enclosing host cleanup confirmed |
+| `cargo run --release --locked -p lctx-surreal-dev -- generate`, managed `20261016T032346.553Z-a7956b`; `target/release/lctx-surreal-dev generate --check` | passed; lexical physical schema regenerated/current |
+| Selected compiler-store/native pure controls | blocked before tests: native/shared incremental codegen exhausted filesystem (`query-cache.bin` / pre-LTO write), followed by LLVM I/O failure. Test-only compile errors were corrected; no cache deletion/caps/retry after exhaustion |
+| `cargo check --release --workspace --all-targets --locked --keep-going`, managed `20261016T033153.589Z-aae85f` | passed; full current source metadata check |
+| `cargo clippy --release --workspace --all-targets --locked --keep-going -- -D warnings`, managed `20261016T033311.619Z-ab604a` | passed; zero warnings/errors, complete workspace/all-target keep-going scope |
+| `uv run --no-sync ruff check`; `uv run --no-sync pyrefly check --summary=none`; `just deps` managed `20261016T033343.602Z-783ff6` | passed; no warnings/errors |
+| `just adr-lint`; scoped `just turn-end --paths …`; `git diff --check` | passed;102 ADR records,14 owned Rust paths formatted; foreign paths excluded. No Cargo/Python edits require build-features/Ruff formatting |
+| `just docs-check` | failed on pre-existing foreign `docs/surrealdb_technical_reference.md` missing title/H1; ADR and agent lint passed. Reference preserved; no product gate inferred |
+
+**Immediate remaining execution after storage repair:** rerun compiler-store pure filter
+`test(receiver_view_mapping_metadata_preserves_independent_equivalent_dependency_choices) | test(prepared_reference) | test(reference_target_preparation_preserves_roles_epochs_and_descriptor_refusal) | test(nominal_payload_comparisons_group_binary_boolean_and_nullable_predicates) | test(forged_external_zero_row_selection_cannot_hide_actual_dangling_rows) | test(captured_empty_reference_premises_bind_all_targets_and_refuse_cancelled_or_foreign_sessions) | test(empty_reference_source_still_rejects_nonsum_subtype_target) | test(reference_premise_merge_is_charged_atomic_and_private_until_commit)`
+and native `test(lexical_stats::tests)` with release/locked/normal parallelism. Build current CLI,
+then fresh task-owned campaign E using prior protected required-peer descriptor under
+`catalog-efficiency-2026-10-15.tools/surreal/04a3ce5efe107c03b7e42f92e83ea9aab3b20809ce28d1d3eb6d1c2cfc630297/record.json`.
+Never borrow the default peer: CE80 adoption remains open. Under that campaign's exact fixture owner,
+run minimal composition pause/rebase/cancel, multi-output conflict/old-port, selector alias/root/incarnation,
+reference late-original-owner, Catalog optional native capture, lexical BM25/compound EXPLAIN and posting
+corruption/cold regeneration controls. Names include `private_composition_rebases_only_changed_outputs_and_never_publishes_cancelled_work`,
+`conflicting_payload_refuses_the_whole_output_set`, `retained_same_root_compares_alias_eligibility_and_keeps_receiver_copy`,
+`owned_native_empty_reference_proof_refuses_failed_source_even_after_memo_success`,
+`private_capture_wait_does_not_hold_disjoint_completion_or_change_old_view`,
+`frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_same_unit`,
+`selective_fulltext_matches_complete_analyzer_bm25_for_compounds_and_empty_analysis`, and
+`streamed_lexical_posting_corruption`. Fix actual failures; actual two-dimensional access remains a
+CN07 exit. Dispose only after authenticated participants/native executor drainage. Repeat affected checks only
+if subsequent fixes invalidate them; applicable ADR/docs leaves and scoped turn-end complete the
+current checkpoint. Update this checkpoint without promoting CE80/CE90,
+embeddings/MCP runtime/real-library or old-plan reconciliation.
+
 **Current execution checkpoint, 2026-10-15 (receipts through 2026-10-16 UTC).**
 CE00 reconciliation and CD00/CN00–CN05 implementation plus selected functional controls are complete.
 Final full compile and keep-going Clippy passed without warnings/errors; source and native scope
