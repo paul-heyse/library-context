@@ -3466,8 +3466,13 @@ mod actual_input_property_controls {
             data.entry.value_supports.insert(support!(FlowValueSupport,path_value,n)).unwrap();
             data.path.value_path_supports.insert(support!(FlowValuePathSupport,path_observed,n)).unwrap();
         }
-        let events = [55,2].map(|n| normalized::events::NormalizedCallEvent {
-            site: nominal(n), origin: nominal(56), context: q.context, owner: branch.descriptor().owner });
+        let events = [55,2].map(|n| {
+            let ownership = OccurrenceOwnership { occurrence:nominal(n), owner:nominal(1),
+                entity:branch.descriptor().owner };
+            data.entry.owners.insert(ownership.clone()).unwrap();
+            normalized::events::NormalizedCallEvent { site:ownership.occurrence,
+                origin:nominal(56), context:q.context, owner:ownership.id() }
+        });
         for event in &events { data.bindings.event_events.insert(event.clone()).unwrap(); }
         let (_, definition) = super::super::configuration::summaries(nominal(1),Default::default()).unwrap();
         let (invocation,_) = owner::AnalysisInvocation::new(nominal(2),q.context,definition.id(),None,[]);
