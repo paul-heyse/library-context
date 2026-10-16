@@ -43,7 +43,7 @@ async fn compiled_case(
             captured.config().catalog(),
             None,
             workspace.budget(),
-        )
+        ).map(std::sync::Arc::new)
         .unwrap()
     });
     compilation::compile(
@@ -52,7 +52,7 @@ async fn compiled_case(
         profile,
         ContentHash::of(b"artifact-fixture"),
         frontier,
-        prepared.as_ref(),
+        prepared.clone(),
         None,
         None,
     )
@@ -309,7 +309,7 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
 async fn artifact_identity_includes_exact_consumed_embedding_values() {
     use cpg_core::embedding_service::FakeEmbedder;
     use lctx_model::domain::embedding::Embedder;
-    let embedder = FakeEmbedder::new();
+    let embedder = std::sync::Arc::new(FakeEmbedder::new());
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions::default(),
@@ -323,9 +323,9 @@ async fn artifact_identity_includes_exact_consumed_embedding_values() {
         Frontier::Analysis,
         settings,
         captured.config().catalog(),
-        Some(&embedder),
+        Some(embedder.as_ref()),
         workspace.budget(),
-    )
+    ).map(std::sync::Arc::new)
     .unwrap();
     compilation::compile(
         &workspace,
@@ -333,8 +333,8 @@ async fn artifact_identity_includes_exact_consumed_embedding_values() {
         Profile::Catalog,
         ContentHash::of(b"vector-artifact-fixture"),
         Frontier::Analysis,
-        Some(&prepared),
-        Some(&embedder),
+        Some(prepared.clone()),
+        Some(embedder.clone()),
         None,
     )
     .await
@@ -511,7 +511,7 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
         captured.config().catalog(),
         None,
         workspace.budget(),
-    )
+    ).map(std::sync::Arc::new)
     .unwrap();
     compilation::compile(
         &workspace,
@@ -519,7 +519,7 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
         Profile::Catalog,
         configuration,
         Frontier::Analysis,
-        Some(&prepared),
+        Some(prepared.clone()),
         None,
         None,
     )

@@ -127,7 +127,7 @@ pub async fn compile(
                 native.catalog(),
                 upper.embedder.as_deref(),
                 budget,
-            )
+            ).map(std::sync::Arc::new)
         })
         .transpose()?;
     let cache = if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) {
@@ -156,8 +156,8 @@ pub async fn compile(
         profile,
         configuration,
         frontier,
-        prepared.as_ref(),
-        upper.as_ref().and_then(|u| u.embedder.as_deref()),
+        prepared.clone(),
+        upper.as_ref().and_then(|u| u.embedder.clone()),
         cache,
     )
     .await?;

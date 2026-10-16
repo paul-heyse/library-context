@@ -18,7 +18,7 @@ pub struct Options {
 }
 pub struct Upper {
     pub settings: AnalyticsConfiguration,
-    pub embedder: Option<Box<dyn Embedder>>,
+    pub embedder: Option<std::sync::Arc<dyn Embedder>>,
 }
 impl Options {
     pub fn validate_frontier(&self, through: &str) -> anyhow::Result<()> {
@@ -48,9 +48,9 @@ impl Options {
             &std::fs::read_to_string(library.join("analytics.toml"))?,
             techniques,
         )?;
-        let embedder: Option<Box<dyn Embedder>> = match choice {
+        let embedder: Option<std::sync::Arc<dyn Embedder>> = match choice {
             EmbeddingChoice::None => None,
-            EmbeddingChoice::Fake => Some(Box::new(FakeEmbedder::new())),
+            EmbeddingChoice::Fake => Some(std::sync::Arc::new(FakeEmbedder::new())),
             EmbeddingChoice::Vllm => {
                 let endpoint = self
                     .embedding_endpoint
@@ -80,7 +80,7 @@ impl Options {
                             "/home/paul/wheelhouse/gpu-stack/models/Qwen3-Embedding-8B-NVFP4-r2",
                         )
                     });
-                Some(Box::new(lctx_embed::VllmEmbedder::for_compilation(
+                Some(std::sync::Arc::new(lctx_embed::VllmEmbedder::for_compilation(
                     endpoint, spec, &assets,
                 )?))
             }

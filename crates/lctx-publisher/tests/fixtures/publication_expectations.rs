@@ -140,8 +140,8 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
             communities: false, pagerank: false, fca: false, knn: false, rca: false,
             type_layer: false, mention_layer: false, knn_layer: false,
         };
-        let prepared = compilation::PreparedCompilation::new(Frontier::Catalog, analytics, captured.config().catalog(), None, workspace.budget())?;
-        observed("cn02_compile", compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(&prepared), None, None)).await?;
+        let prepared = compilation::PreparedCompilation::new(Frontier::Catalog, analytics, captured.config().catalog(), None, workspace.budget()).map(std::sync::Arc::new)?;
+        observed("cn02_compile", compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(prepared.clone()), None, None)).await?;
         drop(prepared);
         let admitted = observed("cn02_admit", artifact::admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings)).await?;
         let definitions = lctx_native::materialization::native_definitions();

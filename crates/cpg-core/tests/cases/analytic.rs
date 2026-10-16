@@ -26,7 +26,7 @@ async fn run(
         mention_layer: selected && extra_layers,
         knn_layer: selected && extra_layers,
     };
-    let provider = ContractEmbedder::new(vectors_available);
+    let provider = std::sync::Arc::new(ContractEmbedder::new(vectors_available));
     let vectors_requested = settings.knn || settings.knn_layer;
     let fixture = catalog_runtime::compile(
         "analytic_optional",
@@ -34,7 +34,7 @@ async fn run(
         Frontier::Catalog,
         settings.clone(),
         if vectors_requested {
-            Some(&provider)
+            Some(provider.clone())
         } else {
             None
         },

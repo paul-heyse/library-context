@@ -81,7 +81,7 @@ async fn actual_summary_control(case: &str) {
         captured.config().catalog(),
         None,
         workspace.budget(),
-    )
+    ).map(std::sync::Arc::new)
     .unwrap();
     let schedule = prepared
         .schedule(&model, &cpg_core::facts::providers(configuration), profile)
@@ -92,7 +92,7 @@ async fn actual_summary_control(case: &str) {
         profile,
         configuration,
         admission::Frontier::Analysis,
-        Some(&prepared),
+        Some(prepared.clone()),
         None,
         None,
     )

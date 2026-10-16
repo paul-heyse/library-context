@@ -367,16 +367,16 @@ async fn catalog_journey() {
     .unwrap();
     let captured = library_fixture(workspace.budget());
     let settings = ContentHash::of(b"native-serving-journey");
-    let fake = ContractEmbedder::new();
+    let fake = std::sync::Arc::new(ContractEmbedder::new());
     let mut analytics = runtime::settings("api");
     analytics.knn = true;
     let prepared = PreparedCompilation::new(
         Frontier::Catalog,
         analytics,
         captured.config().catalog(),
-        Some(&fake),
+        Some(fake.as_ref()),
         workspace.budget(),
-    )
+    ).map(std::sync::Arc::new)
     .unwrap();
     setup_phase.finish(Terminal::Passed);
     compilation::compile(
@@ -385,8 +385,8 @@ async fn catalog_journey() {
         Profile::Catalog,
         settings,
         Frontier::Catalog,
-        Some(&prepared),
-        Some(&fake),
+        Some(prepared.clone()),
+        Some(fake.clone()),
         None,
     )
     .await
@@ -1077,7 +1077,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         captured.config().catalog(),
         None,
         workspace.budget(),
-    )
+    ).map(std::sync::Arc::new)
     .unwrap();
     setup_phase.finish(Terminal::Passed);
     compilation::compile(
@@ -1086,7 +1086,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         Profile::Catalog,
         settings,
         Frontier::Catalog,
-        Some(&prepared),
+        Some(prepared.clone()),
         None,
         None,
     )

@@ -15,7 +15,7 @@ async fn run(mode: Mode) {
         Profile::Catalog,
         Frontier::Analysis,
         settings,
-        if requested { Some(&provider) } else { None },
+        if requested { Some(std::sync::Arc::new(provider)) } else { None },
     )
     .await;
     let uses: Vec<UseRow> = catalog_runtime::query(
@@ -213,10 +213,10 @@ fn receipts(rows: Vec<ReceiptRow>) -> std::collections::BTreeMap<(Vec<u8>, Vec<u
 #[tokio::test]
 async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_without_a_cache() {
     use lctx_model::domain::{ContentHash, Record};
-    let provider = ChangingContractEmbedder {
+    let provider = std::sync::Arc::new(ChangingContractEmbedder {
         inner: cpg_core::embedding_service::FakeEmbedder::new(),
         trace: Default::default(),
-    };
+    });
     let mut settings = catalog_runtime::settings("analytic_text");
     settings.knn = true;
     // The fixture helper invokes the actual native compiler with cache=None.
@@ -225,7 +225,7 @@ async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_with
         Profile::Catalog,
         Frontier::Catalog,
         settings,
-        Some(&provider),
+        Some(provider.clone()),
     )
     .await;
     let analytic = receipts(catalog_runtime::query(&fixture,

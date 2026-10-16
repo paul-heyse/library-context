@@ -128,7 +128,7 @@ async fn run(profile: Profile) {
         captured.config().catalog(),
         None,
         workspace.budget(),
-    )
+    ).map(std::sync::Arc::new)
     .unwrap();
     let schedule = prepared
         .schedule(&model, &cpg_core::facts::providers(configuration), profile)
@@ -139,7 +139,7 @@ async fn run(profile: Profile) {
         profile,
         configuration,
         admission::Frontier::Analysis,
-        Some(&prepared),
+        Some(prepared.clone()),
         None,
         None,
     )

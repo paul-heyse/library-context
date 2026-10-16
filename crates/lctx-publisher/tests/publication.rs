@@ -918,7 +918,7 @@ async fn small_publication_from_source(
                 captured.config().catalog(),
                 None,
                 workspace.budget(),
-            )?)
+            ).map(std::sync::Arc::new)?)
         } else {
             None
         };
@@ -928,7 +928,7 @@ async fn small_publication_from_source(
             Profile::Catalog,
             settings,
             frontier,
-            prepared.as_ref(),
+            prepared.clone(),
             None,
             None,
         )

@@ -297,9 +297,9 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         let library=if empty{"compact-empty"}else{"compact-catalog"};
         let captured=native_library::try_library_fixture_tree(captured,library,workspace.budget())?;
         let settings=ContentHash::of(b"actual-native-compact-analysis-control/v1");
-        let prepared=PreparedCompilation::new(Frontier::Catalog,runtime::settings("api"),captured.config().catalog(),None,workspace.budget())?;
+        let prepared=PreparedCompilation::new(Frontier::Catalog,runtime::settings("api"),captured.config().catalog(),None,workspace.budget()).map(std::sync::Arc::new)?;
         if queries{eprintln!("native linked-analysis control: actual catalog compilation");}
-        compilation::compile(&workspace,captured.clone(),Profile::Catalog,settings,Frontier::Catalog,Some(&prepared),None,None).await?;
+        compilation::compile(&workspace,captured.clone(),Profile::Catalog,settings,Frontier::Catalog,Some(prepared.clone()),None,None).await?;
         drop(prepared);
         let expected=analysis::owner::AnalysisOwner::ALL.into_iter().filter(|kind|kind.can_be_wholly_unrequested())
             .map(|kind|kind.name().to_owned()).collect::<BTreeSet<_>>();

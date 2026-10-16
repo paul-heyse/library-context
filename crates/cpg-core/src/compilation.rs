@@ -661,8 +661,8 @@ impl<T> ReadyStages<T> {
     }
 }
 
-/// Coordinator selection/freezing can wait for a gate held (or FIFO-reserved) by
-/// an unspawned producer. Keep polling those owners while awaiting the action.
+/// Coordinator selection/freezing also collects independently scheduled producer results
+/// while awaiting its action. Task joins are retained by the workspace execution owner.
 /// After a sibling refusal, finish the already-started action but accept no success.
 async fn coordinate_with_pending<T, A>(
     action: impl std::future::Future<Output = Result<A, ModelError>>,
@@ -742,7 +742,7 @@ struct UpperPreparation {
     >,
     graphs: Option<crate::analysis_graphs::SelectedGraphs>,
 }
-struct UpperTask<'a> {
+struct UpperTask {
     workspace: Arc<Workspace>,
     model: Arc<ValidatedModel>,
     declaration: Stage,
@@ -750,14 +750,14 @@ struct UpperTask<'a> {
     access: crate::workspace::CompletedInputs,
     output: ProducerOutput,
     profile: Profile,
-    prepared: &'a PreparedCompilation,
-    embedder: Option<&'a dyn Embedder>,
+    prepared: Arc<PreparedCompilation>,
+    embedder: Option<Arc<dyn Embedder>>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
     checked: Option<crate::workspace::CheckedInputs>,
     shared: UpperPreparation,
     selected_dependencies: usize,
 }
-impl UpperTask<'_> {
+impl UpperTask {
     async fn run(self) -> Result<StageResult, ModelError> {
         use lctx_native::phase::Phase;
         let Self {
@@ -779,7 +779,7 @@ impl UpperTask<'_> {
         let model = &model;
         let phase = Phase::begin(declaration.name);
         let result = async {
-            let eligibility = binding.reuse(declaration.effect, profile, prepared);
+            let eligibility = binding.reuse(declaration.effect, profile, &prepared);
             let hit = if eligibility.reason().is_none() {
                 output.reuse_product().await?
             } else {
@@ -795,7 +795,7 @@ impl UpperTask<'_> {
             let mut result_preparation = StagePreparation::None;
             if let Some(outcome) = hit {
                 output.finish(outcome).await?;
-            } else if uniform::unrequested(binding, profile, prepared) {
+            } else if uniform::unrequested(binding, profile, &prepared) {
                 uniform::produce(access, output, workspace, &declaration).await?;
             } else {
                 if analysis::owner::AnalysisOwner::resolve(binding.name())
@@ -862,7 +862,7 @@ impl UpperTask<'_> {
                             output,
                             workspace,
                             model,
-                            embedder,
+                            embedder.as_deref(),
                             cache.clone(),
                         )
                         .await?
@@ -1021,7 +1021,7 @@ impl UpperTask<'_> {
                             output,
                             workspace,
                             model,
-                            embedder,
+                            embedder.as_deref(),
                             cache.clone(),
                         )
                         .await?
@@ -1048,12 +1048,13 @@ pub async fn compile(
     profile: Profile,
     configuration: ContentHash,
     frontier: Frontier,
-    prepared: Option<&PreparedCompilation>,
-    embedder: Option<&dyn Embedder>,
+    prepared: Option<Arc<PreparedCompilation>>,
+    embedder: Option<Arc<dyn Embedder>>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
     let span = tracing::info_span!(target: "lctx_phase", "compilation", attempt=%workspace.native().attempt().hex(), profile = profile.name(), frontier = frontier.name());
-    boxed_driver(
+    let mut cancellation = CompilerCancellation::new(workspace.cancellation());
+    let result = boxed_driver(
         workspace,
         captured,
         profile,
@@ -1064,7 +1065,19 @@ pub async fn compile(
         cache,
     )
     .with_tracing_span(span)
-    .await
+    .await;
+    if result.is_ok() { cancellation.disarm(); }
+    result
+}
+
+/// Dropping a compiler coordinator requests cooperative stop; actual joins stay owned.
+struct CompilerCancellation(Option<crate::workspace::Cancellation>);
+impl CompilerCancellation {
+    fn new(cancellation: crate::workspace::Cancellation) -> Self { Self(Some(cancellation)) }
+    fn disarm(&mut self) { self.0 = None; }
+}
+impl Drop for CompilerCancellation {
+    fn drop(&mut self) { if let Some(cancellation) = &self.0 { cancellation.cancel(); } }
 }
 
 // Keep construction and polling of the full compiler future inside this library boundary.
@@ -1079,8 +1092,8 @@ fn boxed_driver<'a>(
     profile: Profile,
     configuration: ContentHash,
     frontier: Frontier,
-    prepared: Option<&'a PreparedCompilation>,
-    embedder: Option<&'a dyn Embedder>,
+    prepared: Option<Arc<PreparedCompilation>>,
+    embedder: Option<Arc<dyn Embedder>>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     compile_driver(
@@ -1107,8 +1120,8 @@ async fn compile_driver(
     profile: Profile,
     configuration: ContentHash,
     frontier: Frontier,
-    prepared: Option<&PreparedCompilation>,
-    embedder: Option<&dyn Embedder>,
+    prepared: Option<Arc<PreparedCompilation>>,
+    embedder: Option<Arc<dyn Embedder>>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
     providers: Option<Vec<Box<dyn ProviderStage<ProducerOutput>>>>,
 ) -> Result<(), ModelError> {
@@ -1121,7 +1134,7 @@ async fn compile_driver(
         let providers = providers.unwrap_or_else(|| facts::providers(configuration));
         // Plan every declaration before running native effects. The schedule is static dependency
         // metadata only; completed streams, not execution grants, supply runtime inputs.
-        let schedule = if let Some(prepared) = prepared {
+        let schedule = if let Some(prepared) = prepared.as_ref() {
             if prepared.frontier != frontier {
                 return Err(ModelError::Invalid("prepared frontier differs".into()));
             }
@@ -1250,11 +1263,12 @@ async fn compile_driver(
                 started.insert(declaration.name);
                 let receiver = receiver_authority.clone();
                 let event = event_authority.clone();
+                let stage_owner = workspace.clone();
                 let workspace = workspace.clone();
                 let model = model.clone();
                 let declaration = declaration.clone();
                 let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
-                pending.push(
+                let task = stage_owner.spawn_stage(
                     async move {
                         let phase = Phase::begin(declaration.name);
                         let result = async {
@@ -1307,9 +1321,12 @@ async fn compile_driver(
                         phase.finish_result(&result);
                         result
                     }
-                    .with_tracing_span(producer_span)
-                    .boxed(),
+                    .with_tracing_span(producer_span),
                 );
+                match task {
+                    Ok(task) => pending.push(task),
+                    Err(error) => { failure = Some(error); break; }
+                }
             }
         }
         if failure.is_some() {
@@ -1394,7 +1411,7 @@ async fn compile_driver(
         )),
         _ => None,
     };
-    let analytics_requested = prepared.is_some_and(|p| analytics::build::requested(p.settings()));
+    let analytics_requested = prepared.as_ref().is_some_and(|p| analytics::build::requested(p.settings()));
     let mut graphs = crate::analysis_graphs::GraphPreparation::new(workspace.budget())?;
     let mut local = None;
     let mut evaluations = None;
@@ -1424,7 +1441,7 @@ async fn compile_driver(
                         }
                         let binding = UpperStage::resolve(declaration.name)?;
                         let prepared =
-                            prepared.ok_or(ModelError::Conflict("missing upper configuration"))?;
+                            prepared.clone().ok_or(ModelError::Conflict("missing upper configuration"))?;
                         let selected = workspace
                             .bind_scheduled_inputs(&schedule, declaration)
                             .await?;
@@ -1469,7 +1486,7 @@ async fn compile_driver(
                             output,
                             profile,
                             prepared,
-                            embedder,
+                            embedder: embedder.clone(),
                             cache: cache.clone(),
                             checked: normalized_authority.clone(),
                             shared,
@@ -1485,7 +1502,10 @@ async fn compile_driver(
                     Ok(Some(task)) => {
                         started.insert(declaration.name);
                         let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
-                        pending.push(task.run().with_tracing_span(producer_span).boxed());
+                        match workspace.spawn_stage(task.run().with_tracing_span(producer_span)) {
+                            Ok(task) => pending.push(task),
+                            Err(error) => { failure = Some(error); break; }
+                        }
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -1600,6 +1620,18 @@ mod upper_completion_controls {
         fn drop(&mut self) {
             self.dropped.fetch_add(1, Ordering::SeqCst);
         }
+    }
+
+    #[test]
+    fn coordinator_drop_signals_stop_and_success_disarms_it() {
+        let cancelled = crate::workspace::Cancellation::default();
+        drop(CompilerCancellation::new(cancelled.clone()));
+        assert!(cancelled.check().is_err());
+        let success = crate::workspace::Cancellation::default();
+        let mut guard = CompilerCancellation::new(success.clone());
+        guard.disarm();
+        drop(guard);
+        assert!(success.check().is_ok());
     }
 
     #[tokio::test]

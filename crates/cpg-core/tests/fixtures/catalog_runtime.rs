@@ -387,7 +387,7 @@ pub async fn compile(
     profile: Profile,
     frontier: Frontier,
     settings: AnalyticsConfiguration,
-    embedder: Option<&dyn Embedder>,
+    embedder: Option<Arc<dyn Embedder>>,
 ) -> Fixture {
     let native = crate::native_fixture::store();
     let mut workspace_owner = None;
@@ -405,9 +405,9 @@ pub async fn compile(
                 frontier,
                 settings,
                 captured.config().catalog(),
-                embedder,
+                embedder.as_deref(),
                 workspace.budget(),
-            )
+            ).map(std::sync::Arc::new)
             .unwrap()
         });
         compilation::compile(
@@ -416,7 +416,7 @@ pub async fn compile(
             profile,
             ContentHash::of(b"compiler-fixture"),
             frontier,
-            prepared.as_ref(),
+            prepared.clone(),
             embedder,
             None,
         )

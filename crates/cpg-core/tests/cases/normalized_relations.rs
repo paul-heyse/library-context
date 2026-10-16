@@ -15,7 +15,7 @@ async fn run(profile: Profile) {
         profile,
         Frontier::Catalog,
         settings,
-        Some(&embedder),
+        Some(std::sync::Arc::new(embedder)),
     )
     .await;
     let counts: (i64, i64) = catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM symbol_entity_resolutions) AS fixture_column_0, (SELECT count(*) FROM provider_symbols) AS fixture_column_1").await;

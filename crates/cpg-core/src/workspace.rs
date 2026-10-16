@@ -30,9 +30,11 @@ use std::{
     },
 };
 
-type ProviderDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
+type OwnedTaskJoin = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
 
+mod stage_execution;
+use stage_execution::StageExecution;
 mod membership_demand;
 use membership_demand::MembershipDemand;
 mod input_catalog;
@@ -49,7 +51,8 @@ struct WorkspaceExecutionOwner {
     bridge: Arc<crate::native_bridge::NativeBridge>,
     native_calls: Arc<crate::native_calls::NativeCalls>,
     native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
-    provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
+    stages: StageExecution,
+    provider_drains: Arc<Mutex<Vec<OwnedTaskJoin>>>,
     product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
     membership_demand: Arc<Mutex<Option<MembershipDemand>>>,
     signal: Arc<lctx_native::signal::SignalRegistration>,
@@ -123,7 +126,7 @@ pub struct Workspace {
     #[cfg(test)]
     composition_control: composition_controls::Control,
     compilation_complete: Mutex<Option<CompilationCompletion>>,
-    provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
+    provider_drains: Arc<Mutex<Vec<OwnedTaskJoin>>>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
 }
 impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner {
@@ -132,6 +135,19 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             use lctx_model::domain::completion::{Completion, LocalState};
             self.cancellation.cancel();
             let mut completion = Completion::default();
+            // Stages can register provider descendants. Seal/join them before snapshotting providers.
+            match self.stages.seal() {
+                Ok(stages) => for stage in stages {
+                    completion.step("producer task join", stage.await.map_err(ModelError::SharedCause));
+                },
+                Err(error) => {
+                    completion.local = LocalState::Outstanding;
+                    completion.step("producer task ownership", Err(error));
+                    // Unauthenticated stage ownership cannot establish that descendant
+                    // registration stopped. Retain provider/native owners for retry.
+                    return completion;
+                }
+            }
             let drains = match self.provider_drains.lock() {
                 Ok(drains) => drains.clone(),
                 Err(_) => {
@@ -203,6 +219,13 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
     }
 }
 impl Workspace {
+    /// Schedule owned producer work; only its terminal result is returned to the coordinator.
+    pub(crate) fn spawn_stage<T: Send + 'static>(
+        &self,
+        work: impl std::future::Future<Output = Result<T, ModelError>> + Send + 'static,
+    ) -> Result<BoxFuture<'static, Result<T, ModelError>>, ModelError> {
+        self.execution.stages.spawn(self.cancellation.clone(), work)
+    }
     pub fn new(
         model: Arc<ValidatedModel>,
         options: WorkspaceOptions,
@@ -310,6 +333,7 @@ impl Workspace {
             bridge: bridge.clone(),
             native_calls: native_calls.clone(),
             native: native.clone(),
+            stages: StageExecution::new(&budget),
             provider_drains: provider_drains.clone(),
             product_cache: product_cache.clone(),
             membership_demand: membership_demand.clone(),
@@ -3447,7 +3471,7 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lctx_model::domain::input::Package;
+    use lctx_model::domain::{completion, input::Package};
     #[test]
     fn ingress_operation_group_preserves_resource_primary_and_related_unknown() {
         let budget = ResourceBudget::fixed(1).unwrap();
@@ -4899,6 +4923,54 @@ mod tests {
         )
         .unwrap();
     }
+    #[tokio::test]
+    async fn stage_join_precedes_late_provider_descendant_snapshot() {
+        use cpg_extract::bundle::ProviderSink;
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()).unwrap();
+        let output = workspace.output("late-provider", Profile::Catalog, ContentHash::of(b"late-provider"),
+            workspace.inputs("late-provider", Profile::Catalog, []).unwrap(), []);
+        let (release, released) = std::sync::mpsc::channel();
+        let completed = Arc::new(AtomicBool::new(false));
+        let observed = completed.clone();
+        // Actual provider work starts before stop; its eventual join registration is delayed.
+        let provider = std::thread::spawn(move || {
+            released.recv().unwrap();
+            observed.store(true, Ordering::Release);
+        });
+        let cancellation = workspace.cancellation();
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let (registered, registering) = tokio::sync::oneshot::channel();
+        let stage = workspace.spawn_stage(async move {
+            entered.send(()).unwrap();
+            cancellation.cancelled().await;
+            let _acknowledgement = output.drain_provider(provider);
+            registered.send(()).unwrap();
+            Ok(())
+        }).unwrap();
+        entering.await.unwrap();
+        let mut drain = Box::pin(workspace.drain_report());
+        assert!(futures::poll!(&mut drain).is_pending());
+        registering.await.unwrap();
+        assert!(futures::poll!(&mut drain).is_pending());
+        assert!(!completed.load(Ordering::Acquire));
+        release.send(()).unwrap();
+        completion::complete(Ok(()), drain.await).unwrap();
+        stage.await.unwrap();
+        assert!(completed.load(Ordering::Acquire));
+        completion::complete(Ok(()), workspace.native().abandon_finality_report().await).unwrap();
+    }
+
+    #[tokio::test]
+    async fn independently_joined_stage_completes_its_native_contribution_without_self_drain() {
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()).unwrap();
+        let output = workspace.output("joined-contribution", Profile::Catalog, ContentHash::of(b"joined-contribution"),
+            workspace.inputs("joined-contribution", Profile::Catalog, []).unwrap(), []);
+        workspace.spawn_stage(async move { output.finish(ProviderOutcome::Complete).await })
+            .unwrap().await.unwrap();
+        completion::complete(Ok(()), workspace.drain_report().await).unwrap();
+        completion::complete(Ok(()), workspace.native().abandon_finality_report().await).unwrap();
+    }
+
     #[tokio::test]
     async fn interrupted_workspace_drain_retains_provider_join_for_retry() {
         use cpg_extract::bundle::ProviderSink;
