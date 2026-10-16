@@ -593,3 +593,156 @@ def test_corrupt_retained_dependency_archive_is_preserved_and_refused(tmp_path):
         server.prepare_dependency(paths, selected, archives=[archive])
     assert paths["archive"].read_bytes() == b"corrupt retained archive"
     assert not paths["dependency"].exists()
+
+
+def test_query_ingress_is_explicit_and_preserves_default_and_cache_identity(tmp_path):
+    default = server.recipe(cpu_count=7)
+    assert (
+        server.identity(default)
+        == "5c86bd6c1c31f315e8ac5ca16abc1bef42e3c463a5e1b72455fefec4c545804a"
+    )
+    candidate = server.recipe(cpu_count=7, query_ingress=True)
+    assert candidate != default
+    assert candidate["query_ingress"]["capability"] == "QUERY_BATCH_BYTES_V1"
+    assert server.original_recipe(candidate) == server.original_recipe(default)
+    assert len(candidate["source_patches"]) == 2
+    drain, query = candidate["source_patches"]
+    predecessor = next(row for row in drain["files"] if row["path"].endswith("/grpc.rs"))
+    assert query["files"][0]["original_sha256"] == predecessor["patched_sha256"]
+    assert candidate["dependency_patches"][1]["query_request_tag"] == 6
+    paths = server.cache_paths(tmp_path, candidate)
+    assert paths["cache"] == server.cache_paths(tmp_path, default)["cache"]
+    assert paths["source"].is_relative_to(paths["root"])
+    assert not paths["source"].is_relative_to(paths["cache"])
+    assert str(paths["protocol_dependency"]) in server.cargo_config(paths)[-1]
+    with pytest.raises(Blocked, match="requires the execution-drain"):
+        server.recipe(query_ingress=True, grpc_drain=False)
+
+
+def test_composed_source_validation_uses_final_hash_and_checks_predecessors(tmp_path, monkeypatch):
+    selected = server.recipe(cpu_count=7, query_ingress=True)
+    paths = server.cache_paths(tmp_path, selected)
+    final = {row["path"]: row for patch in selected["source_patches"] for row in patch["files"]}
+    expected = {name: row["patched_sha256"] for name, row in final.items()}
+    expected.update(
+        {
+            "Cargo.toml": selected["pin"]["upstream_manifest_sha256"],
+            selected["pin"]["patched_file"]: selected["pin"]["patched_file_sha256"],
+        }
+    )
+    monkeypatch.setattr(
+        server, "digest", lambda path: expected[str(path.relative_to(paths["source"]))]
+    )
+    added = {
+        row["path"]
+        for patch in selected["source_patches"]
+        for row in patch["files"]
+        if row["original_sha256"] is None
+    }
+    changed = set(final) - added | {selected["pin"]["patched_file"]}
+
+    def run(argv, **kwargs):
+        return (
+            server.COMMIT
+            if argv[1] == "rev-parse"
+            else "\n".join(
+                [
+                    *(" M " + path for path in changed),
+                    *("?? " + path for path in added),
+                ]
+            )
+        )
+
+    server.verify_source(paths, selected, run=run)
+    selected["source_patches"][1]["files"][0]["original_sha256"] = "0" * 64
+    with pytest.raises(Blocked, match="divergent predecessor"):
+        server.verify_source(paths, selected, run=run)
+
+
+def test_source_patch_chain_resumes_completed_successor_without_reapplying_predecessor(tmp_path):
+    import hashlib
+
+    source = tmp_path / "source"
+    source.mkdir()
+    target = source / "shared.rs"
+    before, middle, after = b"original", b"drained", b"admitted"
+
+    def sha(value):
+        return hashlib.sha256(value).hexdigest()
+
+    selected = {
+        "source_patches": [
+            {
+                "patch_file": "first.patch",
+                "files": [
+                    {
+                        "path": "shared.rs",
+                        "original_sha256": sha(before),
+                        "patched_sha256": sha(middle),
+                    }
+                ],
+            },
+            {
+                "patch_file": "second.patch",
+                "files": [
+                    {
+                        "path": "shared.rs",
+                        "original_sha256": sha(middle),
+                        "patched_sha256": sha(after),
+                    }
+                ],
+            },
+        ]
+    }
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if "--check" not in argv:
+            target.write_bytes(middle if argv[-1].endswith("first.patch") else after)
+
+    target.write_bytes(before)
+    server.prepare_source_patches({"source": source}, selected, run=run)
+    assert target.read_bytes() == after and len(calls) == 4
+    calls.clear()
+    server.prepare_source_patches({"source": source}, selected, run=run)
+    assert calls == []
+
+
+def test_query_ingress_metadata_requires_both_exact_owned_packages(tmp_path, monkeypatch):
+    selected = server.recipe(cpu_count=7, query_ingress=True)
+    paths = server.cache_paths(tmp_path, selected)
+    paths["source"].mkdir(parents=True)
+    lock = paths["source"] / "Cargo.lock"
+    lock.write_text("unchanged exact selected lock")
+    monkeypatch.setattr(server, "source_lock_sha256", lambda selected: server.digest(lock))
+    packages = [
+        {
+            "name": dependency["dependency_patches"][0]["name"],
+            "version": dependency["dependency_patches"][0]["version"],
+            "manifest_path": str(inputs["dependency"] / "Cargo.toml"),
+        }
+        for inputs, dependency in server.dependency_inputs(paths, selected)
+    ]
+    server.verify_metadata(
+        paths, selected, env={}, run=lambda *args, **kwargs: json.dumps({"packages": packages})
+    )
+    packages[1]["manifest_path"] = "/shared-registry/surrealdb-protocol/Cargo.toml"
+    with pytest.raises(Blocked, match="surrealdb-protocol"):
+        server.verify_metadata(
+            paths, selected, env={}, run=lambda *args, **kwargs: json.dumps({"packages": packages})
+        )
+
+
+@pytest.mark.parametrize("patch", ["grpc-query-bytes.patch", "protocol-query-bytes.patch"])
+def test_query_ingress_patches_are_parseable_git_input(patch):
+    # Generated protocol source lacks a final newline upstream: a textual diff
+    # must retain Git's explicit EOF marker rather than concatenate two lines.
+    result = subprocess.run(
+        ["git", "apply", "--numstat", str(server.PIN_ROOT / patch)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip()

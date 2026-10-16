@@ -50,7 +50,9 @@ def identity(value: dict) -> str:
     ).hexdigest()
 
 
-def recipe(*, cpu_count: int | None = None, grpc_drain: bool = True) -> dict:
+def recipe(
+    *, cpu_count: int | None = None, grpc_drain: bool = True, query_ingress: bool = False
+) -> dict:
     pin = read_json(PIN_ROOT / "provenance.json")
     if (
         pin.get("schema") != 1
@@ -84,10 +86,12 @@ def recipe(*, cpu_count: int | None = None, grpc_drain: bool = True) -> dict:
         or digest(PIN_ROOT / dependency["patch_file"]) != dependency.get("patch_sha256")
     ):
         raise Blocked("server dependency patch identity differs")
+    source_patches: list[dict] = []
+    dependency_patches = [dependency]
     selected = {
         "schema": 1,
         "pin": pin,
-        "dependency_patches": [dependency],
+        "dependency_patches": dependency_patches,
         "build": {
             "profile": "release",
             "opt_level": 3,
@@ -158,9 +162,74 @@ def recipe(*, cpu_count: int | None = None, grpc_drain: bool = True) -> dict:
             or lock["patched_sha256"] != patch["patched_lock_sha256"]
         ):
             raise Blocked("server execution-drain lock identity differs")
-        selected["source_patches"] = [patch]
+        source_patches.append(patch)
+        selected["source_patches"] = source_patches
         selected["pin"] = {
             **pin,
+            **{key: patch[key] for key in ("build_metadata", "cli_version", "http_version")},
+        }
+    if query_ingress:
+        if not grpc_drain:
+            raise Blocked("query ingress requires the execution-drain predecessor")
+        patch = read_json(PIN_ROOT / "grpc-query-bytes-provenance.json")
+        protocol = read_json(PIN_ROOT / "protocol-query-bytes-provenance.json")
+        predecessor = next(
+            row
+            for row in source_patches[-1]["files"]
+            if row["path"] == "surrealdb/server/src/rpc/grpc.rs"
+        )
+        if (
+            patch.get("schema") != 1
+            or patch.get("name") != "grpc-query-bytes"
+            or patch.get("upstream_commit") != COMMIT
+            or patch.get("requires") != "grpc-execution-drain.patch"
+            or patch.get("capability") != "QUERY_BATCH_BYTES_V1"
+            or patch.get("patch_file") != "grpc-query-bytes.patch"
+            or digest(PIN_ROOT / patch["patch_file"]) != patch.get("patch_sha256")
+            or len(patch.get("files", [])) != 3
+            or {row.get("path") for row in patch.get("files", [])}
+            != {
+                "surrealdb/server/src/rpc/grpc.rs",
+                "surrealdb/server/tests/grpc.rs",
+                "surrealdb/src/engine/remote/grpc.rs",
+            }
+            or patch["files"][0].get("path") != predecessor["path"]
+            or patch["files"][0].get("original_sha256") != predecessor["patched_sha256"]
+            or any(
+                not re.fullmatch("[a-f0-9]{64}", row.get(key, ""))
+                for row in patch["files"]
+                for key in ("original_sha256", "patched_sha256")
+            )
+            or patch.get("build_metadata") != "lctx.timeout-stack.grpc-drain.query-ingress.1"
+            or patch.get("cli_version")
+            != "3.3.0+lctx.timeout-stack.grpc-drain.query-ingress.1 for linux on x86_64"
+            or patch.get("http_version")
+            != "surrealdb-3.3.0+lctx.timeout-stack.grpc-drain.query-ingress.1"
+            or protocol.get("schema") != 1
+            or protocol.get("name") != "surrealdb-protocol"
+            or protocol.get("version") != "0.13.1"
+            or protocol.get("override") != "paths"
+            or protocol.get("archive_url")
+            != (
+                "https://static.crates.io/crates/surrealdb-protocol/surrealdb-protocol-0.13.1.crate"
+            )
+            or protocol.get("archive_sha256")
+            != "d53501c853fe88d5ead8e50612d310b43389f3c66fda7ef323a1af6c393809c6"
+            or protocol.get("patch_file") != "protocol-query-bytes.patch"
+            or digest(PIN_ROOT / protocol["patch_file"]) != protocol.get("patch_sha256")
+            or protocol.get("query_request_tag") != 6
+            or protocol.get("capability") != "QUERY_BATCH_BYTES_V1"
+            or any(
+                not re.fullmatch("[a-f0-9]{64}", protocol.get(key, ""))
+                for key in ("manifest_sha256", "original_file_sha256", "patched_file_sha256")
+            )
+        ):
+            raise Blocked("server query-ingress patch or protocol identity differs")
+        source_patches.append(patch)
+        dependency_patches.append(protocol)
+        selected["query_ingress"] = {"capability": "QUERY_BATCH_BYTES_V1", "query_request_tag": 6}
+        selected["pin"] = {
+            **selected["pin"],
             **{key: patch[key] for key in ("build_metadata", "cli_version", "http_version")},
         }
     return selected
@@ -180,7 +249,7 @@ def original_recipe(selected: dict) -> dict:
     original = {
         key: value
         for key, value in selected.items()
-        if key not in ("dependency_patches", "source_patches")
+        if key not in ("dependency_patches", "source_patches", "query_ingress")
     }
     if selected.get("source_patches"):
         original["pin"] = {
@@ -195,7 +264,7 @@ def original_recipe(selected: dict) -> dict:
 def cache_paths(directory: Path, selected_recipe: dict) -> dict[str, Path]:
     root = tools_root(directory) / "server-build" / identity(selected_recipe)
     cache = tools_root(directory) / "server-build" / identity(original_recipe(selected_recipe))
-    return {
+    paths = {
         "root": root,
         "cache": cache,
         "cache_record": cache / "record.json",
@@ -206,6 +275,24 @@ def cache_paths(directory: Path, selected_recipe: dict) -> dict[str, Path]:
         "dependency": root / "overrides/diskann-0.56.0",
         "archive": root / "archives/diskann-0.56.0.crate",
     }
+    if selected_recipe.get("query_ingress"):
+        paths["protocol_dependency"] = root / "overrides/surrealdb-protocol-0.13.1"
+        paths["protocol_archive"] = root / "archives/surrealdb-protocol-0.13.1.crate"
+    return paths
+
+
+def dependency_inputs(paths: dict[str, Path], selected: dict):
+    """Reuse the exact archive/patch owner for each deliberately selected package."""
+    yield paths, {**selected, "dependency_patches": [selected["dependency_patches"][0]]}
+    if selected.get("query_ingress"):
+        yield (
+            {
+                **paths,
+                "dependency": paths["protocol_dependency"],
+                "archive": paths["protocol_archive"],
+            },
+            {**selected, "dependency_patches": [selected["dependency_patches"][1]]},
+        )
 
 
 def build_provenance(
@@ -235,10 +322,11 @@ def build_provenance(
         },
         "dependency_overrides": [
             {
-                "pin": selected["dependency_patches"][0],
-                "path": str(paths["dependency"]),
-                "archive_path": str(paths["archive"]),
+                "pin": dependency["dependency_patches"][0],
+                "path": str(inputs["dependency"]),
+                "archive_path": str(inputs["archive"]),
             }
+            for inputs, dependency in dependency_inputs(paths, selected)
         ],
     }
     if selected.get("source_patches"):
@@ -253,7 +341,9 @@ def validate_provenance(value: dict, *, directory: Path | None = None) -> None:
         # The exact predecessor remains consumed by installed immutable services and
         # campaigns until explicit owner handoff. This is not a permissive legacy reader.
         if selected != recipe(
-            cpu_count=selected["build"]["codegen_units"], grpc_drain="source_patches" in selected
+            cpu_count=selected["build"]["codegen_units"],
+            grpc_drain="source_patches" in selected,
+            query_ingress="query_ingress" in selected,
         ):
             raise Blocked("server provenance recipe differs from reviewed pins")
         if value["recipe_identity"] != identity(selected):
@@ -348,7 +438,7 @@ def _validate_descriptor(path: Path, *, runner=None) -> dict:
 def dependencies(descriptor: dict) -> list[dict]:
     validate_provenance(descriptor["provenance"])
     provenance = descriptor["provenance"]
-    return [
+    dependencies = [
         {"path": path, "role": role}
         for path, role in (
             (str(Path(descriptor["path"]).parent), "server-executable-generation"),
@@ -364,6 +454,14 @@ def dependencies(descriptor: dict) -> list[dict]:
             ),
         )
     ]
+    for override in provenance["dependency_overrides"][1:]:
+        dependencies.extend(
+            [
+                {"path": override["path"], "role": "server-dependency-source-override"},
+                {"path": override["archive_path"], "role": "server-dependency-original-archive"},
+            ]
+        )
+    return dependencies
 
 
 def execute(argv: list[str], *, cwd: Path, env: dict, capture: bool = False) -> str:
@@ -457,11 +555,19 @@ def verify_source(paths: dict[str, Path], selected: dict, *, run=execute) -> Non
             raise Blocked("server source or lock differs: " + name)
     changed = {pin["patched_file"]}
     added = set()
+    final_files = {}
     for patch in selected.get("source_patches", []):
         for row in patch["files"]:
-            if digest(source / row["path"]) != row["patched_sha256"]:
-                raise Blocked("server source differs from execution-drain patch: " + row["path"])
+            if (
+                row["path"] in final_files
+                and row["original_sha256"] != final_files[row["path"]]["patched_sha256"]
+            ):
+                raise Blocked("server source patch chain has a divergent predecessor")
+            final_files[row["path"]] = row
             (changed if row["original_sha256"] is not None else added).add(row["path"])
+    for row in final_files.values():
+        if digest(source / row["path"]) != row["patched_sha256"]:
+            raise Blocked("server source differs from composed patch: " + row["path"])
     status = run(
         ["git", "status", "--porcelain", "--untracked-files=all", "--ignored"],
         cwd=source,
@@ -476,14 +582,21 @@ def verify_source(paths: dict[str, Path], selected: dict, *, run=execute) -> Non
 def prepare_source_patches(paths: dict[str, Path], selected: dict, *, run=execute) -> None:
     """Apply only on this successor's private source; never mutate its borrowed cache."""
     source = paths["source"]
-    for patch in selected.get("source_patches", []):
+    patches = selected.get("source_patches", [])
+    for index, patch in enumerate(patches):
         states = []
         for row in patch["files"]:
             path = source / row["path"]
             actual = digest(path) if path.is_file() and not path.is_symlink() else None
+            later_hashes = {
+                later["patched_sha256"]
+                for successor in patches[index + 1 :]
+                for later in successor["files"]
+                if later["path"] == row["path"]
+            }
             states.append(
                 "patched"
-                if actual == row["patched_sha256"]
+                if actual == row["patched_sha256"] or actual in later_hashes
                 else "original"
                 if actual == row["original_sha256"] and not path.is_symlink()
                 else "conflict"
@@ -491,15 +604,15 @@ def prepare_source_patches(paths: dict[str, Path], selected: dict, *, run=execut
         if all(state == "patched" for state in states):
             continue
         if not all(state == "original" for state in states):
-            raise Blocked("successor source conflicts with exact execution-drain patch")
+            raise Blocked("successor source conflicts with exact source patch chain")
         path = str(PIN_ROOT / patch["patch_file"])
         run(["git", "apply", "--check", path], cwd=source, env=git_environment())
         run(["git", "apply", path], cwd=source, env=git_environment())
 
 
-def dependency_archives() -> list[Path]:
+def dependency_archives(package: str = "diskann-0.56.0") -> list[Path]:
     cargo = Path(os.environ.get("CARGO_HOME", str(Path.home() / ".cargo")))
-    return sorted((cargo / "registry/cache").glob("*/diskann-0.56.0.crate"))
+    return sorted((cargo / "registry/cache").glob("*/" + package + ".crate"))
 
 
 def archive_files(path: Path, pin: dict) -> dict[str, bytes]:
@@ -644,11 +757,14 @@ def prepare_dependency(
 
 
 def cargo_config(paths: dict[str, Path]) -> list[str]:
+    overrides = [str(paths["dependency"])]
+    if "protocol_dependency" in paths:
+        overrides.append(str(paths["protocol_dependency"]))
     return [
         "--config",
         "build.build-dir=" + json.dumps(str(paths["intermediates"])),
         "--config",
-        "paths=" + json.dumps([str(paths["dependency"])]),
+        "paths=" + json.dumps(overrides),
     ]
 
 
@@ -673,22 +789,28 @@ def verify_metadata(paths: dict[str, Path], selected: dict, *, env: dict, run=ex
         env=env,
         capture=True,
     )
-    packages = [row for row in json.loads(result)["packages"] if row["name"] == "diskann"]
-    if (
-        len(packages) != 1
-        or packages[0]["version"] != "0.56.0"
-        or Path(packages[0]["manifest_path"]) != paths["dependency"] / "Cargo.toml"
-    ):
-        raise Blocked("Cargo did not select the exact owned dependency override")
+    for inputs, dependency in dependency_inputs(paths, selected):
+        pin = dependency["dependency_patches"][0]
+        packages = [row for row in json.loads(result)["packages"] if row["name"] == pin["name"]]
+        if (
+            len(packages) != 1
+            or packages[0]["version"] != pin["version"]
+            or Path(packages[0]["manifest_path"]) != inputs["dependency"] / "Cargo.toml"
+        ):
+            raise Blocked(
+                "Cargo did not select the exact owned dependency override: " + pin["name"]
+            )
     if digest(paths["source"] / "Cargo.lock") != source_lock_sha256(selected):
         raise Blocked("Cargo metadata changed the selected reviewed lock")
 
 
-def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
+def build(
+    directory: Path, *, run=execute, metadata_only: bool = False, query_ingress: bool = False
+) -> dict:
     directory = Path(os.path.abspath(directory.expanduser()))
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise Blocked("this reviewed server recipe requires Linux x86_64")
-    selected = recipe()
+    selected = recipe(query_ingress=query_ingress)
     paths = cache_paths(directory, selected)
     if any(
         parent.is_symlink()
@@ -698,6 +820,8 @@ def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
         raise Blocked("server cache must have a physical path")
     generations = tools_root(directory) / "surreal"
     archives = dependency_archives()
+    if query_ingress:
+        archives.extend(dependency_archives("surrealdb-protocol-0.13.1"))
     # Admission precedes directories, source download, native compilation and generation copy.
     with admission(
         [paths["root"], paths["cache"], generations, *archives],
@@ -778,14 +902,15 @@ def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
         )
         for name in ("target", "intermediates"):
             private_directory(paths[name])
-        prepare_dependency(paths, selected, archives=archives, run=run)
-        storage.publish(
-            paths["dependency"],
-            "native-cache",
-            {"kind": "external", "path": str(paths["dependency"])},
-            "server-exact-dependency-override:" + identity(selected),
-            requires="raw-replay",
-        )
+        for inputs, dependency in dependency_inputs(paths, selected):
+            prepare_dependency(inputs, dependency, archives=archives, run=run)
+            storage.publish(
+                inputs["dependency"],
+                "native-cache",
+                {"kind": "external", "path": str(inputs["dependency"])},
+                "server-exact-dependency-override:" + identity(dependency),
+                requires="raw-replay",
+            )
         env = build_environment(selected, paths)
         rustc = run(
             ["rustup", "run", TOOLCHAIN, "rustc", "-vV"], cwd=paths["root"], env=env, capture=True
@@ -843,7 +968,8 @@ def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
         ]
         run(command, cwd=source, env=env)
         verify_source(paths, selected, run=run)
-        verify_dependency_source(paths, selected)
+        for inputs, dependency in dependency_inputs(paths, selected):
+            verify_dependency_source(inputs, dependency)
         if digest(paths["cache_record"]) != original_record_digest:
             raise Blocked("original cache recipe record changed during successor build")
         executable = paths["target"] / selected["pin"]["platform"] / "release/surreal"
@@ -867,6 +993,11 @@ def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--service-directory", type=Path)
+    parser.add_argument(
+        "--query-ingress",
+        action="store_true",
+        help="select the isolated QUERY_BATCH_BYTES_V1 candidate generation",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("recipe")
     sub.add_parser("build")
@@ -876,13 +1007,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "recipe":
-            row = recipe()
+            row = recipe(query_ingress=args.query_ingress)
         elif args.command == "verify":
             row = validate_descriptor(args.descriptor)
         else:
             if args.service_directory is None:
                 parser.error("build requires an explicit --service-directory")
-            row = build(args.service_directory, metadata_only=args.command == "metadata")
+            row = build(
+                args.service_directory,
+                metadata_only=args.command == "metadata",
+                query_ingress=args.query_ingress,
+            )
         print(json.dumps(row, indent=2, sort_keys=True))
         return 0
     except Blocked as error:

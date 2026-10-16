@@ -1,5 +1,6 @@
 """Prospective host composition with real inert commands; no native service."""
 
+import itertools
 import json
 import os
 import signal
@@ -275,6 +276,381 @@ with writer_owner('ordinary-writer'),writer_owner('second-writer'):
         assert any(row.get("owner_escalated") for row in receipts)
     finally:
         runs.cancel(directory, grace=0.1)
+
+
+@pytest.fixture
+def stop_scope(scope, monkeypatch):
+    """Pure owner-issuance fixture. It never signals a real process."""
+    directory, parent = scope
+    identity = {**parent.record["owner"], "pid": parent.record["owner"]["pid"] + 10_000_000}
+    held = set()
+    monkeypatch.setattr(harness.ProcessIdentity, "alive", lambda self: True)
+    monkeypatch.setattr(delegated, "lock_held", lambda path: path.parent.name in held)
+    clock = [100.0]
+    monkeypatch.setattr(delegated.time, "monotonic", lambda: clock[0])
+    signals = []
+    monkeypatch.setattr(
+        delegated, "_signal_owner", lambda owner, lock, signum: signals.append(signum) or True
+    )
+
+    def add(name, *, live=True, kind="ordinary-writer", child=None, owner=None):
+        path = directory / delegated.ENTRIES / name
+        path.mkdir()
+        row = {
+            "schema": 1,
+            "id": name,
+            "run": directory.name,
+            "run_owner": parent.record["owner"],
+            "owner": owner or identity,
+            "kind": kind,
+            "child": child,
+            "spawning": bool(child),
+            "ended": None if live else "original-completed",
+            "cleanup": {"status": "unknown" if live else "confirmed"},
+        }
+        harness.write_json_atomic(path / "record.json", row)
+        if live:
+            held.add(name)
+        return path
+
+    return SimpleNamespace(
+        directory=directory,
+        record=parent.record,
+        add=add,
+        clock=clock,
+        signals=signals,
+        held=held,
+        identity=identity,
+    )
+
+
+@pytest.mark.parametrize("order", sorted(set(itertools.permutations((False, True, True)))))
+def test_stop_groups_completed_and_live_owner_independently_of_order(stop_scope, order):
+    scope = stop_scope
+    paths = [scope.add(str(index), live=live) for index, live in enumerate(order)]
+    originals = [path.joinpath("record.json").read_bytes() for path in paths]
+    assert delegated.request_stop(scope.directory, scope.record)["status"] == "active"
+    assert scope.signals == [signal.SIGTERM]
+    scope.clock[0] = 104.0
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM]
+    scope.clock[0] = 110.0
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM, signal.SIGKILL]
+    scope.clock[0] = 120.0
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM, signal.SIGKILL]
+    for path, original in zip(paths, originals, strict=True):
+        recovery = receipt(path / "recovery.json")
+        assert recovery["owner_request"]["status"] == "sent"
+        assert recovery["requested_monotonic"] == 100.0
+        assert recovery["owner_signal"]["status"] == "sent"
+        assert path.joinpath("record.json").read_bytes() == original
+
+
+def test_completed_only_owner_creates_no_stop_request(stop_scope):
+    scope = stop_scope
+    path = scope.add("completed", live=False)
+    assert delegated.request_stop(scope.directory, scope.record)["status"] == "confirmed"
+    assert not (path / "recovery.json").exists()
+    assert scope.signals == []
+
+
+def test_concurrent_stop_callers_issue_once_and_preserve_sent_time(stop_scope, monkeypatch):
+    scope = stop_scope
+    scope.add("first")
+    scope.add("second")
+    entered, release = threading.Event(), threading.Event()
+    second_entered = threading.Event()
+    results = []
+
+    def signal_owner(owner, lock, signum):
+        scope.signals.append(signum)
+        entered.set()
+        assert release.wait(2)
+        return True
+
+    monkeypatch.setattr(delegated, "_signal_owner", signal_owner)
+    first = threading.Thread(
+        target=lambda: results.append(delegated.request_stop(scope.directory, scope.record))
+    )
+
+    def second_request():
+        second_entered.set()
+        results.append(delegated.request_stop(scope.directory, scope.record))
+
+    second = threading.Thread(target=second_request)
+    first.start()
+    try:
+        assert entered.wait(2)
+        second.start()
+        assert second_entered.wait(2)
+    finally:
+        release.set()
+        first.join(3)
+        if second.ident is not None:
+            second.join(3)
+    assert not first.is_alive() and not second.is_alive()
+    assert len(results) == 2 and all(row["status"] == "active" for row in results)
+    assert scope.signals == [signal.SIGTERM]
+
+
+@pytest.mark.parametrize("failure_stage", ("before_signal", "after_signal", "partial_sent"))
+def test_persistence_failure_retries_without_false_grace(stop_scope, monkeypatch, failure_stage):
+    scope = stop_scope
+    first, second = scope.add("first"), scope.add("second")
+    write = delegated.write_json_atomic
+    failed = []
+
+    def fail_once(path, value):
+        if path.name == "recovery.json" and not failed:
+            status = value.get("owner_signal", {}).get("status")
+            if (
+                (failure_stage == "before_signal" and status == "attempted")
+                or (failure_stage == "after_signal" and status == "sent")
+                or (failure_stage == "partial_sent" and path.parent == second and status == "sent")
+            ):
+                failed.append(True)
+                raise OSError("selected receipt failure")
+        return write(path, value)
+
+    monkeypatch.setattr(delegated, "write_json_atomic", fail_once)
+    observed = delegated.request_stop(scope.directory, scope.record)
+    assert observed["status"] == "active" and "receipt failure" in observed["reason"]
+    assert scope.signals == ([] if failure_stage == "before_signal" else [signal.SIGTERM])
+    scope.clock[0] = 110.0
+    delegated.request_stop(scope.directory, scope.record)
+    if failure_stage == "partial_sent":
+        assert scope.signals == [signal.SIGTERM, signal.SIGKILL]
+        expected_time = 100.0
+    else:
+        assert scope.signals[-1] == signal.SIGTERM
+        expected_time = 110.0
+    for path in (first, second):
+        assert receipt(path / "recovery.json")["requested_monotonic"] == expected_time
+
+
+@pytest.mark.parametrize("signal_failure", ("raises", "not_sent"))
+def test_failed_signal_does_not_start_grace_and_remains_retryable(
+    stop_scope, monkeypatch, signal_failure
+):
+    scope = stop_scope
+    path = scope.add("live")
+
+    def fail(owner, lock, signum):
+        if signal_failure == "raises":
+            raise PermissionError("signal denied")
+        return False
+
+    monkeypatch.setattr(delegated, "_signal_owner", fail)
+    observed = delegated.request_stop(scope.directory, scope.record)
+    assert observed["status"] == "active"
+    recovery = receipt(path / "recovery.json")
+    assert "owner_request" not in recovery and "requested_monotonic" not in recovery
+    expected_signal = "failed" if signal_failure == "raises" else "not_sent"
+    assert recovery["owner_signal"]["status"] == expected_signal
+    scope.clock[0] = 120.0
+    monkeypatch.setattr(
+        delegated,
+        "_signal_owner",
+        lambda owner, lock, signum: scope.signals.append(signum) or True,
+    )
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM]
+    assert receipt(path / "recovery.json")["requested_monotonic"] == 120.0
+
+
+def test_unproven_timestamp_cannot_suppress_initial_request(stop_scope):
+    scope = stop_scope
+    path = scope.add("live")
+    harness.write_json_atomic(
+        path / "recovery.json", {"requested": "unproven", "requested_monotonic": 1.0}
+    )
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM]
+    assert receipt(path / "recovery.json")["requested_monotonic"] == 100.0
+
+
+def test_observer_in_same_owner_group_protects_against_escalation(stop_scope):
+    scope = stop_scope
+    scope.add("ordinary")
+    scope.add("observer", kind="profile-observer")
+    delegated.request_stop(scope.directory, scope.record)
+    scope.clock[0] = 120.0
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM]
+
+
+def test_foreign_and_calling_owners_are_not_signalled(stop_scope):
+    scope = stop_scope
+    scope.add("self", owner={**harness.ProcessIdentity.of().to_json(), "extension": "retained"})
+    scope.add("foreign", owner={**scope.identity, "pid_namespace": -1})
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == []
+
+
+def test_failed_owner_does_not_starve_other_live_owner(stop_scope, monkeypatch):
+    scope = stop_scope
+    denied = scope.add("a-denied")
+    other = scope.add("b-other", owner={**scope.identity, "pid": scope.identity["pid"] + 1})
+
+    def send(owner, lock, signum):
+        if lock.parent == denied:
+            raise PermissionError("first owner denied")
+        scope.signals.append((lock.parent, signum))
+        return True
+
+    monkeypatch.setattr(delegated, "_signal_owner", send)
+    observed = delegated.request_stop(scope.directory, scope.record)
+    assert observed["status"] == "active" and "denied" in observed["reason"]
+    assert scope.signals == [(other, signal.SIGTERM)]
+    assert "owner_request" not in receipt(denied / "recovery.json")
+
+
+def test_failed_escalation_retries_with_original_grace(stop_scope, monkeypatch):
+    scope = stop_scope
+    path = scope.add("live")
+    delegated.request_stop(scope.directory, scope.record)
+    scope.clock[0] = 120.0
+    monkeypatch.setattr(delegated, "_signal_owner", lambda *args: False)
+    delegated.request_stop(scope.directory, scope.record)
+    recovery = receipt(path / "recovery.json")
+    assert recovery["requested_monotonic"] == 100.0
+    assert "owner_escalated" not in recovery
+    monkeypatch.setattr(
+        delegated,
+        "_signal_owner",
+        lambda owner, lock, signum: scope.signals.append(signum) or True,
+    )
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM, signal.SIGKILL]
+    assert receipt(path / "recovery.json")["requested_monotonic"] == 100.0
+
+
+def test_finalizing_independent_observer_protects_other_owner(stop_scope, monkeypatch):
+    scope = stop_scope
+    scope.add("ordinary")
+    observer_identity = {**scope.identity, "pid": scope.identity["pid"] + 1}
+    observer = scope.add(
+        "observer",
+        live=False,
+        kind="profile-observer",
+        child=observer_identity,
+        owner=observer_identity,
+    )
+    monkeypatch.setattr(
+        delegated,
+        "recorded_group",
+        lambda *args, **kwargs: {"status": "owned", "members": []},
+    )
+    delegated.request_stop(scope.directory, scope.record)
+    scope.clock[0] = 120.0
+    delegated.request_stop(scope.directory, scope.record)
+    assert scope.signals == [signal.SIGTERM]
+    assert not (observer / "recovery.json").exists()
+
+
+def test_dead_child_cleanup_does_not_hold_admission_gate(scope, monkeypatch):
+    directory, parent = scope
+    path = directory / delegated.ENTRIES / "dead"
+    path.mkdir()
+    dead = {**parent.record["owner"], "start_ticks": -1}
+    harness.write_json_atomic(
+        path / "record.json",
+        {
+            "schema": 1,
+            "id": path.name,
+            "run": directory.name,
+            "run_owner": parent.record["owner"],
+            "owner": dead,
+            "kind": "ordinary-writer",
+            "child": {**dead, "pgid": dead["pid"]},
+            "spawning": True,
+            "ended": None,
+            "cleanup": {"status": "unknown"},
+        },
+    )
+    monkeypatch.setattr(
+        delegated,
+        "recorded_group",
+        lambda *args, **kwargs: {"status": "owned", "members": []},
+    )
+    entered, release = threading.Event(), threading.Event()
+    result = []
+
+    def cleanup(*args, **kwargs):
+        entered.set()
+        assert release.wait(2)
+        return {"status": "confirmed", "survivors": []}
+
+    monkeypatch.setattr(delegated, "cleanup_group", cleanup)
+    thread = threading.Thread(
+        target=lambda: result.append(delegated.request_stop(directory, parent.record))
+    )
+    thread.start()
+    try:
+        assert entered.wait(2)
+        gate = harness.try_hold_lock(directory / "delegation.lock")
+        assert gate is not None
+        os.close(gate)
+        # Another caller observes the child still draining without blocking on
+        # its recovery lock, and without fabricating a completed original.
+        assert delegated.request_stop(directory, parent.record)["status"] == "unknown"
+    finally:
+        release.set()
+        thread.join(3)
+    assert not thread.is_alive() and len(result) == 1
+    assert receipt(path / "record.json")["cleanup"]["status"] == "unknown"
+    assert receipt(path / "recovery.json")["cleanup"]["status"] == "confirmed"
+
+
+def test_wholly_owned_host_completed_registration_cannot_suppress_cancel(scope, tmp_path):
+    directory, owner = scope
+    ready = tmp_path / "completed-first-ready"
+    script = r"""
+import os,pathlib,signal,sys,time
+sys.path.insert(0,sys.argv[1])
+from run_delegation import register
+signal.signal(signal.SIGTERM,signal.SIG_IGN)
+first=register('completed-setup')
+first.finish({'status':'confirmed','survivors':[]})
+active=register('active-writer')
+# Force completed-first enumeration independently of UUID ordering.
+import json
+for registration,name in ((first,'a-completed'),(active,'b-active')):
+ destination=registration.directory.parent/name
+ registration.directory.rename(destination)
+ p=destination/'record.json'
+ r=json.loads(p.read_text());r['id']=name;p.write_text(json.dumps(r))
+pathlib.Path(sys.argv[2]).touch()
+while True:time.sleep(.01)
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", script, str(Path(runs.__file__).parent), str(ready)]
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and child.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists()
+        identity = harness.ProcessIdentity.of(child.pid)
+        assert delegated.request_stop(directory, owner.record, grace=0.05)["status"] == "active"
+        deadline = time.monotonic() + 5
+        while identity.alive() and time.monotonic() < deadline:
+            delegated.request_stop(directory, owner.record, grace=0.05)
+            time.sleep(0.01)
+        child.wait(timeout=2)
+        assert child.returncode == -signal.SIGKILL
+        assert not identity.alive()
+        assert delegated.request_stop(directory, owner.record, grace=0.05)["status"] == "confirmed"
+        assert runs.host_cleanup(directory)["status"] == "confirmed"
+        assert receipt(directory / delegated.ENTRIES / "a-completed" / "record.json")["ended"]
+    finally:
+        if child.poll() is None:
+            # Popen owns this exact unreaped process; never signal a numeric historical PID.
+            child.kill()
+        child.wait(timeout=2)
+        delegated.request_stop(directory, owner.record, grace=0.05)
 
 
 def options(**overrides):

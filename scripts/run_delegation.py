@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import math
 import os
 import signal
 import time
@@ -333,100 +334,213 @@ def observe(
         return {"status": "unknown", "reason": str(error), "children": children}
 
 
+def _recovery(path: Path) -> dict[str, Any]:
+    receipt = path / "recovery.json"
+    if receipt.is_symlink():
+        raise ValueError("delegated recovery is redirected")
+    value = read_json(receipt)
+    if value is None and not receipt.exists():
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("delegated recovery receipt unavailable")
+    return value
+
+
+def _delivered_request(previous: Mapping[str, Any]) -> dict[str, Any] | None:
+    request = previous.get("owner_request")
+    if request is None:
+        # A timestamp alone, including one from the former stop loop, is not
+        # evidence that a signal was sent. Retry TERM rather than invent grace.
+        return None
+    if (
+        not isinstance(request, dict)
+        or request.get("status") != "sent"
+        or not isinstance(request.get("requested"), str)
+        or type(request.get("requested_monotonic")) not in (int, float)
+        or not math.isfinite(request["requested_monotonic"])
+    ):
+        raise ValueError("delegated owner request is invalid")
+    return request
+
+
+def _request_live_owners(
+    run_dir: Path, record: Mapping[str, Any], grace: float
+) -> tuple[list[Path], list[str]]:
+    # The admission gate also serializes stop issuers. It covers receipt reads,
+    # actual signal issuance and publication, never child-group drainage.
+    with _gate(run_dir):
+        _scope(run_dir, record)
+        root = run_dir / ENTRIES
+        if root.is_symlink() or not root.is_dir():
+            raise ValueError("delegated receipt directory unavailable")
+        paths = sorted(root.iterdir())
+        owners: dict[str, list[tuple[Path, dict, dict]]] = {}
+        observers_finalizing = False
+        for path in paths:
+            row = _entry(path, run_dir, record)
+            previous = _recovery(path)
+            key = json.dumps(ProcessIdentity.from_json(row["owner"]).to_json(), sort_keys=True)
+            owners.setdefault(key, []).append((path, row, previous))
+            if (
+                row["kind"] == "profile-observer"
+                and row.get("child")
+                and recorded_group(row["child"], members=previous.get("members", []))["status"]
+                == "owned"
+            ):
+                observers_finalizing = True
+        caller = ProcessIdentity.of()
+        errors = []
+        for entries in owners.values():
+            try:
+                _request_live_owner(entries, caller, observers_finalizing, grace)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                errors.append(str(error))
+        return paths, errors
+
+
+def _request_live_owner(
+    entries: list[tuple[Path, dict, dict]],
+    caller: ProcessIdentity,
+    observers_finalizing: bool,
+    grace: float,
+) -> None:
+    owner_row = entries[0][1]["owner"]
+    owner = ProcessIdentity.from_json(owner_row)
+    if owner.foreign() or owner == caller or not owner.alive():
+        return
+    active = [(path, row) for path, row, _ in entries if lock_held(path / "owner.lock")]
+    if not active:
+        return
+    requests = [
+        request
+        for _, _, previous in entries
+        if (request := _delivered_request(previous)) is not None
+    ]
+    prior = min(requests, key=lambda value: value["requested_monotonic"], default=None)
+    signum = None
+    if prior is None:
+        signum = signal.SIGTERM
+    elif (
+        not observers_finalizing
+        and not any(previous.get("owner_escalated") for _, _, previous in entries)
+        and all(row["kind"] != "profile-observer" for _, row in active)
+        and time.monotonic() - prior["requested_monotonic"] >= grace
+    ):
+        signum = signal.SIGKILL
+    if signum is None:
+        return
+    attempt = {
+        "status": "attempted",
+        "signal": signum.name,
+        "attempted": _now(),
+        "attempted_monotonic": time.monotonic(),
+    }
+    states = []
+    for path, row, previous in entries:
+        members = list(previous.get("members", []))
+        group = recorded_group(row["child"], members=members) if row.get("child") else None
+        if group and group["status"] == "owned":
+            for pid in group["members"]:
+                with contextlib.suppress(OSError):
+                    member = ProcessIdentity.of(pid).to_json()
+                    if member not in members:
+                        members.append(member)
+        state = {**previous, "members": members, "owner_signal": attempt}
+        if prior is not None:
+            state.update(
+                owner_request=prior,
+                requested=prior["requested"],
+                requested_monotonic=prior["requested_monotonic"],
+            )
+        # Persist every child's recovery membership before a signal can
+        # kill its owner. Failure here permits retry, never escalation.
+        write_json_atomic(path / "recovery.json", state)
+        states.append((path, state))
+    error = None
+    try:
+        sent = _signal_owner(owner, active[0][0] / "owner.lock", signum)
+        result = {**attempt, "status": "sent" if sent else "not_sent", "observed": _now()}
+    except OSError as failure:
+        sent = False
+        error = failure
+        result = {**attempt, "status": "failed", "error": str(failure), "observed": _now()}
+    if sent and prior is None:
+        prior = {
+            "status": "sent",
+            "requested": _now(),
+            "requested_monotonic": time.monotonic(),
+        }
+    for path, state in states:
+        state["owner_signal"] = result
+        if prior is not None:
+            state.update(
+                owner_request=prior,
+                requested=prior["requested"],
+                requested_monotonic=prior["requested_monotonic"],
+            )
+        if sent and signum == signal.SIGKILL:
+            state["owner_escalated"] = result["observed"]
+        write_json_atomic(path / "recovery.json", state)
+    if error is not None:
+        raise error
+
+
+def _recover_dead_owner(path: Path, run_dir: Path, record: Mapping[str, Any], grace: float) -> None:
+    recovery_lock = try_hold_lock(path / "recovery.lock")
+    if recovery_lock is None:
+        return
+    try:
+        with _gate(run_dir):
+            row = _entry(path, run_dir, record)
+            owner = ProcessIdentity.from_json(row["owner"])
+            if owner.foreign() or owner.alive() or lock_held(path / "owner.lock"):
+                return
+            previous = _recovery(path)
+            members = previous.get("members", [])
+            group = recorded_group(row["child"], members=members) if row.get("child") else None
+        if group and group["status"] == "owned" and row["kind"] != "profile-observer":
+            cleanup = cleanup_group(row["child"]["pgid"], grace=grace)
+        elif (group and group["status"] == "gone") or (not group and not row["spawning"]):
+            cleanup = {"status": "confirmed", "survivors": []}
+        else:
+            cleanup = {"status": "unknown", "reason": "delegated launch/group identity unavailable"}
+        with _gate(run_dir):
+            state = {**_recovery(path), "cleanup": cleanup, "observed": _now()}
+            write_json_atomic(path / "recovery.json", state)
+    finally:
+        os.close(recovery_lock)
+
+
 def request_stop(run_dir: Path, record: Mapping[str, Any], *, grace: float = 5.0) -> dict:
     """Close admission, request live owners, recover only authenticated dead owners.
 
     Recovery is a separate parent-written receipt. It never rewrites a child's
-    original result. Member identities are retained before signalling the owner.
+    original result. Only persisted successful delivery establishes owner grace.
     """
     if not record.get("delegation"):
         return observe(run_dir, record)
     try:
         close_admission(run_dir, record)
-        paths = sorted((run_dir / ENTRIES).iterdir())
-        observers_finalizing = False
-        owner_requests: dict[str, dict[str, Any]] = {}
+        paths, errors = _request_live_owners(run_dir, record, grace)
         for path in paths:
-            row = _entry(path, run_dir, record)
-            prior = read_json(path / "recovery.json") or {}
-            owner_key = json.dumps(row["owner"], sort_keys=True)
-            if prior.get("requested_monotonic") is not None:
-                old = owner_requests.get(owner_key)
-                if old is None or prior["requested_monotonic"] < old["requested_monotonic"]:
-                    owner_requests[owner_key] = prior
-            if (
-                row["kind"] == "profile-observer"
-                and row.get("child")
-                and recorded_group(row["child"], members=prior.get("members", []))["status"]
-                == "owned"
-            ):
-                observers_finalizing = True
-        for path in paths:
-            row = _entry(path, run_dir, record)
-            owner = ProcessIdentity.from_json(row["owner"])
-            if owner.foreign() or row["owner"] == ProcessIdentity.of().to_json():
-                continue
-            recovery_lock = try_hold_lock(path / "recovery.lock")
-            if recovery_lock is None:
-                continue
             try:
-                previous = read_json(path / "recovery.json") or {}
-                owner_key = json.dumps(row["owner"], sort_keys=True)
-                prior_request = owner_requests.get(owner_key)
-                members = previous.get("members", [])
-                group = (
-                    recorded_group(row.get("child"), members=members) if row.get("child") else None
-                )
-                if group and group["status"] == "owned":
-                    for pid in group["members"]:
-                        with contextlib.suppress(OSError):
-                            member = ProcessIdentity.of(pid).to_json()
-                            if member not in members:
-                                members.append(member)
-                state: dict[str, Any] = {
-                    **previous,
-                    "members": members,
-                    "requested": (prior_request or {}).get("requested") or _now(),
-                    "requested_monotonic": (prior_request or {}).get(
-                        "requested_monotonic", time.monotonic()
-                    ),
-                }
-                owner_requests[owner_key] = state
-                if prior_request is None and owner.alive() and lock_held(path / "owner.lock"):
-                    write_json_atomic(path / "recovery.json", state)
-                    _signal_owner(owner, path / "owner.lock", signal.SIGTERM)
-                elif (
-                    owner.alive()
-                    and lock_held(path / "owner.lock")
-                    and row["kind"] != "profile-observer"
-                    and not observers_finalizing
-                    and time.monotonic() - state["requested_monotonic"] >= grace
-                ):
-                    # A child owner that refuses its graceful request cannot keep
-                    # cancellation pending forever. Its child groups remain separate
-                    # obligations, recovered below only after this owner has stopped.
-                    if _signal_owner(owner, path / "owner.lock", signal.SIGKILL):
-                        state["owner_escalated"] = _now()
-                    write_json_atomic(path / "recovery.json", state)
-                elif not lock_held(path / "owner.lock") and not owner.alive():
-                    group = (
-                        recorded_group(row["child"], members=members) if row.get("child") else None
-                    )
-                    if group and group["status"] == "owned" and row["kind"] != "profile-observer":
-                        state["cleanup"] = cleanup_group(row["child"]["pgid"], grace=grace)
-                    elif (group and group["status"] == "gone") or (
-                        not group and not row["spawning"]
-                    ):
-                        state["cleanup"] = {"status": "confirmed", "survivors": []}
-                    else:
-                        state["cleanup"] = {
-                            "status": "unknown",
-                            "reason": "delegated launch/group identity unavailable",
-                        }
-                    state["observed"] = _now()
-                    write_json_atomic(path / "recovery.json", state)
-            finally:
-                os.close(recovery_lock)
-        return observe(run_dir, record, ignore_self=True)
+                _recover_dead_owner(path, run_dir, record, grace)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                errors.append(str(error))
+        observation = observe(run_dir, record, ignore_self=True)
+        if errors:
+            return {
+                **observation,
+                "status": "active" if observation["status"] == "active" else "unknown",
+                "reason": "; ".join(errors),
+            }
+        return observation
     except (OSError, ValueError, KeyError, TypeError) as error:
-        return {"status": "unknown", "reason": str(error), "children": []}
+        observation = observe(run_dir, record, ignore_self=True)
+        # An issuance/publication failure must not make a supervisor stop waiting
+        # for a known active writer. Nor may an otherwise empty inventory hide it.
+        return {
+            **observation,
+            "status": "active" if observation["status"] == "active" else "unknown",
+            "reason": str(error),
+        }
