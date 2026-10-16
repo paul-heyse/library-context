@@ -99,8 +99,20 @@ impl StageExecution {
             // Once returned, the coordinator's already charged ReadyStages slot owns T.
             let _delivery_charge = receiver_charge;
             let result = terminal.await;
-            joined.await.map_err(ModelError::SharedCause)?;
-            result.map_err(ModelError::codec)?
+            let joined = joined.await.map_err(ModelError::SharedCause);
+            match result {
+                Ok(observed) => {
+                    let mut finality = lctx_model::domain::completion::Completion::default();
+                    finality.step("producer task join", joined);
+                    lctx_model::domain::completion::complete(observed, finality)
+                }
+                Err(error) => {
+                    // A panic before delivery has no body outcome. Keep its structured
+                    // join error primary, rather than the incidental channel refusal.
+                    joined?;
+                    Err(ModelError::codec(error))
+                }
+            }
         }.boxed())
     }
 }
