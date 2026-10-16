@@ -266,14 +266,36 @@ async fn native_receiving_cancelled_issuance_preserves_source_and_actual_pending
         let (source, records) = source_inventory(fixture, 1).await?;
         let exact = inventory(&records);
         let receiver = ReaderPin::acquire(fixture.client.clone(), &[]).await?;
+        let pending_before = fixture.scope.pending_count()?;
+        assert_eq!(pending_before, 0, "setup must settle its actual original requests");
         fixture.scope.cancellation().cancel();
         let error = match transfer_expected_many(&receiver, records, &fixture.budget).await {
             Ok(_) => panic!("cancelled issuance cannot produce a complete receiver"),
             Err(error) => error,
         };
-        assert!(error.to_string().contains("cancelled"), "{error}");
+        let request_error = match &error {
+            ModelError::Cause(cause) => cause.downcast_ref::<NativeRequestError>()
+                .expect("stopped native admission retains its exact request identity"),
+            _ => panic!("expected native request refusal, observed {error:?}"),
+        };
+        // This stop precedes registration and remote issuance. It is distinct
+        // from cancellation after an admitted request, which retains recovery.
+        assert!(matches!(&request_error.source,
+            ModelError::Conflict("native recovery admission stopped")), "{error}");
         assert!(fixture.scope.cancellation().stopped());
         let pending = fixture.scope.pending_count()?;
+        assert_eq!(pending, pending_before, "stopped admission cannot register a new pending request");
+        let mut response = fixture.observer
+            .query("SELECT VALUE id FROM $effect; SELECT VALUE id FROM $reference")
+            .bind(("effect", RecordId::new("native_effect", request_error.request.operation.hex())))
+            .bind(("reference", authorization::request_outcome_reference(
+                request_error.request, RecoveryReferencePolicy::ReleaseRecovery,
+            )?))
+            .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        assert!(response.take::<Vec<RecordId>>(0).map_err(ModelError::codec)?.is_empty(),
+            "refused pre-admission request has no native effect");
+        assert!(response.take::<Vec<RecordId>>(1).map_err(ModelError::codec)?.is_empty(),
+            "refused pre-admission request has no native outcome reference");
         assert!(holds(fixture, &receiver).await?.is_empty());
         assert_eq!(holds(fixture, &source).await?, exact);
         assert_eq!(fixture.scope.pending_count()?, pending, "observing holds cannot settle pending native actions");
