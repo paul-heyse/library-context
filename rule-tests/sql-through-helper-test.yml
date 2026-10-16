@@ -1,6 +1,7 @@
 id: sql-through-helper
 valid:
   - "async fn f(ctx: &SessionContext) { sql::query(ctx, \"SELECT 1\").await; }"
+  - "fn f(point: &PointInput) -> &str { point.sql() }"
 invalid:
   - "async fn f(ctx: &SessionContext) { ctx.sql(\"SELECT 1\").await; }"
   - "async fn f(ctx: &SessionContext) { ctx.sql_with_options(q, SQLOptions::new()).await; }"

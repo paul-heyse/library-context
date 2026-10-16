@@ -26,6 +26,7 @@ def source_case() -> tuple[dict[str, Any], dict[str, Any]]:
             "semantic": [5] * 32,
             "realization": [6] * 32,
             "view": [8] * 32,
+            "eligibility": [11] * 32,
             "service_generation": [9] * 32,
             "definition_epoch": [10] * 32,
             "database": {"namespace": "control", "database": "renderer"},

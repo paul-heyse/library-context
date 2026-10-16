@@ -96,7 +96,10 @@ def test_exact_successor_patch_applies_retries_and_adds_only_reviewed_lock_edge(
     server.verify_source(paths, selected, run=observed)
     changed = root / "surrealdb/server/src/rpc/grpc.rs"
     changed.write_bytes(changed.read_bytes() + b"\n# unreviewed change\n")
-    with pytest.raises(Blocked, match="execution-drain patch"):
+    with pytest.raises(
+        Blocked,
+        match=r"server source differs from composed patch: surrealdb/server/src/rpc/grpc\.rs",
+    ):
         server.verify_source(paths, selected, run=observed)
     with pytest.raises(Blocked, match="conflicts"):
         server.prepare_source_patches(paths, selected, run=run)

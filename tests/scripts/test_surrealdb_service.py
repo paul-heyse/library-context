@@ -337,8 +337,133 @@ def test_regeneration_interrupted_boundaries_keep_exact_resume(
     assert (root / "data/store/current").read_text() == "new generation data"
 
 
+def attachment_runtime(installation, directory):
+    """Current private attachment identity, independent from native completion evidence."""
+    (directory / "scratch").mkdir(mode=0o700, exist_ok=True)
+    value = {
+        "installation_id": installation.id,
+        "fixture": installation.id,
+        "attachment": directory.name,
+        "attempt_id": directory.name,
+        "service_generation": installation.record["service_generation"],
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "endpoint": installation.record["endpoint"],
+        "grpc_endpoint": installation.record["grpc_endpoint"],
+        "scratch": str(directory / "scratch"),
+        "admin_password": "private test credential",
+    }
+    service.private_json(directory / "runtime.json", value)
+    return value
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_regeneration_pending_attachment_uses_exact_runtime_without_claiming_native_completion(
+    regeneration_ready, monkeypatch, native
+):
+    import service_regeneration as regeneration
+
+    installation, _, _, _, _ = regeneration_ready
+    directory = installation.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    attachment_runtime(installation, directory)
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "released": True,
+        "command_cleanup": {"status": "unknown", "reason": "unchanged original"},
+    }
+    if native:
+        row["native_drain"] = {
+            "attachment": directory.name,
+            "generation": bytes(installation.record["service_generation"]).hex(),
+            "directory": str(directory / "native-drain"),
+        }
+    service.private_json(directory / "record.json", row)
+    original = (directory / "record.json").read_bytes()
+    monkeypatch.setattr(service, "borrowers", lambda _: [row])
+    regeneration._pending_bindings(installation)
+    assert (directory / "record.json").read_bytes() == original
+    assert row["command_cleanup"]["status"] == "unknown"
+    assert ("native_drain" in row) == native
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "fixture",
+        "installation_id",
+        "attachment",
+        "attempt_id",
+        "service_generation",
+        "namespace",
+        "database",
+        "endpoint",
+        "grpc_endpoint",
+        "scratch",
+        "runtime-symlink",
+        "scratch-symlink",
+        "native-null",
+        "native-generation",
+        "native-directory",
+        "row-namespace",
+        "row-database",
+    ],
+)
+def test_regeneration_pending_attachment_refuses_foreign_or_malformed_runtime(
+    regeneration_ready, monkeypatch, damage
+):
+    import service_regeneration as regeneration
+
+    installation, _, _, _, _ = regeneration_ready
+    directory = installation.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    runtime = attachment_runtime(installation, directory)
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+    }
+    if damage.startswith("row-"):
+        row[damage.removeprefix("row-")] = "foreign"
+    elif damage.startswith("native-"):
+        row["native_drain"] = (
+            None
+            if damage == "native-null"
+            else {
+                "attachment": directory.name,
+                "generation": (
+                    "0" * 64
+                    if damage == "native-generation"
+                    else bytes(installation.record["service_generation"]).hex()
+                ),
+                "directory": (
+                    "/foreign/native-drain"
+                    if damage == "native-directory"
+                    else str(directory / "native-drain")
+                ),
+            }
+        )
+    elif damage == "runtime-symlink":
+        (directory / "runtime.json").rename(directory / "redirect.json")
+        (directory / "runtime.json").symlink_to(directory / "redirect.json")
+    elif damage == "scratch-symlink":
+        (directory / "scratch").rename(directory / "redirect-scratch")
+        (directory / "scratch").symlink_to(directory / "redirect-scratch")
+    else:
+        runtime[damage] = [0] * 32 if damage == "service_generation" else "foreign"
+        service.private_json(directory / "runtime.json", runtime)
+    monkeypatch.setattr(service, "borrowers", lambda _: [row])
+    with pytest.raises(service.FixtureBlocked, match="runtime scope or generation differs"):
+        regeneration._pending_bindings(installation)
+
+
+@pytest.mark.parametrize("native", [False, True])
 def test_regeneration_attachment_discard_preserves_unknown_and_rejects_tampering(
-    regeneration_ready, monkeypatch
+    regeneration_ready, monkeypatch, native
 ):
     import service_regeneration as regeneration
     import surrealdb_fixture as fixture
@@ -359,6 +484,8 @@ def test_regeneration_attachment_discard_preserves_unknown_and_rejects_tampering
     row = {
         "id": directory.name,
         "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
         "released": False,
         "owner": {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())},
         "command_cleanup": {"status": "unknown", "reason": "original uncertainty"},
@@ -368,16 +495,247 @@ def test_regeneration_attachment_discard_preserves_unknown_and_rejects_tampering
             "directory": str(directory / "native-drain"),
         },
     }
+    if not native:
+        del row["native_drain"]
     service.private_json(directory / "record.json", row)
+    attachment_runtime(installation, directory)
     monkeypatch.setattr(fixture, "_complete_attachment_obligations", lambda *a, **kw: None)
     acknowledged = regeneration.acknowledge_attachment(directory, final["regeneration"])
     assert acknowledged["command_cleanup"] == row["command_cleanup"]
-    assert acknowledged["native_drain"] == row["native_drain"]
+    assert acknowledged.get("native_drain") == row.get("native_drain")
+    assert ("native_drain" in acknowledged) == native
     assert regeneration.completed_attachment(directory, acknowledged)
     assert not fixture.native_protected(directory, acknowledged, {"status": "unknown"})
-    changed = {**acknowledged, "native_drain": {**row["native_drain"], "generation": "0" * 64}}
+    changed = {
+        **acknowledged,
+        "native_drain": {**row.get("native_drain", {}), "generation": "0" * 64},
+    }
     assert not regeneration.completed_attachment(directory, changed)
     assert fixture.native_protected(directory, changed, {"status": "unknown"})
+    receipt_path = directory / "installation-discard.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["binding"]["generation"] = "0" * 64
+    receipt_path.chmod(0o600)
+    service.private_json(receipt_path, receipt)
+    receipt_path.chmod(0o400)
+    forged = {
+        **acknowledged,
+        "installation_discard": {
+            "path": str(receipt_path),
+            "sha256": service.file_sha256(receipt_path),
+        },
+    }
+    assert not regeneration.completed_attachment(directory, forged)
+
+
+def test_regeneration_acknowledges_missing_native_binding_only_after_whole_executor_discard(
+    regeneration_ready, monkeypatch
+):
+    import service_regeneration as regeneration
+    import surrealdb_fixture as fixture
+
+    installation, candidate, descriptor, _, actions = regeneration_ready
+    directory = installation.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    runtime = attachment_runtime(installation, directory)
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "released": True,
+        "interrupted": True,
+        "child_exit_code": -15,
+        "owner": {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())},
+        "command_cleanup": {"status": "unknown", "reason": "original uncertainty"},
+    }
+    service.private_json(directory / "record.json", row)
+    original_stop = service._stop_owned
+    stops_before = actions.count("stop")
+
+    def stop(current):
+        assert json.loads((directory / "record.json").read_text()) == row
+        assert not (directory / "installation-discard.json").exists()
+        original_stop(current)
+
+    monkeypatch.setattr(service, "_stop_owned", stop)
+    monkeypatch.setattr(fixture, "_complete_attachment_obligations", lambda *a, **kw: None)
+    regeneration.regenerate(
+        installation,
+        installation.id,
+        scopes="main,validation",
+        installer=candidate,
+        descriptor=descriptor,
+    )
+    acknowledged = json.loads((directory / "record.json").read_text())
+    receipt = json.loads((directory / "installation-discard.json").read_text())
+    assert receipt["original"] == row
+    assert "native_drain" not in acknowledged
+    assert acknowledged["command_cleanup"] == row["command_cleanup"]
+    assert regeneration.completed_attachment(directory, acknowledged)
+    assert "private test credential" not in (directory / "installation-discard.json").read_text()
+    assert actions.count("stop") > stops_before
+    runtime["database"] = "foreign"
+    service.private_json(directory / "runtime.json", runtime)
+    assert not regeneration.completed_attachment(directory, acknowledged)
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_regeneration_existing_native_bound_discard_ack_remains_current_without_new_binding(
+    regeneration_ready, monkeypatch, native
+):
+    import service_regeneration as regeneration
+    import surrealdb_fixture as fixture
+
+    installation, candidate, descriptor, _, _ = regeneration_ready
+    directory = installation.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    attachment_runtime(installation, directory)
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "released": False,
+        "owner": {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())},
+        "command_cleanup": {"status": "unknown", "reason": "original uncertainty"},
+    }
+    if native:
+        row["native_drain"] = {
+            "generation": bytes(installation.record["service_generation"]).hex(),
+            "attachment": directory.name,
+            "directory": str(directory / "native-drain"),
+        }
+    service.private_json(directory / "record.json", row)
+    monkeypatch.setattr(fixture, "_complete_attachment_obligations", lambda *a, **kw: None)
+    regeneration.regenerate(
+        installation,
+        installation.id,
+        scopes="main,validation",
+        installer=candidate,
+        descriptor=descriptor,
+    )
+    acknowledged = json.loads((directory / "record.json").read_text())
+    receipt_path = directory / "installation-discard.json"
+    receipt = json.loads(receipt_path.read_text())
+    del receipt["binding"]
+    receipt_path.chmod(0o600)
+    service.private_json(receipt_path, receipt)
+    receipt_path.chmod(0o400)
+    acknowledged["installation_discard"]["sha256"] = service.file_sha256(receipt_path)
+    service.private_json(directory / "record.json", acknowledged)
+    old_bytes = receipt_path.read_bytes()
+    assert regeneration.completed_attachment(directory, acknowledged) is native
+    if native:
+        # The predecessor executor was discarded and installation now names its successor.
+        final = json.loads((installation.directory / "installation.json").read_text())
+        assert final["service_generation"] != installation.record["service_generation"]
+        assert regeneration.acknowledge_attachment(directory, final["regeneration"]) == acknowledged
+        assert receipt_path.read_bytes() == old_bytes
+        native_drain = row["native_drain"]
+        assert isinstance(native_drain, dict)
+        changed = {
+            **acknowledged,
+            "native_drain": {**native_drain, "directory": "/foreign/native-drain"},
+        }
+        assert not regeneration.completed_attachment(directory, changed)
+
+
+def test_regeneration_skips_settled_native_attachment_without_obsolete_runtime_or_scratch(
+    regeneration_ready,
+):
+    import service_regeneration as regeneration
+    import surrealdb_fixture as fixture
+
+    installation, candidate, descriptor, _, _ = regeneration_ready
+    directory = installation.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    native = directory / "native-drain"
+    native.mkdir(mode=0o700)
+    generation = bytes(installation.record["service_generation"]).hex()
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "released": True,
+        "owner": {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())},
+        "command_cleanup": {"status": "confirmed", "survivors": []},
+        "native_drain": {
+            "generation": generation,
+            "attachment": directory.name,
+            "directory": str(native),
+        },
+    }
+    service.private_json(directory / "record.json", row)
+    service.private_json(
+        native / "1-2-0.json",
+        {
+            "schema": 1,
+            "kind": "native-process-owner",
+            "attachment": directory.name,
+            "generation": generation,
+            "owner": "completed-control",
+            "process": {"pid": 1, "start_ticks": 2},
+            "registration": 0,
+            "state": "complete",
+            "completion": {
+                "local": "terminal",
+                "remote": "confirmed",
+                "failures": [],
+                "committed": [],
+                "storage": [],
+            },
+        },
+    )
+    original = (directory / "record.json").read_bytes()
+    assert fixture.native_completion(directory, row)["status"] == "confirmed"
+    assert not service.borrowers(installation)
+    result = regeneration.regenerate(
+        installation,
+        installation.id,
+        scopes="main,validation",
+        installer=candidate,
+        descriptor=descriptor,
+    )
+    assert result["outcome"] == "passed"
+    assert result["admission_open"] is True
+    assert (directory / "record.json").read_bytes() == original
+    assert not (directory / "installation-discard.json").exists()
+    assert not (directory / "runtime.json").exists()
+    assert not (directory / "scratch").exists()
+
+
+def test_regeneration_unsettled_attachment_without_runtime_still_refuses_before_effects(
+    regeneration_ready,
+):
+    import service_regeneration as regeneration
+
+    installation, candidate, descriptor, _, actions = regeneration_ready
+    directory = installation.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "released": False,
+        "owner": {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())},
+    }
+    service.private_json(directory / "record.json", row)
+    original = (directory / "record.json").read_bytes()
+    assert service.borrowers(installation)
+    with pytest.raises(service.FixtureBlocked, match="runtime scope or generation differs"):
+        regeneration.regenerate(
+            installation,
+            installation.id,
+            scopes="main,validation",
+            installer=candidate,
+            descriptor=descriptor,
+        )
+    assert actions == []
+    assert (installation.directory / "data/store/MANIFEST").read_text() == "cold-owned-data"
+    assert (directory / "record.json").read_bytes() == original
 
 
 def archive_member(archive: tarfile.TarFile, name: str):

@@ -98,20 +98,83 @@ def _inventory(installation: service.Installation) -> dict[str, Any]:
     return {"namespace": service.NAMESPACE, "databases": sorted(databases), "bootstrap": bootstrap}
 
 
+def _attachment_binding(
+    directory: Path,
+    row: Mapping[str, Any],
+    installation: Mapping[str, Any],
+    *,
+    generation: str | None = None,
+) -> dict[str, Any]:
+    """Authenticate target identity without asserting anything about native completion.
+
+    A missing native receipt is unavailable evidence. A private, exact runtime binding can
+    nevertheless identify its executor for a separately authorized whole-target discard.
+    """
+    try:
+        if (
+            not directory.is_absolute()
+            or any(path.is_symlink() for path in (directory, *directory.parents))
+            or directory.parent.name != "attachments"
+            or row.get("id") != directory.name
+            or row.get("fixture") != installation["installation_id"]
+            or row.get("namespace") != service.NAMESPACE
+            or row.get("database") != "validation"
+        ):
+            raise ValueError
+        runtime_path = directory / "runtime.json"
+        runtime = _read(runtime_path)
+        raw_generation = runtime["service_generation"]
+        if (
+            not isinstance(raw_generation, list)
+            or len(raw_generation) != 32
+            or any(type(value) is not int or not 0 <= value <= 255 for value in raw_generation)
+        ):
+            raise ValueError
+        actual_generation = bytes(raw_generation).hex()
+        scratch = directory / "scratch"
+        if (
+            runtime.get("installation_id") != installation["installation_id"]
+            or runtime.get("fixture") != row["fixture"]
+            or runtime.get("attachment") != directory.name
+            or runtime.get("attempt_id") != directory.name
+            or runtime.get("namespace") != service.NAMESPACE
+            or runtime.get("database") != "validation"
+            or runtime.get("endpoint") != installation["endpoint"]
+            or runtime.get("grpc_endpoint") != installation["grpc_endpoint"]
+            or runtime.get("scratch") != str(scratch)
+            or scratch.is_symlink()
+            or not scratch.is_dir()
+            or scratch.stat().st_uid != os.getuid()
+            or scratch.stat().st_mode & 0o022
+            or (generation is not None and actual_generation != generation)
+        ):
+            raise ValueError
+        if "native_drain" in row:
+            native = row["native_drain"]
+            if (
+                not isinstance(native, dict)
+                or native.get("generation") != actual_generation
+                or native.get("attachment") != directory.name
+                or native.get("directory") != str(directory / "native-drain")
+            ):
+                raise ValueError
+        return {
+            "generation": actual_generation,
+            "runtime": {"path": str(runtime_path), "sha256": service.file_sha256(runtime_path)},
+        }
+    except OSError, ValueError, KeyError, TypeError, service.FixtureBlocked:
+        raise service.FixtureBlocked(
+            "identity", "attachment runtime scope or generation differs"
+        ) from None
+
+
 def _pending_bindings(installation: service.Installation) -> None:
     generation = bytes(installation.record["service_generation"]).hex()
     for row in service.borrowers(installation):
-        native = row.get("native_drain") or {}
-        directory = installation.directory / "attachments" / row["id"]
-        if (
-            row.get("fixture") != installation.id
-            or native.get("generation") != generation
-            or native.get("attachment") != row["id"]
-            or native.get("directory") != str(directory / "native-drain")
-        ):
-            raise service.FixtureBlocked(
-                "identity", "pending attachment scope or generation differs"
-            )
+        directory = installation.directory / "attachments" / str(row.get("id", ""))
+        if directory.parent != installation.directory / "attachments":
+            raise service.FixtureBlocked("identity", "pending attachment path differs")
+        _attachment_binding(directory, row, installation.record, generation=generation)
 
 
 def _indexes(root: Path) -> dict[str, Any]:
@@ -253,7 +316,26 @@ def completed_attachment(directory: Path, record: Mapping[str, Any] | None) -> b
         expected = {
             key: value for key, value in original.items() if key not in {"released", "released_at"}
         }
-        native = original["native_drain"]
+        if "binding" in receipt:
+            installation = service.Installation(
+                directory.parent.parent, _read(directory.parent.parent / "installation.json")
+            )
+            _, plan = load_plan(installation, receipt["reference"])
+            binding = _attachment_binding(
+                directory, original, plan["previous"], generation=proof["generation"]
+            )
+            bound = receipt["binding"] == binding
+        else:
+            # Existing immutable acknowledgements already bind exact native scope and a
+            # completed executor discard. Preserve that authority without rewriting them.
+            # Missing native evidence has no such earlier binding and cannot use this route.
+            native = original.get("native_drain")
+            bound = (
+                isinstance(native, dict)
+                and native.get("generation") == proof["generation"]
+                and native.get("attachment") == original.get("id")
+                and native.get("directory") == str(directory / "native-drain")
+            )
         return (
             receipt.get("schema") == 1
             and receipt.get("kind") == "project-installation-attachment-discard"
@@ -261,9 +343,7 @@ def completed_attachment(directory: Path, record: Mapping[str, Any] | None) -> b
             and directory.name == original["id"] == record["id"]
             and directory.parent.name == "attachments"
             and original["fixture"] == proof["installation_id"]
-            and native["generation"] == proof["generation"]
-            and native["attachment"] == original["id"]
-            and native["directory"] == str(directory / "native-drain")
+            and bound
             and reconstructed == expected
         )
     except OSError, ValueError, KeyError, TypeError, AttributeError, service.FixtureBlocked:
@@ -282,14 +362,15 @@ def acknowledge_attachment(directory: Path, reference: Mapping[str, Any]) -> dic
         row = _read(directory / "record.json")
         if not completed_attachment(directory, row):
             proof = completed_discard(directory.parent.parent, reference)
-            native = row.get("native_drain", {})
+            installation = service.Installation(
+                directory.parent.parent, _read(directory.parent.parent / "installation.json")
+            )
+            _, plan = load_plan(installation, reference)
+            binding = _attachment_binding(
+                directory, row, plan["previous"], generation=proof["generation"]
+            )
             owner = ProcessIdentity.from_json(row["owner"])
-            if (
-                owner.foreign()
-                or owner.alive()
-                or row.get("fixture") != proof["installation_id"]
-                or native.get("generation") != proof["generation"]
-            ):
+            if owner.foreign() or owner.alive() or row.get("fixture") != proof["installation_id"]:
                 raise service.FixtureBlocked(
                     "identity", "regeneration attachment owner or generation differs"
                 )
@@ -299,6 +380,7 @@ def acknowledge_attachment(directory: Path, reference: Mapping[str, Any]) -> dic
                 "local_owner": fixture.scope_local_owner(directory),
                 "reference": dict(reference),
                 "original": row,
+                "binding": binding,
             }
             path = directory / "installation-discard.json"
             if path.exists():
@@ -635,16 +717,21 @@ def regenerate(
         current.check(allow_maintenance=True)
         if _inventory(current) != {**plan["scopes"], "bootstrap": None}:
             raise service.FixtureBlocked("scope", "successor has unexpected database scopes")
+        # Reuse the canonical obligation owner: ordinary released/native-complete records
+        # need no new acknowledgement and may already have released obsolete scratch/configs.
+        pending_ids = {row.get("id") for row in service.borrowers(current)}
         for path in (root / "attachments").glob("*/record.json"):
             row = _read(path)
             if row.get("fixture") != identity:
                 raise service.FixtureBlocked(
                     "identity", "foreign attachment in project installation"
                 )
-            if (
-                row.get("native_drain", {}).get("generation")
-                == bytes(plan["previous"]["service_generation"]).hex()
-            ):
+            if row.get("id") not in pending_ids:
+                continue
+            if completed_attachment(path.parent, row):
+                continue
+            binding = _attachment_binding(path.parent, row, plan["previous"])
+            if binding["generation"] == bytes(plan["previous"]["service_generation"]).hex():
                 acknowledge_attachment(path.parent, reference)
         try:
             _cli(current, "open-admission", marker["token"])

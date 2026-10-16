@@ -8,7 +8,9 @@ message: call lctx_compiler_store::sql::query instead of SessionContext::sql or 
 note: The helper plans with read-only SQLOptions (DESIGN §4.3).
 rule:
   any:
-    - pattern: $CTX.sql($$$ARGS)
+    # SessionContext::sql takes one query argument; zero-argument sql() getters
+    # expose an already prepared query and do not execute SQL.
+    - pattern: $CTX.sql($QUERY)
     - pattern: $CTX.sql_with_options($$$ARGS)
 files:
   - crates/*/src/**/*.rs
