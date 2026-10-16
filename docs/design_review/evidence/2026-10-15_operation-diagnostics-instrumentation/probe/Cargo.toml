@@ -1,0 +1,15 @@
+[package]
+name = "opdiag-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+tracing = { version = "=0.1.44", features = ["release_max_level_debug"] }
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter", "json", "registry", "fmt"] }
+tracing-appender = "=0.2.5"
+libc = "=0.2.190"
+
+[profile.release]
+opt-level = 2
+debug = 0

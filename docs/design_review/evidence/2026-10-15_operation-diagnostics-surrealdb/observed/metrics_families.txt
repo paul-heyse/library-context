@@ -1,0 +1,61 @@
+## anonymous /metrics families
+# TYPE surrealdb_build_info gauge
+# TYPE surrealdb_process_uptime_seconds gauge
+# TYPE surrealdb_process_memory_bytes gauge
+# TYPE surrealdb_process_cpu_percent gauge
+# TYPE target_info gauge
+
+## root /metrics families
+# TYPE surrealdb_query_total counter
+# TYPE surrealdb_query_duration_seconds histogram
+# TYPE surrealdb_build_info gauge
+# TYPE surrealdb_process_uptime_seconds gauge
+# TYPE surrealdb_process_memory_bytes gauge
+# TYPE surrealdb_process_memory_allocated_bytes gauge
+# TYPE surrealdb_process_memory_requested_bytes gauge
+# TYPE surrealdb_process_memory_reserved_bytes gauge
+# TYPE surrealdb_process_memory_threshold_bytes gauge
+# TYPE surrealdb_process_cpu_percent gauge
+# TYPE surrealdb_http_request_total counter
+# TYPE surrealdb_http_request_duration_seconds histogram
+# TYPE surrealdb_http_request_size_bytes histogram
+# TYPE surrealdb_http_response_size_bytes histogram
+# TYPE surrealdb_http_active_requests gauge
+# TYPE surrealdb_statement_total counter
+# TYPE surrealdb_statement_duration_seconds histogram
+# TYPE surrealdb_statement_rows_total counter
+# TYPE surrealdb_transaction_total counter
+# TYPE surrealdb_transaction_duration_seconds histogram
+# TYPE surrealdb_transaction_kv_ops_total counter
+# TYPE surrealdb_transaction_keys_read_total counter
+# TYPE surrealdb_transaction_keys_written_total counter
+# TYPE surrealdb_transaction_key_bytes_read_bytes_total counter
+# TYPE surrealdb_transaction_value_bytes_read_bytes_total counter
+# TYPE surrealdb_transaction_key_bytes_written_bytes_total counter
+# TYPE surrealdb_transaction_value_bytes_written_bytes_total counter
+# TYPE surrealdb_network_received_bytes_total counter
+# TYPE surrealdb_network_sent_bytes_total counter
+# TYPE surrealdb_slow_query_total counter
+# TYPE target_info gauge
+
+## root statement/slow-query samples (excerpt)
+surrealdb_statement_total{statement_type="create",outcome="error",error_class="client",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{statement_type="select",outcome="error",error_class="internal",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="begin",user="root",otel_scope_name="surrealdb.statement"} 2
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="create",user="root",otel_scope_name="surrealdb.statement"} 2
+surrealdb_statement_total{statement_type="use",outcome="success",error_class="-",namespace="-",database="-",user="system_auth",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="select",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="update",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{statement_type="define",outcome="success",error_class="-",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.statement"} 2
+surrealdb_statement_total{statement_type="use",outcome="success",error_class="-",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{statement_type="return",outcome="error",error_class="internal",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="commit",user="root",otel_scope_name="surrealdb.statement"} 1
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="return",user="root",otel_scope_name="surrealdb.statement"} 2
+surrealdb_statement_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="let",user="root",otel_scope_name="surrealdb.statement"} 3
+surrealdb_statement_total{statement_type="define",outcome="success",error_class="-",namespace="-",database="-",user="system_auth",otel_scope_name="surrealdb.statement"} 3
+surrealdb_slow_query_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="update",user="root",otel_scope_name="surrealdb.slow_query"} 1
+surrealdb_slow_query_total{statement_type="select",outcome="success",error_class="-",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.slow_query"} 1
+surrealdb_slow_query_total{statement_type="create",outcome="success",error_class="-",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.slow_query"} 1
+surrealdb_slow_query_total{database="probe",error_class="internal",namespace="probe",outcome="error",statement_type="return",user="root",otel_scope_name="surrealdb.slow_query"} 1
+surrealdb_slow_query_total{database="probe",error_class="-",namespace="probe",outcome="success",statement_type="return",user="root",otel_scope_name="surrealdb.slow_query"} 1
+surrealdb_slow_query_total{statement_type="begin",outcome="success",error_class="-",namespace="probe",database="probe",user="root",otel_scope_name="surrealdb.slow_query"} 1

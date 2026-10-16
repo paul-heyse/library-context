@@ -1,0 +1,19 @@
+2026-10-15T18:52:58.581001Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 301.312793ms - query: RETURN [`sleep`(300ms), $secret, $ok] - params: [ $ok='visible-param' ]
+2026-10-15T18:53:00.630025Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 2.000922318s - query: RETURN `sleep`(3s) - params: [  ]
+2026-10-15T18:53:06.835480Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 200.609275ms - query: CREATE probe_t:1 SET x = `sleep`(200ms) - params: [  ]
+2026-10-15T18:53:07.173392Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 322.395801ms - query: SELECT * FROM probe_t WHERE `sleep`(160ms) = NONE - params: [  ]
+2026-10-15T18:53:07.552103Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 362.595014ms - query: UPDATE probe_t SET y = `sleep`(180ms) RETURN NONE - params: [  ]
+2026-10-15T18:53:37.639822Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 342.649672ms - query: SELECT * FROM probe_t WHERE `sleep`(170ms) = NONE - params: [  ]
+2026-10-15T18:53:57.512565Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 322.468879ms - query: SELECT * FROM probe_t WHERE `sleep`(160ms) = NONE - params: [  ]
+2026-10-15T18:54:28.263618Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 1.501096269s - query: LET $w = `sleep`(1s500ms) - params: [  ]
+2026-10-15T18:54:56.956430Z  WARN surrealdb::mcp: query statement failed statement=1 kind="NotFound" error=The table 'nope_table' does not exist
+2026-10-15T18:55:08.335051Z  WARN surrealdb::mcp: query statement failed statement=1 kind="NotFound" error=The table 'nope_table' does not exist
+2026-10-15T18:55:08.545536Z  WARN rmcp::transport::streamable_http_server::tower: rejected request with disallowed Host header (possible DNS rebinding attempt) host=NormalizedAuthority { host: "evil.example.com", port: None }
+2026-10-15T18:55:08.618958Z  WARN surrealdb::mcp: truncating large MCP tool result bytes=300002 limit=262144
+2026-10-15T18:55:18.717006Z  WARN rmcp::service: response error id=s1 error=ErrorData { code: ErrorCode(-32602), message: "request _meta is missing or has malformed required fields: io.modelcontextprotocol/clientCapabilities", data: None }
+2026-10-15T18:55:48.034213Z  WARN surrealdb::mcp: tool statement failed kind="NotAllowed" error=IAM error: Not enough permissions to perform this action
+2026-10-15T18:55:48.061170Z  WARN surrealdb::mcp: tool statement failed kind="NotAllowed" error=IAM error: Not enough permissions to perform this action
+2026-10-15T18:56:22.267431Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 1.206538073s - query: SELECT count() FROM probe_t WHERE `sleep`(5ms) = NONE AND $attempt != NONE GROUP ALL - params: [ $attempt='0f9e8d7c6b5a' ]
+2026-10-15T18:56:34.560947Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 1.500966632s - query: RETURN `sleep`(1s500ms) - params: [  ]
+2026-10-15T18:56:42.839846Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 1.501366121s - query: RETURN `sleep`(1s500ms) - params: [  ]
+2026-10-15T18:56:44.357421Z  WARN surrealdb_core::kvs::slowlog: Slow query detected - time: 1.500553238s - query: RETURN `sleep`(1s500ms) - params: [  ]
