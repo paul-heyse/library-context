@@ -482,6 +482,19 @@ impl RecoveryScope {
         )?);
         self.fork_session_with_signals(budget, cancellation, signals)
     }
+    /// Own an independent effect session beneath this source's existing factory.
+    /// The returned lease retains the exact client, resource pool, target and
+    /// recovery recipient before SDK attachment. Consumers enter its recovery
+    /// scope for effects, drain their readers/borrowers, then complete the lease.
+    /// Dropping it transfers unresolved cleanup to the same factory; it never
+    /// closes or transfers authority over the borrowed source session.
+    pub fn fork_owned_session(&self, budget: &ResourceBudget) -> Result<FactoryLease, ModelError> {
+        if self.cancellation.stopped() {
+            return Err(ModelError::Conflict("native session source admission stopped"));
+        }
+        let (_, _, lease) = self.fork_session(budget)?;
+        Ok(lease)
+    }
     pub(crate) fn fork_session_with_signals(
         &self,
         budget: &ResourceBudget,

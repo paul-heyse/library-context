@@ -74,7 +74,8 @@ pub(crate) struct Publication<'a> {
     definition_epoch: ContentHash,
     eligibility: EligibilityIdentity,
     incoming: Option<lctx_native::completed_state::HeldFrozenCompletedState>,
-    session: lctx_native::reader::SessionFinalizationGuard,
+    parent: Arc<lctx_native::control::RecoveryScope>,
+    session: lctx_native::control::FactoryLease,
     search: Option<lctx_native::derived_search::PreparedSearch>,
 }
 impl<'a> Publication<'a> {
@@ -88,21 +89,16 @@ impl<'a> Publication<'a> {
         let lease = admission
             .native()
             .begin_derived_operation("publication session")?;
-        let connected = lctx_native::reader::connect(
-            &config.endpoint,
-            &config.writer_credentials(),
-            admission.native().namespace().as_str(),
-            admission.native().database().as_str(),
-        )
-        .await;
-        let client = match connected {
-            Ok(client) => client,
+        let parent = match admission.native().recovery_scope() {
+            Ok(parent) => parent,
             Err(error) => return lease.finish_with(Err(error)),
         };
-        let mut session = Some(lctx_native::reader::SessionFinalizationGuard::new(
-            client.clone(),
-        ));
-        let result: Result<Self, ModelError> = async {
+        let session = match parent.fork_owned_session(admission.budget()) {
+            Ok(session) => session,
+            Err(error) => return lease.finish_with(Err(error)),
+        };
+        let client = session.recovery_scope().client().clone();
+        let result: Result<Self, ModelError> = publication_scope(&parent, &session, async {
             lctx_native::materialization::validate_native_definitions(definitions)?;
             let attempt = admission.native().attempt();
             let budget = admission.budget();
@@ -180,23 +176,22 @@ impl<'a> Publication<'a> {
                 eligibility,
                 incoming,
                 definition_epoch: crate::definitions::epoch_identity(definitions),
-                session: session.take().expect("publication session owner"),
+                parent: parent.clone(),
+                session: session.clone(),
                 search: None,
             })
-        }
+        })
         .await;
         if let Err(error) = &result {
             if !error.permits_storage_cleanup() {
-                return lease.finish_with(result);
+                return lease.finish_with(result.map_err(|error| session.factory().handback(error)));
             }
             let mut completion = Completion::default();
             completion.step(
-                "failed publication setup session invalidation",
-                session
-                    .as_ref()
-                    .expect("failed setup session owner")
-                    .close()
-                    .await,
+                "failed publication setup child finality",
+                lctx_native::control::with_recovery_scope(
+                    session.recovery_scope().clone(), session.complete(),
+                ).await,
             );
             return lease.finish_with(complete(result, completion));
         }
@@ -213,20 +208,22 @@ impl<'a> Publication<'a> {
     }
     pub(crate) async fn invalidate(&self, primary: &ModelError) -> Result<(), ModelError> {
         if !primary.permits_storage_cleanup() {
-            return Err(ModelError::infrastructure(
+            return Err(self.session.factory().handback(ModelError::infrastructure(
                 lctx_model::domain::Infrastructure::Unconfirmed,
                 "publication session retained after uncertain operation",
-            ));
+            )));
         }
-        self.loader.close_reader().await?;
-        self.session.close().await
+        lctx_native::control::with_recovery_scope(self.session.recovery_scope().clone(), async {
+            self.loader.close_reader().await?;
+            self.session.complete().await
+        }).await.map_err(|error| self.session.factory().handback(error))
     }
 
     pub(crate) async fn entity_references(&self, entities: &[Entity]) -> Result<(), ModelError> {
         let lease = self
             .store()
             .begin_derived_operation("publication entity references")?;
-        let result = self.loader.entity_references(entities).await;
+        let result = publication_scope(&self.parent, &self.session, self.loader.entity_references(entities)).await;
         lease.finish_with(result)
     }
 
@@ -237,7 +234,7 @@ impl<'a> Publication<'a> {
         let lease = self
             .store()
             .begin_derived_operation("publication assertion references")?;
-        let result = self.loader.assertion_references(assertions).await;
+        let result = publication_scope(&self.parent, &self.session, self.loader.assertion_references(assertions)).await;
         lease.finish_with(result)
     }
 
@@ -281,7 +278,8 @@ impl<'a> Publication<'a> {
         }
         let lease = self.store().begin_derived_operation("publication search")?;
         let phase = Phase::begin("publication_search");
-        let result = lctx_native::derived_search::materialize_search_prepared(&self.loader).await;
+        let result = publication_scope(&self.parent, &self.session,
+            lctx_native::derived_search::materialize_search_prepared(&self.loader)).await;
         let result = lease.finish_with(result);
         phase.finish_result(&result);
         self.search = Some(result?);
@@ -305,7 +303,7 @@ impl<'a> Publication<'a> {
         // seal lease owns all final state/graph/search reads and marker effects.
         let lease = self.store().begin_finalization().await?;
         let phase = Phase::begin("publication_seal");
-        let result = async {
+        let result = publication_scope(&self.parent, &self.session, async {
             // Analyzer observations and lowered vectors remain usable only under
             // the actual immutable executable/physical definitions verified at setup.
             if crate::definitions::verify_epoch(&self.loader, definitions).await?
@@ -387,12 +385,24 @@ impl<'a> Publication<'a> {
                 &self.session,
             )
             .await
-        }
+        })
         .await;
         let result = lease.finish_with(result);
         phase.finish_result(&result);
         result
     }
+}
+
+/// Source admission/cancellation and private-session effect ownership are distinct.
+/// The source lease remains with the caller; this scope binds only its owned child.
+async fn publication_scope<T>(
+    parent: &Arc<lctx_native::control::RecoveryScope>,
+    session: &lctx_native::control::FactoryLease,
+    future: impl std::future::Future<Output = T>,
+) -> T {
+    lctx_native::control::with_retry_cancellation(parent.cancellation().clone(),
+        lctx_native::control::with_recovery_scope(session.recovery_scope().clone(), future),
+    ).await
 }
 
 pub(crate) fn publication_handle(
@@ -434,7 +444,7 @@ async fn finalize_marker(
     config: &RuntimeConfig,
     lease: &lctx_compiler_store::compiler::OperationLease,
     committed_identity: String,
-    session: &lctx_native::reader::SessionFinalizationGuard,
+    session: &lctx_native::control::FactoryLease,
 ) -> Result<SnapshotHandle, ModelError> {
     let client = loader.client();
     lease.record_committed(committed_identity.clone());
@@ -450,12 +460,10 @@ async fn finalize_marker(
         return complete(Err(error), completion);
     }
     let readback_phase = Phase::begin("publication_readback");
-    completion.step("publication session invalidation", session.close().await);
+    let closed = session.complete_with(&completion).await;
+    completion.step("publication child finality", closed);
     let readback_budget = loader.read_budget()?;
-    let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
-        config.receipt_binding()?,
-        readback_budget.clone(),
-    )?;
+    let reader_factory = session.factory().clone();
     let readback = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),

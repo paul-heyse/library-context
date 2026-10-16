@@ -55,6 +55,24 @@ use surrealdb::{
 use tokio::sync::Notify;
 use tracing::{Instrument, instrument::WithSubscriber};
 
+// Erase the few large native setup continuations before composing task-local
+// ownership wrappers. Admission covers the actual future and lasts through await.
+fn admit_native_continuation<'a, T: 'a>(
+    budget: &ResourceBudget,
+    owner: &'static str,
+    body: impl std::future::Future<Output = Result<T, ModelError>> + Send + 'a,
+) -> Result<BoxFuture<'a, Result<T, ModelError>>, ModelError> {
+    let bytes = std::mem::size_of_val(&body)
+        .checked_add(std::mem::size_of::<Box<dyn Reservation>>())
+        .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
+        .ok_or(ModelError::Schema("native operation continuation size"))?;
+    let grant = budget.reserve(owner, bytes)?;
+    Ok(Box::pin(async move {
+        let _grant = grant;
+        body.await
+    }))
+}
+
 /// One declaration operation may receive the same singleton and cumulative view.
 /// Validate the complete input before native work, retaining borrowed first occurrences.
 fn distinct_declaration_views<'a>(
@@ -1587,7 +1605,23 @@ impl NativeCompilerStore {
     ) -> Result<crate::NativeReader<()>, ModelError> {
         let lease = self.admit(false, "exact selected reader acquisition", true)?;
         let result = lease
-            .within(async {
+            .within(self.reader_for_views_inner(views, budget))
+            .await;
+        lease.finish_with(result)
+    }
+    async fn reader_for_views_inner(
+        self: &Arc<Self>,
+        views: &[CompletedView],
+        budget: &ResourceBudget,
+    ) -> Result<crate::NativeReader<()>, ModelError> {
+        self.prepare_reader_for_views_execution(views, budget)?.await
+    }
+    fn prepare_reader_for_views_execution<'a>(
+        self: &'a Arc<Self>,
+        views: &'a [CompletedView],
+        budget: &'a ResourceBudget,
+    ) -> Result<BoxFuture<'a, Result<crate::NativeReader<()>, ModelError>>, ModelError> {
+        admit_native_continuation(budget, "selected reader construction continuation", async move {
                 let _charge = budget.reserve(
                     "compiler selected reader capabilities",
                     views
@@ -1622,8 +1656,6 @@ impl NativeCompilerStore {
                     reader
                 })
             })
-            .await;
-        lease.finish_with(result)
     }
     fn canonical_selection<'a>(
         self: &'a Arc<Self>,
@@ -2096,17 +2128,7 @@ impl NativeCompilerStore {
             let _root_gate = self.root_gates([view.identity], budget).await?;
             self.install_view_under_gate(view, budget).await
         };
-        let bytes = std::mem::size_of_val(&body)
-            .checked_add(std::mem::size_of::<Box<dyn Reservation>>())
-            .and_then(|bytes| bytes.checked_add(2 * std::mem::align_of_val(&body)))
-            .ok_or(ModelError::Schema(
-                "installed view earning continuation size",
-            ))?;
-        let grant = budget.reserve("installed view earning continuation", bytes)?;
-        Ok(Box::pin(async move {
-            let _grant = grant;
-            body.await
-        }))
+        admit_native_continuation(budget, "installed view earning continuation", body)
     }
     async fn install_view_under_gate(
         self: &Arc<Self>,
@@ -2849,6 +2871,16 @@ impl NativeCompilerStore {
         {
             return Ok(completed);
         }
+        self.prepare_physical_content_execution(budget)?.await
+    }
+    fn prepare_physical_content_execution<'a>(
+        self: &'a Arc<Self>,
+        budget: &'a ResourceBudget,
+    ) -> Result<
+        BoxFuture<'a, Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError>>,
+        ModelError,
+    > {
+        admit_native_continuation(budget, "physical completion continuation", async move {
         let bindings = self.bindings_inner().await?;
         let (products, _product_charge) = self.retained_product_views(budget).await?;
         let mut selection_charge =
@@ -3023,6 +3055,7 @@ impl NativeCompilerStore {
             reader.close().await,
         );
         d::completion::complete(result, terminal)
+        })
     }
 
     /// The former marker-only route cannot earn current native admission. Keep its
@@ -4144,19 +4177,29 @@ impl NativeCompilerStore {
     }
     pub async fn import_entities(&self, rows: &[d::graph::Entity]) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_entities", true)?;
-        lease.finish_with(
-            Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
-                .entities(rows)
-                .await,
-        )
+        let result = lease.within(async {
+            let recovery = self.recovery_scope()?;
+            let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                .with_budget(recovery.budget());
+            let loader = if let Some(flag) = self.read_cancellation()? {
+                loader.with_read_cancellation(flag)
+            } else { loader };
+            loader.entities(rows).await
+        }).await;
+        lease.finish_with(result)
     }
     pub async fn import_assertions(&self, rows: &[d::graph::Assertion]) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_assertions", true)?;
-        lease.finish_with(
-            Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
-                .assertions(rows)
-                .await,
-        )
+        let result = lease.within(async {
+            let recovery = self.recovery_scope()?;
+            let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                .with_budget(recovery.budget());
+            let loader = if let Some(flag) = self.read_cancellation()? {
+                loader.with_read_cancellation(flag)
+            } else { loader };
+            loader.assertions(rows).await
+        }).await;
+        lease.finish_with(result)
     }
     pub async fn import_original_stream(
         &self,
@@ -4167,12 +4210,15 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_original_stream", true)?;
-        lease.finish_with(
-            Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
-                .with_budget(budget)
-                .original_stream(source, content, length, input)
-                .await,
-        )
+        let result = lease.within(async {
+            let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                .with_budget(budget);
+            let loader = if let Some(flag) = self.read_cancellation()? {
+                loader.with_read_cancellation(flag)
+            } else { loader };
+            loader.original_stream(source, content, length, input).await
+        }).await;
+        lease.finish_with(result)
     }
     pub fn contributions<'a>(
         self: &'a Arc<Self>,
@@ -9724,6 +9770,81 @@ fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
 #[cfg(test)]
 mod completion_tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn direct_imports_enter_their_owned_recovery_scope() {
+        use d::{graph::{Assertion, Entity, EntityId}, input::{DistributionRole, InputDistribution, InputRevision, ManifestEntry, Package, Release}, source::SourceArtifact};
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned validation runtime"),
+        )).unwrap();
+        let factory = recovery_factory(&config, budget.clone()).unwrap();
+        let native = NativeCompilerStore::begin(&config, Frontier::Facts, &factory).await.unwrap();
+        let connection = native.recovery_scope().unwrap().client().connection_completion().unwrap();
+        let reader = crate::NativeReader::private(native.client.clone()).with_budget(&budget);
+        let result = std::panic::AssertUnwindSafe(async {
+            let body = [b"direct native import\0\xff".as_slice(), native.attempt().0.as_slice()].concat();
+            let path = format!("direct-{}.py", native.attempt().hex());
+            let input = InputRevision::from_entries(vec![ManifestEntry {
+                path: path.clone(), content: ContentHash::of(&body), byte_len: body.len() as i64,
+            }])?;
+            let source = SourceArtifact::from_bytes(input.id(), path, &body)?;
+            let package = Package { name: format!("direct-import-{}", native.attempt().hex()) };
+            let release = Release { package: package.id(), version: "1".into() };
+            let assertion = Assertion::from_record(InputDistribution {
+                input: input.id(), release: release.id(), role: DistributionRole::FirstParty,
+            })?;
+            let mut entities = vec![Entity::from(package), Entity::from(release), Entity::from(input), Entity::from(source.clone())];
+            entities.sort_by_key(Entity::id);
+            assert!(crate::control::capture_recovery_scope().is_none());
+            native.import_entities(&entities).await?;
+            assert!(crate::control::capture_recovery_scope().is_none());
+            native.import_assertions(std::slice::from_ref(&assertion)).await?;
+            assert!(crate::control::capture_recovery_scope().is_none());
+            native.import_original_stream(EntityId::of(source.id()).0, source.content, body.len() as u64, &mut body.as_slice(), &budget).await?;
+            assert!(crate::control::capture_recovery_scope().is_none());
+            for entity in &entities {
+                let mut variables = Variables::new();
+                variables.insert("payload", lctx_native::loader::entity_payload_id(entity)?);
+                let persisted: Vec<Value> = reader.query_native("SELECT canonical FROM $payload", variables).await?;
+                let [Value::Object(row)] = persisted.as_slice() else { return Err(ModelError::Conflict("direct imported entity missing")); };
+                let Some(Value::Bytes(bytes)) = row.get("canonical") else { return Err(ModelError::Schema("direct imported entity canonical bytes")); };
+                let actual: Entity = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+                assert_eq!(&actual, entity);
+            }
+            let mut variables = Variables::new();
+            variables.insert("payload", lctx_native::loader::assertion_payload_id(&assertion)?);
+            let persisted: Vec<Value> = reader.query_native("SELECT canonical FROM $payload", variables).await?;
+            let [Value::Object(row)] = persisted.as_slice() else { return Err(ModelError::Conflict("direct imported assertion missing")); };
+            let Some(Value::Bytes(bytes)) = row.get("canonical") else { return Err(ModelError::Schema("direct imported assertion canonical bytes")); };
+            let actual: Assertion = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+            assert_eq!(actual, assertion);
+            let original = reader.original_bytes(EntityId::of(source.id()), 0, body.len()).await?;
+            assert_eq!(original.as_ref(), body.as_slice());
+            Ok::<_, ModelError>(())
+        }).catch_unwind().await;
+        let mut finality = d::completion::Completion::default();
+        finality.step("direct import readback reader close", reader.close().await);
+        finality.merge(native.drain_finality_report().await);
+        finality.merge(native.abandon_finality_report().await);
+        native.append_operation_failures(&mut finality);
+        let closed = d::completion::complete::<()>(Ok(()), finality);
+        if closed.is_ok() {
+            assert_eq!(factory.pending_count().unwrap(), 0, "direct import source signals and factory child are finalized");
+        }
+        drop(reader);
+        drop(native);
+        drop(factory);
+        if closed.is_ok() {
+            connection.wait().await.unwrap();
+            drop(connection);
+            assert_eq!(budget.reserved(), 0, "direct imports release actual native owner and connection backing");
+        }
+        closed.unwrap();
+        match result {
+            Ok(result) => result.unwrap(),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
     #[test]
     fn declaration_views_deduplicate_exact_singletons_without_copying_or_changing_order() {
         let budget = ResourceBudget::fixed(16384).unwrap();

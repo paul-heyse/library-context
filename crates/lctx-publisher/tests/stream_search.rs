@@ -486,10 +486,9 @@ async fn streamed_control(target: AuditTarget) {
             }));
         }
     }
-    let mut fixture = scoped::reader(&config, &entities, &assertions)
+    let fixture = scoped::reader_with_budget(&config, &entities, &assertions, &native_read_budget)
         .await
         .unwrap();
-    fixture.reader = fixture.reader.with_budget(&native_read_budget);
     let vars = fixture.reader.view_bindings();
     let Some(Value::Array(selected)) = vars.get("lctx_views") else {
         panic!("explicit fixture views")
@@ -537,7 +536,9 @@ async fn streamed_control(target: AuditTarget) {
     // Sparse canonical scope keys support its frontiers; full graph closure is
     // exercised by the separate admitted publication journey.
     progress("materialize search");
-    let initial_materialization = materialize_search(&loader).await;
+    let initial_materialization = lctx_native::control::with_recovery_scope(
+        fixture.reader.recovery_scope().unwrap(), materialize_search(&loader),
+    ).await;
     if matches!(
         target,
         AuditTarget::FirstBinding | AuditTarget::AdditiveLink
@@ -545,9 +546,8 @@ async fn streamed_control(target: AuditTarget) {
     {
         progress("initial materialization refusal: fixture cleanup");
         let fixture_cleanup = fixture.close().await;
-        let session_cleanup = loader.client().invalidate().await;
         panic!(
-            "initial companion-context materialization: {initial_materialization:?}; fixture cleanup: {fixture_cleanup:?}; session cleanup: {session_cleanup:?}"
+            "initial companion-context materialization: {initial_materialization:?}; fixture cleanup: {fixture_cleanup:?}"
         );
     }
     initial_materialization.unwrap();
@@ -570,10 +570,9 @@ async fn streamed_control(target: AuditTarget) {
         } else {
             Entity::from(additional_link.unwrap())
         });
-        let mut bound = scoped::reader(&config, &bound_entities, &assertions)
+        let bound = scoped::reader_with_budget(&config, &bound_entities, &assertions, &native_read_budget)
             .await
             .unwrap();
-        bound.reader = bound.reader.with_budget(&native_read_budget);
         let bound_vars = bound.reader.view_bindings();
         let Some(Value::Array(selected)) = bound_vars.get("lctx_views") else {
             panic!("explicit bound fixture views")
@@ -600,7 +599,9 @@ async fn streamed_control(target: AuditTarget) {
         .with_installed_reader(&bound.reader)
         .unwrap();
         progress("materialize companion-context superset");
-        let bound_materialization = materialize_search(&bound_loader).await;
+        let bound_materialization = lctx_native::control::with_recovery_scope(
+            bound.reader.recovery_scope().unwrap(), materialize_search(&bound_loader),
+        ).await;
         progress("independent unbound-view cold audit");
         let unbound_cold = reconcile_search(&loader).await;
         progress("independent first-binding-view cold audit");
@@ -665,7 +666,6 @@ async fn streamed_control(target: AuditTarget) {
         progress("paired fixture cleanup");
         bound.close().await.unwrap();
         fixture.close().await.unwrap();
-        loader.client().invalidate().await.unwrap();
         assert!(
             bound_materialization.is_ok(),
             "first-binding superset materialization: {bound_materialization:?}"
@@ -753,10 +753,9 @@ async fn streamed_control(target: AuditTarget) {
             lctx_native::loader::entity_payload_id(&Entity::from(foreign_binding.clone())).unwrap();
         let mut foreign_entities = entities.clone();
         foreign_entities.push(Entity::from(foreign_binding));
-        let mut foreign = scoped::reader(&config, &foreign_entities, &assertions)
+        let foreign = scoped::reader_with_budget(&config, &foreign_entities, &assertions, &native_read_budget)
             .await
             .unwrap();
-        foreign.reader = foreign.reader.with_budget(&native_read_budget);
         let foreign_vars = foreign.reader.view_bindings();
         let Some(Value::Array(selected)) = foreign_vars.get("lctx_views") else {
             panic!("explicit foreign fixture views")
@@ -782,7 +781,9 @@ async fn streamed_control(target: AuditTarget) {
         .with_derivation(foreign.reader.derivation().unwrap())
         .with_installed_reader(&foreign.reader)
         .unwrap();
-        materialize_search(&foreign_loader).await.unwrap();
+        lctx_native::control::with_recovery_scope(
+            foreign.reader.recovery_scope().unwrap(), materialize_search(&foreign_loader),
+        ).await.unwrap();
         assert_eq!(rows(&foreign_loader, "lex_occurs").await.len(), 81);
         assert_eq!(rows(&foreign_loader, "vec_occurs").await.len(), 162);
         assert_eq!(rows(&loader, "lex_occurs").await.len(), 80);
@@ -1113,6 +1114,5 @@ async fn streamed_control(target: AuditTarget) {
     }
     progress("fixture cleanup");
     fixture.close().await.unwrap();
-    loader.client().invalidate().await.unwrap();
     progress("complete");
 }

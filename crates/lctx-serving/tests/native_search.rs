@@ -1473,9 +1473,10 @@ async fn lexical_fixture(
     .with_budget(&native_read_budget)
     .with_installed_reader(&fixture.reader)
     .unwrap();
-    lctx_native::derived_search::materialize_search(&loader)
-        .await
-        .unwrap();
+    lctx_native::control::with_recovery_scope(
+        fixture.reader.recovery_scope().unwrap(),
+        lctx_native::derived_search::materialize_search(&loader),
+    ).await.unwrap();
     (fixture, loader, units)
 }
 #[tokio::test]

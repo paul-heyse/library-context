@@ -430,6 +430,12 @@ pub async fn retire_named(
     let config = config.clone();
     let handle = handle.clone();
     crate::owned_read::run("native publication retirement", move |cancel| async move {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )?;
+        let factory = lctx_native::control::RecoveryFactoryOwner::new(
+            config.receipt_binding()?, budget,
+        )?;
         let retry = lctx_native::control::RetryCancellation::default();
         let signal = lctx_native::signal::SignalRegistration::retry(
             "native publication retirement",
@@ -444,9 +450,12 @@ pub async fn retire_named(
             let _guard = retirement_selection_guard(&config, &cancel, &retry).await?;
             // This validates the actual marker, not merely equality between two
             // portable config/handle fields, before clearing any local authority.
-            let client = lctx_native::installation::check_installation(&config).await?;
-            let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
-            let result = async {
+            let (client, session) = lctx_native::reader::connect_owned(
+                &config.endpoint, &config.writer_credentials(),
+                config.namespace.as_str(), config.database.as_str(), &factory,
+            ).await?;
+            let result = lctx_native::control::with_recovery_scope(session.recovery_scope().clone(), async {
+                lctx_native::installation::check_connected_installation(&client, config.service_generation).await?;
                 cancel.check()?;
                 if retry.stopped() {
                     return Err(ModelError::Conflict("retirement admission cancelled"));
@@ -490,7 +499,7 @@ pub async fn retire_named(
                         lctx_native::control::resume_retirement(&client, progress.identity, 4096)
                             .await?;
                 }
-            }
+            })
             .await;
             if result
                 .as_ref()
@@ -500,11 +509,11 @@ pub async fn retire_named(
                 completion.local = lctx_model::domain::completion::LocalState::Outstanding;
                 completion.remote = RemoteState::Unknown;
             } else {
-                let closed = session.close().await;
+                let closed = session.complete_with(&completion).await;
                 if closed.is_err() {
                     completion.local = lctx_model::domain::completion::LocalState::Outstanding;
                 }
-                completion.step("retirement session invalidation", closed);
+                completion.step("retirement session factory finality", closed);
             }
             result
         })
@@ -517,6 +526,34 @@ pub async fn retire_named(
             completion.local = lctx_model::domain::completion::LocalState::Outstanding;
             completion.remote = RemoteState::Unknown;
         }
+        // Interrupted construction or an uncertain operation leaves the exact child
+        // with this factory. Known failures may settle it through its existing owner;
+        // unresolved drainage never becomes an ordinary session-detachment claim.
+        let pending = match factory.pending_count() {
+            Ok(pending) => pending,
+            Err(error) => {
+                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                completion.remote = RemoteState::Unknown;
+                completion.step("retirement factory inventory", Err(error));
+                1
+            }
+        };
+        if pending != 0 {
+            if completion.local == lctx_model::domain::completion::LocalState::Terminal
+                && completion.remote == RemoteState::Confirmed
+                && completion.failures.is_empty()
+            {
+                let drained = factory.drain(&retry).await;
+                if drained.is_err() {
+                    completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                    completion.remote = RemoteState::Unknown;
+                }
+                completion.step("retirement factory recovery finality", drained);
+            } else {
+                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                completion.remote = RemoteState::Unknown;
+            }
+        }
         // The receipt describes actual owner finality, independently of a known
         // refusal or successful committed retirement pages.
         if completion.local == lctx_model::domain::completion::LocalState::Terminal
@@ -528,7 +565,9 @@ pub async fn retire_named(
                 signal.complete(&Completion::default()).await,
             );
         }
-        complete(result, completion)
+        complete(result, completion).map_err(|error| {
+            if factory.pending_count().unwrap_or(1) != 0 { factory.handback(error) } else { error }
+        })
     })
     .await
 }

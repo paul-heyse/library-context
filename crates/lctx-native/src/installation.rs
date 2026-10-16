@@ -218,6 +218,24 @@ pub async fn check_installation_admitted(
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
     check_installation_inner(config, Some(budget)).await
 }
+/// Check the pinned engine and actual installation on a session already owned by
+/// the caller. This observes no new connection and transfers no close obligation.
+pub async fn check_connected_installation(
+    client: &Arc<Surreal<Client>>,
+    generation: ContentHash,
+) -> Result<(), ModelError> {
+    let version = client
+        .version()
+        .await
+        .map_err(ModelError::codec)?
+        .to_string();
+    if !version.starts_with("3.3.0") {
+        return Err(ModelError::Invalid(
+            "shared native store requires pinned SurrealDB 3.3.0".into(),
+        ));
+    }
+    crate::control::check_installation(client, generation).await
+}
 async fn check_installation_inner(
     config: &RuntimeConfig,
     budget: Option<&d::resources::ResourceBudget>,
@@ -245,20 +263,7 @@ async fn check_installation_inner(
         }
     };
     let session = reader::SessionFinalizationGuard::new(client.clone());
-    let checked = async {
-        let version = client
-            .version()
-            .await
-            .map_err(ModelError::codec)?
-            .to_string();
-        if !version.starts_with("3.3.0") {
-            return Err(ModelError::Invalid(
-                "shared native store requires pinned SurrealDB 3.3.0".into(),
-            ));
-        }
-        crate::control::check_installation(&client, config.service_generation).await
-    }
-    .await;
+    let checked = check_connected_installation(&client, config.service_generation).await;
     if let Err(error) = checked {
         if !error.permits_storage_cleanup() {
             return Err(error);

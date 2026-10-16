@@ -47,22 +47,23 @@ pub async fn reader(
     entities: &[Entity],
     assertions: &[Assertion],
 ) -> Result<ScopedFixture, ModelError> {
+    let budget = ResourceBudget::fixed(64 << 20)?;
+    reader_with_budget(config, entities, assertions, &budget).await
+}
+pub async fn reader_with_budget(
+    config: &RuntimeConfig,
+    entities: &[Entity],
+    assertions: &[Assertion],
+    budget: &ResourceBudget,
+) -> Result<ScopedFixture, ModelError> {
+    let factory = lctx_compiler_store::compiler::recovery_factory(config, budget.clone())?;
     let store = NativeCompilerStore::begin(
         config,
         Frontier::Facts,
-        &lctx_compiler_store::compiler::recovery_factory(
-            config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
-        )
-        .expect("owned native control factory"),
+        &factory,
     )
     .await?;
     let model = lctx_model::domain::model()?;
-    let budget = ResourceBudget::fixed(64 << 20)?;
     let mut groups = BTreeMap::<String, Vec<surrealdb::types::Value>>::new();
     for view in lctx_native::codec::entity_views(entities)?
         .into_iter()
@@ -81,8 +82,7 @@ pub async fn reader(
         .keys()
         .map(|name| lctx_native::adapter::select(name).map(|adapter| adapter.relation.clone()))
         .collect::<Result<Vec<Relation>, _>>()?;
-    let contribution = store
-        .begin_contribution(ContributionSpec {
+    let specification = ContributionSpec {
             captured_binding: None,
             producer: "scoped-native-kernel-fixture".into(),
             profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
@@ -91,8 +91,10 @@ pub async fn reader(
             configuration: None,
             inputs: vec![],
             outputs: groups.keys().cloned().collect::<BTreeSet<_>>(),
-        })
-        .await?;
+        };
+    let specification_identity = specification.identity()?;
+    let producing = store.producing_scope(specification_identity, &budget)?;
+    let contribution = store.begin_contribution(specification).await?;
     for relation in &relations {
         let batch = lctx_native::codec::decode_bodies(
             relation,
@@ -112,7 +114,8 @@ pub async fn reader(
             &budget,
         )
         .await?;
-    let client = lctx_compiler_store::compiler::check_installation(config).await?;
+    let recovery = store.recovery_scope()?;
+    let client = recovery.client().clone();
     let selected = views.values().map(|v| v.identity).collect::<Vec<_>>();
     let derivation = ContentHash::of(
         format!("scoped-native-kernel-fixture/{}", store.attempt().hex()).as_bytes(),
@@ -121,8 +124,13 @@ pub async fn reader(
         lctx_native::Loader::for_attempt_views(client.clone(), store.attempt(), selected.clone())
             .with_derivation(derivation)
             .with_budget(&budget);
-    loader.entity_references(entities).await?;
-    loader.assertion_references(assertions).await?;
+    let references = producing.run(async {
+        loader.entity_references(entities).await?;
+        loader.assertion_references(assertions).await
+    }).await;
+    let mut terminal = lctx_model::domain::completion::Completion::default();
+    terminal.step("scoped fixture producing drain", producing.close_and_wait().await);
+    lctx_model::domain::completion::complete(references, terminal)?;
     let descriptors = views.values().cloned().collect::<Vec<_>>();
     let reader = store
         .reader_for_views(&descriptors, &budget)
