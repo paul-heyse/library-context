@@ -914,10 +914,8 @@ mod attempt_cut_controls {
                 .unwrap(),
         )
         .unwrap();
-        assert!(
-            cut.commit().await.is_err(),
-            "older full cut conflicts with later committed atomic apply"
-        );
+        let conflict = cut.commit().await.err().expect("older full cut must conflict with later committed atomic apply");
+        assert!(retryable_conflict(&conflict), "expected conclusive native write conflict, not an unknown transport failure: {conflict}");
         let delayed = make(fresh_identity("stripe-delayed-apply").unwrap());
         let cut = client.as_ref().clone().begin().await.unwrap();
         cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();

@@ -3,6 +3,9 @@
 use super::*;
 use lctx_model::domain::resources::ResourceBudget;
 
+#[cfg(test)]
+mod receiving_controls;
+
 pub(crate) struct LiveViewOwner {
     pub(super) attempt: ContentHash,
     generation: ContentHash,

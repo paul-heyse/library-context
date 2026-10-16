@@ -9,6 +9,9 @@ use surrealdb::{
 };
 
 #[cfg(test)]
+mod immutable_incidence_controls;
+
+#[cfg(test)]
 fn test_value(value: impl surrealdb::types::SurrealValue) -> Value {
     value.into_value()
 }

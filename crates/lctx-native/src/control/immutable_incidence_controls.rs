@@ -23,14 +23,19 @@ async fn run_case(
     let config = crate::RuntimeConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign fixture"),
     )).unwrap();
+    // A native unit-test crate and the compiler-store dev dependency have distinct
+    // native type identities; each adapter reads its own runtime contract.
+    let compiler_config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").unwrap(),
+    )).unwrap();
     let begin = || async {
         let budget = ResourceBudget::fixed(DEFAULT_MEMORY_BYTES).unwrap();
-        let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget).unwrap();
-        NativeCompilerStore::begin(&config, Frontier::Facts, &factory).await.unwrap()
+        let factory = lctx_compiler_store::compiler::recovery_factory(&compiler_config, budget).unwrap();
+        NativeCompilerStore::begin(&compiler_config, Frontier::Facts, &factory).await.unwrap()
     };
     let first = begin().await;
     let second = begin().await;
-    let client = lctx_compiler_store::reader::connect(
+    let client = crate::reader::connect(
         &config.endpoint, &config.writer_credentials(),
         first.namespace().as_str(), first.database().as_str(),
     ).await.unwrap();

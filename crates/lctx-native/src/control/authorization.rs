@@ -1735,9 +1735,15 @@ fn validate_replay_owner(
         }
         _ => Value::None,
     };
+    let expected_slot = if matches!(expected_attempt, Value::None) {
+        Value::None
+    } else {
+        surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(request.operation))
+    };
     if row.get("owner_kind") != Some(&Value::String(owner.kind().into()))
         || row.get("owner") != Some(&Value::RecordId(expected_owner))
         || row.get("attempt").cloned().unwrap_or(Value::None) != expected_attempt
+        || row.get("attempt_slot").cloned().unwrap_or(Value::None) != expected_slot
         || row.get("committed") != Some(&Value::Bool(true))
         || row.get("resolved") != Some(&Value::Bool(true))
         || int_field(row, "epoch")? <= 0
@@ -2005,6 +2011,29 @@ mod payload_controls {
 #[cfg(test)]
 mod owner_effect_packet_controls {
     use super::*;
+    #[test]
+    fn atomic_candidate_parses_for_every_real_owner() {
+        let identity = ContentHash::of(b"atomic-owner-parser");
+        let request = NativeRequest {
+            issuance: IssuanceEra { generation: identity, era: 1 },
+            operation: identity,
+            request: identity,
+        };
+        for owner in [
+            EffectOwner::Installation,
+            EffectOwner::OpenAttempt(identity),
+            EffectOwner::FrozenAttempt(identity),
+            EffectOwner::TerminalAttempt(TerminalAttempt { identity, epoch: 1 }),
+            EffectOwner::Pin(RecordId::new("native_pin", identity.hex())),
+            EffectOwner::Retirement(RecordId::new("native_retirement", identity.hex())),
+            EffectOwner::RetirementSetup(RecordId::new("native_retirement", identity.hex())),
+            EffectOwner::Cleanup(RecordId::new("native_cleanup", identity.hex())),
+        ] {
+            let plan = lower_owner_effect_plan(request, &owner, "RETURN true", Variables::new(), false, true).unwrap();
+            surrealdb_syn::parse(&plan.query).unwrap();
+        }
+        surrealdb_syn::parse(include_str!("schema.surql")).unwrap();
+    }
     #[test]
     fn complete_owner_plan_refuses_payload_that_fits_without_protocol_wrappers() {
         let request = NativeRequest {
