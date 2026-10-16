@@ -777,19 +777,24 @@ impl OperationLease {
     fn within<'a, T: 'a>(
         &'a self,
         future: impl std::future::Future<Output = T> + Send + 'a,
-    ) -> BoxFuture<'a, T> {
+    ) -> impl std::future::Future<Output = T> + Send + 'a {
         let recovery = self
             .owner
             .recovery
             .lock()
             .ok()
             .and_then(|owner| owner.clone());
-        Box::pin(DESCENDANT_WORK.scope(self.binding(), async move {
+        // Erase the operation body before composing task-local policy. Otherwise
+        // downstream Send evaluation recursively expands every native phase and
+        // all its context wrappers. Keep one allocation, with the small wrappers
+        // inline, rather than boxing the composed recursive type.
+        let future: BoxFuture<'a, T> = Box::pin(future);
+        DESCENDANT_WORK.scope(self.binding(), async move {
             match recovery {
                 Some(owner) => crate::control::with_recovery_scope(owner, future).await,
                 None => future.await,
             }
-        }))
+        })
     }
     // ProducingScope::run also supports caller futures confined to one task.
     async fn within_local<T>(&self, future: impl std::future::Future<Output = T>) -> T {
