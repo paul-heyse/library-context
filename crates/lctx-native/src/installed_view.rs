@@ -13,6 +13,7 @@ pub use live::{
     attach_live_views_retaining, hold_frozen_view, hold_physical_view, hold_published_view,
 };
 pub(crate) use receiving::protect_receiving_views;
+pub(crate) use receiving::ReceivingViews;
 use serde::{Deserialize, Serialize};
 use surrealdb::types::{RecordId, Value};
 
@@ -178,22 +179,22 @@ enum InstalledViewOwner {
         set: std::sync::Arc<EarnedContributionSet>,
     },
     Physical {
-        expected: crate::control::ExpectedRecord,
+        expected: std::sync::Arc<crate::control::ExpectedRecord>,
         completed: std::sync::Arc<crate::completed_state::NativeCompletedState>,
         owner: RecordId,
     },
     Frozen {
-        expected: crate::control::ExpectedRecord,
+        expected: std::sync::Arc<crate::control::ExpectedRecord>,
         completed: std::sync::Arc<crate::completed_state::HeldFrozenCompletedState>,
         owner: RecordId,
     },
     Published {
-        expected: crate::control::ExpectedRecord,
+        expected: std::sync::Arc<crate::control::ExpectedRecord>,
         completed: crate::completed_state::PublishedCompletedState,
         owner: RecordId,
     },
     Recovery {
-        expected: crate::control::ExpectedRecord,
+        expected: std::sync::Arc<crate::control::ExpectedRecord>,
         inventory: std::sync::Arc<crate::completed_state::InstalledViewInventory>,
         pin: std::sync::Arc<crate::control::ReaderPin>,
         owner: RecordId,

@@ -1327,7 +1327,7 @@ impl ClosureInspectionScope {
                         .iter()
                         .map(|value| value.expected().clone())
                         .collect::<Vec<_>>();
-                    crate::control::live_view::transfer_expected_many(&self.pin, &expected, budget)
+                    crate::control::live_view::transfer_expected_many(&self.pin, expected, budget)
                         .await?;
                     self.check_local(reader, audit, budget)?;
                     Ok::<_, ModelError>(observed)

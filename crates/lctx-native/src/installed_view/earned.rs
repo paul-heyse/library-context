@@ -148,54 +148,52 @@ impl EarnedContributionSet {
     }
 }
 impl HeldInstalledView {
-    /// Extend only the exact immutable contributor closure into a real reader pin.
-    pub async fn protect_with_pin(
+    /// Rebind only immutable, already protected preparation to a completely earned
+    /// receiving pin. No source session, lease or pin owner is retained by the copy.
+    pub(super) fn receiving_copy(
         &self,
-        pin: &crate::control::ReaderPin,
+        pin: &Arc<crate::control::ReaderPin>,
         budget: &ResourceBudget,
-    ) -> Result<(), ModelError> {
+    ) -> Result<Self, ModelError> {
         self.require_pool(budget)?;
-        if let InstalledViewOwner::Earned { set } = &self.owner {
-            set.pin.ensure_live()?;
-            for expected in set.contributors.values() {
-                crate::control::live_view::transfer_expected(pin, expected, budget).await?;
+        pin.ensure_live()?;
+        let owner = RecordId::new("native_pin", pin.identity.hex());
+        let mut charge = StateCharge::new(budget, "receiving independent exact selector");
+        charge.grow(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>())?;
+        let (selector, owner) = match &self.owner {
+            InstalledViewOwner::Earned { set } => {
+                charge.grow(super::view_heap(&self.selector.view).saturating_add(
+                    self.selector.mappings.len().saturating_mul(std::mem::size_of::<ContributorRealization>())))?;
+                let mut state = StateCharge::new(budget, "receiving immutable contributor preparation");
+                state.grow(set.contributors.len().saturating_mul(1024)
+                    .saturating_add(set._prepared.len().saturating_mul(std::mem::size_of::<super::audit::LogicalContributorRows>()))
+                    .saturating_add(std::mem::size_of::<EarnedContributionSet>() + 512))?;
+                let copied = EarnedContributionSet {
+                    pin: pin.clone(), owner,
+                    generation: set.generation, validity_epoch: set.validity_epoch,
+                    contributors: set.contributors.clone(), selector: set.selector,
+                    members: set.members.clone(), _prepared: set._prepared.clone(), _charge: state,
+                };
+                (HeldSelector::Earned(self.completion().clone()), InstalledViewOwner::Earned { set: Arc::new(copied) })
             }
-            set.pin.ensure_live()?;
-        } else {
-            let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
-            let result = async {
-                let completion = self.retained_completion()?;
-                let expected =
-                    crate::control::inspect_expected_read(&reader, completion.record()?, budget)
-                        .await?
-                        .ok_or(ModelError::Conflict("retained receiving selector missing"))?;
-                if expected.incarnation() != self.completion_incarnation()
-                    || expected.row() != self.expected_bytes()
-                {
-                    return Err(ModelError::Conflict("retained receiving selector changed"));
-                }
-                crate::control::live_view::transfer_expected(pin, &expected, budget).await?;
-                let boundary =
-                    RecordId::new("native_completed_state", completion.parent_completion.hex());
-                let expected = crate::control::inspect_expected_read(&reader, boundary, budget)
-                    .await?
-                    .ok_or(ModelError::Conflict("retained receiving parent missing"))?;
-                let data =
-                    crate::completed_state::FrozenCompletion::from_row(expected.row(), true)?;
-                if data.identity()? != completion.parent_completion {
-                    return Err(ModelError::Conflict("retained receiving parent changed"));
-                }
-                crate::control::live_view::transfer_expected(pin, &expected, budget).await
-            }
-            .await;
-            let mut terminal = Completion::default();
-            terminal.step(
-                "retained receiving transfer reader close",
-                reader.close().await,
-            );
-            complete(result, terminal)?;
-        }
-        Ok(())
+            InstalledViewOwner::Physical { expected, completed, .. } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: completed.inventory.clone(), pin: pin.clone(), owner },
+            ),
+            InstalledViewOwner::Frozen { expected, completed, .. } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: completed.inventory.clone(), pin: pin.clone(), owner },
+            ),
+            InstalledViewOwner::Published { expected, completed, .. } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: completed.shared_inventory(), pin: pin.clone(), owner },
+            ),
+            InstalledViewOwner::Recovery { expected, inventory, .. } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: inventory.clone(), pin: pin.clone(), owner },
+            ),
+        };
+        Ok(Self { client: pin.client().clone(), selector, owner, _charge: charge })
     }
     pub fn is_internal(&self) -> bool {
         matches!(&self.owner, InstalledViewOwner::Earned { .. })
@@ -381,7 +379,7 @@ async fn prepared_selected_members(
     keys: &[[u8; 16]],
     budget: &ResourceBudget,
 ) -> Result<super::live::SelectedMembers, ModelError> {
-    set.ensure_borrowed_current(reader, budget).await?;
+    cap.ensure_borrowed_current(reader, budget).await?;
     let mut charge = StateCharge::new(budget, "earned prepared selected member result");
     charge.grow(
         keys.len()
@@ -390,7 +388,9 @@ async fn prepared_selected_members(
     let mut rows = Vec::with_capacity(keys.len());
     let mut points = set.members.cursor(budget)?;
     for key in keys {
-        set.pin.ensure_live()?;
+        if !reader.holds_installed_premise(cap, budget)? {
+            set.pin.ensure_live()?;
+        }
         let id = super::member_id(set.selector, &cap.selector.view.relation, key);
         let Some(row) = points.get(&id)? else {
             continue;
@@ -409,7 +409,7 @@ async fn prepared_selected_members(
             *key,
         )?);
     }
-    set.ensure_borrowed_current(reader, budget).await?;
+    cap.ensure_borrowed_current(reader, budget).await?;
     Ok(super::live::SelectedMembers {
         rows,
         _charge: charge,
@@ -521,6 +521,45 @@ fn decode_selected_member(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn receiving_copy_shares_immutable_preparation_without_retaining_source_pin() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let source_pin = crate::control::ReaderPin::test_detached(false);
+        let source_state = source_pin.factory_state();
+        let receiver = crate::control::ReaderPin::test_detached(false);
+        let prepared = crate::ordered_rows::SortedRows::with_budget(&budget).unwrap().finish().unwrap().into_prepared();
+        let mut state = StateCharge::new(&budget, "receiver copy control state");
+        state.grow(4096).unwrap();
+        let mut handle = StateCharge::new(&budget, "receiver copy control handle");
+        handle.grow(4096).unwrap();
+        let source = HeldInstalledView {
+            client: source_pin.client().clone(),
+            selector: HeldSelector::Earned(SelectedViewDescriptor {
+                view: d::completed::CompletedView::new("packages".into(), [ContentHash([1; 32])].into(), 0).unwrap(),
+                mappings: vec![],
+            }),
+            owner: InstalledViewOwner::Earned { set: Arc::new(EarnedContributionSet {
+                pin: source_pin.clone(), owner: RecordId::new("native_pin", source_pin.identity.hex()),
+                generation: ContentHash([2; 32]), validity_epoch: 1, contributors: BTreeMap::new(),
+                selector: ContentHash([3; 32]), members: prepared.point_index(&budget).unwrap(),
+                _prepared: vec![], _charge: state,
+            }) },
+            _charge: handle,
+        };
+        let received = source.receiving_copy(&receiver, &budget).unwrap();
+        source_pin.retain_unknown();
+        received.check_borrowed_local(receiver.client(), &budget).unwrap();
+        assert!(received.check_borrowed_local(source_pin.client(), &budget).is_err());
+        let foreign_pool = ResourceBudget::fixed(1 << 20).unwrap();
+        assert!(received.check_borrowed_local(receiver.client(), &foreign_pool).is_err());
+        assert!(source.receiving_copy(&crate::control::ReaderPin::test_detached(true), &budget).is_err());
+        drop(source);
+        drop(source_pin);
+        assert!(!source_state.has_borrower(), "receiving data must not retain the source factory borrower");
+        received.check_borrowed_local(receiver.client(), &budget).unwrap();
+        receiver.retain_unknown();
+        assert!(received.check_borrowed_local(receiver.client(), &budget).is_err());
+    }
     fn member(owner: ContentHash, key: [u8; 16]) -> Value {
         let mut row = Object::new();
         row.insert(

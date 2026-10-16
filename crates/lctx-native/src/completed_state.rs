@@ -1765,6 +1765,9 @@ struct PublishedCompletedInner {
     _charge: Box<dyn d::resources::Reservation>,
 }
 impl PublishedCompletedState {
+    pub(crate) fn shared_inventory(&self) -> std::sync::Arc<InstalledViewInventory> {
+        self.inner.inventory.clone()
+    }
     pub fn completion(&self) -> &FrozenCompletion {
         &self.inner.completion
     }

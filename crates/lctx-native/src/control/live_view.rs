@@ -154,21 +154,85 @@ async fn transfer_expected_inner(
 
 /// Independent receiving CAS pages over an already deduplicated opaque inventory.
 /// Each page compares every exact source row before installing any of its holds.
-pub(crate) async fn transfer_expected_many(
-    pin: &ReaderPin,
-    records: &[std::sync::Arc<ExpectedRecord>],
-    budget: &ResourceBudget,
+struct TransferPage {
+    range: std::ops::Range<usize>,
+    request: NativeRequest,
+}
+/// Complete checked page outcomes over this exact immutable inventory and actual pin.
+/// Partial progress remains native pin/recovery ownership, never a usable receiver.
+pub(crate) struct TransferredExpected {
+    pin: std::sync::Arc<ReaderPin>,
+    records: Vec<std::sync::Arc<ExpectedRecord>>,
+    _pages: Vec<TransferPage>,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+impl TransferredExpected {
+    pub(crate) fn ensure_live(
+        &self,
+        client: &std::sync::Arc<Surreal<Client>>,
+    ) -> Result<(), ModelError> {
+        self.pin.require_client(client)?;
+        self.pin.ensure_live()
+    }
+    pub(crate) fn records(&self) -> &[std::sync::Arc<ExpectedRecord>] {
+        &self.records
+    }
+}
+fn complete_transfer_pages(
+    records: usize,
+    pages: &[TransferPage],
+    issuance: IssuanceEra,
 ) -> Result<(), ModelError> {
+    let mut next = 0;
+    let mut requests = std::collections::BTreeSet::new();
+    for page in pages {
+        if page.range.start != next || page.range.end <= next || page.range.end > records
+            || page.request.issuance != issuance || issuance.era <= 0
+            || !requests.insert(page.request.operation)
+        {
+            return Err(ModelError::Conflict("receiving incomplete exact CAS page outcomes"));
+        }
+        next = page.range.end;
+    }
+    if next != records {
+        return Err(ModelError::Conflict("receiving incomplete exact CAS inventory"));
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod transfer_controls {
+    use super::*;
+    fn page(range: std::ops::Range<usize>, operation: u8, issuance: IssuanceEra) -> TransferPage {
+        TransferPage { range, request: NativeRequest { issuance, operation: ContentHash([operation; 32]), request: ContentHash([operation.wrapping_add(1); 32]) } }
+    }
+    #[test]
+    fn receiving_requires_every_exact_page_not_last_page_or_total_count() {
+        let issuance = IssuanceEra { generation: ContentHash([1; 32]), era: 1 };
+        let pages = [page(0..2, 1, issuance), page(2..4, 2, issuance), page(4..5, 3, issuance)];
+        complete_transfer_pages(5, &pages, issuance).unwrap();
+        assert!(complete_transfer_pages(5, &pages[2..], issuance).is_err());
+        assert!(complete_transfer_pages(5, &pages[..2], issuance).is_err());
+        assert!(complete_transfer_pages(5, &[page(0..3, 1, issuance), page(2..4, 2, issuance)], issuance).is_err());
+        assert!(complete_transfer_pages(5, &[page(0..3, 1, issuance), page(3..5, 1, issuance)], issuance).is_err());
+        let foreign = IssuanceEra { generation: ContentHash([2; 32]), era: 1 };
+        assert!(complete_transfer_pages(5, &[page(0..2, 1, issuance), page(2..5, 2, foreign)], issuance).is_err());
+    }
+}
+pub(crate) async fn transfer_expected_many(
+    pin: &std::sync::Arc<ReaderPin>,
+    records: Vec<std::sync::Arc<ExpectedRecord>>,
+    budget: &ResourceBudget,
+) -> Result<TransferredExpected, ModelError> {
     let recovery = pin
         .recovery_scope()
         .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
     with_recovery_scope(recovery, transfer_expected_many_inner(pin, records, budget)).await
 }
 async fn transfer_expected_many_inner(
-    pin: &ReaderPin,
-    records: &[std::sync::Arc<ExpectedRecord>],
+    pin: &std::sync::Arc<ReaderPin>,
+    records: Vec<std::sync::Arc<ExpectedRecord>>,
     budget: &ResourceBudget,
-) -> Result<(), ModelError> {
+) -> Result<TransferredExpected, ModelError> {
     pin.ensure_live()?;
     if records
         .windows(2)
@@ -179,9 +243,11 @@ async fn transfer_expected_many_inner(
             "receiving exact contributor order/incarnation",
         ));
     }
-    if records.is_empty() {
-        return Ok(());
-    }
+    let charge = budget.reserve("receiving exact successful page outcomes",
+        records.capacity().saturating_mul(std::mem::size_of::<std::sync::Arc<ExpectedRecord>>())
+            .saturating_add(records.len().saturating_mul(std::mem::size_of::<TransferPage>() + 128))
+            .saturating_add(1024))?;
+    let mut pages = Vec::with_capacity(records.len());
     let owner = RecordId::new("native_pin", pin.identity.hex());
     let authority = EffectOwner::Pin(owner.clone());
     let _scope = budget.reserve("receiving CAS fixed owner context", 8192)?;
@@ -249,13 +315,16 @@ async fn transfer_expected_many_inner(
             if prepared.bytes()? > _workspace.size() {
                 return Err(ModelError::Schema("receiving exact CAS construction bound"));
             }
+            let request = prepared.request();
             authorization::execute_prepared_owner_effect(pin.client(), prepared).await?;
             pin.ensure_live()?;
+            pages.push(TransferPage { range: offset..offset + count, request });
             offset += count;
             break;
         }
     }
-    Ok(())
+    complete_transfer_pages(records.len(), &pages, issuance)?;
+    Ok(TransferredExpected { pin: pin.clone(), records, _pages: pages, _charge: charge })
 }
 
 pub(crate) async fn finish_boundary(
