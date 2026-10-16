@@ -1,7 +1,7 @@
 //! Declared source-class reachability for dynamic access. This inspection operation grants no
 //! exact runtime class, allocation, mutable-state stability or complete member universe.
 use super::{
-    evaluation::EvaluationData,
+    evaluation::EvaluationDataView,
     read_channels::{Work, declared_class_inspection, native, selected},
 };
 use crate::domain::{
@@ -13,10 +13,10 @@ use crate::domain::{
     assertion::*,
     attribution::*,
     calls::*,
-    conditions::entry::EntryData,
+    conditions::entry::EntryDataView,
     flow::*,
     lexical::*,
-    normalized::{Rows, entities::*},
+    normalized::{Rows, RowsView, entities::*},
     source::*,
     syntax::*,
     value::*,
@@ -90,8 +90,8 @@ pub fn validation_inputs() -> Vec<ValidationInput> {
 }
 const DEPTH_LIMIT: usize = 64;
 struct Inspect<'a> {
-    data: &'a EvaluationData,
-    entry: &'a EntryData,
+    data: EvaluationDataView<'a>,
+    entry: EntryDataView<'a>,
     invocation: &'a publication::AnalysisInvocation,
     work: &'a mut Work,
     budget: &'a resources::ResourceBudget,
@@ -108,7 +108,7 @@ struct DynamicSite {
 impl Inspect<'_> {
     fn observe<S: Support>(
         &mut self,
-        supports: &Rows<S>,
+        supports: RowsView<'_, S>,
         assertion: Id<S::Assertion>,
         q: Id<AssertionQualification>,
         site: Id<Occurrence>,
@@ -166,7 +166,7 @@ impl Inspect<'_> {
         };
         if self.data.classes.get(class.id()) != Some(&class)
             || !self.observe(
-                &self.entry.symbol_declaration_supports,
+                self.entry.symbol_declaration_supports,
                 d.id(),
                 d.qualification,
                 d.declaration,
@@ -220,7 +220,7 @@ impl Inspect<'_> {
                         entry: self.entry,
                         invocation: self.invocation,
                     },
-                    &self.entry.use_supports,
+                    self.entry.use_supports,
                     observation.id(),
                     observation.qualification,
                     site,
@@ -265,7 +265,7 @@ impl Inspect<'_> {
             } else {
                 // Finite whole-input owner oracle. Production always supplies actual Local.
                 let Ok(proof) =
-                    conditions::entry::EntryValueWitness::derive(self.entry, request, self.budget)?
+                    conditions::entry::EntryValueWitness::derive_view(self.entry, request, self.budget)?
                 else {
                     continue;
                 };
@@ -300,7 +300,7 @@ impl Inspect<'_> {
                     ModelError::Invalid("dynamic parameter declaration missing".into())
                 })?;
             if !self.observe(
-                &self.entry.declaration_supports,
+                self.entry.declaration_supports,
                 declared.id(),
                 declared.qualification,
                 site,
@@ -310,7 +310,7 @@ impl Inspect<'_> {
             if let Some(placement) = witness.parameter_placement {
                 let p = self.entry.placements.get(placement).unwrap();
                 if !self.observe(
-                    &self.entry.placement_supports,
+                    self.entry.placement_supports,
                     p.id(),
                     p.qualification,
                     p.occurrence,
@@ -343,7 +343,7 @@ impl Inspect<'_> {
         };
         if owners.next().is_some()
             || !self.observe(
-                &self.entry.symbol_declaration_supports,
+                self.entry.symbol_declaration_supports,
                 owner.id(),
                 owner.qualification,
                 function,
@@ -365,7 +365,7 @@ impl Inspect<'_> {
             || traits.property_getter
             || traits.property_setter
             || !self.observe(
-                &self.data.function_trait_supports,
+                self.data.function_trait_supports,
                 traits.id(),
                 traits.qualification,
                 function,
@@ -389,7 +389,7 @@ impl Inspect<'_> {
                 continue;
             }
             if !self.observe(
-                &self.data.lexical_resolution_supports,
+                self.data.lexical_resolution_supports,
                 row.id(),
                 row.qualification,
                 site,
@@ -498,7 +498,7 @@ impl Inspect<'_> {
         };
         if targets.next().is_some()
             || !self.observe(
-                &self.entry.placement_supports,
+                self.entry.placement_supports,
                 target.id(),
                 target.qualification,
                 event.site,
@@ -539,7 +539,7 @@ impl Inspect<'_> {
             } if *declaration == value.occurrence)
             })
             || !self.observe(
-                &self.entry.placement_supports,
+                self.entry.placement_supports,
                 value.id(),
                 value.qualification,
                 value.occurrence,
@@ -628,7 +628,7 @@ impl Inspect<'_> {
         };
         if targets.next().is_some()
             || !self.observe(
-                &self.entry.placement_supports,
+                self.entry.placement_supports,
                 target.id(),
                 target.qualification,
                 event.site,
@@ -658,7 +658,7 @@ impl Inspect<'_> {
         };
         if values.next().is_some()
             || !self.observe(
-                &self.entry.placement_supports,
+                self.entry.placement_supports,
                 value.id(),
                 value.qualification,
                 value.occurrence,
@@ -708,7 +708,7 @@ impl Inspect<'_> {
                     entry: self.entry,
                     invocation: self.invocation,
                 },
-                &self.data.ruff_context_supports,
+                self.data.ruff_context_supports,
                 row.id(),
                 row.qualification,
                 site,
@@ -789,7 +789,7 @@ impl Inspect<'_> {
         };
         if calls.next().is_some()
             || !self.observe(
-                &self.data.call_syntax_supports,
+                self.data.call_syntax_supports,
                 call.id(),
                 call.qualification,
                 site,
@@ -900,7 +900,7 @@ impl Inspect<'_> {
         if observations.next().is_some()
             || observation.annotation
             || !self.observe(
-                &self.entry.use_supports,
+                self.entry.use_supports,
                 observation.id(),
                 observation.qualification,
                 site,
@@ -926,7 +926,7 @@ impl Inspect<'_> {
             || reach.loop_carried
             || !self.always(reach.qualification)
             || !self.observe(
-                &self.entry.reaching_supports,
+                self.entry.reaching_supports,
                 reach.id(),
                 reach.qualification,
                 site,
@@ -949,7 +949,7 @@ impl Inspect<'_> {
         };
         if definitions.next().is_some()
             || !self.observe(
-                &self.entry.definition_supports,
+                self.entry.definition_supports,
                 observed.id(),
                 observed.qualification,
                 definition.occurrence,
@@ -1046,8 +1046,8 @@ type NativeCallTarget = (&'static str, Id<CallTarget>, bool);
 /// Native resolved builtin/module target inspection catches qualified and imported aliases.
 /// Mixed target inventories retain a broad unknown access; no runtime uniqueness is granted.
 pub(super) fn native_name(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     inv: &publication::AnalysisInvocation,
     site: Id<Occurrence>,
     work: &mut Work,
@@ -1107,7 +1107,7 @@ pub(super) fn native_name(
                 entry,
                 invocation: inv,
             },
-            &data.call_target_supports,
+            data.call_target_supports,
             target.id(),
             target.qualification,
             site,
@@ -1142,8 +1142,8 @@ pub(super) enum SelectedRoot {
     reason = "Dynamic reads keep selected observation, Entry premises, actual Local authority and frame inputs explicit."
 )]
 pub(super) fn produce_selected(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     records: &mut super::read_channels::ReadRecords,
@@ -1214,7 +1214,7 @@ pub(super) fn produce_selected(
             actual,
         };
         let native = inspect.observe(
-            &data.call_syntax_supports,
+            data.call_syntax_supports,
             call.id(),
             call.qualification,
             call.site,
@@ -1226,7 +1226,7 @@ pub(super) fn produce_selected(
         let builtin = lexical_builtin || native_target.is_some_and(|t| t.2);
         if let Some((_, id, _)) = native_target {
             let t = data.call_targets.get(id).unwrap();
-            inspect.observe(&data.call_target_supports, t.id(), t.qualification, t.site)?;
+            inspect.observe(data.call_target_supports, t.id(), t.qualification, t.site)?;
         }
         if kind == DynamicKind::ImportModule
             && let Some(spelling) = data
@@ -1235,7 +1235,7 @@ pub(super) fn produce_selected(
                 .find(|s| s.occurrence == call.callee && inspect.always(s.qualification))
         {
             inspect.observe(
-                &data.spelling_supports,
+                data.spelling_supports,
                 spelling.id(),
                 spelling.qualification,
                 call.callee,
@@ -1338,7 +1338,7 @@ pub(super) fn produce_selected(
             actual,
         };
         let native = inspect.observe(
-            &data.attribute_load_supports,
+            data.attribute_load_supports,
             attribute.id(),
             attribute.qualification,
             attribute.occurrence,
@@ -1383,8 +1383,8 @@ pub(super) fn produce_selected(
 /// Source-only unique module initializer inspection, independent of any emitted dynamic row.
 /// A candidate is never an allocation, singleton runtime, or mutable-state certificate.
 pub(super) fn global_candidate(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     binding: &BindingObservation,
     budget: &resources::ResourceBudget,

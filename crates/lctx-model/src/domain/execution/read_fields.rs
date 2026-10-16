@@ -3,7 +3,7 @@
 //! native inventory is independently replayed and bounded: incomplete inputs refuse negatives.
 //! A same-name load screens every class; unresolved dynamic receivers screen all classes.
 use super::{
-    evaluation::EvaluationData,
+    evaluation::EvaluationDataView,
     read_channels::{
         ReadAssessment, ReadRecords, Work, declared_class_inspection, input_scope, native,
         selected, source_class_hierarchy,
@@ -15,7 +15,7 @@ use crate::domain::{
     },
     assertion::*,
     attribution::*,
-    conditions::entry::EntryData,
+    conditions::entry::EntryDataView,
     lexical::*,
     normalized::{Rows, entities::*},
     source::*,
@@ -136,7 +136,7 @@ pub fn validation_inputs() -> Vec<ValidationInput> {
     ]
 }
 fn same_context(
-    entry: &EntryData,
+    entry: EntryDataView<'_>,
     q: Id<AssertionQualification>,
     context: Id<AnalysisContext>,
 ) -> bool {
@@ -146,8 +146,8 @@ fn same_context(
         .is_some_and(|q| q.context == context)
 }
 fn class_of_scope(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     scope: Id<LexicalScope>,
     context: Id<AnalysisContext>,
 ) -> Option<(Id<ClassEntity>, Id<Occurrence>)> {
@@ -198,8 +198,8 @@ type ChargedHierarchy = (
 );
 
 fn hierarchy(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     class: Id<ClassEntity>,
     inv: &publication::AnalysisInvocation,
     budget: &resources::ResourceBudget,
@@ -224,7 +224,7 @@ fn hierarchy(
             entry,
             invocation: inv,
         },
-        &entry.symbol_declaration_supports,
+        entry.symbol_declaration_supports,
         symbol.id(),
         symbol.qualification,
         *declaration,
@@ -250,7 +250,7 @@ fn hierarchy(
                 entry,
                 invocation: inv,
             },
-            &data.ancestry_supports,
+            data.ancestry_supports,
             mro.id(),
             mro.qualification,
             *declaration,
@@ -311,8 +311,8 @@ fn hierarchy(
     Ok(Some((symbol.symbol, ancestors, charge)))
 }
 fn receiver_sources(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     function: Id<Occurrence>,
     class: Id<ClassEntity>,
     inv: &publication::AnalysisInvocation,
@@ -351,7 +351,7 @@ fn receiver_sources(
                 entry,
                 invocation: inv,
             },
-            &entry.symbol_declaration_supports,
+            entry.symbol_declaration_supports,
             owner.id(),
             owner.qualification,
             function,
@@ -363,7 +363,7 @@ fn receiver_sources(
                 entry,
                 invocation: inv,
             },
-            &data.function_trait_supports,
+            data.function_trait_supports,
             traits.id(),
             traits.qualification,
             function,
@@ -375,7 +375,7 @@ fn receiver_sources(
                 entry,
                 invocation: inv,
             },
-            &entry.symbol_declaration_supports,
+            entry.symbol_declaration_supports,
             class.id(),
             class.qualification,
             *declaration,
@@ -462,8 +462,8 @@ impl FieldUniverse {
     }
     pub(super) fn roots(
         &mut self,
-        _data: &EvaluationData,
-        entry: &EntryData,
+        _data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         inv: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
         work: &mut Work,
@@ -544,8 +544,8 @@ impl FieldUniverse {
     )]
     pub(super) fn calls(
         &mut self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         inv: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
         _out: &mut ReadRecords,
@@ -585,7 +585,7 @@ impl FieldUniverse {
                         entry,
                         invocation: inv,
                     },
-                    &data.lexical_resolution_supports,
+                    data.lexical_resolution_supports,
                     resolution.id(),
                     resolution.qualification,
                     call.callee,
@@ -662,7 +662,7 @@ impl FieldUniverse {
                     entry,
                     invocation: inv,
                 },
-                &data.call_syntax_supports,
+                data.call_syntax_supports,
                 call.id(),
                 call.qualification,
                 call.site,
@@ -683,8 +683,8 @@ impl FieldUniverse {
     )]
     pub(super) fn classes(
         &mut self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         inv: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
         out: &mut ReadRecords,
@@ -722,7 +722,7 @@ impl FieldUniverse {
                     entry,
                     invocation: inv,
                 },
-                &data.class_field_supports,
+                data.class_field_supports,
                 row.id(),
                 row.qualification,
                 row.target,
@@ -759,8 +759,8 @@ impl FieldUniverse {
     )]
     pub(super) fn stores(
         &mut self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         inv: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
         out: &mut ReadRecords,
@@ -823,7 +823,7 @@ impl FieldUniverse {
                     entry,
                     invocation: inv,
                 },
-                &entry.definition_supports,
+                entry.definition_supports,
                 row.id(),
                 row.qualification,
                 def.occurrence,
@@ -861,8 +861,8 @@ impl FieldUniverse {
     )]
     pub(super) fn globals(
         &mut self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         inv: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
         out: &mut ReadRecords,
@@ -925,8 +925,8 @@ impl FieldUniverse {
     )]
     pub(super) fn assess(
         &self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         inv: &publication::AnalysisInvocation,
         class: &Id<ClassEntity>,
         name: &String,
@@ -1025,8 +1025,8 @@ impl FieldUniverse {
     reason = "Field reads keep source facts, Entry premises, frame, admitted roots, output, budget and actual Local authority explicit."
 )]
 pub(super) fn produce(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     inv: &publication::AnalysisInvocation,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     out: &mut ReadRecords,

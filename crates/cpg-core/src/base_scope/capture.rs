@@ -382,6 +382,7 @@ impl<'a> CapturedBase<'a> {
             memberships,
             data,
             keys: &self.keys[start..start + width],
+            opaque_literals: self.opaque_literals,
             _charge: charge,
         })
     }

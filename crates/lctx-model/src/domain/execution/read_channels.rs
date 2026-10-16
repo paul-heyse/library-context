@@ -1,15 +1,15 @@
 //! Native read/dependency observations and complete-negative assessments. Read existence is
 //! distinct from execution reachability and value availability. No heap state is inferred.
-use super::evaluation::EvaluationData;
+use super::evaluation::{EvaluationData, EvaluationDataView};
 use crate::domain::{
     analysis::{
         base_evaluation as publication, native::NativeAssertionPremise, policy::EvidenceStatus,
     },
     assertion::*,
     attribution::*,
-    conditions::entry::EntryData,
+    conditions::entry::{EntryData, EntryDataView},
     flow::*,
-    normalized::{Rows, entities::*},
+    normalized::{Rows, RowsView, entities::*},
     source::*,
     value::*,
     *,
@@ -192,7 +192,7 @@ impl Work {
     }
     pub(super) fn qualification<'a>(
         &self,
-        data: &'a EvaluationData,
+        data: EvaluationDataView<'a>,
         premise: Id<NativeAssertionPremise>,
     ) -> Option<&'a analysis::native::NativeQualification> {
         data.native.get(*self.native_ids.get(&premise)?)
@@ -211,8 +211,8 @@ impl Work {
         }
     }
     fn new(
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         invocation: &publication::AnalysisInvocation,
         budget: &resources::ResourceBudget,
     ) -> Result<Self, ModelError> {
@@ -376,8 +376,8 @@ pub enum ReadMetadata {
 /// select an admitted use receipt; the actual Local issuer supplies its value without replay.
 #[derive(Clone, Copy)]
 pub struct ReadEntries<'a> {
-    pub witnesses: &'a Rows<conditions::entry::EntryValueWitness>,
-    pub sources: &'a Rows<conditions::entry::EntryAccessSource>,
+    pub witnesses: RowsView<'a, conditions::entry::EntryValueWitness>,
+    pub sources: RowsView<'a, conditions::entry::EntryAccessSource>,
     pub actual: &'a local_semantics::ProducedLocal,
 }
 /// One complete semantic root, selected before rich decoding. Ancillary candidates in its
@@ -474,8 +474,8 @@ impl PreparedReads {
     )]
     pub fn produce(
         &mut self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         invocation: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
         root: ReadRoot,
@@ -603,8 +603,8 @@ impl PreparedReads {
     /// Call once for each admitted artifact in canonical ID order, then visit attribute IDs.
     pub fn field_roots(
         &mut self,
-        data: &EvaluationData,
-        entry: &EntryData,
+        data: EvaluationDataView<'_>,
+        entry: EntryDataView<'_>,
         invocation: &publication::AnalysisInvocation,
         roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     ) -> Result<(), ModelError> {
@@ -632,7 +632,7 @@ impl PreparedReads {
     }
 }
 pub(super) fn input_scope(
-    entry: &EntryData,
+    entry: EntryDataView<'_>,
     scope: Id<CoverageScope>,
     input: Id<input::InputRevision>,
     artifact: Id<SourceArtifact>,
@@ -650,8 +650,8 @@ pub(super) fn input_scope(
 /// Native Ruff owns binding identity. Recognizer BindingObservation rows remain retained
 /// characterization and cannot replace the exact attached native event/scope proof.
 pub(super) fn native_binding<'a>(
-    data: &'a EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'a>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     event: Id<lexical::BindingEvent>,
     work: &mut Work,
@@ -691,7 +691,7 @@ pub(super) fn native_binding<'a>(
                 entry,
                 invocation,
             },
-            &data.ruff_binding_supports,
+            data.ruff_binding_supports,
             binding.id(),
             binding.qualification,
             event.site,
@@ -710,7 +710,7 @@ pub(super) fn native_binding<'a>(
 /// Calls may retain unresolved alternatives (Partial); that is not a runtime closure claim.
 /// Missing/unavailable inventory cannot screen imported/qualified name-driven accesses.
 pub(super) fn calls_available(
-    entry: &EntryData,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     artifact: Id<SourceArtifact>,
 ) -> bool {
@@ -731,7 +731,7 @@ pub(super) fn calls_available(
     })
 }
 pub(super) fn selected(
-    entry: &EntryData,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     occurrence: Id<Occurrence>,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
@@ -747,8 +747,8 @@ pub(super) fn selected(
 pub(super) type NativeSupport = (Id<NativeAssertionPremise>, Id<ProviderRun>, EvidenceStatus);
 
 pub(super) struct NativeContext<'a> {
-    pub(super) data: &'a EvaluationData,
-    pub(super) entry: &'a EntryData,
+    pub(super) data: EvaluationDataView<'a>,
+    pub(super) entry: EntryDataView<'a>,
     pub(super) invocation: &'a publication::AnalysisInvocation,
 }
 
@@ -815,7 +815,7 @@ fn native_authority(
 
 pub(super) fn native<S: Support>(
     native_context: NativeContext<'_>,
-    supports: &Rows<S>,
+    supports: RowsView<'_, S>,
     assertion: Id<S::Assertion>,
     q: Id<AssertionQualification>,
     site: Id<Occurrence>,
@@ -833,7 +833,7 @@ pub(super) fn native<S: Support>(
 }
 pub(super) fn declared_class_inspection<S: Support>(
     native_context: NativeContext<'_>,
-    supports: &Rows<S>,
+    supports: RowsView<'_, S>,
     assertion: Id<S::Assertion>,
     q: Id<AssertionQualification>,
     site: Id<Occurrence>,
@@ -853,7 +853,7 @@ pub(super) fn declared_class_inspection<S: Support>(
 /// replay the complete MRO sequence; this grants no runtime class or read authority.
 pub(super) fn source_class_hierarchy(
     native_context: NativeContext<'_>,
-    supports: &Rows<symbols::ClassAncestrySupport>,
+    supports: RowsView<'_, symbols::ClassAncestrySupport>,
     assertion: Id<symbols::ClassAncestryObservation>,
     q: Id<AssertionQualification>,
     site: Id<Occurrence>,
@@ -871,7 +871,7 @@ pub(super) fn source_class_hierarchy(
 }
 fn native_for<S: Support>(
     native_context: NativeContext<'_>,
-    supports: &Rows<S>,
+    supports: RowsView<'_, S>,
     assertion: Id<S::Assertion>,
     q: Id<AssertionQualification>,
     site: Id<Occurrence>,
@@ -951,7 +951,7 @@ pub fn produce(
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
 ) -> Result<ReadRecords, ModelError> {
-    produce_whole(data, entry, invocation, roots, budget, None)
+    produce_whole(data.view(), entry.view(), invocation, roots, budget, None)
 }
 pub fn produce_with_local(
     data: &EvaluationData,
@@ -961,11 +961,11 @@ pub fn produce_with_local(
     budget: &resources::ResourceBudget,
     actual: ReadEntries<'_>,
 ) -> Result<ReadRecords, ModelError> {
-    produce_whole(data, entry, invocation, roots, budget, Some(actual))
+    produce_whole(data.view(), entry.view(), invocation, roots, budget, Some(actual))
 }
 fn produce_whole(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     budget: &resources::ResourceBudget,
@@ -1002,8 +1002,8 @@ fn produce_whole(
 }
 
 fn produce_uses(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     out: &mut ReadRecords,
@@ -1038,7 +1038,7 @@ fn produce_uses(
                 entry,
                 invocation,
             },
-            &entry.use_supports,
+            entry.use_supports,
             observation.id(),
             observation.qualification,
             use_.occurrence,
@@ -1091,7 +1091,7 @@ fn produce_uses(
                     entry,
                     invocation,
                 },
-                &data.lexical_resolution_supports,
+                data.lexical_resolution_supports,
                 resolution.id(),
                 resolution.qualification,
                 use_.occurrence,
@@ -1151,7 +1151,7 @@ fn produce_uses(
                     entry,
                     invocation,
                 },
-                &entry.value_supports,
+                entry.value_supports,
                 value.id(),
                 value.qualification,
                 use_.occurrence,
@@ -1170,8 +1170,8 @@ fn produce_uses(
 }
 
 fn produce_attributes(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     out: &mut ReadRecords,
@@ -1201,7 +1201,7 @@ fn produce_attributes(
                 entry,
                 invocation,
             },
-            &data.attribute_load_supports,
+            data.attribute_load_supports,
             row.id(),
             row.qualification,
             row.occurrence,
@@ -1224,8 +1224,8 @@ fn produce_attributes(
     reason = "Formal reads require separate facts, Entry premises, selected roots, output, work and actual Local authority."
 )]
 fn produce_formals(
-    data: &EvaluationData,
-    entry: &EntryData,
+    data: EvaluationDataView<'_>,
+    entry: EntryDataView<'_>,
     invocation: &publication::AnalysisInvocation,
     roots: &std::collections::BTreeSet<Id<SourceArtifact>>,
     out: &mut ReadRecords,
@@ -1406,7 +1406,7 @@ fn produce_formals(
 
 // Parameter syntax is evaluated in its enclosing header owner. Its binding's callable owner
 // is the unique nearest source callable anchor, independently of default evaluation ownership.
-fn formal_owner(entry: &EntryData, parameter: Id<Occurrence>) -> Option<Id<EntityRef>> {
+fn formal_owner(entry: EntryDataView<'_>, parameter: Id<Occurrence>) -> Option<Id<EntityRef>> {
     let parameter = entry.occurrences.get(parameter)?;
     let mut best = None;
     let mut depth = 0;
@@ -1534,14 +1534,14 @@ mod native_authority_tests {
                 data.premises.insert(pair).unwrap();
                 data.native.insert(n).unwrap();
             }
-            let mut work = Work::new(&data, &entry, &invocation, &budget).unwrap();
+            let mut work = Work::new(data.view(), entry.view(), &invocation, &budget).unwrap();
             let selected = super::native(
                 NativeContext {
-                    data: &data,
-                    entry: &entry,
+                    data: data.view(),
+                    entry: entry.view(),
                     invocation: &invocation,
                 },
-                &data.lexical_resolution_supports,
+                data.lexical_resolution_supports.view(),
                 native.assertion,
                 q.id(),
                 site.id(),
@@ -1590,15 +1590,15 @@ mod native_authority_tests {
             data.spelling_supports.insert(support.clone()).unwrap();
             data.premises.insert(pair.clone()).unwrap();
             data.native.insert(n).unwrap();
-            let mut work = Work::new(&data, &entry, &invocation, &budget).unwrap();
+            let mut work = Work::new(data.view(), entry.view(), &invocation, &budget).unwrap();
             assert_eq!(
                 super::native(
                     NativeContext {
-                        data: &data,
-                        entry: &entry,
+                        data: data.view(),
+                        entry: entry.view(),
                         invocation: &invocation
                     },
-                    &data.spelling_supports,
+                    data.spelling_supports.view(),
                     support.assertion,
                     q.id(),
                     site.id(),
@@ -1844,15 +1844,15 @@ mod native_authority_tests {
                 data.premises.insert(pair).unwrap();
                 data.native.insert(n).unwrap();
             }
-            let mut work = Work::new(&data, &entry, &invocation, &budget).unwrap();
+            let mut work = Work::new(data.view(), entry.view(), &invocation, &budget).unwrap();
             assert_eq!(
                 super::native(
                     NativeContext {
-                        data: &data,
-                        entry: &entry,
+                        data: data.view(),
+                        entry: entry.view(),
                         invocation: &invocation
                     },
-                    &data.function_trait_supports,
+                    data.function_trait_supports.view(),
                     report.assertion,
                     q.id(),
                     site.id(),
@@ -1864,11 +1864,11 @@ mod native_authority_tests {
             assert_eq!(
                 super::declared_class_inspection(
                     NativeContext {
-                        data: &data,
-                        entry: &entry,
+                        data: data.view(),
+                        entry: entry.view(),
                         invocation: &invocation
                     },
-                    &data.function_trait_supports,
+                    data.function_trait_supports.view(),
                     report.assertion,
                     q.id(),
                     site.id(),
@@ -2233,8 +2233,8 @@ mod scoped_read_controls {
             let witnesses = Rows::new(&budget);
             let sources = Rows::new(&budget);
             let values = ReadEntries {
-                witnesses: &witnesses,
-                sources: &sources,
+                witnesses: witnesses.view(),
+                sources: sources.view(),
                 actual: &actual,
             };
             let mut observed = ReadRecords::new(&budget);
@@ -2243,8 +2243,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::Use(row.id()),
@@ -2260,8 +2260,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::Attribute(row.id()),
@@ -2277,8 +2277,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::DynamicCall(row.id()),
@@ -2294,8 +2294,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::DynamicAttribute(row.id()),
@@ -2311,8 +2311,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::Formal(row.id()),
@@ -2324,7 +2324,7 @@ mod scoped_read_controls {
                     .unwrap();
             }
             prepared
-                .field_roots(&data, &entry, &invocation, &roots)
+                .field_roots(data.view(), entry.view(), &invocation, &roots)
                 .unwrap();
             prepared.begin_field_candidates().unwrap();
             for row in data.call_syntax.iter() {
@@ -2332,8 +2332,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::FieldCall(row.id()),
@@ -2349,8 +2349,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::FieldClass(row.id()),
@@ -2366,8 +2366,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::FieldStore(row.id()),
@@ -2383,8 +2383,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::FieldGlobal(row.id()),
@@ -2402,8 +2402,8 @@ mod scoped_read_controls {
                     .append(
                         &prepared
                             .produce(
-                                &data,
-                                &entry,
+                                data.view(),
+                                entry.view(),
                                 &invocation,
                                 &roots,
                                 ReadRoot::FieldAssessment { class, name },

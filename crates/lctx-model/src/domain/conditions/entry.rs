@@ -6,7 +6,7 @@ use crate::domain::{
     declarations::*,
     flow::*,
     lexical::*,
-    normalized::{Rows, entities::*},
+    normalized::{Rows, RowsView, entities::*},
     source::*,
     syntax::{SyntaxPlacement, SyntaxPlacementSupport},
     value::*,
@@ -75,6 +75,9 @@ macro_rules! entry_value_inputs {
             leaf_supports: $crate::domain::flow::FlowTestLeafSupport,
         }
     };
+}
+impl<'a> From<&'a EntryData> for EntryDataView<'a> {
+    fn from(data: &'a EntryData) -> Self { data.view() }
 }
 macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
     pub struct EntryData {$(pub $field:Rows<$ty>,)*}
@@ -179,7 +182,7 @@ impl DerivedEntryValue {
         self._charge.clone()
     }
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ObligationKind> {
+fn need<'a, R: Record>(rows: RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ObligationKind> {
     rows.get(id).ok_or(ObligationKind::MissingEvidence)
 }
 fn inside(child: &Occurrence, parent: &Occurrence) -> bool {
@@ -206,27 +209,28 @@ impl From<EntryRequest> for AccessFrame {
         }
     }
 }
-pub(crate) fn exact(
-    data: &EntryData,
+pub(crate) fn exact<'a>(
+    data: impl Into<EntryDataView<'a>>,
     id: Id<AssertionQualification>,
     request: impl Into<SupportFrame>,
-) -> Result<&AssertionQualification, ObligationKind> {
+) -> Result<&'a AssertionQualification, ObligationKind> {
+    let data = data.into();
     let request = request.into();
-    let q = need(&data.qualifications, id)?;
+    let q = need(data.qualifications, id)?;
     if q.context != request.context {
         return Err(ObligationKind::IncompatibleContexts);
     }
     if q.modality != Modality::Definite || q.approximation != Approximation::Exact {
         return Err(ObligationKind::Approximation);
     }
-    let input = need(&data.runs, request.run)?.input;
-    let source = need(&data.occurrences, request.access)?.source;
-    let artifact = need(&data.artifacts, source)?;
-    let covered = match need(&data.scopes, q.scope)? {
+    let input = need(data.runs, request.run)?.input;
+    let source = need(data.occurrences, request.access)?.source;
+    let artifact = need(data.artifacts, source)?;
+    let covered = match need(data.scopes, q.scope)? {
         CoverageScope::Input { input: owner } => *owner == input && artifact.input == input,
         CoverageScope::Artifact { artifact: owner } => *owner == source && artifact.input == input,
         CoverageScope::Module { module } => {
-            need(&data.modules, *module)?.source == source && artifact.input == input
+            need(data.modules, *module)?.source == source && artifact.input == input
         }
         _ => false,
     };
@@ -259,11 +263,12 @@ impl From<AccessFrame> for SupportFrame {
         }
     }
 }
-pub(crate) fn supported<S: Support>(
-    data: &EntryData,
+pub(crate) fn supported<'a, S: Support>(
+    data: impl Into<EntryDataView<'a>>,
     support: &S,
     request: impl Into<SupportFrame>,
 ) -> Result<bool, ObligationKind> {
+    let data = data.into();
     let request = request.into();
     let a = support
         .attribution()
@@ -271,8 +276,8 @@ pub(crate) fn supported<S: Support>(
     if a.run != request.run {
         return Ok(false);
     }
-    let run = need(&data.runs, a.run)?;
-    let surface = need(&data.surfaces, a.surface)?;
+    let run = need(data.runs, a.run)?;
+    let surface = need(data.surfaces, a.surface)?;
     if run.context != request.context
         || surface.provider != run.provider
         || surface.family != S::Assertion::FAMILY
@@ -283,17 +288,17 @@ pub(crate) fn supported<S: Support>(
     {
         return Err(ObligationKind::MissingEvidence);
     }
-    match need(&data.evidence, a.evidence)? {
+    match need(data.evidence, a.evidence)? {
         Evidence::Occurrence { occurrence } => {
             if *occurrence != request.access
-                && need(&data.occurrences, *occurrence)?.source
-                    != need(&data.occurrences, request.access)?.source
+                && need(data.occurrences, *occurrence)?.source
+                    != need(data.occurrences, request.access)?.source
             {
                 return Err(ObligationKind::MissingEvidence);
             }
         }
         Evidence::SourceSpan { source, .. } => {
-            if *source != need(&data.occurrences, request.access)?.source {
+            if *source != need(data.occurrences, request.access)?.source {
                 return Err(ObligationKind::MissingEvidence);
             }
         }
@@ -319,6 +324,13 @@ impl EntryValueWitness {
         request: EntryRequest,
         budget: &resources::ResourceBudget,
     ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
+        Self::derive_source(data.view(), request, None, None, budget)
+    }
+    pub(crate) fn derive_view(
+        data: EntryDataView<'_>,
+        request: EntryRequest,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
         Self::derive_source(data, request, None, None, budget)
     }
     pub fn derive_for(
@@ -327,7 +339,7 @@ impl EntryValueWitness {
         source: &EntryAccessSource,
         budget: &resources::ResourceBudget,
     ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
-        Self::derive_source(data, request, Some(source), None, budget)
+        Self::derive_source(data.view(), request, Some(source), None, budget)
     }
     pub(crate) fn derive_for_prepared(
         data: &EntryData,
@@ -336,10 +348,10 @@ impl EntryValueWitness {
         conditions: &super::PreparedConditions<'_>,
         budget: &resources::ResourceBudget,
     ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
-        Self::derive_source(data, request, Some(source), Some(conditions), budget)
+        Self::derive_source(data.view(), request, Some(source), Some(conditions), budget)
     }
     fn derive_source(
-        data: &EntryData,
+        data: EntryDataView<'_>,
         request: EntryRequest,
         source: Option<&EntryAccessSource>,
         prepared: Option<&super::PreparedConditions<'_>>,
@@ -349,26 +361,26 @@ impl EntryValueWitness {
         charge.grow(1024)?;
         let mut resource_error = None;
         let result = (|| {
-            let run = need(&data.runs, request.run)?;
+            let run = need(data.runs, request.run)?;
             if run.context != request.context {
                 return Err(ObligationKind::IncompatibleContexts);
             }
-            let ParameterEntity::Source { declaration } = need(&data.formals, request.formal)?
+            let ParameterEntity::Source { declaration } = need(data.formals, request.formal)?
             else {
                 return Err(ObligationKind::EntryValueUnknown);
             };
-            let EntityRef::Callable { callable } = need(&data.refs, request.owner)? else {
+            let EntityRef::Callable { callable } = need(data.refs, request.owner)? else {
                 return Err(ObligationKind::EntryValueUnknown);
             };
             let CallableEntity::Source {
                 declaration: owner, ..
-            } = need(&data.callables, *callable)?
+            } = need(data.callables, *callable)?
             else {
                 return Err(ObligationKind::EntryValueUnknown);
             };
-            let read = need(&data.occurrences, request.access)?;
-            let parameter = need(&data.occurrences, *declaration)?;
-            let owner_row = need(&data.occurrences, *owner)?;
+            let read = need(data.occurrences, request.access)?;
+            let parameter = need(data.occurrences, *declaration)?;
+            let owner_row = need(data.occurrences, *owner)?;
             if read.role != OccurrenceRole::Read
                 || parameter.role != OccurrenceRole::Parameter
                 || parameter.syntax_kind != SyntaxKind::Parameter
@@ -414,14 +426,14 @@ impl EntryValueWitness {
             if links.next().is_some() {
                 return Err(ObligationKind::EntryValueUnknown);
             }
-            let declared = need(&data.declarations, link.declaration.unwrap())?;
+            let declared = need(data.declarations, link.declaration.unwrap())?;
             if declared.parameter != link.parameter || declared.declaration != *declaration {
                 return Err(ObligationKind::MissingEvidence);
             }
             exact(data, declared.qualification, request)?;
-            let parameter_row = need(&data.parameters, link.parameter)?;
-            let signature = need(&data.signatures, parameter_row.signature)?;
-            let symbol = need(&data.symbols, signature.symbol)?;
+            let parameter_row = need(data.parameters, link.parameter)?;
+            let signature = need(data.signatures, parameter_row.signature)?;
+            let symbol = need(data.symbols, signature.symbol)?;
             if symbol.context != request.context
                 || !matches!(
                     symbol.kind,
@@ -438,7 +450,7 @@ impl EntryValueWitness {
                 .filter(|s| s.assertion == declared.id())
             {
                 let a = s.attribution().ok_or(ObligationKind::MissingEvidence)?;
-                let native = need(&data.runs, a.run)?;
+                let native = need(data.runs, a.run)?;
                 if native.input == run.input
                     && native.provider == symbol.provider
                     && native.context == request.context
@@ -475,7 +487,7 @@ impl EntryValueWitness {
                     .filter(|s| s.assertion == d.id())
                 {
                     let a = s.attribution().ok_or(ObligationKind::MissingEvidence)?;
-                    let native = need(&data.runs, a.run)?;
+                    let native = need(data.runs, a.run)?;
                     if native.input == run.input
                         && native.provider == symbol.provider
                         && native.context == request.context
@@ -527,7 +539,7 @@ impl EntryValueWitness {
                 }
             }
             let (use_observation, use_support) = observed.ok_or(ObligationKind::MissingEvidence)?;
-            let lexical = need(&data.lexical_scopes, use_observation.scope)?;
+            let lexical = need(data.lexical_scopes, use_observation.scope)?;
             if lexical.owner != *owner
                 || !matches!(
                     lexical.kind,
@@ -556,9 +568,9 @@ impl EntryValueWitness {
                     region,
                     region_support,
                 } => {
-                    let row = need(&data.values, *observation)?;
-                    let support = need(&data.value_supports, *support)?;
-                    let sink = need(&data.occurrences, row.sink)?;
+                    let row = need(data.values, *observation)?;
+                    let support = need(data.value_supports, *support)?;
+                    let sink = need(data.occurrences, row.sink)?;
                     if row.use_ != use_.id()
                         || !inside(sink, owner_row)
                         || !data.owners.iter().any(|o| {
@@ -578,7 +590,7 @@ impl EntryValueWitness {
                     }
                     (
                         row.qualification,
-                        Some(need(&data.regions, *region)?.qualification),
+                        Some(need(data.regions, *region)?.qualification),
                     )
                 }
                 EntryAccessSource::Guard {
@@ -587,10 +599,10 @@ impl EntryValueWitness {
                     region,
                     region_support,
                 } => {
-                    let row = need(&data.leaves, *observation)?;
-                    let support = need(&data.leaf_supports, *support)?;
+                    let row = need(data.leaves, *observation)?;
+                    let support = need(data.leaf_supports, *support)?;
                     let operand = need(
-                        &data.occurrences,
+                        data.occurrences,
                         row.operand.ok_or(ObligationKind::MissingEvidence)?,
                     )?;
                     if operand.source != read.source
@@ -606,9 +618,9 @@ impl EntryValueWitness {
                     {
                         return Err(ObligationKind::MissingEvidence);
                     }
-                    let atom = need(&data.atoms, row.atom)?;
-                    let evaluation = need(&data.occurrences, atom.evaluation)?;
-                    let test = need(&data.occurrences, row.test)?;
+                    let atom = need(data.atoms, row.atom)?;
+                    let evaluation = need(data.occurrences, atom.evaluation)?;
+                    let test = need(data.occurrences, row.test)?;
                     if atom.context != request.context
                         || atom.operand != Some(use_.place)
                         || !inside(read, evaluation)
@@ -621,7 +633,7 @@ impl EntryValueWitness {
                     }
                     (
                         row.qualification,
-                        Some(need(&data.regions, *region)?.qualification),
+                        Some(need(data.regions, *region)?.qualification),
                     )
                 }
             };
@@ -641,7 +653,7 @@ impl EntryValueWitness {
                 &local
             };
             let access = prepared
-                .diagram(need(&data.conditions, access_q.condition)?)
+                .diagram(need(data.conditions, access_q.condition)?)
                 .map_err(|error| match error {
                     ModelError::Resource { .. } => {
                         resource_error = Some(error);
@@ -659,7 +671,7 @@ impl EntryValueWitness {
             if let Some(region_q) = region_q {
                 let region_q = exact(data, region_q, request)?;
                 let region_condition = prepared
-                    .diagram(need(&data.conditions, region_q.condition)?)
+                    .diagram(need(data.conditions, region_q.condition)?)
                     .map_err(|error| match error {
                         ModelError::Resource { .. } => {
                             resource_error = Some(error);
@@ -715,7 +727,7 @@ impl EntryValueWitness {
                 })?;
             let mut selected = None;
             for row in data.reaching.iter().filter(|r| r.use_ == use_.id()) {
-                let q = need(&data.qualifications, row.qualification)?;
+                let q = need(data.qualifications, row.qualification)?;
                 if q.context != request.context {
                     continue;
                 }
@@ -749,11 +761,11 @@ impl EntryValueWitness {
             }
             let (reaching, reaching_support) = selected.ok_or(ObligationKind::EntryValueUnknown)?;
             let use_q = access_q;
-            let reaching_q = need(&data.qualifications, reaching.qualification)?;
+            let reaching_q = need(data.qualifications, reaching.qualification)?;
             if use_q.condition != reaching_q.condition {
                 let use_condition = &access_condition;
                 let reaching_condition = prepared
-                    .diagram(need(&data.conditions, reaching_q.condition)?)
+                    .diagram(need(data.conditions, reaching_q.condition)?)
                     .map_err(|error| match error {
                         ModelError::Resource { .. } => {
                             resource_error = Some(error);
@@ -780,18 +792,18 @@ impl EntryValueWitness {
                     return Err(ObligationKind::EntryValueUnknown);
                 }
             }
-            let ReachingDefinition::Bound { definition } = need(&data.targets, reaching.target)?
+            let ReachingDefinition::Bound { definition } = need(data.targets, reaching.target)?
             else {
                 return Err(ObligationKind::EntryValueUnknown);
             };
-            let definition_row = need(&data.definitions, *definition)?;
+            let definition_row = need(data.definitions, *definition)?;
             if definition_row.place != place.id() {
                 return Err(ObligationKind::EntryValueUnknown);
             }
             let parameter_placement = if definition_row.occurrence == *declaration {
                 None
             } else {
-                let identifier = need(&data.occurrences, definition_row.occurrence)?;
+                let identifier = need(data.occurrences, definition_row.occurrence)?;
                 if identifier.syntax_kind != SyntaxKind::Identifier
                     || identifier.role != OccurrenceRole::Syntax
                     || !inside(identifier, parameter)
@@ -815,7 +827,7 @@ impl EntryValueWitness {
                         let a = support
                             .attribution()
                             .ok_or(ObligationKind::MissingEvidence)?;
-                        let native = need(&data.runs, a.run)?;
+                        let native = need(data.runs, a.run)?;
                         // Canonical placement is supplied by independent Ruff; the source
                         // symbol is supplied by Pyrefly. Their provider IDs must stay distinct.
                         // The placement's own run/surface/family and exact captured frame are
@@ -884,11 +896,11 @@ impl EntryValueWitness {
                     && c.family == FactFamily::Flow
             }) {
                 let q = AssertionQualification {
-                    assumptions: need(&data.qualifications, use_observation.qualification)?
+                    assumptions: need(data.qualifications, use_observation.qualification)?
                         .assumptions,
                     context: request.context,
                     scope: row.scope,
-                    condition: need(&data.qualifications, use_observation.qualification)?.condition,
+                    condition: need(data.qualifications, use_observation.qualification)?.condition,
                     modality: Modality::Definite,
                     approximation: Approximation::Exact,
                 };
@@ -914,9 +926,9 @@ impl EntryValueWitness {
             let (inventory, inventory_support) = flow_inventory::complete_native_singleton(
                 data,
                 use_observation,
-                need(&data.use_supports, use_support)?,
+                need(data.use_supports, use_support)?,
                 reaching,
-                need(&data.reaching_supports, reaching_support)?,
+                need(data.reaching_supports, reaching_support)?,
                 budget,
             )
             .map_err(|error| {
@@ -941,28 +953,28 @@ impl EntryValueWitness {
             evidence(FactFamily::Flow, inventory_support.fidelity);
             evidence(
                 FactFamily::Flow,
-                need(&data.use_supports, use_support)?.fidelity,
+                need(data.use_supports, use_support)?.fidelity,
             );
             evidence(
                 FactFamily::Flow,
-                need(&data.reaching_supports, reaching_support)?.fidelity,
+                need(data.reaching_supports, reaching_support)?.fidelity,
             );
             evidence(
                 FactFamily::Flow,
-                need(&data.definition_supports, definition_support)?.fidelity,
+                need(data.definition_supports, definition_support)?.fidelity,
             );
             evidence(
                 FactFamily::Signatures,
-                need(&data.declaration_supports, declaration_support)?.fidelity,
+                need(data.declaration_supports, declaration_support)?.fidelity,
             );
             evidence(
                 FactFamily::Signatures,
-                need(&data.symbol_declaration_supports, owner_support)?.fidelity,
+                need(data.symbol_declaration_supports, owner_support)?.fidelity,
             );
             if let Some((_, support)) = parameter_placement {
                 evidence(
                     FactFamily::Syntax,
-                    need(&data.placement_supports, support)?.fidelity,
+                    need(data.placement_supports, support)?.fidelity,
                 );
             }
             match &source {
@@ -974,11 +986,11 @@ impl EntryValueWitness {
                 } => {
                     evidence(
                         FactFamily::Flow,
-                        need(&data.value_supports, *support)?.fidelity,
+                        need(data.value_supports, *support)?.fidelity,
                     );
                     evidence(
                         FactFamily::Flow,
-                        need(&data.region_supports, *region_support)?.fidelity,
+                        need(data.region_supports, *region_support)?.fidelity,
                     );
                 }
                 EntryAccessSource::Guard {
@@ -988,11 +1000,11 @@ impl EntryValueWitness {
                 } => {
                     evidence(
                         FactFamily::Flow,
-                        need(&data.leaf_supports, *support)?.fidelity,
+                        need(data.leaf_supports, *support)?.fidelity,
                     );
                     evidence(
                         FactFamily::Flow,
-                        need(&data.region_supports, *region_support)?.fidelity,
+                        need(data.region_supports, *region_support)?.fidelity,
                     );
                 }
             }
@@ -1169,8 +1181,8 @@ impl EntryAccessSource {
         })
     }
 }
-fn region_for(
-    data: &EntryData,
+fn region_for<'a>(
+    data: impl Into<EntryDataView<'a>>,
     request: EntryRequest,
 ) -> Result<(Id<FlowRegionObservation>, Id<FlowRegionSupport>), ObligationKind> {
     region_for_access(
@@ -1182,13 +1194,14 @@ fn region_for(
     )
 }
 /// Exact containing native execution region; parameter identity remains a separate Entry operation.
-pub(crate) fn region_for_access(
-    data: &EntryData,
+pub(crate) fn region_for_access<'a>(
+    data: impl Into<EntryDataView<'a>>,
     owner: Id<EntityRef>,
     access: Id<Occurrence>,
     context: Id<AnalysisContext>,
     run: Id<ProviderRun>,
 ) -> Result<(Id<FlowRegionObservation>, Id<FlowRegionSupport>), ObligationKind> {
+    let data = data.into();
     let request = AccessFrame {
         owner,
         access,
@@ -1196,7 +1209,7 @@ pub(crate) fn region_for_access(
         run,
     };
 
-    let read = need(&data.occurrences, request.access)?;
+    let read = need(data.occurrences, request.access)?;
     let mut selected = None;
     for row in data.use_observations.iter().filter(|o| {
         data.uses
@@ -1217,7 +1230,7 @@ pub(crate) fn region_for_access(
         }
     }
     let observed = selected.ok_or(ObligationKind::MissingEvidence)?;
-    let scope = need(&data.lexical_scopes, observed.scope)?;
+    let scope = need(data.lexical_scopes, observed.scope)?;
     let mut best: Option<&FlowRegionObservation> = None;
     for row in data.regions.iter().filter(|r| {
         r.scope == observed.scope
@@ -1226,8 +1239,8 @@ pub(crate) fn region_for_access(
                 .get(r.qualification)
                 .is_some_and(|q| q.context == request.context)
     }) {
-        let statement = need(&data.occurrences, row.statement)?;
-        if !inside(read, statement) || !inside(statement, need(&data.occurrences, scope.owner)?) {
+        let statement = need(data.occurrences, row.statement)?;
+        if !inside(read, statement) || !inside(statement, need(data.occurrences, scope.owner)?) {
             continue;
         }
         if !data.owners.iter().any(|o| {
@@ -1237,7 +1250,7 @@ pub(crate) fn region_for_access(
         }
         match best {
             Some(previous) => {
-                let depth = need(&data.occurrences, previous.statement)?
+                let depth = need(data.occurrences, previous.statement)?
                     .structural_path
                     .len();
                 if statement.structural_path.len() == depth {

@@ -171,6 +171,7 @@ pub(super) struct BaseWindow<'a> {
     memberships: CapturedMemberships,
     pub(super) data: Box<BaseData>,
     pub(super) keys: &'a [[u8; 16]],
+    opaque_literals: bool,
     _charge: charged::StateCharge,
 }
 pub(super) struct BasePartition<'a> {
@@ -181,6 +182,7 @@ pub(super) struct BasePartition<'a> {
     opaque: charged::ChargedVec<Id<value::Literal>>,
     _charge: charged::StateCharge,
     data: &'a EvaluationData,
+    opaque_literals: bool,
 }
 impl BaseWindow<'_> {
     pub(super) fn partition(
@@ -225,12 +227,14 @@ impl BaseWindow<'_> {
         )?;
         let mut charge = charged::StateCharge::new(budget, "Base-opaque-partition");
         let mut opaque = charged::ChargedVec::default();
-        for key in membership_keys(
-            &self.memberships,
-            partition,
-            self.scopes.index(TypeId::of::<value::Literal>())?,
-        ) {
-            opaque.push(&mut charge, nominal(&key)?)?;
+        if self.opaque_literals {
+            for key in membership_keys(
+                &self.memberships,
+                partition,
+                self.scopes.index(TypeId::of::<value::Literal>())?,
+            ) {
+                opaque.push(&mut charge, nominal(&key)?)?;
+            }
         }
         Ok(BasePartition {
             evaluation,
@@ -240,6 +244,7 @@ impl BaseWindow<'_> {
             opaque,
             _charge: charge,
             data: &self.data.data,
+            opaque_literals: self.opaque_literals,
         })
     }
 }
@@ -247,9 +252,24 @@ impl BasePartition<'_> {
     pub(super) fn evaluation(
         &self,
     ) -> Result<execution::evaluation::EvaluationDataView<'_>, ModelError> {
-        self.evaluation
-            .view(self.data)?
-            .with_opaque_selection(&self.opaque)
+        let view = self.evaluation.view(self.data)?;
+        if self.opaque_literals {
+            view.with_opaque_selection(&self.opaque)
+        } else {
+            Ok(view)
+        }
+    }
+    fn roots(&self, budget: &resources::ResourceBudget) -> Result<AdmittedSourceRoots, ModelError> {
+        let data = self.evaluation()?;
+        let bytes = data.artifacts.iter().map(|row| row.row_bytes()).sum::<usize>()
+            + data.uses.len() * size_of::<input::ArtifactUse>();
+        let copy = budget.reserve("selected-base-root-metadata",
+            bytes.saturating_mul(2) + data.artifacts.len() * 128)?;
+        let roots = admission::analysis_roots(
+            &data.artifacts.iter().cloned().collect::<Vec<_>>(),
+            &data.uses.iter().cloned().collect::<Vec<_>>(),
+        )?;
+        Ok((roots, copy))
     }
     pub(super) fn entry(&self) -> Result<conditions::entry::EntryDataView<'_>, ModelError> {
         self.entry.view()
@@ -1440,48 +1460,68 @@ impl BaseScopes {
                             &runtime.cancellation(),
                         )
                         .await?;
-                    for (partition, key) in captured.keys.iter().enumerate() {
-                        runtime.cancellation().check()?;
-                        // Read production mutates shared work/field state. Assemble one exact
-                        // root and invoke it once: there is no speculative semantic retry.
+                    let mut local_start = 0;
+                    let mut local_width = width;
+                    while local_start < width {
                         let window = captured
-                            .cohort(partition, 1, budget, &runtime.cancellation())
+                            .cohort(local_start, local_width, budget, &runtime.cancellation())
                             .await?;
-                        let data = &window.data;
-                        let production_phase =
-                            lctx_native::phase::Phase::begin("base_mutable_read_production");
-                        if matches!(kernel, Kernel::FieldRoot) {
-                            let _key = budget.reserve("Base-field-root-key", 128)?;
-                            let roots = [nominal(key)?].into_iter().collect();
-                            let result = prepared.field_roots(&data.data, &data.entry, inv, &roots);
-                            production_phase.finish_result(&result);
-                            result?;
-                        } else {
-                            let (roots, _root_charge) = data.roots(budget)?;
-                            let values = ReadEntries {
-                                witnesses: &data.witnesses,
-                                sources: &data.sources,
-                                actual,
-                            };
-                            let result = prepared.produce(
-                                &data.data,
-                                &data.entry,
-                                inv,
-                                &roots,
-                                kernel.read(*key)?,
-                                budget,
-                                values,
-                            );
-                            production_phase.finish_result(&result);
-                            let records = result?;
-                            let emission_phase =
-                                lctx_native::phase::Phase::begin("base_read_emission");
-                            let emission = write_reads(output, &records).await;
-                            emission_phase.finish_result(&emission);
-                            emission?;
+                        // All exact borrowed partitions are prepared before the first mutable
+                        // root. Only this pure preparation may shrink; emitted roots never replay.
+                        let partitions = (|| {
+                            let charge = budget.reserve("Base-read-partition-window",
+                                window.keys.len() * size_of::<BasePartition<'_>>())?;
+                            let selected = (0..window.keys.len())
+                                .map(|partition| window.partition(partition, budget))
+                                .collect::<Result<Vec<_>, ModelError>>()?;
+                            Ok::<_, ModelError>((selected, charge))
+                        })();
+                        let (partitions, _partitions) = match partitions {
+                            Ok(partitions) => partitions,
+                            Err(error) if window.keys.len() > 1 && capture::local_resource(&error) => {
+                                local_width = (window.keys.len() / 2).max(1);
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        for (selected, key) in partitions.iter().zip(window.keys) {
+                            runtime.cancellation().check()?;
+                            let production_phase =
+                                lctx_native::phase::Phase::begin("base_mutable_read_production");
+                            if matches!(kernel, Kernel::FieldRoot) {
+                                let _key = budget.reserve("Base-field-root-key", 128)?;
+                                let roots = [nominal(key)?].into_iter().collect();
+                                let result = prepared.field_roots(
+                                    selected.evaluation()?, selected.entry()?, inv, &roots);
+                                production_phase.finish_result(&result);
+                                result?;
+                            } else {
+                                let (roots, _root_charge) = selected.roots(budget)?;
+                                let values = ReadEntries {
+                                    witnesses: selected.witnesses()?,
+                                    sources: selected.sources()?,
+                                    actual,
+                                };
+                                let result = prepared.produce(
+                                    selected.evaluation()?,
+                                    selected.entry()?,
+                                    inv,
+                                    &roots,
+                                    kernel.read(*key)?,
+                                    budget,
+                                    values,
+                                );
+                                production_phase.finish_result(&result);
+                                let records = result?;
+                                let emission_phase =
+                                    lctx_native::phase::Phase::begin("base_read_emission");
+                                let emission = write_reads(output, &records).await;
+                                emission_phase.finish_result(&emission);
+                                emission?;
+                            }
+                            tokio::task::yield_now().await;
                         }
-                        drop(window);
-                        tokio::task::yield_now().await;
+                        local_start += window.keys.len();
                     }
                     start += width;
                 }
@@ -1495,6 +1535,9 @@ impl BaseScopes {
         }
         let mut previous: Option<(Id<ClassEntity>, String)> = None;
         let mut previous_charge: Option<Box<dyn resources::Reservation>> = None;
+        // Field keys are ordered by class then name. Hold the exact class/dynamic negative
+        // universe through all names for that class instead of reacquiring it per field.
+        let mut class_data: Option<(Id<ClassEntity>, PreparedClosure, BaseData)> = None;
         while let Some(next) = prepared.next_field_key(previous.as_ref()) {
             let key_charge = budget.reserve(
                 "Base-field-key-transfer",
@@ -1502,6 +1545,9 @@ impl BaseScopes {
                     + next.1.len().saturating_mul(2),
             )?;
             let (class, name) = next.clone();
+            if class_data.as_ref().is_none_or(|(owner, _, _)| *owner != class) {
+                // Release the prior class before charging a new independent class universe.
+                drop(class_data.take());
             let _predicate = budget.reserve(
                 "Base-field-class-predicate",
                 classes.len().saturating_add(1).saturating_mul(128),
@@ -1520,17 +1566,20 @@ impl BaseScopes {
                 .await?;
             drop(keys);
             let data = self.data(access, &scope, budget, false).await?;
+            class_data = Some((class, scope, data));
+            }
+            let (_, _, data) = class_data.as_ref().expect("field class prepared");
             let (roots, _root_charge) = data.roots(budget)?;
             let values = ReadEntries {
-                witnesses: &data.witnesses,
-                sources: &data.sources,
+                witnesses: data.witnesses.view(),
+                sources: data.sources.view(),
                 actual,
             };
             let production_phase =
                 lctx_native::phase::Phase::begin("base_field_assessment_production");
             let result = prepared.produce(
-                &data.data,
-                &data.entry,
+                data.data.view(),
+                data.entry.view(),
                 inv,
                 &roots,
                 ReadRoot::FieldAssessment {
@@ -1548,8 +1597,6 @@ impl BaseScopes {
             emission?;
             previous = Some((class, name));
             previous_charge = Some(key_charge);
-            drop(data);
-            drop(scope);
             tokio::task::yield_now().await;
         }
         drop(previous);
@@ -2760,39 +2807,34 @@ mod controls {
         let actual = local_semantics::ProducedLocal::empty(&budget);
         let mut observed = ReadRecords::new(&budget);
         let mut expected = ReadRecords::new(&budget);
+        let window = captured.cohort(0, 3, &budget, &cancellation).await.unwrap();
+        assert_eq!(window.data.entry.use_observations.len(), 2);
         for (partition, observation) in observations.iter().enumerate() {
-            let window = captured
-                .cohort(partition, 1, &budget, &cancellation)
-                .await
-                .unwrap();
+            let selected = window.partition(partition, &budget).unwrap();
+            let evaluation = selected.evaluation().unwrap();
+            let entry = selected.entry().unwrap();
             assert!(
-                window
-                    .data
-                    .entry
-                    .use_observations
+                entry.use_observations
                     .get(observation.id())
                     .is_some()
             );
             assert!(
-                window
-                    .data
-                    .entry
-                    .use_observations
+                entry.use_observations
                     .get(observations[1 - partition].id())
                     .is_none()
             );
-            let (roots, root_charge) = window.data.roots(&budget).unwrap();
+            let (roots, root_charge) = selected.roots(&budget).unwrap();
             let result = reads
                 .produce(
-                    &window.data.data,
-                    &window.data.entry,
+                    evaluation,
+                    entry,
                     &inv,
                     &roots,
                     ReadRoot::Use(observation.id()),
                     &budget,
                     ReadEntries {
-                        witnesses: &window.data.witnesses,
-                        sources: &window.data.sources,
+                        witnesses: selected.witnesses().unwrap(),
+                        sources: selected.sources().unwrap(),
                         actual: &actual,
                     },
                 )
@@ -2814,7 +2856,7 @@ mod controls {
             observed.append(&result).unwrap();
             drop(result);
             drop(root_charge);
-            drop(window);
+            drop(selected);
             let scope = prepared
                 .scope(Kernel::Use, *observation.id().bytes(), &budget)
                 .await
@@ -2823,21 +2865,22 @@ mod controls {
             let (roots, _roots) = singleton.roots(&budget).unwrap();
             let result = oracle
                 .produce(
-                    &singleton.data,
-                    &singleton.entry,
+                    singleton.data.view(),
+                    singleton.entry.view(),
                     &inv,
                     &roots,
                     ReadRoot::Use(observation.id()),
                     &budget,
                     ReadEntries {
-                        witnesses: &singleton.witnesses,
-                        sources: &singleton.sources,
+                        witnesses: singleton.witnesses.view(),
+                        sources: singleton.sources.view(),
                         actual: &actual,
                     },
                 )
                 .unwrap();
             expected.append(&result).unwrap();
         }
+        drop(window);
         assert!(observed.same(&expected));
         assert_eq!(observed.reads.len(), 2);
         let absent = captured.cohort(2, 1, &budget, &cancellation).await.unwrap();
@@ -2958,39 +3001,45 @@ mod controls {
         let rootdata = data(&session, &prepared, Some(&rootscope), &budget, false).await;
         let roots = [artifact.id()].into_iter().collect();
         reads
-            .field_roots(&rootdata.data, &rootdata.entry, &inv, &roots)
+            .field_roots(rootdata.data.view(), rootdata.entry.view(), &inv, &roots)
             .unwrap();
         drop(rootdata);
         drop(rootscope);
         reads.begin_field_candidates().unwrap();
+        let window = captured.cohort(0, calls.len(), &budget, &cancellation).await.unwrap();
+        {
+            let first = window.partition(0, &budget).unwrap();
+            let second = window.partition(1, &budget).unwrap();
+            assert!(std::ptr::eq(
+                first.evaluation().unwrap().literals.get(literal.id()).unwrap(),
+                second.evaluation().unwrap().literals.get(literal.id()).unwrap(),
+            ));
+        }
+
         for (partition, (_, call)) in calls.iter().enumerate() {
-            let window = captured
-                .cohort(partition, 1, &budget, &cancellation)
-                .await
-                .unwrap();
-            assert_eq!(window.data.data.literals.get(literal.id()), Some(&literal));
-            assert_eq!(window.data.data.call_arguments.len(), 1);
-            assert!(window.data.data.call_syntax.get(call.id()).is_some());
+            let selected = window.partition(partition, &budget).unwrap();
+            let evaluation = selected.evaluation().unwrap();
+            let entry = selected.entry().unwrap();
+            assert_eq!(evaluation.literals.get(literal.id()), Some(&literal));
+            assert_eq!(evaluation.call_arguments.len(), 1);
+            assert!(evaluation.call_syntax.get(call.id()).is_some());
             assert!(
-                window
-                    .data
-                    .data
-                    .call_syntax
+                evaluation.call_syntax
                     .get(calls[1 - partition].1.id())
                     .is_none()
             );
-            let (roots, _roots) = window.data.roots(&budget).unwrap();
+            let (roots, _roots) = selected.roots(&budget).unwrap();
             let records = reads
                 .produce(
-                    &window.data.data,
-                    &window.data.entry,
+                    evaluation,
+                    entry,
                     &inv,
                     &roots,
                     ReadRoot::FieldCall(call.id()),
                     &budget,
                     ReadEntries {
-                        witnesses: &window.data.witnesses,
-                        sources: &window.data.sources,
+                        witnesses: selected.witnesses().unwrap(),
+                        sources: selected.sources().unwrap(),
                         actual: &actual,
                     },
                 )
@@ -2998,6 +3047,7 @@ mod controls {
             assert!(records.reads.is_empty());
             assert!(records.dynamic.is_empty());
         }
+        drop(window);
         reads.seal_fields().unwrap();
         drop(reads);
         drop(metadata);
@@ -3006,6 +3056,23 @@ mod controls {
         assert_eq!(budget.reserved(), retained);
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn adaptive_read_preparation_rejects_unknown_or_effectful_resource_refusal() {
+        let budget = resources::ResourceBudget::fixed(1).unwrap();
+        let refusal = || budget.reserve("read-preparation-refusal", 2).unwrap_err();
+        assert!(local_retryable(&refusal()));
+        let unknown = completion::Completion {
+            remote: completion::RemoteState::Unknown,
+            ..Default::default()
+        };
+        let error = completion::complete::<()>(Err(refusal()), unknown).unwrap_err();
+        assert!(!local_retryable(&error));
+        let mut committed = completion::Completion::default();
+        committed.committed("emitted-read-root", "root-1");
+        let error = completion::complete::<()>(Err(refusal()), committed).unwrap_err();
+        assert!(!local_retryable(&error));
     }
 
     #[tokio::test]

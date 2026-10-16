@@ -557,8 +557,8 @@ fn evaluate_selected_view(
                 &roots,
                 budget,
                 super::read_channels::ReadEntries {
-                    witnesses: owned_witnesses,
-                    sources: owned_sources,
+                    witnesses: owned_witnesses.view(),
+                    sources: owned_sources.view(),
                     actual,
                 },
             )?

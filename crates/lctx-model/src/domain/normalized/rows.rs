@@ -58,7 +58,7 @@ impl<'a, R: Record> RowsView<'a, R> {
     pub fn required<E>(&self, id: Id<R>, missing: impl FnOnce() -> E) -> Result<&'a R, E> {
         self.get(id).ok_or_else(missing)
     }
-    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &'a R> + ExactSizeIterator {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &'a R> + ExactSizeIterator + use<'a, R> {
         match self.selected {
             Some(ids) => RowsViewIter::Selected {
                 rows: self.rows,

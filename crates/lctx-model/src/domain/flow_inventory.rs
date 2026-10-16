@@ -849,13 +849,14 @@ fn native_traversal<S: Support>(support: &S) -> bool {
 /// Closure authority for one already attributed native read. Family coverage is separate evidence.
 /// Full candidate hydration is checked by the same kernel used by original-evidence explanations.
 pub fn complete_native_singleton<'a>(
-    data: &'a conditions::entry::EntryData,
+    data: impl Into<conditions::entry::EntryDataView<'a>>,
     observation: &FlowUseObservation,
     support: &FlowUseSupport,
     reaching: &FlowReachingObservation,
     reaching_support: &FlowReachingSupport,
     budget: &resources::ResourceBudget,
 ) -> Result<Option<(&'a FlowUseInventoryObservation, &'a FlowUseInventorySupport)>, ModelError> {
+    let data = data.into();
     let Some(use_) = data.uses.get(observation.use_) else {
         return Ok(None);
     };
