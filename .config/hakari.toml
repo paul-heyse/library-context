@@ -14,6 +14,7 @@ workspace-members = [
   "cpg-flow", "cpg-core", "cpg-extract", "lctx-analytics", "lctx-embed",
   "lctx-model", "lctx-model-macros", "lctx-semantics", "lctx-eval",
   "lctx-native", "lctx-compiler-store", "lctx-publisher", "lctx-serving",
+  "lctx-tracing",
 ]
 # ADR-0118: keep the embedded registry family inside the Pyrefly adapter.
 # Latest Ruff/ty share their exact git source; never unify features across family identities.

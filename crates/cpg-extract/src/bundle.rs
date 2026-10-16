@@ -145,15 +145,12 @@ pub trait ProviderSink: Send + Sync + 'static {
         thread: std::thread::JoinHandle<()>,
     ) -> oneshot::Receiver<Result<(), ModelError>> {
         let (done, finished) = oneshot::channel();
-        let dispatch = tracing::dispatcher::get_default(Clone::clone);
-        let span = tracing::Span::current();
+        let tracing = lctx_tracing::Context::current();
         let join = move || {
-            tracing::dispatcher::with_default(&dispatch, || {
-                span.in_scope(|| {
-                    let _ = done.send(thread.join().map_err(|_| {
-                        ModelError::Invalid("provider thread panicked while draining".into())
-                    }));
-                })
+            tracing.scope(move || {
+                let _ = done.send(thread.join().map_err(|_| {
+                    ModelError::Invalid("provider thread panicked while draining".into())
+                }));
             })
         };
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
@@ -615,7 +612,7 @@ pub async fn run_provider_bound_guarded<S: ProviderSink>(
     }
     let name = stage.name;
     let span = tracing::info_span!(target: "lctx_phase", "provider", producer = name);
-    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    let tracing = lctx_tracing::Context::from_span(span);
     let cancellation = Arc::new(ProviderCancellation::default());
     let (done, finished) = oneshot::channel();
     let mut context = StageContext {
@@ -637,17 +634,15 @@ pub async fn run_provider_bound_guarded<S: ProviderSink>(
         .name(format!("lctx-{name}"))
         .stack_size(PROVIDER_STACK_BYTES)
         .spawn(move || {
-            tracing::dispatcher::with_default(&dispatch, || {
-                span.in_scope(|| {
-                    let result =
-                        std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context)))
-                            .unwrap_or_else(|_| {
-                                Err(ModelError::Invalid(format!("the {name} provider panicked")))
-                            });
-                    let result = context.close(result);
-                    drop(provider);
-                    let _ = done.send(result);
-                })
+            tracing.scope(move || {
+                let result =
+                    std::panic::catch_unwind(AssertUnwindSafe(|| provider.run(&mut context)))
+                        .unwrap_or_else(|_| {
+                            Err(ModelError::Invalid(format!("the {name} provider panicked")))
+                        });
+                let result = context.close(result);
+                drop(provider);
+                let _ = done.send(result);
             })
         })
         .map_err(|error| ModelError::infrastructure(Infrastructure::Io, error))?;

@@ -19,27 +19,24 @@ pub fn store() -> Arc<NativeCompilerStore> {
             .build()
             .unwrap()
     });
-    let dispatch = tracing::dispatcher::get_default(Clone::clone);
-    let span = tracing::Span::current();
+    let tracing = lctx_tracing::Context::current();
     std::thread::spawn(move || {
-        tracing::dispatcher::with_default(&dispatch, || {
-            span.in_scope(|| {
-                runtime
-                    .block_on(NativeCompilerStore::begin(
+        tracing.scope(move || {
+            runtime
+                .block_on(NativeCompilerStore::begin(
+                    &config,
+                    Frontier::Catalog,
+                    &crate::compiler::recovery_factory(
                         &config,
-                        Frontier::Catalog,
-                        &crate::compiler::recovery_factory(
-                            &config,
-                            (lctx_model::domain::resources::ResourceBudget::fixed(
-                                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                            )
-                            .expect("owned native control recovery budget"))
-                            .clone(),
+                        (lctx_model::domain::resources::ResourceBudget::fixed(
+                            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
                         )
-                        .expect("owned native control factory"),
-                    ))
-                    .unwrap()
-            })
+                        .expect("owned native control recovery budget"))
+                        .clone(),
+                    )
+                    .expect("owned native control factory"),
+                ))
+                .unwrap()
         })
     })
     .join()

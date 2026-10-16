@@ -184,12 +184,15 @@ not reasons to introduce runtime serialization.
 
 ## 6. Sole disposition and current checkpoint
 
-**Remaining scope executing after storage repair, 2026-10-16.** Source through`c492789a`, with
-follow-up fixture/dependency and CD01 safety-consumer changes on shared main. Fifteen native owner
-controls passed; lexical/analysis/reconstruction and enclosing acceptance remain open. Operator approved all remaining
-scope through CE99, lightweight source context, and exact default installation
+**Remaining scope resumed after storage repair, 2026-10-16.** Source based at`18fa4e0f`, with
+independently reviewed tracing-lifetime, lexical SQL and fixture-release repairs. Three tracing
+controls,87 verification inventory controls, full compile, strict Clippy and CLI passed within
+the exact receipts below. Native extension refresh failed on disk exhaustion; operator repair now
+leaves77GiB free. Guard-free rerun`20261016T141058.388Z-0c897e` is active. Operator approved all
+remaining scope through CE99, lightweight source context, and exact default installation
 `58abe9ea-2088-4109-95ab-8440a3749c51` main+validation regeneration after authenticated drainage.
 Default remains unchanged; owned rehearsal E1 remains installed. Original failures/Unknown stay.
+Lexical/analysis/reconstruction actual controls, CE80/default cutover and CE90/CE99 remain open.
 
 Source write failed with ENOSPC; operator repair now leaves110GiB available. The partial SDK lifecycle
 draft was removed and only its task-owned tracked files restored to `0fac2df8`; no truncated source
@@ -430,8 +433,68 @@ regeneration`20261016T112247.949Z-ed471c` passed0/cleanup confirmed, both scopes
 bootstrap absent; generation`fcb7477d2ffc2fe854f2191062db40bd683a30d00991bd5d2dcbd98f392d6d4b`,
 journal`484e1be371ff29f462f7d80f8ba16573c4f17dc0c390d6751f3d95161cb9b5f3`.
 The original prior Unknown is preserved with a separate authenticated discard acknowledgement.
-Default CE80 and CE90/CE99 remain unexecuted. Next native selection uses existing telemetry to
-distinguish pretimeout work/retry stages without caps, assertion changes or allowance increases.
+Default CE80 and CE90/CE99 remain unexecuted. Source`18fa4e0f` focused run
+`20261016T112422.334Z-6c31fc` finished100:2 passed,4 failed,1 timeout; host cleanup confirmed,
+attachment`8d934f28-d306-4a2e-9bac-e5eb34f52475` retains native Unknown. Nonempty direct imports
+and Flow Catalog paired layouts passed. Summary failed on tracing registry destruction; the three
+lexical controls exposed nested aggregate SQL or a retained loader during fixture cleanup. Those
+source defects are corrected separately, pending actual rerun. Base progressed through producers,
+normalization and admission before360s; its last observed contextual admission batches were still
+returning. Short observed attributed retries do not establish a finality stall or bound all SQL.
+Existing900s compound orchestration allowance now covers Base, SourceCall and the six paired
+layout controls; semantic assertions, query/resource limits and normal parallelism are unchanged.
+Original timeout evidence remains failed, with no measured speed claim.
+
+ADR-0177 accepts a small `lctx-tracing` leaf: the actual originating span/dispatch follows polling,
+inner destruction and never-started synchronous callbacks. It avoids importing native persistence
+into extraction or diagnostics into the pure model. Exact locked tracing source shows poll-only
+subscriber wrappers cannot guarantee destruction context; a foreign ambient registry can otherwise
+close an originating span through the wrong registry. Phase retains the same context without
+synthesizing a terminal on Drop. Safe pinned optional inner work adds no per-row allocation or
+unsafe code; recovery/resource/finality owners remain independent. Independent source review
+accepted the leaf/async migration and requested the now-implemented synchronous refinement.
+First pure run`20261016T115456.793Z-9c4e5b` passed2 controls. Integration run
+`20261016T115521.217Z-7a8773` initially failed the added constructor test on a moved test Arc and
+three shared-fixture targets on missing helper dependencies; both are corrected. Its strict
+Clippy and CLI steps passed; enclosing run remains failed101 from those original compile steps.
+Corrected run`20261016T120415.582Z-459a62` passed3 pure controls and full workspace/all-target
+compile, cleanup confirmed. The lock diff adds only the leaf and six internal edges (including
+two shared-fixture dev edges), using already-locked exact dependency pins. Final independent
+source review accepts the synchronous refinement and cross-ambient constructor control. Existing
+verification tooling includes the new leaf; its inventory controls passed87 in
+`20261016T120716.823Z-c2cf18`. Guard-free native refresh`20261016T121217.878Z-71bd2a` failed1/host cleanup confirmed
+at12:12:52UTC: the actual extension build hit LLVM/output-write `No space left on device` in
+model/native compilation. Filesystem availability was zero. This is an evidenced infrastructure
+block, not a new source diagnostic; native readiness remains stale. Rerun `just sync native` after
+space is restored, then regenerate the rehearsal and continue actual controls/default CE80/CE90/CE99.
+Ruff/agent lint passed in`20261016T115658.584Z-16df78`; its ADR/docs failures were the new record
+listing §6.3 rather than actual §6.1 and a stale ADR index. Corrected warnings-inclusive Pyrefly,
+ADR and docs rerun`20261016T120003.519Z-30d499` passed0/cleanup confirmed:465 pages/zero errors.
+The lexical IDF correction computes each distinct query term outside the grouped sum while
+preserving the original zero clamp, no-plus-one formula, ordering, constants and witnesses.
+Actual loader handles now drop after their work drains and before fixture close, including early
+refusal and foreign-reader branches; native reader-clone refusal remains intact.
+
+Disk availability fell15GiB→zero during this continuation, with parallel-repository attribution
+unresolved. The operator authorized continuing and considering
+obsolete task-owned build output trimming. The sole deletion was this turn’s completed147KiB
+metadata scratch file under `/tmp`; no evidence/cache content was removed. Current citations/Unknowns,
+warm Cargo outputs and unresolved legacy content remain protected by their actual owners.
+A read-only complete storage inventory was cancelled130 before completion; it made no changes
+and establishes no retirement eligibility. Shallow build accounting observed17GiB,12GiB in run
+records/logs; size alone establishes neither obsolescence nor safe release. Targeted documentation
+owner inspection found candidates released2026-10-10 or later, still within the configured7-day
+grace. Large run records belong to earlier campaigns; their obligations remain preserved.
+Scope-end generation initially attached the CLI Hakari union to the new leaf; the existing
+lower-library exclusion now includes `lctx-tracing`, preserving its tested minimal dependency
+graph. The added generated hack edge was removed; no external version moved. Root scope-end
+`just turn-end` passed; final `just adr-lint`, `uv run --no-sync ruff check` and
+`uv run --no-sync pyrefly check --summary=none` passed. Formatting-only carryover from the
+previously integrated native/publication/worktree slice does not add semantic changes.
+Only main remains; no auxiliary worktree or active native/control worker remains.
+No current rehearsal/default regeneration, new native control or operator adoption ran after
+the refresh failure. That continuation was storage-blocked; source/hygiene passes above do not
+establish those unexecuted exits. Space restoration/rerun is the current checkpoint at this section’s start.
 
 This section alone owns current execution disposition for this review's scope. The approved
 CE00/CD00/CN00–CN05 slice is **implemented / focused-Tested, 2026-10-15**, based at

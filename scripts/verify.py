@@ -414,6 +414,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 "lctx-semantics",
                 "lctx-workspace-hack",
                 "lctx-model-macros",
+                "lctx-tracing",
                 "lctx-surreal-dev",
                 targets=("--lib", "--tests"),
             ),

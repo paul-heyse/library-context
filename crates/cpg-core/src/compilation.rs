@@ -17,8 +17,8 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
+use lctx_tracing::InContext;
 use std::sync::Arc;
-use tracing::Instrument;
 #[cfg(test)]
 mod cache_controls;
 mod preparation;
@@ -1063,7 +1063,7 @@ pub async fn compile(
         embedder,
         cache,
     )
-    .instrument(span)
+    .with_tracing_span(span)
     .await
 }
 
@@ -1307,7 +1307,7 @@ async fn compile_driver(
                         phase.finish_result(&result);
                         result
                     }
-                    .instrument(producer_span)
+                    .with_tracing_span(producer_span)
                     .boxed(),
                 );
             }
@@ -1485,7 +1485,7 @@ async fn compile_driver(
                     Ok(Some(task)) => {
                         started.insert(declaration.name);
                         let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
-                        pending.push(task.run().instrument(producer_span).boxed());
+                        pending.push(task.run().with_tracing_span(producer_span).boxed());
                     }
                     Ok(None) => {}
                     Err(error) => {

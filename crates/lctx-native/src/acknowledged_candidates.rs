@@ -100,192 +100,185 @@ impl Owner {
         let budget = budget.clone();
         let worker_budget = budget.clone();
         let (ready_tx, ready) = oneshot::channel();
-        let dispatch = tracing::dispatcher::get_default(Clone::clone);
-        let span = tracing::Span::current();
+        let tracing = lctx_tracing::Context::current();
         let worker = tokio::task::spawn_blocking(move || {
-            tracing::dispatcher::with_default(&dispatch, || {
-                span.in_scope(|| {
-                    let _guard = guard;
-                    let _control = match fold_control
-                        .map_or_else(|| worker_budget.reserve("ordered-command-owner", 2048), Ok)
-                    {
-                        Ok(reservation) => reservation,
-                        Err(error) => {
-                            let error = Arc::new(error);
-                            let _ = ready_tx.send(Err(error.clone()));
-                            return Err(error);
+            tracing.scope(move || {
+                let _guard = guard;
+                let _control = match fold_control
+                    .map_or_else(|| worker_budget.reserve("ordered-command-owner", 2048), Ok)
+                {
+                    Ok(reservation) => reservation,
+                    Err(error) => {
+                        let error = Arc::new(error);
+                        let _ = ready_tx.send(Err(error.clone()));
+                        return Err(error);
+                    }
+                };
+                let initial = if fold_only {
+                    Ok(Kernel::Taken)
+                } else if let Some(prepared) = prepared {
+                    prepared
+                        .cursor_with_budget(&worker_budget)
+                        .map(Kernel::OrderedRows)
+                } else if let Some(prepared) = prepared_candidates {
+                    prepared
+                        .cursor_with_budget(&worker_budget)
+                        .map(Kernel::OrderedCandidates)
+                } else if let Some(row_bytes) = physical_row_bytes {
+                    SortedRows::with_budget_and_row_bytes(&worker_budget, row_bytes)
+                        .map(Kernel::Rows)
+                } else {
+                    SortedCandidates::new(&worker_budget).map(Kernel::Candidates)
+                };
+                let mut kernel = match initial {
+                    Ok(kernel) => {
+                        let _ = ready_tx.send(Ok(()));
+                        kernel
+                    }
+                    Err(error) => {
+                        let error = Arc::new(error);
+                        let _ = ready_tx.send(Err(error.clone()));
+                        return Err(error);
+                    }
+                };
+                while let Some(command) = receiver.blocking_recv() {
+                    let result = (|| match command.input {
+                        #[cfg(test)]
+                        Input::Pause(entered, gate) => {
+                            let _ = entered.send(());
+                            gate.recv().map_err(ModelError::codec)?;
+                            Ok(Output::Ack)
                         }
-                    };
-                    let initial = if fold_only {
-                        Ok(Kernel::Taken)
-                    } else if let Some(prepared) = prepared {
-                        prepared
-                            .cursor_with_budget(&worker_budget)
-                            .map(Kernel::OrderedRows)
-                    } else if let Some(prepared) = prepared_candidates {
-                        prepared
-                            .cursor_with_budget(&worker_budget)
-                            .map(Kernel::OrderedCandidates)
-                    } else if let Some(row_bytes) = physical_row_bytes {
-                        SortedRows::with_budget_and_row_bytes(&worker_budget, row_bytes)
-                            .map(Kernel::Rows)
-                    } else {
-                        SortedCandidates::new(&worker_budget).map(Kernel::Candidates)
-                    };
-                    let mut kernel = match initial {
-                        Ok(kernel) => {
-                            let _ = ready_tx.send(Ok(()));
-                            kernel
-                        }
-                        Err(error) => {
-                            let error = Arc::new(error);
-                            let _ = ready_tx.send(Err(error.clone()));
-                            return Err(error);
-                        }
-                    };
-                    while let Some(command) = receiver.blocking_recv() {
-                        let result = (|| match command.input {
-                            #[cfg(test)]
-                            Input::Pause(entered, gate) => {
-                                let _ = entered.send(());
-                                gate.recv().map_err(ModelError::codec)?;
+                        Input::Candidate(value) => match &mut kernel {
+                            Kernel::Candidates(sort) => {
+                                sort.push(value)?;
                                 Ok(Output::Ack)
                             }
-                            Input::Candidate(value) => match &mut kernel {
+                            _ => Err(ModelError::Conflict("candidate sorting state")),
+                        },
+                        Input::Row(value) => match &mut kernel {
+                            Kernel::Rows(sort) => {
+                                sort.push(value)?;
+                                Ok(Output::Ack)
+                            }
+                            _ => Err(ModelError::Conflict("physical sorting state")),
+                        },
+                        Input::Finish => {
+                            kernel = match std::mem::replace(&mut kernel, Kernel::Taken) {
                                 Kernel::Candidates(sort) => {
-                                    sort.push(value)?;
-                                    Ok(Output::Ack)
+                                    Kernel::OrderedCandidates(sort.finish()?)
                                 }
-                                _ => Err(ModelError::Conflict("candidate sorting state")),
-                            },
-                            Input::Row(value) => match &mut kernel {
-                                Kernel::Rows(sort) => {
-                                    sort.push(value)?;
-                                    Ok(Output::Ack)
+                                Kernel::Rows(sort) => Kernel::OrderedRows(sort.finish()?),
+                                ordered @ Kernel::OrderedCandidates(_)
+                                | ordered @ Kernel::OrderedRows(_) => ordered,
+                                _ => {
+                                    return Err(ModelError::Conflict("external sorting state"));
                                 }
-                                _ => Err(ModelError::Conflict("physical sorting state")),
-                            },
-                            Input::Finish => {
-                                kernel = match std::mem::replace(&mut kernel, Kernel::Taken) {
-                                    Kernel::Candidates(sort) => {
-                                        Kernel::OrderedCandidates(sort.finish()?)
-                                    }
-                                    Kernel::Rows(sort) => Kernel::OrderedRows(sort.finish()?),
-                                    ordered @ Kernel::OrderedCandidates(_)
-                                    | ordered @ Kernel::OrderedRows(_) => ordered,
-                                    _ => {
-                                        return Err(ModelError::Conflict("external sorting state"));
-                                    }
-                                };
-                                Ok(Output::Ack)
+                            };
+                            Ok(Output::Ack)
+                        }
+                        Input::Prepare => match std::mem::replace(&mut kernel, Kernel::Taken) {
+                            Kernel::OrderedCandidates(ordered) => {
+                                Ok(Output::PreparedCandidates(ordered.into_prepared()))
                             }
-                            Input::Prepare => match std::mem::replace(&mut kernel, Kernel::Taken) {
+                            Kernel::OrderedRows(ordered) => {
+                                Ok(Output::Prepared(ordered.into_prepared()))
+                            }
+                            other => {
+                                kernel = other;
+                                Err(ModelError::Conflict("physical preparation state"))
+                            }
+                        },
+                        Input::Next(max) => {
+                            if max == 0 || max > crate::loader::NATIVE_WINDOW_ROWS {
+                                return Err(ModelError::Schema("ordered transfer window"));
+                            }
+                            let mut retained =
+                                worker_budget.reserve("ordered-command-output", 0)?;
+                            match &mut kernel {
                                 Kernel::OrderedCandidates(ordered) => {
-                                    Ok(Output::PreparedCandidates(ordered.into_prepared()))
+                                    let mut batch = Vec::new();
+                                    let mut bytes = 0usize;
+                                    for _ in 0..max {
+                                        let Some(value) = ordered.next_candidate()? else {
+                                            break;
+                                        };
+                                        bytes = bytes.saturating_add(candidate_bytes(&value)?);
+                                        retained.try_resize(bytes)?;
+                                        batch.push(value);
+                                    }
+                                    Ok(Output::Candidates(batch, retained))
                                 }
                                 Kernel::OrderedRows(ordered) => {
-                                    Ok(Output::Prepared(ordered.into_prepared()))
-                                }
-                                other => {
-                                    kernel = other;
-                                    Err(ModelError::Conflict("physical preparation state"))
-                                }
-                            },
-                            Input::Next(max) => {
-                                if max == 0 || max > crate::loader::NATIVE_WINDOW_ROWS {
-                                    return Err(ModelError::Schema("ordered transfer window"));
-                                }
-                                let mut retained =
-                                    worker_budget.reserve("ordered-command-output", 0)?;
-                                match &mut kernel {
-                                    Kernel::OrderedCandidates(ordered) => {
-                                        let mut batch = Vec::new();
-                                        let mut bytes = 0usize;
-                                        for _ in 0..max {
-                                            let Some(value) = ordered.next_candidate()? else {
-                                                break;
-                                            };
-                                            bytes = bytes.saturating_add(candidate_bytes(&value)?);
-                                            retained.try_resize(bytes)?;
-                                            batch.push(value);
-                                        }
-                                        Ok(Output::Candidates(batch, retained))
+                                    let mut batch = Vec::new();
+                                    let mut bytes = 0usize;
+                                    for _ in 0..max {
+                                        let Some(value) = ordered.next_row()? else {
+                                            break;
+                                        };
+                                        bytes = bytes.saturating_add(physical_bytes(&value)?);
+                                        retained.try_resize(bytes)?;
+                                        batch.push(value);
                                     }
-                                    Kernel::OrderedRows(ordered) => {
-                                        let mut batch = Vec::new();
-                                        let mut bytes = 0usize;
-                                        for _ in 0..max {
-                                            let Some(value) = ordered.next_row()? else {
-                                                break;
-                                            };
-                                            bytes = bytes.saturating_add(physical_bytes(&value)?);
-                                            retained.try_resize(bytes)?;
-                                            batch.push(value);
-                                        }
-                                        Ok(Output::Rows(batch, retained))
-                                    }
-                                    _ => Err(ModelError::Conflict("ordered reading state")),
+                                    Ok(Output::Rows(batch, retained))
                                 }
-                            }
-                            Input::FoldFamily {
-                                family,
-                                runs,
-                                cancelled,
-                            } => {
-                                if !matches!(kernel, Kernel::Taken) {
-                                    return Err(ModelError::Conflict(
-                                        "canonical fold worker state",
-                                    ));
-                                }
-                                let _hash = worker_budget.reserve(
-                                    "ordered-canonical-family-hash",
-                                    std::mem::size_of::<CompletedFamilyHasher>()
-                                        + std::mem::size_of::<CompletedFamilyRoot>(),
-                                )?;
-                                let mut hash = CompletedFamilyHasher::new(family)?;
-                                PreparedRows::fold_union(
-                                    &runs,
-                                    &worker_budget,
-                                    || crate::prepared::check_read_cancellation(cancelled.as_ref()),
-                                    |_, payload| hash.row(payload),
-                                )?;
-                                crate::prepared::check_read_cancellation(cancelled.as_ref())?;
-                                Ok(Output::FamilyRoot(hash.finish()))
-                            }
-                            Input::UnionCandidates { runs, cancelled } => {
-                                if !matches!(kernel, Kernel::Taken) {
-                                    return Err(ModelError::Conflict("compact union worker state"));
-                                }
-                                PreparedCandidates::union_prepared(&runs, &worker_budget, || {
-                                    crate::prepared::check_read_cancellation(cancelled.as_ref())
-                                })
-                                .map(Output::PreparedCandidates)
-                            }
-                            Input::UnionRows { runs, cancelled } => {
-                                if !matches!(kernel, Kernel::Taken) {
-                                    return Err(ModelError::Conflict(
-                                        "canonical union worker state",
-                                    ));
-                                }
-                                PreparedRows::union_prepared(&runs, &worker_budget, || {
-                                    crate::prepared::check_read_cancellation(cancelled.as_ref())
-                                })
-                                .map(Output::Prepared)
-                            }
-                        })();
-                        match result {
-                            Ok(output) => {
-                                let _ = command.reply.send(Ok(output));
-                            }
-                            Err(error) => {
-                                let error = Arc::new(error);
-                                let _ = command.reply.send(Err(error.clone()));
-                                return Err(error);
+                                _ => Err(ModelError::Conflict("ordered reading state")),
                             }
                         }
+                        Input::FoldFamily {
+                            family,
+                            runs,
+                            cancelled,
+                        } => {
+                            if !matches!(kernel, Kernel::Taken) {
+                                return Err(ModelError::Conflict("canonical fold worker state"));
+                            }
+                            let _hash = worker_budget.reserve(
+                                "ordered-canonical-family-hash",
+                                std::mem::size_of::<CompletedFamilyHasher>()
+                                    + std::mem::size_of::<CompletedFamilyRoot>(),
+                            )?;
+                            let mut hash = CompletedFamilyHasher::new(family)?;
+                            PreparedRows::fold_union(
+                                &runs,
+                                &worker_budget,
+                                || crate::prepared::check_read_cancellation(cancelled.as_ref()),
+                                |_, payload| hash.row(payload),
+                            )?;
+                            crate::prepared::check_read_cancellation(cancelled.as_ref())?;
+                            Ok(Output::FamilyRoot(hash.finish()))
+                        }
+                        Input::UnionCandidates { runs, cancelled } => {
+                            if !matches!(kernel, Kernel::Taken) {
+                                return Err(ModelError::Conflict("compact union worker state"));
+                            }
+                            PreparedCandidates::union_prepared(&runs, &worker_budget, || {
+                                crate::prepared::check_read_cancellation(cancelled.as_ref())
+                            })
+                            .map(Output::PreparedCandidates)
+                        }
+                        Input::UnionRows { runs, cancelled } => {
+                            if !matches!(kernel, Kernel::Taken) {
+                                return Err(ModelError::Conflict("canonical union worker state"));
+                            }
+                            PreparedRows::union_prepared(&runs, &worker_budget, || {
+                                crate::prepared::check_read_cancellation(cancelled.as_ref())
+                            })
+                            .map(Output::Prepared)
+                        }
+                    })();
+                    match result {
+                        Ok(output) => {
+                            let _ = command.reply.send(Ok(output));
+                        }
+                        Err(error) => {
+                            let error = Arc::new(error);
+                            let _ = command.reply.send(Err(error.clone()));
+                            return Err(error);
+                        }
                     }
-                    Ok(())
-                })
+                }
+                Ok(())
             })
         });
         let terminal = async move {

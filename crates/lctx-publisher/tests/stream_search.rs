@@ -537,14 +537,17 @@ async fn streamed_control(target: AuditTarget) {
     // exercised by the separate admitted publication journey.
     progress("materialize search");
     let initial_materialization = lctx_native::control::with_recovery_scope(
-        fixture.reader.recovery_scope().unwrap(), materialize_search(&loader),
-    ).await;
+        fixture.reader.recovery_scope().unwrap(),
+        materialize_search(&loader),
+    )
+    .await;
     if matches!(
         target,
         AuditTarget::FirstBinding | AuditTarget::AdditiveLink
     ) && initial_materialization.is_err()
     {
         progress("initial materialization refusal: fixture cleanup");
+        drop(loader);
         let fixture_cleanup = fixture.close().await;
         panic!(
             "initial companion-context materialization: {initial_materialization:?}; fixture cleanup: {fixture_cleanup:?}"
@@ -570,9 +573,10 @@ async fn streamed_control(target: AuditTarget) {
         } else {
             Entity::from(additional_link.unwrap())
         });
-        let bound = scoped::reader_with_budget(&config, &bound_entities, &assertions, &native_read_budget)
-            .await
-            .unwrap();
+        let bound =
+            scoped::reader_with_budget(&config, &bound_entities, &assertions, &native_read_budget)
+                .await
+                .unwrap();
         let bound_vars = bound.reader.view_bindings();
         let Some(Value::Array(selected)) = bound_vars.get("lctx_views") else {
             panic!("explicit bound fixture views")
@@ -600,8 +604,10 @@ async fn streamed_control(target: AuditTarget) {
         .unwrap();
         progress("materialize companion-context superset");
         let bound_materialization = lctx_native::control::with_recovery_scope(
-            bound.reader.recovery_scope().unwrap(), materialize_search(&bound_loader),
-        ).await;
+            bound.reader.recovery_scope().unwrap(),
+            materialize_search(&bound_loader),
+        )
+        .await;
         progress("independent unbound-view cold audit");
         let unbound_cold = reconcile_search(&loader).await;
         progress("independent first-binding-view cold audit");
@@ -664,6 +670,8 @@ async fn streamed_control(target: AuditTarget) {
             None
         };
         progress("paired fixture cleanup");
+        drop(bound_loader);
+        drop(loader);
         bound.close().await.unwrap();
         fixture.close().await.unwrap();
         assert!(
@@ -753,9 +761,14 @@ async fn streamed_control(target: AuditTarget) {
             lctx_native::loader::entity_payload_id(&Entity::from(foreign_binding.clone())).unwrap();
         let mut foreign_entities = entities.clone();
         foreign_entities.push(Entity::from(foreign_binding));
-        let foreign = scoped::reader_with_budget(&config, &foreign_entities, &assertions, &native_read_budget)
-            .await
-            .unwrap();
+        let foreign = scoped::reader_with_budget(
+            &config,
+            &foreign_entities,
+            &assertions,
+            &native_read_budget,
+        )
+        .await
+        .unwrap();
         let foreign_vars = foreign.reader.view_bindings();
         let Some(Value::Array(selected)) = foreign_vars.get("lctx_views") else {
             panic!("explicit foreign fixture views")
@@ -782,8 +795,11 @@ async fn streamed_control(target: AuditTarget) {
         .with_installed_reader(&foreign.reader)
         .unwrap();
         lctx_native::control::with_recovery_scope(
-            foreign.reader.recovery_scope().unwrap(), materialize_search(&foreign_loader),
-        ).await.unwrap();
+            foreign.reader.recovery_scope().unwrap(),
+            materialize_search(&foreign_loader),
+        )
+        .await
+        .unwrap();
         assert_eq!(rows(&foreign_loader, "lex_occurs").await.len(), 81);
         assert_eq!(rows(&foreign_loader, "vec_occurs").await.len(), 162);
         assert_eq!(rows(&loader, "lex_occurs").await.len(), 80);
@@ -837,6 +853,7 @@ async fn streamed_control(target: AuditTarget) {
         assert_eq!(changed, after);
         assert_eq!(after, after_second);
         reconcile_search(&loader).await.unwrap();
+        drop(foreign_loader);
         foreign.close().await.unwrap();
     }
     // Frozen lexical statistics are reconciled by actual payload, without repairing corruption.
@@ -1113,6 +1130,7 @@ async fn streamed_control(target: AuditTarget) {
         privileged.client().invalidate().await.unwrap();
     }
     progress("fixture cleanup");
+    drop(loader);
     fixture.close().await.unwrap();
     progress("complete");
 }

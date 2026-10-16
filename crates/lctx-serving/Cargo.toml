@@ -17,6 +17,7 @@ hex.workspace = true
 moka = { version = "=0.12.16", default-features = false, features = ["future"] }
 
 [dev-dependencies]
+lctx-tracing = { path = "../lctx-tracing" }
 tracing-subscriber.workspace = true
 futures.workspace = true
 lctx-compiler-store = { path = "../lctx-compiler-store" }

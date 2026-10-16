@@ -33,9 +33,12 @@ slow-timeout = { period = "60s", terminate-after = 15 }
 # These compound controls include actual producer/normalization or complete source
 # retirement before their independent semantic/receiving assertions. The earlier
 # 360s orchestration timeout interrupted those phases; it is not a performance gate.
+# Phase-captured Base execution completed providers and normalization and continued
+# admission until cancellation; its short observed retries do not establish a stall.
+# Paired-layout controls retain both compiles; each case/profile has its own result.
 # Native query/effect/resource limits and functional assertions remain unchanged.
 [[profile.default.overrides]]
-filter = 'test(=facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_ownership) | test(scoped_summary::actual_summary_matches_complete_finite_whole_operation) | test(scoped_summary::actual_recursive_summary_preserves_scc_delta_answers_and_exhaustion) | test(summary_publication::catalog_summaries_are_explicitly_not_requested) | test(typed_types::inherited_fields_refer_to_the_declaring_artifact_and_ignore_method_assignments)'
+filter = 'test(=base_execution::behavioral_execution_channels_preserve_evaluation_completion_calls_and_enrichment) | test(=scoped_source_execution::actual_source_calls_and_enriched_match_finite_whole_operation) | test(workspace_batching_) | test(=facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_ownership) | test(scoped_summary::actual_summary_matches_complete_finite_whole_operation) | test(scoped_summary::actual_recursive_summary_preserves_scc_delta_answers_and_exhaustion) | test(summary_publication::catalog_summaries_are_explicitly_not_requested) | test(typed_types::inherited_fields_refer_to_the_declaring_artifact_and_ignore_method_assignments)'
 slow-timeout = { period = "60s", terminate-after = 15 }
 
 # Independently selectable frontier/profile admission and export controls retain their

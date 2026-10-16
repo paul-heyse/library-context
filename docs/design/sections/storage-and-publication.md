@@ -326,6 +326,13 @@ projection. Only the context's admitted attempt invalidation can be shared; unre
 production refuses without an explicit narrow transition authority. History includes charged bounded
 stripe-child disposal behind permanent fencing. No native qualification or speed measurement is implied.
 
+**Accepted target, 2026-10-16 (ADR-0177); implementation/functional acceptance pending.** Native
+worker and phase tracing contexts compose through the shared `lctx-tracing` leaf. Both polling and
+destruction enter the span's actual dispatcher; phase drop leaves unmatched starts incomplete.
+Tracing does not confer recovery authority or establish request/session/host finality.
+
+> Decision: ADR-0177
+
 Recovery scopes belong to actual source finalization or explicit maintenance/direct-command owners.
 They retain sessions, reservations and exact reconciliation/reference-release actions through checked
 terminals. Public physical completion and direct imports enter their own admitted recovery scope;

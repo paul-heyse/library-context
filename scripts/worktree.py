@@ -453,13 +453,18 @@ def _listing(script: str, args: Sequence[str], key: str, directory: Path) -> lis
             or rows.get("next_cursor") is not None
             or not isinstance(coverage, dict)
             or coverage.get("complete") is not True
-            or any(coverage.get(field) != len(names) for field in (
-                "directory_count", "examined_records", "hydrated_records", "returned_records"
-            ))
+            or any(
+                coverage.get(field) != len(names)
+                for field in (
+                    "directory_count",
+                    "examined_records",
+                    "hydrated_records",
+                    "returned_records",
+                )
+            )
             or not isinstance(entries, list)
             or any(
-                not isinstance(row, dict) or not isinstance(row.get("id"), str)
-                for row in entries
+                not isinstance(row, dict) or not isinstance(row.get("id"), str) for row in entries
             )
             or len(entries) != len(names)
             or {row["id"] for row in entries} != names

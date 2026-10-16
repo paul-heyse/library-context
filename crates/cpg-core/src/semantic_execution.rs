@@ -18,8 +18,8 @@ use lctx_model::domain::{
     stages::*,
     *,
 };
+use lctx_tracing::InContext;
 use std::sync::Arc;
-use tracing::Instrument;
 #[path = "base_scope.rs"]
 mod base_scope;
 #[path = "execution_counts.rs"]
@@ -77,7 +77,7 @@ fn load<'a, R: Record>(
                 tracing::info!(target: "lctx_phase", observation="semantic_input_eof", rows);
                 Ok::<(), ModelError>(())
             }
-            .instrument(span)
+            .with_tracing_span(span)
             .await?;
         }
         Ok(())

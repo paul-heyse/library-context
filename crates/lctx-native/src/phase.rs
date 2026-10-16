@@ -133,8 +133,7 @@ pub struct Phase {
     name: &'static str,
     id: u64,
     started: Instant,
-    span: tracing::Span,
-    dispatch: tracing::Dispatch,
+    context: lctx_tracing::Context,
 }
 impl Phase {
     pub fn begin(name: &'static str) -> Self {
@@ -142,8 +141,7 @@ impl Phase {
             name,
             id: NEXT_PHASE.fetch_add(1, Ordering::Relaxed),
             started: Instant::now(),
-            span: tracing::Span::current(),
-            dispatch: tracing::dispatcher::get_default(Clone::clone),
+            context: lctx_tracing::Context::current(),
         };
         phase.emit("begin", None);
         phase
@@ -152,8 +150,8 @@ impl Phase {
         // Scoped subscribers in composed binaries can observe different macro callsite
         // interest. Send this owner's observation to its exact captured dispatcher instead.
         // Register its fixed field inventory there, then honor both metadata and event filters.
-        let _ = self.dispatch.register_callsite(&PHASE_METADATA);
-        if !self.dispatch.enabled(&PHASE_METADATA) {
+        let _ = self.context.dispatcher().register_callsite(&PHASE_METADATA);
+        if !self.context.dispatcher().enabled(&PHASE_METADATA) {
             return;
         }
         let context = &*PROCESS_CONTEXT;
@@ -175,8 +173,9 @@ impl Phase {
                 .map(|value| value as &dyn tracing::field::Value),
         ];
         let fields = PHASE_METADATA.fields().value_set_all(&values);
-        let event = tracing::Event::new_child_of(self.span.id(), &PHASE_METADATA, &fields);
-        self.dispatch.event(&event);
+        let event =
+            tracing::Event::new_child_of(self.context.span().id(), &PHASE_METADATA, &fields);
+        self.context.dispatcher().event(&event);
     }
     pub fn finish(self, terminal: Terminal) {
         self.emit(
@@ -196,11 +195,11 @@ impl Phase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lctx_tracing::InContext;
     use std::{
         io::{self, Write},
         sync::{Arc, Mutex},
     };
-    use tracing::{Instrument, instrument::WithSubscriber};
 
     #[derive(Clone, Default)]
     struct Output(Arc<Mutex<Vec<u8>>>);
@@ -291,10 +290,10 @@ mod tests {
                     let unfinished = Phase::begin("interrupted_work");
                     drop(unfinished);
                 }
-                .instrument(span)
+                .with_tracing_span(span)
                 .await;
             }
-            .with_subscriber(left.dispatch()),
+            .with_tracing_dispatch(left.dispatch()),
         );
         let right_task = tokio::spawn(
             async {
@@ -306,10 +305,10 @@ mod tests {
                     Phase::begin("drained_work").finish(Terminal::Cancelled);
                     Phase::begin("generic_return").finish(Terminal::Returned);
                 }
-                .instrument(span)
+                .with_tracing_span(span)
                 .await;
             }
-            .with_subscriber(right.dispatch()),
+            .with_tracing_dispatch(right.dispatch()),
         );
         left_task.await.unwrap();
         right_task.await.unwrap();
@@ -353,7 +352,7 @@ mod tests {
                 std::future::pending::<()>().await;
                 phase.finish(Terminal::Passed);
             }
-            .with_subscriber(output.dispatch()),
+            .with_tracing_dispatch(output.dispatch()),
         );
         observed.await.unwrap();
         task.abort();
@@ -372,17 +371,17 @@ mod tests {
         let output = Output::default();
         let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
         let mut pending =
-            Box::pin(wait("controlled_wait", receiver).with_subscriber(output.dispatch()));
+            Box::pin(wait("controlled_wait", receiver).with_tracing_dispatch(output.dispatch()));
         assert!(futures::poll!(&mut pending).is_pending());
         assert!(futures::poll!(&mut pending).is_pending());
         sender.send(()).unwrap();
         pending.await.unwrap();
         wait("ready_wait", async { 17 })
-            .with_subscriber(output.dispatch())
+            .with_tracing_dispatch(output.dispatch())
             .await;
         let mut unfinished = Box::pin(
             wait("unfinished_wait", std::future::pending::<()>())
-                .with_subscriber(output.dispatch()),
+                .with_tracing_dispatch(output.dispatch()),
         );
         assert!(futures::poll!(&mut unfinished).is_pending());
         drop(unfinished);

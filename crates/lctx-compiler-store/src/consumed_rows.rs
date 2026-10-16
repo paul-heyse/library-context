@@ -3,8 +3,8 @@
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
 use lctx_model::domain::{charged, resources::ResourceBudget, *};
+use lctx_tracing::InContext;
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::Instrument;
 
 pub fn identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
@@ -506,7 +506,7 @@ impl NominalClosure {
                 tracing::info!(target:"lctx_phase", observation="nominal_closure_pair_eof", rows);
                 Ok::<(), ModelError>(())
             }
-            .instrument(span)
+            .with_tracing_span(span)
             .await?;
         }
         if let Some(batch) = buffer.finish()? {

@@ -23,6 +23,7 @@ bytes.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 [dev-dependencies]
+lctx-tracing = { path = "../lctx-tracing" }
 tracing-subscriber.workspace = true
 cpg-core = { path = "../cpg-core" }
 cpg-extract = { path = "../cpg-extract" }

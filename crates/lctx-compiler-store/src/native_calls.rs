@@ -7,12 +7,12 @@ use futures::{
     future::{BoxFuture, Shared},
 };
 use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget};
+use lctx_tracing::InContext;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::{Semaphore, oneshot};
-use tracing::{Instrument, instrument::WithSubscriber};
 
 pub struct NativeCalls {
     native: Arc<NativeCompilerStore>,
@@ -97,8 +97,7 @@ impl NativeCalls {
             }
             OperationResult::deliver(answer, result)
         }
-        .instrument(owner.clone())
-        .with_current_subscriber()
+        .with_tracing_span(owner.clone())
         .boxed();
         async move {
             let mut waiting = self.submit_guarded(request).await?;
@@ -110,7 +109,7 @@ impl NativeCalls {
             waiting.finished = true;
             result
         }
-        .instrument(owner)
+        .with_tracing_span(owner)
         .boxed()
     }
     // Return the guard to the acknowledgement adapter: dropping the caller after submission
@@ -164,8 +163,7 @@ impl NativeCalls {
                 drop(permit);
                 terminal
             }
-            .in_current_span()
-            .with_current_subscriber(),
+            .in_tracing_context(),
         );
         let joined = async move {
             task.await

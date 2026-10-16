@@ -433,9 +433,8 @@ pub async fn retire_named(
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(
             lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
         )?;
-        let factory = lctx_native::control::RecoveryFactoryOwner::new(
-            config.receipt_binding()?, budget,
-        )?;
+        let factory =
+            lctx_native::control::RecoveryFactoryOwner::new(config.receipt_binding()?, budget)?;
         let retry = lctx_native::control::RetryCancellation::default();
         let signal = lctx_native::signal::SignalRegistration::retry(
             "native publication retirement",
@@ -451,55 +450,69 @@ pub async fn retire_named(
             // This validates the actual marker, not merely equality between two
             // portable config/handle fields, before clearing any local authority.
             let (client, session) = lctx_native::reader::connect_owned(
-                &config.endpoint, &config.writer_credentials(),
-                config.namespace.as_str(), config.database.as_str(), &factory,
-            ).await?;
-            let result = lctx_native::control::with_recovery_scope(session.recovery_scope().clone(), async {
-                lctx_native::installation::check_connected_installation(&client, config.service_generation).await?;
-                cancel.check()?;
-                if retry.stopped() {
-                    return Err(ModelError::Conflict("retirement admission cancelled"));
-                }
-                if clear_selection {
-                    config.clear_selection_locked(&handle, &_guard)?;
-                } else if config.selection.try_exists().map_err(ModelError::codec)?
-                    && config.selected()? == handle
-                {
-                    return Err(ModelError::Conflict("cannot retire selected publication"));
-                }
-                let root = RecordId::new("publication", handle.publication.hex());
-                let root_key = serde_json::to_string(&root).map_err(ModelError::codec)?;
-                let identity = match job {
-                    Some(identity) => identity,
-                    None => lctx_native::control::fresh_identity("retirement-invocation")?,
-                };
-                let mut progress = lctx_native::control::retire_reachable_named(
-                    &client,
-                    identity,
-                    config.service_generation,
-                    vec![root],
-                    4096,
-                )
-                .await?;
-                completion.committed("native retirement invocation", progress.identity.hex());
-                loop {
-                    if progress.retained.contains(&root_key) {
-                        return Err(ModelError::Conflict(
-                            "publication remains reachable or pinned",
-                        ));
-                    }
-                    if progress.remaining.is_empty() {
-                        return Ok(progress);
-                    }
+                &config.endpoint,
+                &config.writer_credentials(),
+                config.namespace.as_str(),
+                config.database.as_str(),
+                &factory,
+            )
+            .await?;
+            let result = lctx_native::control::with_recovery_scope(
+                session.recovery_scope().clone(),
+                async {
+                    lctx_native::installation::check_connected_installation(
+                        &client,
+                        config.service_generation,
+                    )
+                    .await?;
                     cancel.check()?;
                     if retry.stopped() {
-                        return Err(ModelError::Conflict("retirement continuation cancelled"));
+                        return Err(ModelError::Conflict("retirement admission cancelled"));
                     }
-                    progress =
-                        lctx_native::control::resume_retirement(&client, progress.identity, 4096)
-                            .await?;
-                }
-            })
+                    if clear_selection {
+                        config.clear_selection_locked(&handle, &_guard)?;
+                    } else if config.selection.try_exists().map_err(ModelError::codec)?
+                        && config.selected()? == handle
+                    {
+                        return Err(ModelError::Conflict("cannot retire selected publication"));
+                    }
+                    let root = RecordId::new("publication", handle.publication.hex());
+                    let root_key = serde_json::to_string(&root).map_err(ModelError::codec)?;
+                    let identity = match job {
+                        Some(identity) => identity,
+                        None => lctx_native::control::fresh_identity("retirement-invocation")?,
+                    };
+                    let mut progress = lctx_native::control::retire_reachable_named(
+                        &client,
+                        identity,
+                        config.service_generation,
+                        vec![root],
+                        4096,
+                    )
+                    .await?;
+                    completion.committed("native retirement invocation", progress.identity.hex());
+                    loop {
+                        if progress.retained.contains(&root_key) {
+                            return Err(ModelError::Conflict(
+                                "publication remains reachable or pinned",
+                            ));
+                        }
+                        if progress.remaining.is_empty() {
+                            return Ok(progress);
+                        }
+                        cancel.check()?;
+                        if retry.stopped() {
+                            return Err(ModelError::Conflict("retirement continuation cancelled"));
+                        }
+                        progress = lctx_native::control::resume_retirement(
+                            &client,
+                            progress.identity,
+                            4096,
+                        )
+                        .await?;
+                    }
+                },
+            )
             .await;
             if result
                 .as_ref()
@@ -566,7 +579,11 @@ pub async fn retire_named(
             );
         }
         complete(result, completion).map_err(|error| {
-            if factory.pending_count().unwrap_or(1) != 0 { factory.handback(error) } else { error }
+            if factory.pending_count().unwrap_or(1) != 0 {
+                factory.handback(error)
+            } else {
+                error
+            }
         })
     })
     .await

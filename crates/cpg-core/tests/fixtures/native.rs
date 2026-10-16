@@ -7,9 +7,15 @@ use std::sync::{Arc, OnceLock};
 fn initialize_requested_tracing() {
     static TRACING: OnceLock<()> = OnceLock::new();
     TRACING.get_or_init(|| {
-        let Ok(requested) = std::env::var("RUST_LOG") else { return; };
-        if requested.trim().is_empty() { return; }
-        let Ok(filter) = tracing_subscriber::EnvFilter::try_new(requested) else { return; };
+        let Ok(requested) = std::env::var("RUST_LOG") else {
+            return;
+        };
+        if requested.trim().is_empty() {
+            return;
+        }
+        let Ok(filter) = tracing_subscriber::EnvFilter::try_new(requested) else {
+            return;
+        };
         // Explicit diagnostics use ordinary captured stderr. An existing global
         // subscriber keeps ownership; fixture setup never replaces it.
         let _ = tracing_subscriber::fmt()
@@ -52,21 +58,18 @@ pub fn store_with_budget(budget: ResourceBudget) -> Arc<NativeCompilerStore> {
             .build()
             .unwrap()
     });
-    let dispatch = tracing::dispatcher::get_default(Clone::clone);
-    let span = tracing::Span::current();
+    let tracing = lctx_tracing::Context::current();
     std::thread::spawn(move || {
-        tracing::dispatcher::with_default(&dispatch, || {
-            span.in_scope(|| {
-                let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget)
-                    .expect("owned native control factory");
-                runtime
-                    .block_on(NativeCompilerStore::begin(
-                        &config,
-                        Frontier::Catalog,
-                        &factory,
-                    ))
-                    .unwrap()
-            })
+        tracing.scope(move || {
+            let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget)
+                .expect("owned native control factory");
+            runtime
+                .block_on(NativeCompilerStore::begin(
+                    &config,
+                    Frontier::Catalog,
+                    &factory,
+                ))
+                .unwrap()
         })
     })
     .join()

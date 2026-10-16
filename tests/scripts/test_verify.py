@@ -679,6 +679,7 @@ def test_tooling_covers_remaining_workspace_packages_and_pure_mcp_files():
         "lctx-semantics",
         "lctx-workspace-hack",
         "lctx-model-macros",
+        "lctx-tracing",
         "lctx-surreal-dev",
     }
     assert verify.target_options(argv_of(rust, "nextest")) == [("--lib", None), ("--tests", None)]

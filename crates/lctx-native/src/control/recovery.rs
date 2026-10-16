@@ -490,7 +490,9 @@ impl RecoveryScope {
     /// closes or transfers authority over the borrowed source session.
     pub fn fork_owned_session(&self, budget: &ResourceBudget) -> Result<FactoryLease, ModelError> {
         if self.cancellation.stopped() {
-            return Err(ModelError::Conflict("native session source admission stopped"));
+            return Err(ModelError::Conflict(
+                "native session source admission stopped",
+            ));
         }
         let (_, _, lease) = self.fork_session(budget)?;
         Ok(lease)

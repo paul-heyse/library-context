@@ -10,9 +10,9 @@ use futures::{
     future::{BoxFuture, Shared},
 };
 use lctx_model::domain::ModelError;
+use lctx_tracing::InContext;
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{Instrument, instrument::WithSubscriber};
 
 type Request = BoxFuture<'static, OperationResult>;
 type BridgeDrain = Shared<BoxFuture<'static, Result<DispatcherReport, Arc<ModelError>>>>;
@@ -132,8 +132,7 @@ impl NativeBridge {
             let value = future.await;
             OperationResult::deliver(answer, value)
         }
-        .in_current_span()
-        .with_current_subscriber()
+        .in_tracing_context()
         .boxed();
         self.submit_async(request).await?;
         tokio::select! {
@@ -152,8 +151,7 @@ impl NativeBridge {
                 request.await;
                 OperationResult::default()
             }
-            .in_current_span()
-            .with_current_subscriber()
+            .in_tracing_context()
             .boxed(),
         )
     }
@@ -163,8 +161,7 @@ impl NativeBridge {
                 request.await;
                 OperationResult::default()
             }
-            .in_current_span()
-            .with_current_subscriber()
+            .in_tracing_context()
             .boxed(),
         )
         .await
@@ -203,11 +200,9 @@ impl NativeBridge {
                 }
             };
             if let Some(thread) = owned.thread.take() {
-                let dispatch = tracing::dispatcher::get_default(Clone::clone);
-                let span = tracing::Span::current();
-                let task = tokio::task::spawn_blocking(move || {
-                    tracing::dispatcher::with_default(&dispatch, || span.in_scope(|| thread.join()))
-                });
+                let tracing = lctx_tracing::Context::current();
+                let task =
+                    tokio::task::spawn_blocking(move || tracing.scope(move || thread.join()));
                 owned.joined = Some(
                     async move {
                         task.await
@@ -258,13 +253,10 @@ impl Drop for NativeBridge {
         {
             // Explicit drainage is required by the attempt owner. This fallback keeps an
             // interrupted owner from synchronously blocking a runtime worker in its destructor.
-            let dispatch = tracing::dispatcher::get_default(Clone::clone);
-            let span = tracing::Span::current();
+            let tracing = lctx_tracing::Context::current();
             let join = move || {
-                tracing::dispatcher::with_default(&dispatch, || {
-                    span.in_scope(|| {
-                        let _ = thread.join();
-                    })
+                tracing.scope(move || {
+                    let _ = thread.join();
                 })
             };
             if let Ok(runtime) = tokio::runtime::Handle::try_current() {

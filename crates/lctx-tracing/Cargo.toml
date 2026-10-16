@@ -1,0 +1,18 @@
+[package]
+name = "lctx-tracing"
+description = "Tracing context retained through execution and destruction."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+pin-project-lite.workspace = true
+futures-core.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

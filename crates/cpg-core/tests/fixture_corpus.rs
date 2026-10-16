@@ -339,7 +339,10 @@ fn assert_registered_contract(
 async fn run_workspace_batching(case: &str, profile: Profile) {
     let mut contents = Vec::new();
     for (partitions, batch_rows) in [(1, 1), (4, 4096)] {
-        println!("{case} {}: partitions={partitions}, batch_rows={batch_rows}", profile.name());
+        println!(
+            "{case} {}: partitions={partitions}, batch_rows={batch_rows}",
+            profile.name()
+        );
         let resources = budget();
         let workspace = Workspace::with_budget(
             Arc::new(lctx_model::domain::model().unwrap()),
@@ -378,7 +381,12 @@ async fn run_workspace_batching(case: &str, profile: Profile) {
         drop(workspace);
         connection.wait().await.unwrap();
         drop(connection);
-        assert_eq!(resources.reserved(), 0, "{case} {} partitions={partitions} batch_rows={batch_rows}", profile.name());
+        assert_eq!(
+            resources.reserved(),
+            0,
+            "{case} {} partitions={partitions} batch_rows={batch_rows}",
+            profile.name()
+        );
     }
     assert_eq!(contents[0], contents[1], "{case} {}", profile.name());
 }

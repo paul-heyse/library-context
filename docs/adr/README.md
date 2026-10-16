@@ -98,6 +98,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0174](0174-catalog-preparation-and-lexical-postings.md) | Prepare exact catalog inputs privately and index shared lexical postings | 2026-10-15 | [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§11.2](../design/sections/synthesis-and-serving.md#section-11-2), [§15.11](../design/sections/semantic-model.md#section-15-11) | Proposed |  |
 | [ADR-0175](0175-consumer-shaped-development-observation.md) | Observe development runs at consumer-shaped scope and regenerate authenticated project targets | 2026-10-16 | [§1.2](../design/DESIGN.md#section-1-2), [§6.5](../design/sections/storage-and-publication.md#section-6-5) | Proposed | [ADR-0172](0172-composed-delegated-command-ownership.md) |
 | [ADR-0176](0176-bounded-behavioral-preparation.md) | Share bounded behavioral preparation within exact invocation owners | 2026-10-16 | [§9.9](../design/sections/behavioral-analysis.md#section-9-9), [§9.4](../design/sections/analytics.md#section-9-4), [§15.6](../design/sections/semantic-model.md#section-15-6) | Proposed |  |
+| [ADR-0177](0177-tracing-context-lifetimes.md) | Preserve tracing dispatch through polling and destruction | 2026-10-16 | [§4.3](../design/sections/acquisition-and-extraction.md#section-4-3), [§6.1](../design/sections/storage-and-publication.md#section-6-1) | Interface-checked |  |
 
 ## Proposed: open choices, not accepted decisions
 

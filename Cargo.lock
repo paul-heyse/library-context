@@ -1266,6 +1266,7 @@ dependencies = [
  "lctx-compiler-store",
  "lctx-model",
  "lctx-native",
+ "lctx-tracing",
  "serde",
  "serde_json",
  "sha2",
@@ -1295,6 +1296,7 @@ dependencies = [
  "lctx-compiler-store",
  "lctx-model",
  "lctx-native",
+ "lctx-tracing",
  "mailparse",
  "markdown",
  "pep508_rs",
@@ -3995,6 +3997,7 @@ dependencies = [
  "hex",
  "lctx-model",
  "lctx-native",
+ "lctx-tracing",
  "postcard",
  "serde",
  "serde_json",
@@ -4082,6 +4085,7 @@ dependencies = [
  "insta",
  "lctx-compiler-store",
  "lctx-model",
+ "lctx-tracing",
  "prost",
  "serde",
  "serde_json",
@@ -4112,6 +4116,7 @@ dependencies = [
  "lctx-compiler-store",
  "lctx-model",
  "lctx-native",
+ "lctx-tracing",
  "serde",
  "serde_json",
  "surrealdb-protocol",
@@ -4152,6 +4157,7 @@ dependencies = [
  "lctx-model",
  "lctx-native",
  "lctx-publisher",
+ "lctx-tracing",
  "moka",
  "serde",
  "serde_json",
@@ -4179,6 +4185,16 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
+]
+
+[[package]]
+name = "lctx-tracing"
+version = "0.1.0"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

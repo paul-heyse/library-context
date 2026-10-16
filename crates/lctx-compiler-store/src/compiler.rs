@@ -33,6 +33,7 @@ use lctx_model::domain::{
     self as d, admission::Frontier, completed::*, completed_transport::*, stages::ProviderOutcome,
     *,
 };
+use lctx_tracing::InContext;
 use production::production_bytes;
 pub use production::{
     CompletedProduction, PreparedProductionView, PreparedRetention, RetentionPreparation,
@@ -53,7 +54,6 @@ use surrealdb::{
     },
 };
 use tokio::sync::Notify;
-use tracing::{Instrument, instrument::WithSubscriber};
 
 // Erase the few large native setup continuations before composing task-local
 // ownership wrappers. Admission covers the actual future and lasts through await.
@@ -1614,14 +1614,18 @@ impl NativeCompilerStore {
         views: &[CompletedView],
         budget: &ResourceBudget,
     ) -> Result<crate::NativeReader<()>, ModelError> {
-        self.prepare_reader_for_views_execution(views, budget)?.await
+        self.prepare_reader_for_views_execution(views, budget)?
+            .await
     }
     fn prepare_reader_for_views_execution<'a>(
         self: &'a Arc<Self>,
         views: &'a [CompletedView],
         budget: &'a ResourceBudget,
     ) -> Result<BoxFuture<'a, Result<crate::NativeReader<()>, ModelError>>, ModelError> {
-        admit_native_continuation(budget, "selected reader construction continuation", async move {
+        admit_native_continuation(
+            budget,
+            "selected reader construction continuation",
+            async move {
                 let _charge = budget.reserve(
                     "compiler selected reader capabilities",
                     views
@@ -1655,7 +1659,8 @@ impl NativeCompilerStore {
                 } else {
                     reader
                 })
-            })
+            },
+        )
     }
     fn canonical_selection<'a>(
         self: &'a Arc<Self>,
@@ -1936,8 +1941,7 @@ impl NativeCompilerStore {
                             .await;
                         lease.finish_with(result).map_err(Arc::new)
                     }
-                    .in_current_span()
-                    .with_current_subscriber(),
+                    .in_tracing_context(),
                 );
                 let pending = async move {
                     task.await
@@ -2853,7 +2857,9 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError> {
         let lease = self.admit(false, "complete_physical_content", true)?;
-        let result = lease.within(self.complete_physical_content_inner(budget)).await;
+        let result = lease
+            .within(self.complete_physical_content_inner(budget))
+            .await;
         lease.finish_with(result)
     }
     // Already-admitted completion/finalization parents enter the same physical
@@ -2881,180 +2887,184 @@ impl NativeCompilerStore {
         ModelError,
     > {
         admit_native_continuation(budget, "physical completion continuation", async move {
-        let bindings = self.bindings_inner().await?;
-        let (products, _product_charge) = self.retained_product_views(budget).await?;
-        let mut selection_charge =
-            d::charged::StateCharge::new(budget, "physical completed selected inventory");
-        selection_charge.grow(
-            bindings
-                .len()
-                .saturating_add(products.len())
-                .saturating_mul(4096),
-        )?;
-        let mut pending = bindings
-            .iter()
-            .map(|binding| binding.view.clone())
-            .chain(products)
-            .collect::<Vec<_>>();
-        let mut selections = BTreeMap::new();
-        let mut mapping_charges = Vec::new();
-        let mapping_reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
-        let mapping_reader = if let Some(flag) = self.read_cancellation()? {
-            mapping_reader.with_read_cancellation(flag)
-        } else {
-            mapping_reader
-        };
-        let mut observed = BTreeMap::new();
-        let mapping_result = async {
-            while let Some(view) = pending.pop() {
-                if selections.contains_key(&view.identity) {
-                    continue;
-                }
-                self.registered_view(&view).await?;
-                let (mappings, charge) = self
-                    .selected_view_mappings_read(
-                        &mapping_reader,
-                        &view,
-                        budget,
-                        &mut observed,
-                        false,
-                    )
-                    .await?;
-                for mapping in mappings.as_slice() {
-                    if mapping.view != view.identity && !selections.contains_key(&mapping.view) {
-                        let known = self.known_views.lock().map_err(|_| {
-                            ModelError::Conflict("physical dependency view inventory")
-                        })?;
-                        let dependency = known.get(&mapping.view).ok_or(ModelError::Conflict(
-                            "physical dependency descriptor absent",
-                        ))?;
-                        selection_charge.grow(
-                            dependency
-                                .relation
-                                .capacity()
-                                .saturating_add(dependency.contributions.len().saturating_mul(128))
-                                .saturating_add(1024),
-                        )?;
-                        pending.push(dependency.clone());
-                    }
-                }
-                mapping_charges.push(charge);
-                selections.insert(
-                    view.identity,
-                    lctx_native::completed_state::ViewSelection {
-                        view,
-                        mappings: {
-                            selection_charge.grow(mappings.len().saturating_mul(
-                                std::mem::size_of::<
-                                    lctx_native::installed_view::ContributorRealization,
-                                >(),
-                            ))?;
-                            mappings.as_slice().to_vec()
-                        },
-                    },
-                );
-            }
-            Ok(())
-        }
-        .await;
-        let mut mapping_terminal = d::completion::Completion::default();
-        mapping_terminal.step(
-            "physical inventory mapping reader close",
-            mapping_reader.close().await,
-        );
-        d::completion::complete(mapping_result, mapping_terminal)?;
-        drop(observed);
-        let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
-        let result = async {
-            let mut vars = Variables::new();
-            vars.insert(
-                "attempt",
-                RecordId::new("native_attempt", self.attempt.hex()),
-            );
-            let owners: Vec<Object> = reader
-                .query_native("SELECT state,revision FROM $attempt", vars)
-                .await?;
-            let [owner] = owners.as_slice() else {
-                return Err(ModelError::Conflict("physical freeze owner cardinality"));
-            };
-            let fence = if owner.get("state") == Some(&Value::String("frozen".into())) {
-                crate::control::resume_content_fence(self.client.clone(), self.attempt, budget)
-                    .await?
+            let bindings = self.bindings_inner().await?;
+            let (products, _product_charge) = self.retained_product_views(budget).await?;
+            let mut selection_charge =
+                d::charged::StateCharge::new(budget, "physical completed selected inventory");
+            selection_charge.grow(
+                bindings
+                    .len()
+                    .saturating_add(products.len())
+                    .saturating_mul(4096),
+            )?;
+            let mut pending = bindings
+                .iter()
+                .map(|binding| binding.view.clone())
+                .chain(products)
+                .collect::<Vec<_>>();
+            let mut selections = BTreeMap::new();
+            let mut mapping_charges = Vec::new();
+            let mapping_reader =
+                crate::NativeReader::private(self.client.clone()).with_budget(budget);
+            let mapping_reader = if let Some(flag) = self.read_cancellation()? {
+                mapping_reader.with_read_cancellation(flag)
             } else {
-                let revision = i64::from_value(
-                    owner
-                        .get("revision")
-                        .cloned()
-                        .ok_or(ModelError::Schema("physical freeze revision"))?,
-                )
-                .map_err(ModelError::codec)?;
-                crate::control::freeze_content_native(
-                    self.client.clone(),
-                    self.attempt,
-                    revision,
-                    binding_inventory_identity(&bindings)?,
-                    budget,
-                )
-                .await?
+                mapping_reader
             };
-            if fence.bindings() != binding_inventory_identity(&bindings)? {
-                return Err(ModelError::Conflict(
-                    "physical frozen binding inventory differs",
-                ));
+            let mut observed = BTreeMap::new();
+            let mapping_result = async {
+                while let Some(view) = pending.pop() {
+                    if selections.contains_key(&view.identity) {
+                        continue;
+                    }
+                    self.registered_view(&view).await?;
+                    let (mappings, charge) = self
+                        .selected_view_mappings_read(
+                            &mapping_reader,
+                            &view,
+                            budget,
+                            &mut observed,
+                            false,
+                        )
+                        .await?;
+                    for mapping in mappings.as_slice() {
+                        if mapping.view != view.identity && !selections.contains_key(&mapping.view)
+                        {
+                            let known = self.known_views.lock().map_err(|_| {
+                                ModelError::Conflict("physical dependency view inventory")
+                            })?;
+                            let dependency = known.get(&mapping.view).ok_or(
+                                ModelError::Conflict("physical dependency descriptor absent"),
+                            )?;
+                            selection_charge.grow(
+                                dependency
+                                    .relation
+                                    .capacity()
+                                    .saturating_add(
+                                        dependency.contributions.len().saturating_mul(128),
+                                    )
+                                    .saturating_add(1024),
+                            )?;
+                            pending.push(dependency.clone());
+                        }
+                    }
+                    mapping_charges.push(charge);
+                    selections.insert(
+                        view.identity,
+                        lctx_native::completed_state::ViewSelection {
+                            view,
+                            mappings: {
+                                selection_charge.grow(mappings.len().saturating_mul(
+                                    std::mem::size_of::<
+                                        lctx_native::installed_view::ContributorRealization,
+                                    >(),
+                                ))?;
+                                mappings.as_slice().to_vec()
+                            },
+                        },
+                    );
+                }
+                Ok(())
             }
-            let selections = selections.into_values().collect::<Vec<_>>();
-            let mut scope = self.view_audit.lock().await;
-            if scope.is_none() {
-                *scope = Some(
-                    lctx_native::installed_view::InstallationAudit::new(
-                        self.client.clone(),
-                        budget,
-                    )
-                    .await?,
+            .await;
+            let mut mapping_terminal = d::completion::Completion::default();
+            mapping_terminal.step(
+                "physical inventory mapping reader close",
+                mapping_reader.close().await,
+            );
+            d::completion::complete(mapping_result, mapping_terminal)?;
+            drop(observed);
+            let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+            let result = async {
+                let mut vars = Variables::new();
+                vars.insert(
+                    "attempt",
+                    RecordId::new("native_attempt", self.attempt.hex()),
                 );
+                let owners: Vec<Object> = reader
+                    .query_native("SELECT state,revision FROM $attempt", vars)
+                    .await?;
+                let [owner] = owners.as_slice() else {
+                    return Err(ModelError::Conflict("physical freeze owner cardinality"));
+                };
+                let fence = if owner.get("state") == Some(&Value::String("frozen".into())) {
+                    crate::control::resume_content_fence(self.client.clone(), self.attempt, budget)
+                        .await?
+                } else {
+                    let revision = i64::from_value(
+                        owner
+                            .get("revision")
+                            .cloned()
+                            .ok_or(ModelError::Schema("physical freeze revision"))?,
+                    )
+                    .map_err(ModelError::codec)?;
+                    crate::control::freeze_content_native(
+                        self.client.clone(),
+                        self.attempt,
+                        revision,
+                        binding_inventory_identity(&bindings)?,
+                        budget,
+                    )
+                    .await?
+                };
+                if fence.bindings() != binding_inventory_identity(&bindings)? {
+                    return Err(ModelError::Conflict(
+                        "physical frozen binding inventory differs",
+                    ));
+                }
+                let selections = selections.into_values().collect::<Vec<_>>();
+                let mut scope = self.view_audit.lock().await;
+                if scope.is_none() {
+                    *scope = Some(
+                        lctx_native::installed_view::InstallationAudit::new(
+                            self.client.clone(),
+                            budget,
+                        )
+                        .await?,
+                    );
+                }
+                let audit = scope
+                    .as_ref()
+                    .filter(|audit| audit.shares_pool(budget))
+                    .cloned();
+                drop(scope);
+                // A separately budgeted explicit frozen boundary earns its own audit.
+                // Never consume another operation pool's cached preparations or raise
+                // the earlier scan's bound to satisfy finalization.
+                let completed = Arc::new(match audit {
+                    Some(audit) => {
+                        let source = audit.protected_source(&self.client, budget).await?;
+                        lctx_native::completed_state::complete_frozen_content_from_source(
+                            self.client.clone(),
+                            &fence,
+                            &bindings,
+                            &selections,
+                            budget,
+                            &source,
+                        )
+                        .await?
+                    }
+                    None => {
+                        lctx_native::completed_state::complete_frozen_content(
+                            self.client.clone(),
+                            &fence,
+                            &bindings,
+                            &selections,
+                            budget,
+                        )
+                        .await?
+                    }
+                });
+                self.register_physical_inventory(&completed, budget)?;
+                Ok(completed)
             }
-            let audit = scope
-                .as_ref()
-                .filter(|audit| audit.shares_pool(budget))
-                .cloned();
-            drop(scope);
-            // A separately budgeted explicit frozen boundary earns its own audit.
-            // Never consume another operation pool's cached preparations or raise
-            // the earlier scan's bound to satisfy finalization.
-            let completed = Arc::new(match audit {
-                Some(audit) => {
-                    let source = audit.protected_source(&self.client, budget).await?;
-                    lctx_native::completed_state::complete_frozen_content_from_source(
-                        self.client.clone(),
-                        &fence,
-                        &bindings,
-                        &selections,
-                        budget,
-                        &source,
-                    )
-                    .await?
-                }
-                None => {
-                    lctx_native::completed_state::complete_frozen_content(
-                        self.client.clone(),
-                        &fence,
-                        &bindings,
-                        &selections,
-                        budget,
-                    )
-                    .await?
-                }
-            });
-            self.register_physical_inventory(&completed, budget)?;
-            Ok(completed)
-        }
-        .await;
-        let mut terminal = d::completion::Completion::default();
-        terminal.step(
-            "physical completion setup reader close",
-            reader.close().await,
-        );
-        d::completion::complete(result, terminal)
+            .await;
+            let mut terminal = d::completion::Completion::default();
+            terminal.step(
+                "physical completion setup reader close",
+                reader.close().await,
+            );
+            d::completion::complete(result, terminal)
         })
     }
 
@@ -4177,28 +4187,36 @@ impl NativeCompilerStore {
     }
     pub async fn import_entities(&self, rows: &[d::graph::Entity]) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_entities", true)?;
-        let result = lease.within(async {
-            let recovery = self.recovery_scope()?;
-            let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
-                .with_budget(recovery.budget());
-            let loader = if let Some(flag) = self.read_cancellation()? {
-                loader.with_read_cancellation(flag)
-            } else { loader };
-            loader.entities(rows).await
-        }).await;
+        let result = lease
+            .within(async {
+                let recovery = self.recovery_scope()?;
+                let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                    .with_budget(recovery.budget());
+                let loader = if let Some(flag) = self.read_cancellation()? {
+                    loader.with_read_cancellation(flag)
+                } else {
+                    loader
+                };
+                loader.entities(rows).await
+            })
+            .await;
         lease.finish_with(result)
     }
     pub async fn import_assertions(&self, rows: &[d::graph::Assertion]) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_assertions", true)?;
-        let result = lease.within(async {
-            let recovery = self.recovery_scope()?;
-            let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
-                .with_budget(recovery.budget());
-            let loader = if let Some(flag) = self.read_cancellation()? {
-                loader.with_read_cancellation(flag)
-            } else { loader };
-            loader.assertions(rows).await
-        }).await;
+        let result = lease
+            .within(async {
+                let recovery = self.recovery_scope()?;
+                let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                    .with_budget(recovery.budget());
+                let loader = if let Some(flag) = self.read_cancellation()? {
+                    loader.with_read_cancellation(flag)
+                } else {
+                    loader
+                };
+                loader.assertions(rows).await
+            })
+            .await;
         lease.finish_with(result)
     }
     pub async fn import_original_stream(
@@ -4210,14 +4228,18 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_original_stream", true)?;
-        let result = lease.within(async {
-            let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
-                .with_budget(budget);
-            let loader = if let Some(flag) = self.read_cancellation()? {
-                loader.with_read_cancellation(flag)
-            } else { loader };
-            loader.original_stream(source, content, length, input).await
-        }).await;
+        let result = lease
+            .within(async {
+                let loader = Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                    .with_budget(budget);
+                let loader = if let Some(flag) = self.read_cancellation()? {
+                    loader.with_read_cancellation(flag)
+                } else {
+                    loader
+                };
+                loader.original_stream(source, content, length, input).await
+            })
+            .await;
         lease.finish_with(result)
     }
     pub fn contributions<'a>(
@@ -4465,8 +4487,7 @@ impl NativeCompilerStore {
                         phase.finish_result(&result);
                         result.map_err(Arc::new)
                     }
-                    .in_current_span()
-                    .with_current_subscriber(),
+                    .in_tracing_context(),
                 );
                 let pending = async move {
                     task.await
@@ -4694,8 +4715,7 @@ impl NativeCompilerStore {
                         drop(undelivered);
                     }
                 }
-                .in_current_span()
-                .with_current_subscriber(),
+                .in_tracing_context(),
             );
             receive
                 .await
@@ -4724,8 +4744,9 @@ impl NativeCompilerStore {
                     }
                     lease.finish();
                 }
-                .instrument(span)
-                .with_subscriber(dispatch),
+                .with_tracing_context(
+                    lctx_tracing::Context::from_span_and_dispatch(span, dispatch),
+                ),
             );
         })
     }
@@ -8356,7 +8377,7 @@ impl NativeCompilerStore {
                             d::completion::complete(primary, terminal)
                         })).await;
                         lease.finish_with(result).map_err(Arc::new)
-                    }.in_current_span().with_current_subscriber());
+                    }.in_tracing_context());
                     let future = async move { task.await.map_err(|error| Arc::new(ModelError::Cause(Box::new(error)))) }.boxed().shared();
                     preparations.insert(identity, MembershipPreparationEntry { pending: future, charge: retained, budget: preparation_pool });
                 }
@@ -9233,8 +9254,7 @@ fn drain_native_payload(
                 lease.finish();
             }
         }
-        .in_current_span()
-        .with_current_subscriber(),
+        .in_tracing_context(),
     );
 }
 
@@ -9772,56 +9792,119 @@ mod completion_tests {
     use super::*;
     #[tokio::test(flavor = "multi_thread")]
     async fn direct_imports_enter_their_owned_recovery_scope() {
-        use d::{graph::{Assertion, Entity, EntityId}, input::{DistributionRole, InputDistribution, InputRevision, ManifestEntry, Package, Release}, source::SourceArtifact};
+        use d::{
+            graph::{Assertion, Entity, EntityId},
+            input::{
+                DistributionRole, InputDistribution, InputRevision, ManifestEntry, Package, Release,
+            },
+            source::SourceArtifact,
+        };
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let config = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned validation runtime"),
-        )).unwrap();
+        ))
+        .unwrap();
         let factory = recovery_factory(&config, budget.clone()).unwrap();
-        let native = NativeCompilerStore::begin(&config, Frontier::Facts, &factory).await.unwrap();
-        let connection = native.recovery_scope().unwrap().client().connection_completion().unwrap();
+        let native = NativeCompilerStore::begin(&config, Frontier::Facts, &factory)
+            .await
+            .unwrap();
+        let connection = native
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
         let reader = crate::NativeReader::private(native.client.clone()).with_budget(&budget);
         let result = std::panic::AssertUnwindSafe(async {
-            let body = [b"direct native import\0\xff".as_slice(), native.attempt().0.as_slice()].concat();
+            let body = [
+                b"direct native import\0\xff".as_slice(),
+                native.attempt().0.as_slice(),
+            ]
+            .concat();
             let path = format!("direct-{}.py", native.attempt().hex());
             let input = InputRevision::from_entries(vec![ManifestEntry {
-                path: path.clone(), content: ContentHash::of(&body), byte_len: body.len() as i64,
+                path: path.clone(),
+                content: ContentHash::of(&body),
+                byte_len: body.len() as i64,
             }])?;
             let source = SourceArtifact::from_bytes(input.id(), path, &body)?;
-            let package = Package { name: format!("direct-import-{}", native.attempt().hex()) };
-            let release = Release { package: package.id(), version: "1".into() };
+            let package = Package {
+                name: format!("direct-import-{}", native.attempt().hex()),
+            };
+            let release = Release {
+                package: package.id(),
+                version: "1".into(),
+            };
             let assertion = Assertion::from_record(InputDistribution {
-                input: input.id(), release: release.id(), role: DistributionRole::FirstParty,
+                input: input.id(),
+                release: release.id(),
+                role: DistributionRole::FirstParty,
             })?;
-            let mut entities = vec![Entity::from(package), Entity::from(release), Entity::from(input), Entity::from(source.clone())];
+            let mut entities = vec![
+                Entity::from(package),
+                Entity::from(release),
+                Entity::from(input),
+                Entity::from(source.clone()),
+            ];
             entities.sort_by_key(Entity::id);
             assert!(crate::control::capture_recovery_scope().is_none());
             native.import_entities(&entities).await?;
             assert!(crate::control::capture_recovery_scope().is_none());
-            native.import_assertions(std::slice::from_ref(&assertion)).await?;
+            native
+                .import_assertions(std::slice::from_ref(&assertion))
+                .await?;
             assert!(crate::control::capture_recovery_scope().is_none());
-            native.import_original_stream(EntityId::of(source.id()).0, source.content, body.len() as u64, &mut body.as_slice(), &budget).await?;
+            native
+                .import_original_stream(
+                    EntityId::of(source.id()).0,
+                    source.content,
+                    body.len() as u64,
+                    &mut body.as_slice(),
+                    &budget,
+                )
+                .await?;
             assert!(crate::control::capture_recovery_scope().is_none());
             for entity in &entities {
                 let mut variables = Variables::new();
                 variables.insert("payload", lctx_native::loader::entity_payload_id(entity)?);
-                let persisted: Vec<Value> = reader.query_native("SELECT canonical FROM $payload", variables).await?;
-                let [Value::Object(row)] = persisted.as_slice() else { return Err(ModelError::Conflict("direct imported entity missing")); };
-                let Some(Value::Bytes(bytes)) = row.get("canonical") else { return Err(ModelError::Schema("direct imported entity canonical bytes")); };
+                let persisted: Vec<Value> = reader
+                    .query_native("SELECT canonical FROM $payload", variables)
+                    .await?;
+                let [Value::Object(row)] = persisted.as_slice() else {
+                    return Err(ModelError::Conflict("direct imported entity missing"));
+                };
+                let Some(Value::Bytes(bytes)) = row.get("canonical") else {
+                    return Err(ModelError::Schema("direct imported entity canonical bytes"));
+                };
                 let actual: Entity = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
                 assert_eq!(&actual, entity);
             }
             let mut variables = Variables::new();
-            variables.insert("payload", lctx_native::loader::assertion_payload_id(&assertion)?);
-            let persisted: Vec<Value> = reader.query_native("SELECT canonical FROM $payload", variables).await?;
-            let [Value::Object(row)] = persisted.as_slice() else { return Err(ModelError::Conflict("direct imported assertion missing")); };
-            let Some(Value::Bytes(bytes)) = row.get("canonical") else { return Err(ModelError::Schema("direct imported assertion canonical bytes")); };
+            variables.insert(
+                "payload",
+                lctx_native::loader::assertion_payload_id(&assertion)?,
+            );
+            let persisted: Vec<Value> = reader
+                .query_native("SELECT canonical FROM $payload", variables)
+                .await?;
+            let [Value::Object(row)] = persisted.as_slice() else {
+                return Err(ModelError::Conflict("direct imported assertion missing"));
+            };
+            let Some(Value::Bytes(bytes)) = row.get("canonical") else {
+                return Err(ModelError::Schema(
+                    "direct imported assertion canonical bytes",
+                ));
+            };
             let actual: Assertion = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
             assert_eq!(actual, assertion);
-            let original = reader.original_bytes(EntityId::of(source.id()), 0, body.len()).await?;
+            let original = reader
+                .original_bytes(EntityId::of(source.id()), 0, body.len())
+                .await?;
             assert_eq!(original.as_ref(), body.as_slice());
             Ok::<_, ModelError>(())
-        }).catch_unwind().await;
+        })
+        .catch_unwind()
+        .await;
         let mut finality = d::completion::Completion::default();
         finality.step("direct import readback reader close", reader.close().await);
         finality.merge(native.drain_finality_report().await);
@@ -9829,7 +9912,11 @@ mod completion_tests {
         native.append_operation_failures(&mut finality);
         let closed = d::completion::complete::<()>(Ok(()), finality);
         if closed.is_ok() {
-            assert_eq!(factory.pending_count().unwrap(), 0, "direct import source signals and factory child are finalized");
+            assert_eq!(
+                factory.pending_count().unwrap(),
+                0,
+                "direct import source signals and factory child are finalized"
+            );
         }
         drop(reader);
         drop(native);
@@ -9837,7 +9924,11 @@ mod completion_tests {
         if closed.is_ok() {
             connection.wait().await.unwrap();
             drop(connection);
-            assert_eq!(budget.reserved(), 0, "direct imports release actual native owner and connection backing");
+            assert_eq!(
+                budget.reserved(),
+                0,
+                "direct imports release actual native owner and connection backing"
+            );
         }
         closed.unwrap();
         match result {

@@ -7,8 +7,8 @@ use lctx_model::domain::{
     batching::TransferLimits,
     stages::{Profile, Schedule},
 };
+use lctx_tracing::InContext;
 use std::{collections::BTreeSet, sync::Arc};
-use tracing::Instrument;
 
 /// Run the production facts providers, accepting their enumeration in any order. Dependency
 /// ordering is computed from declarations; runtime reads bind exact persisted completed inputs.
@@ -152,7 +152,7 @@ async fn run_provider(
         completion.finish_result(&result);
         result
     }
-    .instrument(span)
+    .with_tracing_span(span)
     .await
 }
 

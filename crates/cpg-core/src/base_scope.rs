@@ -25,8 +25,8 @@ use lctx_model::domain::{
     syntax::*,
     *,
 };
+use lctx_tracing::InContext;
 use std::{any::TypeId, sync::Arc};
-use tracing::Instrument;
 #[path = "base_scope/capture.rs"]
 mod capture;
 use capture::CapturedBase;
@@ -301,7 +301,7 @@ fn read_data<'a, R: Record>(
             tracing::info!(target:"lctx_phase", observation="base_selected_input_eof", rows);
             Ok(())
         }
-        .instrument(span)
+        .with_tracing_span(span)
         .await
     })
 }

@@ -184,14 +184,17 @@ impl<'a> Publication<'a> {
         .await;
         if let Err(error) = &result {
             if !error.permits_storage_cleanup() {
-                return lease.finish_with(result.map_err(|error| session.factory().handback(error)));
+                return lease
+                    .finish_with(result.map_err(|error| session.factory().handback(error)));
             }
             let mut completion = Completion::default();
             completion.step(
                 "failed publication setup child finality",
                 lctx_native::control::with_recovery_scope(
-                    session.recovery_scope().clone(), session.complete(),
-                ).await,
+                    session.recovery_scope().clone(),
+                    session.complete(),
+                )
+                .await,
             );
             return lease.finish_with(complete(result, completion));
         }
@@ -216,14 +219,21 @@ impl<'a> Publication<'a> {
         lctx_native::control::with_recovery_scope(self.session.recovery_scope().clone(), async {
             self.loader.close_reader().await?;
             self.session.complete().await
-        }).await.map_err(|error| self.session.factory().handback(error))
+        })
+        .await
+        .map_err(|error| self.session.factory().handback(error))
     }
 
     pub(crate) async fn entity_references(&self, entities: &[Entity]) -> Result<(), ModelError> {
         let lease = self
             .store()
             .begin_derived_operation("publication entity references")?;
-        let result = publication_scope(&self.parent, &self.session, self.loader.entity_references(entities)).await;
+        let result = publication_scope(
+            &self.parent,
+            &self.session,
+            self.loader.entity_references(entities),
+        )
+        .await;
         lease.finish_with(result)
     }
 
@@ -234,7 +244,12 @@ impl<'a> Publication<'a> {
         let lease = self
             .store()
             .begin_derived_operation("publication assertion references")?;
-        let result = publication_scope(&self.parent, &self.session, self.loader.assertion_references(assertions)).await;
+        let result = publication_scope(
+            &self.parent,
+            &self.session,
+            self.loader.assertion_references(assertions),
+        )
+        .await;
         lease.finish_with(result)
     }
 
@@ -278,8 +293,12 @@ impl<'a> Publication<'a> {
         }
         let lease = self.store().begin_derived_operation("publication search")?;
         let phase = Phase::begin("publication_search");
-        let result = publication_scope(&self.parent, &self.session,
-            lctx_native::derived_search::materialize_search_prepared(&self.loader)).await;
+        let result = publication_scope(
+            &self.parent,
+            &self.session,
+            lctx_native::derived_search::materialize_search_prepared(&self.loader),
+        )
+        .await;
         let result = lease.finish_with(result);
         phase.finish_result(&result);
         self.search = Some(result?);
@@ -400,9 +419,11 @@ async fn publication_scope<T>(
     session: &lctx_native::control::FactoryLease,
     future: impl std::future::Future<Output = T>,
 ) -> T {
-    lctx_native::control::with_retry_cancellation(parent.cancellation().clone(),
+    lctx_native::control::with_retry_cancellation(
+        parent.cancellation().clone(),
         lctx_native::control::with_recovery_scope(session.recovery_scope().clone(), future),
-    ).await
+    )
+    .await
 }
 
 pub(crate) fn publication_handle(

@@ -502,6 +502,10 @@ pub fn scoring_sql() -> String {
  IF $corpus=NONE {{ THROW 'missing frozen lexical corpus'; }};
  LET $query_terms=array::distinct(search::analyze('lctx_discovery',$query));
  LET $df=object::from_entries((SELECT term,df FROM lexical_term WITH INDEX scoped_term WHERE scope=$lexical_scope AND family=$family AND term IN $query_terms).map(|$v|[$v.term,$v.df]));
+ // IDF depends on the frozen corpus and query term, not the posting. Compute
+ // its nonnegative clamp once per distinct term outside GROUP BY: math::max
+ // is also an aggregate name and cannot be nested beneath grouped math::sum.
+ LET $idf=object::from_entries($query_terms.map(|$term|[$term,math::max([0.0,math::ln(($corpus.documents-($df[$term] ?? 0)+0.5)/(($df[$term] ?? 0)+0.5))])]));
  LET $members=SELECT source,in,in.length AS length FROM lexical_member WITH INDEX scoped_document WHERE scope=$lexical_scope AND family=$family AND source IN $documents;
  IF array::len($members)!=array::len($documents) {{ THROW 'missing frozen lexical document'; }};
  LET $token_documents=array::distinct($members.in);
@@ -511,7 +515,7 @@ pub fn scoring_sql() -> String {
  // preserving floating-point accumulation order as well as scoring policy.
  // Aggregate the matched posting stream once. Source documents with equal
  // analyzed content reuse its score; no document rescans the whole posting set.
- LET $scores=object::from_entries((SELECT in,math::sum(math::max([0.0,math::ln(($corpus.documents-($df[term] ?? 0)+0.5)/(($df[term] ?? 0)+0.5))]) * tf * 2.5 / (tf+1.5*(0.25+0.75*$lengths[<string>in]/((<float>$corpus.total_length/$corpus.documents))))) AS score FROM $postings GROUP BY in).map(|$v|[<string>$v.in,$v.score]));
+ LET $scores=object::from_entries((SELECT in,math::sum($idf[term] * tf * 2.5 / (tf+1.5*(0.25+0.75*$lengths[<string>in]/((<float>$corpus.total_length/$corpus.documents))))) AS score FROM $postings GROUP BY in).map(|$v|[<string>$v.in,$v.score]));
  LET $ranked=$members.map(|$member| {{ id:$member.source,score:$scores[<string>$member.in] }});
  RETURN SELECT id,score FROM $ranked WHERE score!=NONE;
 }};"#,

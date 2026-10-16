@@ -20,6 +20,7 @@ use lctx_model::domain::{
     resources::{Reservation, ResourceBudget},
     stages::{Profile, ProviderOutcome},
 };
+use lctx_tracing::InContext;
 use std::{
     any::Any,
     collections::BTreeMap,
@@ -28,7 +29,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use tracing::{Instrument, instrument::WithSubscriber};
 
 type ProviderDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
@@ -182,7 +182,7 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             }
             completion
         }
-        .instrument(tracing::info_span!(target: "lctx_phase", "compiler_drain", attempt=%self.native.attempt().hex()))
+        .with_tracing_span(tracing::info_span!(target: "lctx_phase", "compiler_drain", attempt=%self.native.attempt().hex()))
         .boxed()
     }
     fn complete_signal<'a>(
@@ -3410,8 +3410,7 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
                 .await
                 .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
         }
-        .instrument(owner)
-        .with_current_subscriber()
+        .with_tracing_span(owner)
         .boxed()
         .shared();
         self.workspace

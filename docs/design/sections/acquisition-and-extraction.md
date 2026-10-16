@@ -524,7 +524,14 @@ placement is explicitly inline. Executing opaque kernels retain access and charg
 drain. Earlier retired-pipeline measurements do not establish current throughput or total RSS;
 preserved benchmark captures keep their original boundaries.
 
-> Decision: ADR-0086, ADR-0016, ADR-0116
+**Accepted target, 2026-10-16 (ADR-0177); implementation/functional acceptance pending.** Shared
+`lctx-tracing` is a tracing utility leaf consumed by extraction and native execution, independent of
+the pure semantic model. Captured spans and inner futures/streams retain their actual dispatch
+through polling and destruction, including cancellation and never-polled rejection. Synchronous
+workers destroy their owned spans before restoring another default. This affects observation
+lifetime, not provider outcomes, semantic identity, scheduling or native completion authority.
+
+> Decision: ADR-0086, ADR-0016, ADR-0116, ADR-0177
 
 ### Native overload origin observations
 
