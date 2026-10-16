@@ -1,15 +1,28 @@
 //! Actual task finality is independent of coordinator result delivery.
 use super::{OwnedTaskJoin, poisoned};
 use futures::{FutureExt, future::BoxFuture};
-use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget};
+use lctx_model::domain::{ModelError, charged::StateCharge, resources::{Reservation, ResourceBudget}};
 use lctx_tracing::InContext;
-use std::{future::Future, sync::Mutex};
+use std::{future::Future, sync::{Arc, Mutex}};
 
 pub(super) struct StageExecution(Mutex<Registry>);
 struct Registry {
     sealed: bool,
     tasks: Vec<OwnedTaskJoin>,
     charge: StateCharge,
+}
+/// A snapshot keeps the allocation charge until its final joined owner is released.
+pub(super) struct StageDrainSnapshot {
+    tasks: std::vec::IntoIter<OwnedTaskJoin>,
+    _charge: Box<dyn Reservation>,
+}
+impl Iterator for StageDrainSnapshot {
+    type Item = OwnedTaskJoin;
+    fn next(&mut self) -> Option<Self::Item> { self.tasks.next() }
+}
+impl std::ops::Deref for StageDrainSnapshot {
+    type Target = [OwnedTaskJoin];
+    fn deref(&self) -> &Self::Target { self.tasks.as_slice() }
 }
 impl StageExecution {
     pub(super) fn new(budget: &ResourceBudget) -> Self {
@@ -19,10 +32,14 @@ impl StageExecution {
             charge: StateCharge::new(budget, "compiler producer joins"),
         }))
     }
-    pub(super) fn seal(&self) -> Result<Vec<OwnedTaskJoin>, ModelError> {
+    pub(super) fn seal(&self) -> Result<StageDrainSnapshot, ModelError> {
         let mut registry = self.0.lock().map_err(|_| poisoned())?;
         registry.sealed = true;
-        Ok(registry.tasks.clone())
+        let charge = registry.charge.budget().expect("stage join budget").reserve(
+            "compiler producer join snapshot",
+            registry.tasks.len().saturating_mul(size_of::<OwnedTaskJoin>()),
+        )?;
+        Ok(StageDrainSnapshot { tasks: registry.tasks.clone().into_iter(), _charge: charge })
     }
     pub(super) fn spawn<T: Send + 'static>(
         &self,
@@ -42,8 +59,12 @@ impl StageExecution {
         // Producer inputs retain their separate semantic reservations.
         let task_charge = registry.charge.budget().expect("stage join budget").reserve(
             "compiler producer task",
-            std::mem::size_of_val(&work).saturating_add(size_of::<T>()).saturating_add(256),
+            std::mem::size_of_val(&work).saturating_add(256),
         )?;
+        let delivery_charge = Arc::new(registry.charge.budget().expect("stage join budget").reserve(
+            "compiler producer result delivery", size_of::<T>().saturating_add(256),
+        )?);
+        let receiver_charge = delivery_charge.clone();
         let context = lctx_tracing::Context::current();
         let retry = lctx_native::control::capture_retry_cancellation();
         let recovery = lctx_native::control::capture_recovery_scope();
@@ -51,6 +72,7 @@ impl StageExecution {
         let (result, terminal) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             let _task_charge = task_charge;
+            let _delivery_charge = delivery_charge;
             let run = async move {
                 // The actual JoinHandle is registered before useful execution is admitted.
                 launched.await.map_err(ModelError::codec)?;
@@ -73,6 +95,9 @@ impl StageExecution {
         drop(registry);
         let _ = launch.send(());
         Ok(async move {
+            // The actual queue/result reservation outlives both sender and receiver.
+            // Once returned, the coordinator's already charged ReadyStages slot owns T.
+            let _delivery_charge = receiver_charge;
             let result = terminal.await;
             joined.await.map_err(ModelError::SharedCause)?;
             result.map_err(ModelError::codec)?
@@ -141,6 +166,22 @@ mod tests {
         release.send(()).unwrap();
         for join in tasks.seal().unwrap() { join.await.unwrap(); }
         assert!(completed.load(Ordering::Acquire));
+        drop(joins);
+        drop(tasks);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn queued_terminal_result_keeps_delivery_charge_after_actual_join() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let tasks = StageExecution::new(&budget);
+        let result = tasks.spawn(super::super::Cancellation::default(), async { Ok([0_u8; 512]) }).unwrap();
+        for join in tasks.seal().unwrap() { join.await.unwrap(); }
+        let registry_bytes = tasks.0.lock().unwrap().charge.accounted_bytes();
+        assert_eq!(budget.reserved(), registry_bytes + 512 + 256,
+            "actual task exit cannot release the unconsumed channel/result reservation");
+        drop(result);
+        assert_eq!(budget.reserved(), registry_bytes);
         drop(tasks);
         assert_eq!(budget.reserved(), 0);
     }
