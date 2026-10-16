@@ -226,12 +226,27 @@ DEFINE FUNCTION fn::native_completed_incidence($completion: record<native_comple
 // One bounded immutable effect prepares exact existing values and distinct parent
 // predicates once. Holds share incidence admission but retain their owner/target
 // existence checks after new rows are installed in the same transaction.
-DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array<object>, $context: option<object>) {
+DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array<object>, $context: option<object>, $deferred: array<object>, $originals: array<object>) {
     LET $all=array::concat($rows,$holds);
     LET $blobs=array::distinct($rows.filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob));
-    LET $targets=array::distinct(array::concat(array::flatten($all.map(|$row| fn::native_incidence_targets($row))),$blobs));
-    FOR $target IN $targets { fn::native_touch_admitted($target,$context); };
     LET $prepared=$all.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
+    LET $original_prepared=$originals.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
+    FOR $entry IN $original_prepared { LET $prior=$entry.existing; LET $row=$entry.row; IF $prior!=NONE AND ($prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is_bool($prior.completed)=false OR array::len(object::keys($prior))!=5) { THROW 'original blob declaration collision'; }; };
+    // Equal rows and already-owned equal holds do not change incidence. A new
+    // owner's hold still changes both endpoints and excludes retirement.
+    LET $changed=array::concat($prepared,$original_prepared).filter(|$entry| $entry.existing=NONE).map(|$entry| $entry.row);
+    LET $changed_blobs=array::distinct($changed.filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob));
+    LET $targets=array::distinct(array::concat(array::flatten($changed.map(|$row| fn::native_incidence_targets($row))),$changed_blobs));
+    FOR $target IN $targets {
+        fn::native_touch_admitted($target,$context);
+        // First creation already advanced its physical incarnation above. New
+        // incidence on an existing immutable endpoint advances the guard once;
+        // existing equal holds/rows are absent from this changed target set.
+        IF array::len($changed.filter(|$row| $row.id=$target))=0 AND ($context=NONE OR $target!=$context.attempt) {
+            LET $entries=$deferred.filter(|$entry| $entry.record=$target);
+            IF array::len($entries)>0 { LET $guard_id=$entries[0].guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807 { THROW 'native changed incidence guard invalid'; }; UPDATE $guard_id SET revision+=1 RETURN NONE; };
+        };
+    };
     LET $attempts=array::distinct($rows.filter(|$row| record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging']).map(|$row| $row.attempt));
     FOR $attempt IN $attempts { IF $attempt=NONE OR (SELECT VALUE id FROM ONLY $attempt)=NONE { THROW 'native incidence attempt missing'; }; };
     LET $contributions=array::distinct(array::concat($rows.filter(|$row| record::table($row.id)='compiler_membership').map(|$row| $row.contribution),$all.filter(|$row| record::table($row.id)='native_hold' AND record::table($row.owner)='compiler_contribution').map(|$row| $row.owner)));
@@ -252,7 +267,7 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
     FOR $job IN $jobs { IF (SELECT VALUE id FROM ONLY $job)=NONE { THROW 'native incidence parent missing'; }; };
     FOR $blob IN $blobs {
         LET $stored=SELECT * FROM ONLY $blob FOR UPDATE;
-        LET $parent=IF $stored=NONE { $rows.filter(|$row| $row.id=$blob)[0] ?? NONE } ELSE { $stored };
+        LET $parent=IF $stored=NONE { array::concat($rows,$originals).filter(|$row| $row.id=$blob)[0] ?? NONE } ELSE { $stored };
         IF $parent=NONE OR type::is_bool($parent.completed)=false { THROW 'native original blob declaration missing'; };
         IF $parent.completed AND array::len($prepared.filter(|$entry| $entry.row.blob=$blob AND $entry.existing!=$entry.row))>0 { THROW 'completed original blob refuses missing or changed piece'; };
     };
@@ -260,6 +275,8 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
     LET $new=$prepared.filter(|$entry| $entry.existing=NONE AND record::table($entry.row.id)!='native_hold').map(|$entry| $entry.row);
     LET $ordinary=$new.filter(|$row| record::table($row.id) NOT IN ['participant','reference','lex_occurs','vec_occurs']);
     LET $relations=$new.filter(|$row| record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs']);
+    LET $new_originals=$original_prepared.filter(|$entry| $entry.existing=NONE).map(|$entry| $entry.row);
+    IF array::len($new_originals)>0 { INSERT $new_originals RETURN NONE; };
     IF array::len($ordinary)>0 { INSERT $ordinary RETURN NONE; };
     IF array::len($relations)>0 { INSERT RELATION $relations RETURN NONE; };
     LET $owners=array::distinct($holds.map(|$row| $row.owner));

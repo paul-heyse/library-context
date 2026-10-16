@@ -95,11 +95,9 @@ impl ImmutableWindow {
             creation.insert("record", blob.id());
             scope.insert("__immutable_creations", vec![Value::Object(creation)]);
             merge_plan_bindings(&mut bindings, scope)?;
-            // Declaration and logical layout ownership have one atomic outcome. Completion
-            // is mutable, while immutable declaration fields and exact header shape collide.
-            sql = format!(
-                "FOR $i IN 0..array::len($original_blobs) {{ LET $row=$original_blobs[$i]; LET $blob=$row.id; fn::native_incidence_insert_admitted($row,$__attempt_context); LET $prior=SELECT * FROM ONLY $blob FOR UPDATE; IF $prior=NONE {{ CREATE $blob CONTENT $row RETURN NONE; }} ELSE {{ IF $prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is_bool($prior.completed)=false OR array::len(object::keys($prior))!=5 {{ THROW 'original blob declaration collision'; }}; }}; }}; {sql}"
-            );
+            // The native window classifies declaration, layout and holds together.
+            // Existing blob completion is mutable; immutable header equality remains strict.
+
         }
         if let Some((hold_owner, _, holds)) = hold_plan(attempt, references)? {
             if !matches!(
@@ -109,8 +107,8 @@ impl ImmutableWindow {
                 return Err(ModelError::Conflict("native immutable window authority"));
             }
             sql = sql.replace(
-                "fn::native_immutable_install($rows,[],$__attempt_context);",
-                "fn::native_immutable_install($rows,$holds,$__attempt_context);",
+                "fn::native_immutable_install($rows,[],$__attempt_context,$__deferred_guards,($original_blobs ?? []));",
+                "fn::native_immutable_install($rows,$holds,$__attempt_context,$__deferred_guards,($original_blobs ?? []));",
             );
             merge_plan_bindings(&mut bindings, holds)?;
         }
@@ -483,7 +481,7 @@ mod tests {
         assert_eq!(
             window
                 .sql
-                .matches("fn::native_immutable_install($rows,$holds,$__attempt_context)")
+                .matches("fn::native_immutable_install($rows,$holds,$__attempt_context,$__deferred_guards,($original_blobs ?? []))")
                 .count(),
             1
         );
@@ -603,10 +601,19 @@ mod tests {
                 Value::Object(relation.clone()),
                 external,
             ];
-            let mut windows = ImmutableWindows::new(rows, Some(store.attempt()), None, Some(owner));
+            let selected = rows.iter().map(control_address).collect::<Vec<_>>();
+            let mut windows = ImmutableWindows::new(rows.clone(), Some(store.attempt()), None, Some(owner.clone()));
             let window = windows.next().unwrap()?;
             assert!(windows.next().is_none());
             install_window(&client, Some(store.attempt()), window, None).await?;
+            let before = control_guard(&client, &selected[0]).await;
+            let replay = ImmutableWindows::new(rows, Some(store.attempt()), None, Some(owner)).next().unwrap()?;
+            install_window(&client, Some(store.attempt()), replay, None).await?;
+            assert_eq!(control_guard(&client, &selected[0]).await, before, "equal rows and equal holds do not churn physical guards");
+            let (_, sql, variables) = hold_plan(Some(store.attempt()), vec![(selected[1].clone(), selected[0].clone())])?.unwrap();
+            effect(&client, Some(store.attempt()), &sql, variables).await?;
+            let after = control_guard(&client, &selected[0]).await;
+            assert_eq!(authorization::int_field(&after, "revision")?, authorization::int_field(&before, "revision")? + 1, "equal bytes with a new owner hold are changed incidence");
             let edge = relation.get("id").unwrap().clone();
             let mut response = client
                 .query("SELECT * FROM $edge")
@@ -729,12 +736,13 @@ mod tests {
         while avoid == Some(coordination::attempt_slot(request.operation)) {
             request.operation = fresh_identity("immutable-overlap-distinct-slot").unwrap();
         }
-        let plan = authorization::owner_effect_plan(
+        let plan = authorization::lower_owner_effect_plan(
             request,
             &EffectOwner::OpenAttempt(attempt),
             sql,
             bindings,
             false,
+            true,
         )
         .unwrap();
         (request, plan)
@@ -778,8 +786,6 @@ mod tests {
                         let avoid=packets.first().map(|(request,_):&(NativeRequest,authorization::OwnerEffectPlan)|coordination::attempt_slot(request.operation));
                         packets.push(control_packet(&client,attempt,&sql,bindings,avoid).await);
                     }
-                    for (_,plan) in &packets { checked_transaction(client.query(plan.intent.clone()).bind(plan.intent_bindings.clone()).await.unwrap()).unwrap(); }
-                    assert_eq!(control_guard(&client,&owner).await,before,"intent participation leaves attempt physical guard unchanged");
                     let body=|query:&str|query.strip_prefix("BEGIN;").unwrap().strip_suffix("COMMIT;").unwrap().to_owned();
                     let left=client.as_ref().clone().begin().await.unwrap();
                     let right=client.as_ref().clone().begin().await.unwrap();
@@ -1082,7 +1088,9 @@ mod tests {
             );
             let collision = windows.next().unwrap().unwrap();
             assert!(windows.next().is_none());
-            let result = install_window(&client, Some(attempt), collision, None).await;
+            let (request, plan) = control_packet(&client, attempt, &collision.sql, collision.bindings.into(), None).await;
+            let result = checked_transaction(client.query(plan.query).bind(plan.bindings).await.unwrap());
+            assert!(matches!(authorization::reconcile_request(&client, request).await.unwrap(), EffectDisposition::FencedUncommitted), "failed atomic mixed window has no committed outcome");
             assert!(result.is_err(), "full-value collision must refuse");
             let mut response = client
                 .query("SELECT * FROM $absent; SELECT * FROM native_hold WHERE object=$absent")
@@ -1101,6 +1109,10 @@ mod tests {
             let holds: Vec<Value> = response.take(1).unwrap();
             assert!(rows.is_empty());
             assert!(holds.is_empty());
+            let prior_id = control_address(&immutable_control_row(&existing, 0));
+            let mut response = client.query("SELECT * FROM $prior").bind(("prior", prior_id)).await.unwrap().check().unwrap();
+            let prior: Vec<Value> = response.take(0).unwrap();
+            assert_eq!(prior, vec![immutable_control_row(&existing, 0)], "earlier committed window survives later atomic collision");
         })
         .await;
         assert_eq!(

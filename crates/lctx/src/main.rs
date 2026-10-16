@@ -1005,7 +1005,7 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                         let client = owner.client().clone();
                         let result =
                             lctx_native::control::with_recovery_scope(owner.scope(), async {
-                                owner.require_drained_maintenance().await?;
+                                owner.require_closed_settled_effects().await?;
                                 match command {
                                     HistoryCommand::Qualify { evidence } => {
                                         lctx_native::control::qualify_history_inventory(
@@ -1087,7 +1087,7 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                         let owner = lctx_native::maintenance::MaintenanceOwner::connect(&config, &budget).await?;
                         let client = owner.client().clone();
                         let result = lctx_native::control::with_recovery_scope(owner.scope(), async {
-                            owner.require_drained_maintenance().await?;
+                            owner.require_closed_settled_effects().await?;
                             for predecessor in cleanup {
                                 let successor=lctx_native::control::recover_cleanup(&client, predecessor).await?;
                                 // Emit the durable identity before continuing: a later error cannot hide it.

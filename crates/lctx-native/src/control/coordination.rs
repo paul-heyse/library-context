@@ -386,13 +386,17 @@ fn creation_indices(
 }
 
 pub(super) const EXPECTED_OBJECT_GUARD: &str = r#"
+// Immutable creation and hold-only guards are advanced by actual changed
+// incidence inside the installation function. Explicit mutable write guards
+// keep their original exclusion/revision behavior.
+LET $__deferred_guards=($__object_expectations ?? []).filter(|$expected| $expected.guard NOT IN ($__mutable_write_guards ?? []) AND ($expected.creation!=NONE OR $expected.record IN ($rows ?? []).filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob) OR ($expected.guard IN ($hold_guards ?? []) AND $expected.guard NOT IN ($guards ?? []) AND $expected.guard NOT IN ($__write_guards ?? []))));
 FOR $__expected IN ($__object_expectations ?? []) {
     LET $__guard_id=$__expected.guard;
     LET $__before=SELECT * FROM ONLY $__guard_id FOR UPDATE;
     IF $__before!=NONE AND $__before.revision>=9223372036854775807 { THROW 'native guard revision exhausted'; };
     IF $__expected.phase='active' {
         IF $__before=NONE OR $__before.phase!='active' OR $__before.incarnation!=$__expected.incarnation { THROW 'native expected active incarnation changed'; };
-        IF $__attempt_context=NONE OR $__expected.record!=$__attempt_context.attempt {
+        IF ($__attempt_context=NONE OR $__expected.record!=$__attempt_context.attempt) AND array::len($__deferred_guards.filter(|$entry| $entry.guard=$__guard_id))=0 {
             UPDATE $__guard_id SET revision+=1 RETURN NONE;
         };
     } ELSE {
@@ -413,7 +417,7 @@ FOR $__expected IN ($__object_expectations ?? []) {
             } ELSE IF $__creation.kind='original_blob' AND record::table($__record)='original_blob' {
                 IF $__actual.id!=$__wanted.id OR $__actual.content!=$__wanted.content OR $__actual.byte_len!=$__wanted.byte_len OR $__actual.format!=$__wanted.format OR type::is_bool($__actual.completed)=false OR array::len(object::keys($__actual))!=5 { THROW 'original blob declaration collision'; };
             } ELSE { THROW 'native immutable creation kind invalid'; };
-            UPDATE $__guard_id SET revision+=1 RETURN NONE;
+            // Equal successor bytes alone do not change their physical guard.
         } ELSE {
             IF $__expected.phase='vacant' {
                 IF $__before!=NONE { THROW 'native expected vacant guard changed'; };
@@ -802,7 +806,7 @@ mod attempt_cut_controls {
     // owns leftover logical participants and failed-commit sessions through discard.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "exclusive task-owned RocksDB campaign only"]
-    async fn native_attempt_disjoint_payloads_overlap_and_complete_cut_fences_late_intent() {
+    async fn native_atomic_disjoint_applies_overlap_and_complete_cut_fences_delayed_apply() {
         let cfg = crate::RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned RocksDB campaign"),
         ))
@@ -850,33 +854,18 @@ mod attempt_cut_controls {
                 operation,
                 request: ContentHash::of(&operation.0),
             };
-            authorization::owner_effect_plan(
+            authorization::lower_owner_effect_plan(
                 request,
                 &EffectOwner::OpenAttempt(attempt),
                 "RETURN true",
                 Variables::new(),
                 false,
+                true,
             )
             .unwrap()
         };
         let a = make(first);
         let b = make(second);
-        checked_transaction(
-            client
-                .query(a.intent.clone())
-                .bind(a.intent_bindings.clone())
-                .await
-                .unwrap(),
-        )
-        .unwrap();
-        checked_transaction(
-            client
-                .query(b.intent.clone())
-                .bind(b.intent_bindings.clone())
-                .await
-                .unwrap(),
-        )
-        .unwrap();
         let body = |sql: &str| {
             sql.strip_prefix("BEGIN;")
                 .unwrap()
@@ -903,40 +892,52 @@ mod attempt_cut_controls {
         .unwrap();
         left.commit().await.unwrap().invalidate().await.unwrap();
         right.commit().await.unwrap().invalidate().await.unwrap();
+        // Exact replay never executes payload again; an owner-context collision
+        // refuses even when operation, request digest and original era agree.
+        checked_transaction(client.query(a.query.clone()).bind(a.bindings.clone()).await.unwrap()).unwrap();
+        let mut collision = a.bindings.clone();
+        collision.insert("__owner_kind", "frozen_attempt");
+        assert!(checked_transaction(client.query(a.query.clone()).bind(collision).await.unwrap()).is_err());
+        let absent_operation = fresh_identity("atomic-absent-fence").unwrap();
+        let absent = make(absent_operation);
+        let absent_request = NativeRequest { issuance: era, operation: absent_operation, request: ContentHash::of(&absent_operation.0) };
+        assert_eq!(with_recovery_scope(scope.clone(), authorization::reconcile_request(&client, absent_request)).await.unwrap(), EffectDisposition::FencedUncommitted);
+        assert!(checked_transaction(client.query(absent.query).bind(absent.bindings).await.unwrap()).is_err(), "delayed original apply cannot pass exact absent-request fence");
         let cut = client.as_ref().clone().begin().await.unwrap();
         cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
         let late = make(fresh_identity("stripe-late-intent").unwrap());
         checked_transaction(
             client
-                .query(late.intent.clone())
-                .bind(late.intent_bindings.clone())
+                .query(late.query.clone())
+                .bind(late.bindings.clone())
                 .await
                 .unwrap(),
         )
         .unwrap();
         assert!(
             cut.commit().await.is_err(),
-            "older full cut conflicts with later committed intent"
+            "older full cut conflicts with later committed atomic apply"
         );
+        let delayed = make(fresh_identity("stripe-delayed-apply").unwrap());
         let cut = client.as_ref().clone().begin().await.unwrap();
         cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
         cut.commit().await.unwrap().invalidate().await.unwrap();
         assert!(
-            checked_transaction(client.query(late.query).bind(late.bindings).await.unwrap())
+            checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap())
                 .is_err(),
-            "accepted delayed payload is fenced by the completed cut"
+            "prepared delayed atomic apply is fenced by the completed cut"
         );
         let after = make(fresh_identity("stripe-after-cut-intent").unwrap());
         assert!(
             checked_transaction(
                 client
-                    .query(after.intent)
-                    .bind(after.intent_bindings)
+                    .query(after.query)
+                    .bind(after.bindings)
                     .await
                     .unwrap()
             )
             .is_err(),
-            "new intent refuses closed eligibility"
+            "new atomic apply refuses closed eligibility"
         );
         client.invalidate().await.unwrap();
         signals

@@ -95,12 +95,13 @@ async fn native_committed_packets_with_unobserved_ack_require_explicit_recovery_
                 lease.as_ref().unwrap().source_ready()?;
                 let payload = PreparedNativePayload::new("RETURN true", Variables::new())?;
                 let request = NativeRequest::issue(&client, payload.digest).await?;
-                let plan = owner_effect_plan(
+                let plan = lower_owner_effect_plan(
                     request,
                     &EffectOwner::OpenAttempt(attempt),
                     payload.sql,
                     payload.bindings,
                     false,
+                    true,
                 )?;
                 let pending = scope.prepare(
                     request,
@@ -108,15 +109,8 @@ async fn native_committed_packets_with_unobserved_ack_require_explicit_recovery_
                     plan.reference.clone(),
                     RecoveryReferencePolicy::ReleaseRecovery,
                 )?;
-                // These are the actual production intent/payload packets. Their
-                // successful responses are deliberately not observed by PendingRecovery.
-                super::super::checked_transaction(
-                    client
-                        .query(&plan.intent)
-                        .bind(plan.intent_bindings)
-                        .await
-                        .map_err(ModelError::codec)?,
-                )?;
+                // The candidate atomically commits payload/outcome. Its response
+                // is deliberately not observed by PendingRecovery.
                 super::super::checked_transaction(
                     client
                         .query(&plan.query)

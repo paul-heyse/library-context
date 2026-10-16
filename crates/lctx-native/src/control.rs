@@ -238,6 +238,8 @@ async fn run_recovery_transaction(
 ) -> Result<(), ModelError> {
     retry::transaction(client, sql, bindings, true).await
 }
+/// Observe persisted unresolved outcomes only. This is not host or native
+/// executor drainage; maintenance callers retain their service-owner barrier.
 pub async fn check_pending_effects(client: &Surreal<Client>) -> Result<(), ModelError> {
     let mut response = client
         .query("SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1")
@@ -255,6 +257,8 @@ pub async fn check_pending_effects(client: &Surreal<Client>) -> Result<(), Model
         ))
     }
 }
+/// Reconcile persisted outcomes, without claiming that unobserved executors have
+/// stopped. Permanent cuts and authenticated service drainage remain separate.
 pub async fn drain_effects(client: &Surreal<Client>) -> Result<(), ModelError> {
     loop {
         let mut response = client
@@ -321,6 +325,7 @@ fn guarded_effect_plan(
         .map(|id| guard_id(&Value::RecordId(id.clone())))
         .collect::<Result<Vec<_>, _>>()?;
     bindings.insert("__guard_records", guard_records(objects.iter())?);
+    bindings.insert("__mutable_write_guards", guards.clone());
     bindings.insert("__write_guards", guards);
     let incidence = if matches!(bindings.get("row"), Some(Value::Object(_))) {
         "fn::native_incidence_insert_admitted($row,$__attempt_context);"
@@ -426,7 +431,7 @@ fn immutable_row_plan(
     } else {
         ""
     };
-    let sql = format!("{fence} fn::native_immutable_install($rows,[],$__attempt_context);");
+    let sql = format!("{fence} fn::native_immutable_install($rows,[],$__attempt_context,$__deferred_guards,($original_blobs ?? []));");
     Ok(Some((sql, bindings)))
 }
 /// Keep the first exact row ordering, coalescing only complete equal values. The
@@ -573,7 +578,7 @@ fn hold_plan(
     };
     Ok(Some((
         owner,
-        "fn::native_immutable_install([],$holds,$__attempt_context);".to_owned(),
+        "fn::native_immutable_install([],$holds,$__attempt_context,$__deferred_guards,($original_blobs ?? []));".to_owned(),
         bindings,
     )))
 }

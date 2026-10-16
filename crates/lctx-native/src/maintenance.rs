@@ -61,7 +61,9 @@ impl MaintenanceOwner {
         }
         Ok(())
     }
-    pub async fn require_drained_maintenance(&self) -> Result<(), ModelError> {
+    /// Check closed native admission and persisted outcomes. The enclosing
+    /// service maintenance owner separately authenticates host/executor drainage.
+    pub async fn require_closed_settled_effects(&self) -> Result<(), ModelError> {
         self.require_closed_admission().await?;
         crate::control::check_pending_effects(&self.client).await
     }

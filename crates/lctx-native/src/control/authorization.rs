@@ -630,6 +630,9 @@ pub(super) struct PreparedOwnerEffect {
     plan: OwnerEffectPlan,
 }
 impl PreparedOwnerEffect {
+    pub(super) fn request(&self) -> NativeRequest {
+        self.request
+    }
     pub(super) fn bytes(&self) -> Result<usize, ModelError> {
         Ok(
             super::immutable_window::plan_bytes(&self.plan.query, &self.plan.bindings)?.max(
@@ -803,6 +806,18 @@ pub(super) fn owner_effect_plan(
     bindings: Variables,
     retain: bool,
 ) -> Result<OwnerEffectPlan, ModelError> {
+    lower_owner_effect_plan(request, owner, sql, bindings, retain, false)
+}
+// The candidate is exercised on a wholly owned native campaign before replacing
+// the production split. Both routes share exact preparation and guards.
+pub(super) fn lower_owner_effect_plan(
+    request: NativeRequest,
+    owner: &EffectOwner,
+    sql: &str,
+    bindings: Variables,
+    retain: bool,
+    atomic: bool,
+) -> Result<OwnerEffectPlan, ModelError> {
     let mut bindings = bindings;
     request.bind(&mut bindings);
     let reference_owner = request.operation.hex();
@@ -892,10 +907,28 @@ pub(super) fn owner_effect_plan(
     };
     // A payload RETURN belongs to that payload, never the outer transaction.
     // The closure catches RETURN while errors still abort payload and receipt together.
-    let query = format!(
+    let split_query = format!(
         "BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; fn::native_touch($__effect); {fence} {participation} {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; IF $__operation.owner_kind='installation' {{ UPDATE $__owner_id SET state='done' RETURN NONE; }}; }}; COMMIT;",
         coordination::EXPECTED_OBJECT_GUARD
     );
+    let query = if atomic {
+        let replay_epoch = if matches!(owner, EffectOwner::TerminalAttempt(_)) {
+            "OR $__prior.epoch!=$__expected_epoch"
+        } else {
+            ""
+        };
+        let finish_owner = if installation_owner {
+            "UPDATE $__owner_id SET state='done' RETURN NONE;"
+        } else {
+            ""
+        };
+        format!(
+            "BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch,attempt_slot=$__attempt_slot RETURN NONE; {participation} CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; {finish_owner} }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind OR $__prior.attempt!=$__attempt OR $__prior.attempt_slot!=$__attempt_slot {replay_epoch} {{ THROW 'native operation identity collision'; }}; IF !$__prior.resolved OR !$__prior.committed OR $__prior.epoch<=0 {{ THROW 'native operation fenced uncommitted'; }}; }}; COMMIT;",
+            coordination::EXPECTED_OBJECT_GUARD
+        )
+    } else {
+        split_query
+    };
     coordination::preflight(&query, &bindings)?;
     coordination::preflight(&intent, &intent_bindings)?;
     Ok(OwnerEffectPlan {
@@ -1708,6 +1741,7 @@ fn validate_replay_owner(
         || row.get("committed") != Some(&Value::Bool(true))
         || row.get("resolved") != Some(&Value::Bool(true))
         || int_field(row, "epoch")? <= 0
+        || matches!(owner, EffectOwner::TerminalAttempt(owner) if int_field(row, "epoch")? != owner.epoch)
     {
         return Err(request.error(ModelError::Conflict(
             "native committed replay original owner changed",
