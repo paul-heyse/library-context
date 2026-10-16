@@ -1,29 +1,24 @@
 //! Invocation-local successful native frontier captures. IPC is private preparation, never
 //! completed-input authority. Coverage is published only after checked EOF and file finality.
-use crate::{admission::Cancellation, consumed_rows::PreparedEdges, invocation_ipc::{InvocationIpc, SealedIpc}};
+use crate::{admission::Cancellation, consumed_rows::{PreparedEdges, coverage_index::CoverageIndex}, invocation_ipc::{InvocationIpc, SealedIpc}};
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::physical_plan::{SendableRecordBatchStream, stream::RecordBatchStreamAdapter};
 use futures::{StreamExt, TryStreamExt};
 use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget};
-use std::{collections::BTreeMap, future::Future, sync::Arc};
+use std::{collections::{BTreeMap, BTreeSet}, future::Future, sync::Arc};
 
 struct Group {
     schema: SchemaRef,
     key_field: &'static str,
     windows: Vec<Window>,
+    next_unadopted: usize,
+    indexes: Vec<Option<CoverageIndex>>,
+    pending: Option<(usize, CoverageIndex)>,
 }
-struct Window {
-    coverage_name: String,
-    rows_name: String,
-    coverage: SealedIpc,
-    rows: SealedIpc,
-    coverage_adopted: bool,
-    rows_adopted: bool,
-}
-/// An exact immutable source binding owns the protected inputs through every local retry.
-/// A failed acquisition permanently prevents retry; successful windows remain reusable even
-/// when later local membership/partition preparation refuses resource admission.
+struct Window { rows_name: String, rows: SealedIpc }
+/// Exact immutable source and budget ownership survive local membership/partition retries.
+/// Failed source acquisition is terminal; successful windows are never reissued.
 pub struct FrontierCapture {
     owner: PreparedEdges,
     ipc: InvocationIpc,
@@ -49,21 +44,48 @@ impl FrontierCapture {
         Ok(())
     }
     pub fn permits_local_retry(&self) -> bool { !self.acquisition_failed }
-    /// Guard preparation that can itself issue native work (for example contextual adjacency).
     pub(crate) fn begin_acquisition(&mut self) { self.acquisition_failed = true; }
     pub(crate) fn complete_acquisition(&mut self) { self.acquisition_failed = false; }
-    async fn adopt_group(&mut self, group: &str) -> Result<(), ModelError> {
-        for window in &mut self.groups.get_mut(group).expect("capture group").windows {
-            if !window.rows_adopted {
-                self.ipc.adopt(&window.rows, &window.rows_name).await?;
-                window.rows_adopted = true;
+    async fn prepare_group(&mut self, name: &str) -> Result<(), ModelError> {
+        let group = self.groups.get_mut(name).expect("capture group");
+        // Successful capture owns its pending index before this pure compaction. Refusal
+        // retains both immutable merge inputs; only a completed replacement retires them.
+        while let Some((level, pending)) = group.pending.as_ref() {
+            let level = *level;
+            if level >= group.indexes.len() {
+                if group.indexes.len() == group.indexes.capacity() {
+                    let additional = group.indexes.capacity().max(4);
+                    self.charge.grow(additional * size_of::<Option<CoverageIndex>>())?;
+                    group.indexes.reserve_exact(additional);
+                }
+                group.indexes.push(None);
             }
-            if !window.coverage_adopted {
-                self.ipc.adopt(&window.coverage, &window.coverage_name).await?;
-                window.coverage_adopted = true;
+            if let Some(old) = &group.indexes[level] {
+                let merged = old.merge(pending, &self.budget, &self.cancellation).await?;
+                group.indexes[level] = None;
+                group.pending = Some((level + 1, merged));
+            } else {
+                let (_, pending) = group.pending.take().expect("pending capture index");
+                group.indexes[level] = Some(pending);
             }
         }
+        // Each complete window is registered once. Already adopted history is not revisited.
+        while group.next_unadopted < group.windows.len() {
+            let window = &group.windows[group.next_unadopted];
+            self.ipc.adopt(&window.rows, &window.rows_name).await?;
+            group.next_unadopted += 1;
+        }
         Ok(())
+    }
+    fn routes(&self, group: &str, keys: &[[u8;16]]) -> Result<BTreeMap<[u8;16], usize>, ModelError> {
+        let mut routes = BTreeMap::new();
+        for index in self.groups[group].indexes.iter().flatten() {
+            index.lookup(keys, &self.budget, |key, window| {
+                if routes.insert(key, window).is_some() { return Err(ModelError::Conflict("duplicate native capture coverage")); }
+                Ok(())
+            })?;
+        }
+        Ok(routes)
     }
     pub(crate) async fn read<F, Fut>(
         &mut self, group: String, key_field: &'static str, keys: Arc<Vec<[u8; 16]>>,
@@ -74,64 +96,33 @@ impl FrontierCapture {
     {
         self.cancellation.check()?;
         if self.acquisition_failed { return Err(ModelError::Conflict("failed native frontier acquisition")); }
-        if keys.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(ModelError::Schema("native capture key order"));
-        }
+        if keys.windows(2).any(|pair| pair[0] >= pair[1]) { return Err(ModelError::Schema("native capture key order")); }
         if let Some(old) = self.groups.get(&group) {
-            if old.schema != schema || old.key_field != key_field {
-                return Err(ModelError::Conflict("native capture query shape"));
-            }
+            if old.schema != schema || old.key_field != key_field { return Err(ModelError::Conflict("native capture query shape")); }
         } else {
             self.charge.grow(512 + group.len() + schema.fields().iter().map(|f| f.size()).sum::<usize>())?;
-            self.groups.insert(group.clone(), Group { schema: schema.clone(), key_field, windows: Vec::new() });
+            self.groups.insert(group.clone(), Group { schema: schema.clone(), key_field, windows: Vec::new(),
+                next_unadopted: 0, indexes: Vec::new(), pending: None });
         }
-        self.adopt_group(&group).await?;
         let _keys = self.budget.reserve("native-capture-key-window", keys.len() * 256 + 4096)?;
-        let predicate = key_predicate("id", &keys);
-        let mut covered = std::collections::BTreeSet::new();
-        let windows = &self.groups[&group].windows;
-        if !windows.is_empty() && !keys.is_empty() {
-            let _query = self.budget.reserve("native-capture-coverage-query",
-                windows.iter().map(|window| window.coverage_name.len() + 64).sum::<usize>() * 3 + keys.len() * 128 + 4096)?;
-            let sql = format!("SELECT DISTINCT id FROM ({}) covered WHERE {predicate} ORDER BY id",
-                windows.iter().map(|window| format!("SELECT id FROM {}", window.coverage_name)).collect::<Vec<_>>().join(" UNION ALL "));
-            let mut rows = crate::sql::query(self.ipc.session(), &sql).await.map_err(crate::sql::model_error)?
-                .execute_stream().await.map_err(crate::sql::model_error)?;
-            while let Some(batch) = rows.try_next().await.map_err(crate::sql::model_error)? {
-                self.cancellation.check()?;
-                let ids = batch.column(0).as_any().downcast_ref::<FixedSizeBinaryArray>()
-                    .ok_or(ModelError::Schema("native capture coverage IDs"))?;
-                for row in 0..batch.num_rows() {
-                    if ids.is_null(row) { return Err(ModelError::Schema("native capture coverage null")); }
-                    let id = ids.value(row).try_into().map_err(ModelError::codec)?;
-                    if keys.binary_search(&id).is_err() { return Err(ModelError::Conflict("native capture coverage demand")); }
-                    covered.insert(id);
-                }
-            }
-        }
-        let missing = Arc::new(keys.iter().copied().filter(|key| !covered.contains(key)).collect::<Vec<_>>());
-        // Empty demand still checks source authority once. No synthetic provider replaces it.
+        self.prepare_group(&group).await?;
+        let routes = self.routes(&group, &keys)?;
+        let mut selected = routes.values().copied().collect::<BTreeSet<_>>();
+        let missing = Arc::new(keys.iter().copied().filter(|key| !routes.contains_key(key)).collect::<Vec<_>>());
+        // Empty demand still checks source authority once. A complete-empty physical result
+        // earns the same exact input keys as a nonempty result.
         if !missing.is_empty() || self.groups[&group].windows.is_empty() {
-            let index = self.next; self.next += 1;
-            let rows_name = format!("frontier_rows_{index}");
-            let coverage_name = format!("frontier_coverage_{index}");
-            self.charge.grow(256 + rows_name.len() + coverage_name.len())?;
+            let window_ordinal = self.groups[&group].windows.len();
+            let index = if missing.is_empty() { None } else { Some(CoverageIndex::new(&missing, window_ordinal, &self.budget)?) };
+            let next = self.next; self.next += 1;
+            let rows_name = format!("frontier_rows_{next}");
+            self.charge.grow(256 + rows_name.len())?;
             let windows = &mut self.groups.get_mut(&group).expect("capture group").windows;
             if windows.len() == windows.capacity() {
                 let additional = windows.capacity().max(4);
                 self.charge.grow(additional * size_of::<Window>())?;
                 windows.reserve_exact(additional);
             }
-            // Coverage is private until the source reaches complete EOF. Prepare and seal its
-            // bounded key inventory before issue, so publication needs no further allocation.
-            let coverage_schema = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
-                "id", arrow_schema::DataType::FixedSizeBinary(16), false)]));
-            let mut coverage = self.ipc.begin(coverage_schema.clone())?;
-            let mut ids = arrow_array::builder::FixedSizeBinaryBuilder::with_capacity(missing.len(), 16);
-            for key in missing.iter() { ids.append_value(key).map_err(ModelError::codec)?; }
-            let ids = ids.finish();
-            coverage.push(&RecordBatch::try_new(coverage_schema, vec![Arc::new(ids)]).map_err(ModelError::codec)?)?;
-            let coverage = coverage.seal()?;
             let mut writer = self.ipc.begin(schema.clone())?;
             let _buffer = self.budget.reserve("native-capture-nominal-buffer",
                 lctx_model::domain::resources::TRANSFER_ROWS * schema.fields().len() * 64 + 4096)?;
@@ -139,8 +130,22 @@ impl FrontierCapture {
             self.begin_acquisition();
             let mut source = issue(missing.clone()).await?;
             if source.schema() != schema { return Err(ModelError::Schema("native capture issued schema")); }
+            let mut previous = None;
             while let Some(batch) = source.try_next().await.map_err(crate::sql::model_error)? {
                 self.cancellation.check()?;
+                let column = batch.column_by_name(key_field).and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
+                    .ok_or(ModelError::Schema("native capture nominal key"))?;
+                let ids = batch.column_by_name("id").and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
+                    .ok_or(ModelError::Schema("native capture nominal row ID"))?;
+                for row in 0..batch.num_rows() {
+                    if column.is_null(row) && key_field != "id" { continue; }
+                    if column.is_null(row) || ids.is_null(row) { return Err(ModelError::Schema("native capture null key")); }
+                    let key: [u8;16] = column.value(row).try_into().map_err(ModelError::codec)?;
+                    let id: [u8;16] = ids.value(row).try_into().map_err(ModelError::codec)?;
+                    if missing.binary_search(&key).is_err() { return Err(ModelError::Conflict("native capture source demand")); }
+                    if previous.is_some_and(|old| old >= id) { return Err(ModelError::Conflict("native capture source row order")); }
+                    previous = Some(id);
+                }
                 buffer.push(&batch, |batch| writer.push(&batch))?;
                 tokio::task::yield_now().await;
             }
@@ -148,18 +153,25 @@ impl FrontierCapture {
             if let Some(batch) = buffer.finish()? { writer.push(&batch)?; }
             drop(buffer);
             let rows = writer.seal()?;
-            self.groups.get_mut(&group).expect("capture group").windows.push(Window {
-                coverage_name, rows_name, coverage, rows, coverage_adopted: false, rows_adopted: false,
-            });
+            let state = self.groups.get_mut(&group).expect("capture group");
+            state.windows.push(Window { rows_name, rows });
+            state.pending = index.map(|index| (0, index));
             self.complete_acquisition();
-            self.adopt_group(&group).await?;
+            selected.insert(window_ordinal);
+            self.prepare_group(&group).await?;
         }
         let windows = &self.groups[&group].windows;
+        // Only exactly intersecting captures participate in this query. A disjoint frontier
+        // neither scans old result files nor rebuilds a logical union over its history.
         let retained = self.budget.reserve("native-capture-local-query",
-            windows.iter().map(|window| window.rows_name.len() + 64).sum::<usize>() * 3 + keys.len() * 128 + 4096)?;
-        let sql = format!("SELECT * FROM ({}) captured WHERE {} ORDER BY id",
-            windows.iter().map(|window| format!("SELECT * FROM {}", window.rows_name)).collect::<Vec<_>>().join(" UNION ALL "),
-            key_predicate(key_field, &keys));
+            selected.iter().map(|index| windows[*index].rows_name.len() + 64).sum::<usize>() * 3 + keys.len() * 128 + 4096)?;
+        let sql = if selected.is_empty() {
+            format!("SELECT * FROM {} WHERE FALSE", windows[0].rows_name)
+        } else {
+            format!("SELECT * FROM ({}) captured WHERE {} ORDER BY id",
+                selected.iter().map(|index| format!("SELECT * FROM {}", windows[*index].rows_name)).collect::<Vec<_>>().join(" UNION ALL "),
+                key_predicate(key_field, &keys))
+        };
         let stream = crate::sql::query(self.ipc.session(), &sql).await.map_err(crate::sql::model_error)?
             .execute_stream().await.map_err(crate::sql::model_error)?;
         let stream = stream.map(move |row| { let _hold = &retained; row });
@@ -320,6 +332,30 @@ mod tests {
             }).await.unwrap();
             assert!(ids(rows).await.is_empty());
             assert_eq!(issued.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn disjoint_history_routes_only_intersecting_windows_through_logarithmic_runs() {
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        {
+            let owner = owner(&budget).await;
+            let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
+            for n in 1..=32u8 {
+                let rows = capture.read("ids".into(), "id", Arc::new(vec![[n;16]]), schema(), |keys| async move {
+                    Ok(stream(vec![Ok(batch(&keys))]))
+                }).await.unwrap();
+                assert_eq!(ids(rows).await, [[n;16]]);
+            }
+            let _keys = budget.reserve("index-route-control", 4096).unwrap();
+            let routes = capture.routes("ids", &[[3;16],[29;16],[99;16]]).unwrap();
+            assert_eq!(routes, BTreeMap::from([([3;16],2),([29;16],28)]));
+            assert_eq!(capture.groups["ids"].indexes.iter().flatten().count(), 1);
+            assert_eq!(capture.groups["ids"].next_unadopted, 32);
+            let rows = capture.read("ids".into(), "id", Arc::new(vec![[3;16],[29;16]]), schema(), |_| async {
+                panic!("indexed historical keys cannot reissue native work")
+            }).await.unwrap();
+            assert_eq!(ids(rows).await, [[3;16],[29;16]]);
         }
         assert_eq!(budget.reserved(), 0);
     }

@@ -452,6 +452,14 @@ impl EdgeBuffer {
         for row in 0..batch.num_rows() {
             let source = edge_key(batch, "source_kind", "source_id", row)?;
             let target = edge_key(batch, "target_kind", "target_id", row)?;
+            self.push_entry(source, target, &mut emit)?;
+        }
+        Ok(())
+    }
+    fn push_entry(
+        &mut self, source: NominalKey, target: NominalKey,
+        mut emit: impl FnMut(arrow_array::RecordBatch) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
             self.source_kind.append_value(source.0);
             self.source_id
                 .append_value(source.1)
@@ -464,7 +472,6 @@ impl EdgeBuffer {
             if self.rows == resources::TRANSFER_ROWS {
                 emit(self.finish()?.expect("full nominal storage batch"))?;
             }
-        }
         Ok(())
     }
     fn finish(&mut self) -> Result<Option<arrow_array::RecordBatch>, ModelError> {
@@ -532,6 +539,8 @@ fn scope_alias(kind: &str) -> String {
         NEXT_SCOPE.fetch_add(1, Ordering::Relaxed)
     )
 }
+#[path = "consumed_rows/coverage_index.rs"]
+pub(crate) mod coverage_index;
 type NominalKey = (i64, [u8; 16]);
 /// Exactly one entry per IPC record batch. Duplicate source ranges may span arbitrarily many
 /// adjacent batches; searching by BOTH first and last includes every such batch.
