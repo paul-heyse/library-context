@@ -706,20 +706,15 @@ def test_recent_listing_hydrates_only_page_and_uses_one_snapshot(tmp_path, monke
     assert not set(row["id"] for row in first["runs"]) & set(row["id"] for row in second["runs"])
 
 
-def test_listing_invalidates_changed_membership_and_preserves_corrupt_receipt(
-    tmp_path, monkeypatch
-):
+def test_listing_continues_anchored_membership_and_preserves_corrupt_receipt(tmp_path, monkeypatch):
     root = history(tmp_path, monkeypatch)
     first = run_listing.page(options())
     corrupt = root / "20260101T000000.999Z-bbbbbb"
     corrupt.mkdir()
     (corrupt / "record.json").write_text("broken")
-    with pytest.raises(ValueError, match="stale"):
-        run_listing.page(
-            SimpleNamespace(
-                limit=20, all=False, cursor=first["next_cursor"], label=None, state=None
-            )
-        )
+    second = run_listing.page(options(cursor=first["next_cursor"]))
+    assert second["coverage"]["complete"]
+    assert corrupt.name not in {row["id"] for row in second["runs"]}
     whole = run_listing.page(
         SimpleNamespace(limit=20, all=True, cursor=None, label=None, state=None)
     )
@@ -733,3 +728,32 @@ def test_listing_invalidates_changed_membership_and_preserves_corrupt_receipt(
     labelled = run_listing.page(options(all=True, label="absent", state="active"))
     assert [row["id"] for row in labelled["runs"]] == [corrupt.name]
     assert labelled["runs"][0]["corrupt"] and labelled["runs"][0]["protected"]
+
+
+def test_live_cursor_survives_deleted_anchor_and_rejects_query_or_root_change(
+    tmp_path, monkeypatch
+):
+    root = history(tmp_path, monkeypatch)
+    first = run_listing.page(options(limit=2))
+    anchor = first["runs"][-1]["id"]
+    (root / anchor / "record.json").unlink()
+    (root / anchor).rmdir()
+    # A backdated insertion in the remaining interval is observable; it does
+    # not cause repetition of rows already returned above the last examined name.
+    inserted = root / "20260101T000000.028Z-000000"
+    inserted.mkdir()
+    second = run_listing.page(options(cursor=first["next_cursor"], limit=40))
+    assert inserted.name in {row["id"] for row in second["runs"]}
+    assert not {row["id"] for row in first["runs"]} & {row["id"] for row in second["runs"]}
+    with pytest.raises(ValueError, match="selection"):
+        run_listing.page(options(cursor=first["next_cursor"], label="changed"))
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    monkeypatch.setenv("LCTX_RUNS_ROOT", str(replacement))
+    with pytest.raises(ValueError, match="root"):
+        run_listing.page(options(cursor=first["next_cursor"]))
+    import base64
+
+    obsolete = base64.urlsafe_b64encode(json.dumps({"schema": 1}).encode()).decode()
+    with pytest.raises(ValueError, match="obsolete"):
+        run_listing.page(options(cursor=obsolete))

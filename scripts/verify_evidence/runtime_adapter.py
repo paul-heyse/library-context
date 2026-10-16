@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 FIELD = re.compile(r'\b([a-z_]+)=("(?:[^"\\]|\\.)*"|[^\s{}]+)')
@@ -20,7 +22,10 @@ def observation(text: str, invocation: str) -> dict | None:
     if isinstance(event, dict):
         if event.get("target") != "lctx_phase":
             return None
-        fields = dict(event.get("fields", {}))
+        raw_fields = event.get("fields", {})
+        if not isinstance(raw_fields, dict):
+            return None
+        fields = dict(raw_fields)
         # Tracing JSON declares owner context in current/root span records. Keep
         # their order and original attribution, without promoting a span field
         # into an event identity or guessing the originating producer.
@@ -33,15 +38,50 @@ def observation(text: str, invocation: str) -> dict | None:
             context.append(current)
         if context:
             fields["span_context"] = context
+        fields["span_parentage"] = "structured producer span order"
+        fields["current_span"] = current
     else:
         if "lctx_phase" not in text:
             return None
-        fields = {}
+        ordered = []
+        values = {}
         for name, token in FIELD.findall(text):
             try:
-                fields[name] = json.loads(token)
+                value = json.loads(token)
             except ValueError:
-                fields[name] = token
+                value = token
+            ordered.append({"name": name, "value": value})
+            values.setdefault(name, []).append(value)
+        ambiguous = [
+            name
+            for name, items in values.items()
+            if any(type(item) is not type(items[0]) or item != items[0] for item in items[1:])
+        ]
+        fields = {name: items[0] for name, items in values.items() if name not in ambiguous}
+        fields["ordered_fields"] = ordered
+        fields["ambiguous_fields"] = ambiguous
+        fields["span_parentage"] = "unknown; flat text does not establish parentage"
+        if set(ambiguous) & {
+            "invocation_id",
+            "process_id",
+            "process_start_ticks",
+            "phase_id",
+            "phase",
+            "status",
+            "observation",
+            "requested",
+            "used",
+            "limit",
+        }:
+            return {
+                "event_kind": "native-observation-unattributed",
+                "phase": "unknown",
+                "outcome": "observed",
+                "observation": fields,
+                "identity_meaning": (
+                    "conflicting flat attribution or semantics; identity not established"
+                ),
+            }
     if fields.get("invocation_id") != invocation or type(fields.get("process_id")) is not int:
         return None
     if fields.get("observation") == "resource_refusal":
@@ -76,7 +116,7 @@ def observation(text: str, invocation: str) -> dict | None:
     }
 
 
-def from_record(record: dict, invocation: str):
+def from_record(record: dict, invocation: str) -> Iterator[dict[str, Any]]:
     for position, line in enumerate(str(record.get("payload", "")).splitlines()):
         parsed = observation(line, invocation)
         if parsed is None:
@@ -89,18 +129,29 @@ def from_record(record: dict, invocation: str):
             fields.get("observation"),
             position,
         ]
+        locator = {
+            "envelope": record.get("locator", record.get("native", {}).get("locator")),
+            "line": position,
+            "source": record.get("source"),
+            "source_start": record.get("source_start"),
+            "source_end": record.get("source_end"),
+        }
         yield {
             **record,
             **parsed,
             "case_key": "runtime:" + json.dumps(key, separators=(",", ":")),
             "payload": line,
             "attempt": 1,
-            "locator": {
-                "envelope": record.get("locator", record.get("native", {}).get("locator")),
-                "line": position,
-            },
+            "locator": locator,
+            "native": {**record.get("native", {}), "locator": locator},
             "coverage": {
-                "authority": "attributed-native-observation",
+                "authority": (
+                    "unattributed-native-observation"
+                    if parsed["event_kind"] == "native-observation-unattributed"
+                    else "attributed-native-observation"
+                ),
+                "overlap": "supplemental source observation; no cross-channel event deduplication",
+                "payload_loss": record.get("native", {}).get("truncation", "unknown"),
                 "case_outcome": "not established",
                 "unfinished": "no terminal inferred",
                 "source_to_binary": "not established",

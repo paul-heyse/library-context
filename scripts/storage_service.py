@@ -222,6 +222,7 @@ def dependencies(installation) -> dict:
     from surrealdb_service import _server_handoff_dependencies
 
     result.extend(_server_handoff_dependencies(installation))
+    reference = row.get("regeneration")
     try:
         active = read_json(installation.directory / "maintenance.json")
     except FileNotFoundError:
@@ -243,6 +244,24 @@ def dependencies(installation) -> dict:
                 {"path": plan["candidate"]["path"], "role": "unresolved-installer-handoff"},
             ]
         )
+    if isinstance(active, dict) and active.get("regeneration"):
+        reference = active["regeneration"]
+    if reference:
+        from service_regeneration import load_plan
+
+        journal, plan = load_plan(installation, reference)
+        result.append({"path": str(journal.parent), "role": "project-regeneration-evidence"})
+        if isinstance(active, dict) and active.get("regeneration"):
+            result.extend(
+                [
+                    {
+                        "path": plan["previous"]["installer"],
+                        "role": "unresolved-project-regeneration",
+                    },
+                    {"path": plan["candidate"]["path"], "role": "unresolved-project-regeneration"},
+                    {"path": plan["server"]["path"], "role": "unresolved-project-regeneration"},
+                ]
+            )
     return {"installation_id": installation.id, "stable_installer": stable, "dependencies": result}
 
 

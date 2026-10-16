@@ -493,3 +493,107 @@ def test_json_native_observation_retains_declared_span_owner_context():
         "process_start_ticks": None,
         "phase_id": 9,
     }
+
+
+def test_flat_runtime_repeated_fields_keep_order_without_parentage_or_identity_guess():
+    from verify_evidence.runtime_adapter import observation
+
+    line = (
+        'INFO lctx_phase: producer="parent" producer="child" phase="wait" '
+        'phase_id=9 status="begin" invocation_id="actual" process_id=1 process_id=2'
+    )
+    row = observation(line, "actual")
+    assert row is not None
+    assert row["event_kind"] == "native-observation-unattributed"
+    fields = row["observation"]
+    assert "process_id" not in fields and "producer" not in fields
+    assert [
+        field["value"] for field in fields["ordered_fields"] if field["name"] == "producer"
+    ] == ["parent", "child"]
+    assert "unknown" in fields["span_parentage"]
+    assert row.get("phase_identity") is None
+
+
+def test_source_invocation_mode_never_walks_repository_and_full_cache_owner_is_shared(
+    tmp_path, monkeypatch
+):
+    from verify_evidence.context import SourceObserver, shared_observer
+
+    minimal = SourceObserver(tmp_path)
+    monkeypatch.setattr(
+        minimal, "git", lambda *args: pytest.fail("lightweight observation walked Git")
+    )
+    observed = minimal.observe()
+    assert observed["scope"] == "invocation" and "files" not in observed
+    first = shared_observer(tmp_path / "run", tmp_path, "full")
+    second = shared_observer(tmp_path / "run", tmp_path, "full")
+    assert first is second
+    assert shared_observer(tmp_path / "other-run", tmp_path, "full") is not first
+    assert shared_observer(tmp_path / "run", tmp_path, "invocation") is not first
+
+
+def test_supplemental_channels_retain_original_locators_and_payload_local_loss():
+    from verify_evidence.runtime_adapter import from_record
+
+    line = 'lctx_phase: phase="call" phase_id=1 status="begin" invocation_id="actual" process_id=7'
+    limited = {
+        "payload": line,
+        "source": "envelope",
+        "native": {"locator": {"case": "case-a"}, "truncation": "known: explicit producer marker"},
+    }
+    intact = {"payload": line, "source": "native.log", "source_start": 19, "source_end": 110}
+    a, b = next(from_record(limited, "actual")), next(from_record(intact, "actual"))
+    assert a["coverage"]["payload_loss"].startswith("known")
+    assert b["coverage"]["payload_loss"] == "unknown"
+    assert a["locator"]["envelope"] == {"case": "case-a"}
+    assert b["locator"]["source_start"] == 19
+    assert a["locator"] != b["locator"]
+    assert a["status"] == b["status"] == "begin"
+    assert "supplemental" in a["coverage"]["overlap"]
+
+
+def test_full_source_hints_reobserve_membership_and_report_unavailable_or_mutating_files(
+    tmp_path, monkeypatch
+):
+    from verify_evidence import context
+
+    source = tmp_path / "source.rs"
+    source.write_text("first")
+    link = tmp_path / "link.rs"
+    link.symlink_to(source)
+    observer = context.SourceObserver(tmp_path, scope="full")
+    monkeypatch.setattr(
+        observer,
+        "git",
+        lambda *args: b"source.rs\0link.rs\0missing.rs\0" if args[0] == "ls-files" else b"head",
+    )
+    opened = []
+    digest = context.digest_file
+
+    def hash_file(path):
+        opened.append(path.name)
+        return digest(path)
+
+    monkeypatch.setattr(context, "digest_file", hash_file)
+    before = observer.observe()
+    again = observer.observe()
+    assert opened == ["source.rs"] and before["id"] == again["id"]
+    assert before["unavailable"] == {
+        "link.rs": "symlink excluded",
+        "missing.rs": "FileNotFoundError",
+    }
+    source.write_text("second value")
+    changed = observer.observe()
+    assert changed["files"]["source.rs"] != before["files"]["source.rs"]
+
+    def mutate_during_hash(path):
+        value = digest(path)
+        path.write_text("mutated after hashing")
+        return value
+
+    source.write_text("third value")
+    monkeypatch.setattr(context, "digest_file", mutate_during_hash)
+    interrupted = observer.observe()
+    assert "source.rs" not in interrupted["files"]
+    assert interrupted["unavailable"]["source.rs"] == "changed during observation"
+    assert "intermediate changes" in interrupted["concurrent_edits"]

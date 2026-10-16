@@ -1,16 +1,16 @@
 # Status
-_Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog efficiency CN06/CN07 and CC00–CC03 implemented / Interface-checked, 2026-10-15.** The
+_Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+**Catalog efficiency remaining scope through CE99 executing, 2026-10-16.** The
 [coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
-owns decisions, receipts and limits. Source `13c4dfcf`/ADR-0174 delivers private selector/reference preparation,
-checked outside-gate composition, one Catalog request and postings; full mutable-capture checks stay.
-Independent review accepted revised source. Six Catalog request and three capture controls passed; full
-workspace/all-target compile, strict keep-going Clippy, Ruff/Pyrefly, dependencies/ADR lint passed, zero warnings/errors.
-**Blocked:** pure/new native control builds exhausted disk before tests; CN07 actual compound EXPLAIN/scoring,
-composition and original-owner/cold controls remain open. No campaign was created. CE00/CD00/CN00–CN05 prior
-focused-Tested through `29a1a689`; four prior campaigns disposed. All executors drained; no worktree. **Next:**
-free storage, resume coordinator §6 exact focused controls on fresh owned target, then checkpoint. CE80/default
-adoption, CE90/assembled acceptance remain open. Docs check fails on foreign reference missing H1; foreign state preserved.
+owns decisions, exact receipts and limits. Baseline `86e1931c`; three executors own Base, Summary/analytics
+and development changes; root owns integration, approved project main+validation regeneration and acceptance.
+Lightweight source context is selected by default; full mode is explicit. Operator/external targets and
+unexpected scopes remain protected. Storage is available; both required-peer target-owned builds passed with confirmed cleanup.
+CN06/CN07/CC00–CC03 source through `13c4dfcf` is Interface-checked; prior6 Catalog/3 capture controls and
+full compile/strict Clippy/Ruff/Pyrefly/dependency/ADR checks passed. Outstanding runtime exits are not_run.
+CE00/CD00/CN00–CN05 prior focused-Tested through `29a1a689`; four old campaigns disposed. **Next:** finish
+functional packages, freeze current source, focused native controls, CE80 regeneration, CE90 selected acceptance,
+then CE99 handback. MCP runtime/embedding inference/real-library qualification and old-plan edits stay excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.
@@ -80,7 +80,7 @@ maintenance was released. SM8 actual disposable-checkout service-survival remain
 ordinary qualification does not substitute for SM8 or BC3 candidate-profile adoption.
 
 **Agent effectiveness AF0–AF9 implemented / focused-Tested,2026-10-09.** [Follow-up plan
-§8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) owns receipts; successor ADR-0172 owns
+§8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) owns receipts; successor ADR-0175 owns
 readiness, cleanup and display. Scoped acceptance is not comprehensive product acceptance.
 
 **Complete ordinary test entrypoint implemented,2026-10-11.** `just test-all` uses existing verification/fixture owners; `just qualify` adds

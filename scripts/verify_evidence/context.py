@@ -6,7 +6,24 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
+from threading import Lock
 from typing import Any
+from weakref import WeakValueDictionary
+
+OBSERVATION_VERSION = 2
+_OBSERVERS: WeakValueDictionary[tuple[str, str, str], SourceObserver] = WeakValueDictionary()
+_OBSERVER_LOCK = Lock()
+
+
+def shared_observer(owner: Path, root: Path, scope: str) -> SourceObserver:
+    key = (str(owner.resolve()), str(root.resolve()), scope)
+    with _OBSERVER_LOCK:
+        observer = _OBSERVERS.get(key)
+        if observer is None:
+            observer = SourceObserver(root, scope=scope)
+            _OBSERVERS[key] = observer
+        return observer
+
 
 EXCLUDED = {"fixtures", "gold", "heldout", ".venv", "target", "build", ".git"}
 SENSITIVE = {"credentials", "secrets", "private", "id_rsa", "id_ed25519", ".env"}
@@ -50,19 +67,35 @@ def digest_file(path: Path) -> str:
 class SourceObserver:
     """Reuse unchanged file digests; check stat before and after hashing changed bytes."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
+    def __init__(self, root: Path, *, scope: str = "invocation") -> None:
+        if scope not in ("invocation", "full"):
+            raise ValueError("invalid source context scope")
+        self.root = root.resolve()
+        self.scope = scope
         self.cache: dict[str, tuple[tuple[int, ...], str]] = {}
 
     def git(self, *args: str) -> bytes:
         return subprocess.run(["git", *args], cwd=self.root, capture_output=True, check=True).stdout
 
     def observe(self) -> dict[str, Any]:
+        common = {
+            "observation_version": OBSERVATION_VERSION,
+            "scope": self.scope,
+            "root": str(self.root),
+        }
+        if self.scope == "invocation":
+            return {
+                "available": True,
+                **common,
+                "id": hashlib.sha256(json.dumps(common, sort_keys=True).encode()).hexdigest(),
+                "source_comparison": "not established; invocation/configuration only",
+                "source_to_binary": "unknown; observations do not establish build closure",
+            }
         try:
             names = self.git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
             head = self.git("rev-parse", "HEAD").decode().strip()
         except (OSError, subprocess.CalledProcessError) as error:
-            return {"available": False, "reason": type(error).__name__}
+            return {"available": False, **common, "reason": type(error).__name__}
         hashes = {}
         unavailable = {}
         excluded = []
@@ -99,7 +132,13 @@ class SourceObserver:
                 hashes[name] = digest
             except OSError as error:
                 unavailable[name] = type(error).__name__
-        content = {"head": head, "files": hashes, "unavailable": unavailable, "excluded": excluded}
+        content = {
+            **common,
+            "head": head,
+            "files": hashes,
+            "unavailable": unavailable,
+            "excluded": excluded,
+        }
         identity = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
         return {
             "available": True,

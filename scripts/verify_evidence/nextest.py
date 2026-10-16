@@ -425,7 +425,9 @@ def _junit_records(path: Path) -> Iterator[dict]:
                         "locator": locator,
                         "format": "nextest-junit",
                         "normalization": "UTF-8/XML normalized text",
-                        "truncation": "unknown",
+                        "truncation": (
+                            "unknown; JUnit only, recording limits do not establish JUnit loss"
+                        ),
                         "coverage": "completed attempt; unfinished cases unavailable",
                     },
                 }
@@ -499,7 +501,7 @@ def _json_records(path: Path, watermark: int = 0, end_bound: int | None = None) 
                     "suite": meta,
                     "format": "nextest-libtest-json-plus-0.1",
                     "binary_identity": "unavailable",
-                    "truncation": "unknown",
+                    "truncation": "unknown; libtest payload channel only",
                     "normalization": "lossy UTF-8; human harness text stripped",
                     "coverage": (
                         "complete-line prefix; synthetic identity may alias targets; "

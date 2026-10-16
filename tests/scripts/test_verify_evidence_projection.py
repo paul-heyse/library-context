@@ -401,3 +401,25 @@ def test_real_nextest_junit_projection_binds_identical_names_to_binaries(tmp_pat
     selected = projection.evidence(tmp_path, metadata[1]["reference"])
     assert "second failure" in selected["evidence"][0]["text"]
     assert "first output" not in selected["evidence"][0]["text"]
+
+
+def test_runtime_envelope_locator_retains_line_and_channel_local_loss(tmp_path):
+    (tmp_path / "invocation.json").write_text(json.dumps({"id": "actual", "tool": "nextest"}))
+    (tmp_path / "nextest-capture.json").write_text(
+        json.dumps({"channels": {"native-recording": {"truncation": "known: archive limit"}}})
+    )
+    phase = 'lctx_phase: phase="call" phase_id=1 status="begin" invocation_id="actual" process_id=7'
+    (tmp_path / "junit.xml").write_text(
+        '<testsuites uuid="4b4ec130-d5d7-4db4-9237-4dd6b7d6303c"><testsuite name="crate">'
+        '<testcase name="case"><system-out>' + phase + "</system-out></testcase>"
+        "</testsuite></testsuites>"
+    )
+    rows = projection.cases(tmp_path)["cases"]
+    phase_case = next(row for row in rows if row["case_key"].startswith("runtime:"))
+    record = projection.evidence(tmp_path, phase_case["reference"])["evidence"][0]
+    assert record["locator"]["line"] == 1  # after the retained system-out envelope header
+    assert record["locator"]["envelope"]["test"] == "case"
+    assert record["locator"]["source"].endswith("junit.xml")
+    assert "unknown" in record["coverage"]["payload_loss"]
+    assert "recording limits" in record["coverage"]["payload_loss"]
+    assert record["adapter"] == 2

@@ -818,6 +818,11 @@ def native_protected(
         directory, record
     ):
         return False
+    if (record or {}).get("installation_discard"):
+        from service_regeneration import completed_attachment
+
+        if completed_attachment(directory, record):
+            return False
     from surrealdb_pd02_recovery import recovered
 
     return not recovered(directory, record)

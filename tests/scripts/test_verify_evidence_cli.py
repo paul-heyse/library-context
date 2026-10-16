@@ -87,7 +87,9 @@ def no_execution(monkeypatch):
     monkeypatch.setattr(workspace_env, "observe", forbidden)
     monkeypatch.setattr(verify, "observe_requirements", forbidden)
     monkeypatch.setattr(
-        cli.SourceObserver, "observe", lambda self: {"id": "current", "available": True}
+        cli.SourceObserver,
+        "observe",
+        lambda self: {"id": "current", "available": True, "scope": "invocation"},
     )
 
 
@@ -574,13 +576,62 @@ def test_cli_legacy_coverage_and_context_comparison_are_explicit(tmp_path, capsy
         row["settings"] = {"RUST_BACKTRACE": "full" if root == first else "1"}
         write_json_atomic(directory / "invocation.json", row)
         write_json_atomic(
-            root / f"verify-evidence/contexts/{ident}.json", {"head": "same-head", "files": files}
+            root / f"verify-evidence/contexts/{ident}.json",
+            {
+                "available": True,
+                "head": "same-head",
+                "files": files,
+                "scope": "full",
+                "observation_version": 2,
+                "root": "same-root",
+            },
         )
     compared = invoke(capsys, "compare", first, second)
     assert compared["differences"][0]["source_changed"] == ["untracked.py"]
     assert compared["differences"][0]["settings_changed"] is True
     assert compared["differences"][0]["context_available"] is True
     assert "unknown" in compared["source_to_binary"]
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        {"available": False, "scope": "full", "observation_version": 2, "root": "same-root"},
+        {
+            "available": True,
+            "scope": "full",
+            "observation_version": 2,
+            "root": "same-root",
+            "unavailable": {"tracked.rs": "unreadable"},
+        },
+        {"available": True, "scope": "invocation", "observation_version": 2, "root": "same-root"},
+    ],
+)
+def test_rerun_source_comparison_is_not_established_from_unavailable_or_lightweight_context(
+    tmp_path, capsys, no_execution, monkeypatch, current
+):
+    root = tmp_path / "run"
+    directory, invocation = write_run(root)
+    invocation.update(source_context="full", context_before="before")
+    write_json_atomic(directory / "invocation.json", invocation)
+    write_json_atomic(
+        root / "verify-evidence/contexts/before.json",
+        {
+            "id": "before",
+            "available": True,
+            "scope": "full",
+            "observation_version": 2,
+            "root": "same-root",
+            "files": {"tracked.rs": "known"},
+        },
+    )
+    report_line(directory, "tests/test_a.py::one")
+    monkeypatch.setattr(cli.SourceObserver, "observe", lambda self: current)
+    monkeypatch.setattr(cli.rerun, "plan", lambda *a, **kw: {"executes": False})
+    selected = invoke(capsys, "cases", root)["cases"][0]["reference"]
+    result = invoke(capsys, "rerun-plan", root, "--case", selected, "--print")
+    assert result["context_changed"] is None
+    assert result["source_comparison"] == "not established"
 
 
 def test_event_cursor_pins_native_prefix_milestones_and_coverage(tmp_path, capsys, no_execution):

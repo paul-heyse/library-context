@@ -65,6 +65,21 @@ just service maintenance --restart
 just service maintenance --recover
 ```
 
+Design-phase project regeneration is a separate explicitly destructive operation:
+
+```sh
+just service regenerate EXACT_INSTALLATION_ID --project-scopes main,validation --installer /absolute/current/lctx --server-generation /absolute/target-owned/record.json
+```
+
+It refuses unexpected native namespaces/databases and external selections/recovery assets. Under
+exclusive admission and borrower ownership, it verifies current clients/leases and the exact daemon,
+stops the whole executor, discards project data and selected pointers, rotates generation/credentials,
+then initializes and checks both scopes before reopening. Installation ID, unit, endpoint and default
+binding remain. Old failed/Unknown receipts keep their outcomes; separate discard acknowledgements
+release current obligations. No rollback data or old-format reader is retained. An interrupted
+operation keeps admission closed; rerun the exact command/candidates to resume its private journal.
+Resumption never discards initialized successor data. Ordinary tests never trigger this operation.
+
 Maintenance closes host and native admission, drains identified borrowers and native effects,
 checks exact service/storage identity, then performs the selected operation. Reopening requires
 native reconciliation and compatibility. Local child cleanup, a missing heartbeat or an empty

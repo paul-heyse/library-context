@@ -1,10 +1,10 @@
 ---
 id: ADR-0172
 title: Managed runs compose delegated command and capture ownership
-status: accepted
+status: superseded
 date: 2026-10-14
 supersedes: [ADR-0142]
-superseded-by: null
+superseded-by: ADR-0175
 design: [§1.2]
 evidence: Tested
 revisit: A complete native containment route simplifies authenticated delegated cleanup while preserving shared daemons, observer finalization, capture writers and independent native finality.

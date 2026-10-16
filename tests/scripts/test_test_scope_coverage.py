@@ -163,3 +163,23 @@ def test_default_feature_transitive_target_is_required(workspace):
     )
     assert "crate:test:enabled" in report["missing_rust_targets"]
     assert not report["conditional_rust_targets"]
+
+
+def test_selected_complete_accounts_only_for_omitted_owner_coverage(workspace):
+    root, metadata = workspace
+    selected = [SimpleNamespace(steps=(command("nextest", "-p", "crate", "--lib"),))]
+    omitted = [
+        SimpleNamespace(
+            steps=(
+                command("nextest", "-p", "crate", "--test", "journey"),
+                command("pytest", "tests"),
+            )
+        )
+    ]
+    report = audit(selected, root=root, metadata=metadata, excluded_plan=omitted)
+    assert report["selected_complete"] and not report["complete"]
+    assert report["excluded_rust_targets"] == ["crate:test:journey"]
+    assert report["excluded_python_files"] == ["tests/test_old.py"]
+    broken = audit([SimpleNamespace(steps=())], root=root, metadata=metadata, excluded_plan=omitted)
+    assert not broken["selected_complete"]
+    assert broken["unexpected_missing_rust_targets"] == ["crate:lib:crate"]

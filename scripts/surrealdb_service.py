@@ -1796,7 +1796,7 @@ def _campaign_participant_run(path: Path) -> dict[str, Any]:
 
 
 def _campaign_disposal_dispatch_run(
-    installation: Installation, path: Path, record: dict[str, Any]
+    installation: Installation, path: Path, record: dict[str, Any], *, regeneration: bool = False
 ) -> bool:
     """Recognize only this managed disposal command's authenticated own group."""
     import runs
@@ -1805,11 +1805,22 @@ def _campaign_disposal_dispatch_run(
         return False
     try:
         argv = record["argv"]
-        operation = argv.index("dispose-campaign")
+        operation = argv.index("regenerate" if regeneration else "dispose-campaign")
         if argv[operation + 1] != installation.id:
             return False
         suffix = argv[operation + 2 :]
-        if len(suffix) % 2 or any(
+        if len(suffix) % 2:
+            return False
+        if regeneration:
+            options = dict(zip(suffix[::2], suffix[1::2], strict=True))
+            if (
+                len(suffix) != 6
+                or set(options) != {"--project-scopes", "--installer", "--server-generation"}
+                or options["--project-scopes"] != "main,validation"
+                or any(not options[key] for key in ("--installer", "--server-generation"))
+            ):
+                return False
+        elif any(
             suffix[i] != "--participant-run" or not suffix[i + 1] for i in range(0, len(suffix), 2)
         ):
             return False
@@ -1837,6 +1848,7 @@ def _campaign_current_quiescence(
     *,
     allow_removed_unit: bool = False,
     participant_runs: Sequence[Mapping[str, Any]] = (),
+    installation_regeneration: bool = False,
 ) -> dict[str, Any]:
     """Reobserve current clients even when historical receipts say confirmed."""
     import runs
@@ -1913,7 +1925,9 @@ def _campaign_current_quiescence(
     # maintenance commands for another installation are not campaign participants.
     for path in runs.all_runs():
         record = runs.load_record(path)
-        if isinstance(record, dict) and _campaign_disposal_dispatch_run(installation, path, record):
+        if isinstance(record, dict) and _campaign_disposal_dispatch_run(
+            installation, path, record, regeneration=installation_regeneration
+        ):
             result["dispatcher"] = {
                 "run_path": str(path),
                 "source": "authenticated-current-disposal-command-group",
@@ -1968,12 +1982,34 @@ def _campaign_current_quiescence(
         result["attachments"].append({"id": row["id"], "owner": owner.to_json(), "group": group})
     result["coordination"] = _coordination_identity(installation)
     # Authenticate the executor before distinguishing it from native clients.
-    _campaign_executor(installation, allow_removed_unit=allow_removed_unit)
+    executor = _installation_executor if installation_regeneration else _campaign_executor
+    executor(installation, allow_removed_unit=allow_removed_unit)
     result["host"] = _campaign_host_participants(installation)
-    result["executor_active"] = _campaign_executor(
-        installation, allow_removed_unit=allow_removed_unit
-    )
+    result["executor_active"] = executor(installation, allow_removed_unit=allow_removed_unit)
     return result
+
+
+def _installation_executor(installation: Installation, *, allow_removed_unit: bool = False) -> bool:
+    """Authenticate an installed unit even when its old schema cannot be opened."""
+    if allow_removed_unit:
+        raise FixtureBlocked("identity", "regeneration never adopts a removed unit")
+    unit = _unit_path(installation.unit)
+    expected = unit_text(
+        installation.directory,
+        _installed_binary(installation),
+        int(installation.endpoint.rsplit(":", 1)[1]),
+        log_filter=installation.record.get("server_log_filter", "warn"),
+        development=installation.record.get("purpose") == LIFECYCLE_PURPOSE,
+    )
+    if unit.is_symlink() or unit.read_text() != expected:
+        raise FixtureBlocked("identity", "regeneration unit differs from its installed definition")
+    state = unit_properties(installation.unit, "ActiveState", "MainPID")
+    if state.get("ActiveState") == "active":
+        installation.check_daemon()
+        return True
+    if state.get("ActiveState") not in {"inactive", "failed"} or state.get("MainPID") != "0":
+        raise FixtureBlocked("identity", "regeneration executor state is unknown")
+    return False
 
 
 def _disposal_predecessor(installation: Installation, receipt: dict | None) -> dict | None:
@@ -4353,6 +4389,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "establish target or marker ancestry"
         ),
     )
+    regenerate_parser = commands.add_parser(
+        "regenerate", help="explicitly discard and rebuild both exact owned project scopes"
+    )
+    regenerate_parser.add_argument("installation_id")
+    regenerate_parser.add_argument("--project-scopes", required=True, choices=["main,validation"])
+    regenerate_parser.add_argument("--installer", type=Path, required=True)
+    regenerate_parser.add_argument("--server-generation", type=Path, required=True)
     commands.add_parser("check", help="read-only compatibility and native readiness")
     commands.add_parser("status", help="read-only ownership, state and maintenance observation")
     backup_parser = commands.add_parser(
@@ -4506,7 +4549,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ).check()
         else:
             installation = Installation.load(
-                ready=args.action not in {"status", "dispose-campaign"}
+                ready=args.action not in {"status", "dispose-campaign", "regenerate"}
             )
             if args.action == "status":
                 marker = read_json(installation.directory / "maintenance.json")
@@ -4559,6 +4602,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             elif args.action == "check":
                 value = installation.check()
+            elif args.action == "regenerate":
+                from service_regeneration import regenerate
+
+                value = regenerate(
+                    installation,
+                    args.installation_id,
+                    scopes=args.project_scopes,
+                    installer=args.installer.absolute(),
+                    descriptor=args.server_generation.absolute(),
+                )
             elif args.action == "backup":
                 value = backup_service(installation, args.archive)
             elif args.action == "restore":

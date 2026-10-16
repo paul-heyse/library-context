@@ -233,6 +233,8 @@ def report(root: Path) -> dict[str, Any]:
                 "boundary_final",
                 "context_before",
                 "context_after",
+                "source_context",
+                "source_observation_version",
                 "binaries",
                 "argv",
                 "effective_argv",
@@ -464,6 +466,9 @@ def events(root: Path, step: str | None, limit: int, cursor: str | None) -> dict
                 "reference": row["reference"],
                 "source": row["source"],
                 "observation": row.get("observation"),
+                "observation_coverage": row.get("coverage"),
+                "locator": row.get("locator"),
+                "identity_meaning": row.get("identity_meaning"),
                 "phase_identity": row.get("phase_identity"),
                 "status": row.get("status"),
             }
@@ -490,6 +495,20 @@ def events(root: Path, step: str | None, limit: int, cursor: str | None) -> dict
     }
 
 
+def _source_comparable(first: Any, second: Any) -> bool:
+    return bool(
+        isinstance(first, dict)
+        and isinstance(second, dict)
+        and first.get("scope") == second.get("scope") == "full"
+        and first.get("observation_version") == second.get("observation_version") == 2
+        and first.get("root") == second.get("root")
+        and first.get("available")
+        and second.get("available")
+        and not first.get("unavailable")
+        and not second.get("unavailable")
+    )
+
+
 def compare(first: Path, second: Path) -> dict[str, Any]:
     def contexts(root):
         result = {}
@@ -512,7 +531,12 @@ def compare(first: Path, second: Path) -> dict[str, Any]:
     for key in sorted(left.keys() | right.keys(), key=repr):
         a, ca = left.get(key, ({}, None))
         b, cb = right.get(key, ({}, None))
-        names = set((ca or {}).get("files", {})) | set((cb or {}).get("files", {}))
+        compatible = _source_comparable(ca, cb)
+        names = (
+            set(ca.get("files", {})) | set(cb.get("files", {}))
+            if compatible and ca and cb
+            else set()
+        )
         changed = sorted(
             name
             for name in names
@@ -523,9 +547,15 @@ def compare(first: Path, second: Path) -> dict[str, Any]:
                 "boundary": key[0],
                 "step": key[1],
                 "occurrence": key[2],
-                "source_changed": changed[:50],
-                "source_changed_count": len(changed),
-                "source_omitted": max(0, len(changed) - 50),
+                "source_comparison": "observed full contexts" if compatible else "not established",
+                "source_changed": changed[:50] if compatible else None,
+                "source_changed_count": len(changed) if compatible else None,
+                "source_unavailable_before": (ca or {}).get("unavailable"),
+                "source_unavailable_after": (cb or {}).get("unavailable"),
+                "source_exclusions_changed": (
+                    (ca or {}).get("excluded") != (cb or {}).get("excluded") if compatible else None
+                ),
+                "source_omitted": max(0, len(changed) - 50) if compatible else None,
                 "argv_changed": a.get("argv") != b.get("argv"),
                 "settings_changed": a.get("settings") != b.get("settings"),
                 "fixture_changed": a.get("fixture") != b.get("fixture"),
@@ -710,12 +740,31 @@ def main(argv: list[str]) -> int:
                         read_json(root / runs.SUMMARY) or {},
                         [row for _, row in invocations(root)],
                     )
-                    current = SourceObserver(Path(invocation["cwd"])).observe()
+                    current = SourceObserver(
+                        Path(invocation["cwd"]),
+                        scope=invocation.get("source_context", "invocation"),
+                    ).observe()
+                    original_id = invocation.get("context_before")
+                    original = (
+                        read_json(_inside(root, f"verify-evidence/contexts/{original_id}.json"))
+                        if original_id
+                        else None
+                    )
+                    comparable = _source_comparable(original, current)
                     response["current_context"] = current.get("id")
-                    response["context_changed"] = current.get("id") != invocation.get(
-                        "context_before"
+                    response["source_context"] = current.get("scope")
+                    response["context_changed"] = (
+                        current.get("id") != invocation.get("context_before")
+                        if comparable
+                        else None
+                    )
+                    response["source_comparison"] = (
+                        "full current observation" if comparable else "not established"
                     )
                     response["current_context_available"] = current.get("available", False)
+                    response["source_unavailable_before"] = (original or {}).get("unavailable")
+                    response["source_unavailable_after"] = current.get("unavailable")
+                    response["source_observation_reason"] = current.get("reason")
             elif args.command == "events":
                 response = events(root, args.step, args.limit, args.cursor)
             elif args.command == "compare":

@@ -62,6 +62,12 @@ Responses expose native coverage, omissions and opaque continuation cursors (`--
 Rows describe phases, attempts and supplemental observations; they are not counts of executions.
 `just verify events RUN --step STEP --json` selects durable milestones and native observations;
 `just verify compare RUN_A RUN_B --json` reports context differences without assigning causes.
+Source context defaults to lightweight invocation observation. Use `--source-context full` with
+`just verify` or `just run --capture-native` for full declared source hashing. Comparisons report
+source equality as not established unless both observations have compatible full scope; a hash
+observation does not establish immutable source or source-to-binary closure. Reruns retain scope.
+Diagnostic adapters preserve repeated fields and original source locators; ambiguous attribution
+remains unknown and known loss is specific to each native channel.
 
 `just verify rerun-plan RUN --case CASE --print --json` prints an exact experiment and its actual
 prerequisites, environment bindings and remaining obligations. It launches nothing. Ambiguous
@@ -98,11 +104,18 @@ ordinary logs and capture gap; propagating a request alone does not establish na
 
 `just runs list` shows a compact recent page (20 runs). Use `--label LABEL`, `--state active|unresolved`,
 `--limit N` and the returned `--cursor TOKEN` for discovery; `--all --json` explicitly requests complete
-history. JSON includes `runs`, `next_cursor` and coverage. Membership changes invalidate continuation;
-live filters are observations over each page. `just runs status ID` retains detailed selected access.
+history. JSON includes `runs`, `next_cursor` and examined/hydrated/returned coverage. Anchored live
+continuation survives deletion; new names above its anchor wait for a new listing, and backdated
+entries in the remaining range may appear. Live filters are observations over each page.
+`just runs status ID` resolves exact safe IDs directly without listing unrelated history.
 Direct process cleanup and composed host cleanup remain separate. Registered delegated commands
 and capture writers must settle before enclosing output can expire. Native uncertainty remains
 protected even when every host process is gone.
+
+`just verify --complete-scope --select FAMILY:BOUNDARY …` expands and audits the complete ordinary
+scope of explicitly selected boundaries. Initial test filters are refused. Its summary distinguishes
+selected completeness, whole-repository completeness and declared exclusions; unexpected coverage
+gaps fail. This does not change the complete meaning of `just test-all` or `just qualify`.
 
 ## Documentation locally
 

@@ -143,7 +143,19 @@ existing manifests, retains actual cwd/argv and leaves unsupported commands exec
 implementation, controls and limits belong to the
 [Catalog coordinator §6](../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
 
-> Decision: ADR-0172
+**Implemented / functional verification in progress, 2026-10-16:** exact IDs resolve directly;
+discovery uses anchored live pages with examined/hydrated/returned coverage. Deletion is safe,
+new names above the anchor wait for a new listing, and backdated remaining entries may appear.
+Complete safety inventory stays explicit and fail-closed. Versioned source observation defaults to
+lightweight invocation context; explicit full mode permits compatible source comparisons without
+claiming immutable closure. Reruns retain scope. Diagnostic preparation preserves ordered repeated
+fields, unknown/ambiguous attribution and channel-local known loss, with raw source locators intact.
+Selected-complete verification audits full selected boundaries separately from global completeness;
+whole `test-all` and `qualify` keep their existing meaning. The
+[efficiency coordinator §6](../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns current evidence and limits.
+
+> Decision: ADR-0175
 
 **Implemented / focused-Tested, 2026-10-11:** verification-owned native test evidence
 adds invocation/capture sidecars without replacing run supervision or boundary summaries.

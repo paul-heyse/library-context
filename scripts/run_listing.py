@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -18,11 +17,13 @@ def _token(value: dict) -> str:
 def _decode(value: str) -> dict:
     try:
         result = json.loads(base64.urlsafe_b64decode(value))
-        if not isinstance(result, dict) or result.get("schema") != 1:
+        if not isinstance(result, dict):
             raise ValueError
-        return result
     except (ValueError, TypeError) as error:
         raise ValueError("invalid run-list cursor") from error
+    if result.get("schema") != 2:
+        raise ValueError("obsolete run-list cursor schema; restart listing")
+    return result
 
 
 def _valid_metadata(path: Path, record) -> bool:
@@ -78,37 +79,36 @@ def page(args) -> dict:
     paths = runs.all_runs()
     names = [path.name for path in paths]
     identity = [root.stat().st_dev, root.stat().st_ino] if root.exists() else None
-    membership = hashlib.sha256(json.dumps(names).encode()).hexdigest()
     bound = {
-        "schema": 1,
+        "schema": 2,
         "root": identity,
-        "membership": membership,
         "query": query,
         "anchor": names[0] if names else None,
     }
     after = None
     if cursor:
         prior = _decode(cursor)
-        if any(prior.get(key) != value for key, value in bound.items()):
-            raise ValueError(
-                "stale run-list cursor: directory membership or selection changed; restart listing"
-            )
-        after = prior.get("after")
-        if not isinstance(after, str) or after not in names:
+        if any(prior.get(key) != bound[key] for key in ("root", "query")):
+            raise ValueError("stale run-list cursor: root or selection changed; restart listing")
+        anchor, after = prior.get("anchor"), prior.get("after")
+        if not isinstance(anchor, str) or not isinstance(after, str) or after > anchor:
             raise ValueError("invalid run-list cursor position")
-    if after is not None:
-        paths = [path for path in paths if path.name < after]
+        bound["anchor"] = anchor
+        # Membership is live: deleted anchors need not survive. Newer entries
+        # belong to a fresh traversal; backdated entries in the remainder may appear.
+        paths = [path for path in paths if path.name <= anchor and path.name < after]
     began = runs.now()
     snapshot = None
     rows: list[dict[str, Any]] = []
     examined = 0
     last = None
+    hydrated = 0
     for path in paths:
         last = path.name
         examined += 1
         # Label is authored once. Unknown/corrupt metadata remains visible because
         # a missing label cannot prove that this damaged receipt is unrelated.
-        record = runs.load_record(path)
+        record = None if path.is_symlink() else runs.load_record(path)
         if (
             query["label"]
             and isinstance(record, dict)
@@ -121,7 +121,10 @@ def page(args) -> dict:
         if snapshot is None:
             snapshot = ProcessSnapshot.capture()
         row: dict[str, Any]
+        hydrated += 1
         try:
+            if path.is_symlink():
+                raise ValueError("symlink receipt is not an owned run")
             row = _summary(path, snapshot)
         except (OSError, ValueError, KeyError, TypeError) as error:
             row = {
@@ -150,27 +153,25 @@ def page(args) -> dict:
         if not complete and len(rows) >= limit:
             break
     remaining = last is not None and any(path.name < last for path in paths)
-    # Directory changes invalidate pagination. Live receipt/process states remain
-    # observations over this request's interval, not a cross-page frozen snapshot.
-    current = [path.name for path in runs.all_runs()]
-    stable = names == current
-    if not stable:
-        raise ValueError("run directory membership changed during listing; retry")
     next_cursor = _token({**bound, "after": last}) if remaining and not complete else None
     return {
-        "schema": 1,
+        "schema": 2,
         "runs": rows,
         "next_cursor": next_cursor,
         "coverage": {
             "complete": next_cursor is None,
-            "directory_membership_stable": stable,
+            "membership": "live names observed once at page start",
+            "initial_upper_anchor": bound["anchor"],
+            "last_examined": last,
+            "hydrated_records": hydrated,
+            "returned_records": len(rows),
             "examined_records": examined,
             "directory_count": len(names),
             "observation_started": began,
             "observation_ended": runs.now(),
             "live_consistency": (
                 "one process snapshot per page; live filters are not "
-                "a simultaneous cross-page snapshot"
+                "a simultaneous cross-page snapshot; directory additions/deletions are live"
             ),
             "unknown_records": sum(row["corrupt"] for row in rows),
         },

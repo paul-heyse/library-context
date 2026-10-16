@@ -1,10 +1,24 @@
 # Catalog efficiency: development execution and evidence preparation
 
-**Proposed, 2026-10-15.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md),
+**Implemented / integrated acceptance pending, 2026-10-16.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md),
 which owns sole current disposition. This document specifies F01/F09, the source-observation
 half of I03 and I08 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
 CD00 is source-integrated with focused host controls passed; the coordinator owns the dated
 receipt and remaining acceptance. Other development packages retain their separate scope.
+
+**Selected implementation:** CD01 uses safe direct exact IDs and schema2 anchored live pages,
+preserving complete safety inventory. CD02 defaults to versioned invocation context; explicit
+`--source-context full` shares compatible owner-scoped hints without certifying immutability.
+Only available compatible full observations with no unavailable inputs establish source comparison;
+otherwise it remains unknown, with loss/reasons retained. Reruns preserve scope. CD03 preserves
+ordered repeated flat fields, unknown parentage/ambiguous identity, JSON context and composite
+original locators. Adapter2 rebuilds derived preparation while preserving originals; known loss is
+channel-local. No broader diagnostic platform was selected. ADR-0175 owns these contract changes.
+
+Explicit selected-complete verification broadens ordinary selected boundaries, refuses initial
+filters and audits selected/global coverage separately. Static inventory accounts for176 Rust
+targets and63 Python files; CE90 excludes exactly the five submitted MCP runtime files. This is
+coverage preparation, not an execution pass; full test-all/qualify keep their unchanged meaning.
 
 ## 1. Responsibility, baseline and target
 
@@ -14,7 +28,7 @@ limits. Host cleanup, command exit, capture health, native certainty and storage
 independent. Tooling helps the sole operator/Codex act on these distinctions; it cannot fabricate
 native finality or executable provenance.
 
-Read the [development owner](../design/DESIGN.md#section-1-2), ADR-0172 and the existing
+Read the [development owner](../design/DESIGN.md#section-1-2), ADR-0175 and the existing
 [workspace-storage guide](../workspace-storage.md). Current registered owners, bounded detailed
 run hydration, shared process snapshots, explicit complete safety inventory and native recordings
 are foundations to retain. No new mandatory runner, hook, agent scheduler, concurrency cap,

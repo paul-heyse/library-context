@@ -20,7 +20,7 @@ from executable_observation import observe as observe_executable
 from harness import hold_lock, read_json, write_json_atomic
 from storage_lifecycle import admission
 
-from .context import SourceObserver, digest_file, project_root
+from .context import digest_file, project_root, shared_observer
 from .contracts import SCHEMA, LaunchRequest
 
 SAFE_ENV = (
@@ -218,12 +218,12 @@ class Invocation:
 
 
 class CaptureOwner:
-    def __init__(self, run_dir: Path, root: Path) -> None:
+    def __init__(self, run_dir: Path, root: Path, *, source_context: str = "invocation") -> None:
         self.run_dir, self.root = run_dir.resolve(), root.resolve()
         self.raw = self.run_dir / "verify-evidence"
         self.receipt = self.run_dir / "verify-evidence-receipt"
         self.manifest_path = self.receipt / "manifest.json"
-        self.source = SourceObserver(root)
+        self.source = shared_observer(run_dir, root, source_context)
         self.invocations: list[Invocation] = []
         self.session_id: str | None = None
         self.warned = False
@@ -348,6 +348,8 @@ class CaptureOwner:
             "selection": selection,
             "fixture": copy.deepcopy(fixture),
             "log": str(log),
+            "source_context": self.source.scope,
+            "source_observation_version": 2,
             "context_before": self.context(),
             "settings": {key: env[key] for key in SAFE_ENV if key in env},
             "environment_coverage": "allowlisted non-secret diagnostics; credentials omitted",
@@ -491,7 +493,11 @@ def capture_launch(argv: Any, env: Any, cwd: Path, log: Path, fixture: Any = Non
         return
     from types import SimpleNamespace
 
-    with optional_owner(Path(env["LCTX_RUN_DIR"]), project_root(cwd)) as owner:
+    with optional_owner(
+        Path(env["LCTX_RUN_DIR"]),
+        project_root(cwd),
+        source_context=env.get("LCTX_SOURCE_CONTEXT", "invocation"),
+    ) as owner:
         if owner is None:
             yield CapturedLaunch(argv, env, cwd, log)
             return
@@ -515,7 +521,7 @@ def capture_launch(argv: Any, env: Any, cwd: Path, log: Path, fixture: Any = Non
 
 
 @contextlib.contextmanager
-def optional_owner(run_dir: Path | None, root: Path):
+def optional_owner(run_dir: Path | None, root: Path, *, source_context: str = "invocation"):
     """Hold admission through all command and fixture finalization effects."""
     if run_dir is None:
         yield None
@@ -533,7 +539,7 @@ def optional_owner(run_dir: Path | None, root: Path):
             "verification-evidence", context={"component": "verify-evidence"}
         ):
             try:
-                owner = CaptureOwner(run_dir, root)
+                owner = CaptureOwner(run_dir, root, source_context=source_context)
             except Exception as error:
                 print(
                     f"verify: evidence unavailable ({type(error).__name__}); command unchanged",

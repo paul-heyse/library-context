@@ -224,7 +224,21 @@ class RunNotFound(LookupError):
 
 def resolve(ref: str) -> Path:
     """An exact id, `last`, a unique id prefix or random suffix, or a label (its newest run)."""
-    runs = all_runs()
+    root = runs_root()
+    # Exact lookup is independent of history size and damaged receipt metadata.
+    if ref not in ("last", "latest"):
+        if not ref or Path(ref).name != ref or ref in (".", ".."):
+            raise RunNotFound(f"invalid run reference {ref!r}")
+        exact = root / ref
+        if exact.is_symlink():
+            raise RunNotFound(f"run reference is a symlink: {ref!r}")
+        if exact.is_dir() and exact.resolve().parent == root.resolve():
+            return exact
+    runs = [
+        path
+        for path in all_runs()
+        if not path.is_symlink() and path.resolve().parent == root.resolve()
+    ]
     if ref in ("last", "latest"):
         if not runs:
             raise RunNotFound("no runs")
@@ -236,7 +250,11 @@ def resolve(ref: str) -> Path:
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        labelled = [d for d in runs if (load_record(d) or {}).get("label") == ref]
+        labelled = [
+            d
+            for d in runs
+            if isinstance(record := load_record(d), dict) and record.get("label") == ref
+        ]
         if labelled:
             return labelled[0]  # the newest run with that label
         raise RunNotFound(f"no run matches {ref!r}")
@@ -694,6 +712,8 @@ def _nested_target() -> Path | None:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    if getattr(args, "source_context", None) is not None:
+        os.environ["LCTX_SOURCE_CONTEXT"] = args.source_context
     if getattr(args, "capture_native", False):
         os.environ["LCTX_CAPTURE_NATIVE"] = "1"
     argv = list(args.command)
@@ -1304,6 +1324,11 @@ Live output is best effort; retained files remain authoritative.""",
         "--capture-native",
         action="store_true",
         help="opt in to exact native evidence at supported launch seams",
+    )
+    run.add_argument(
+        "--source-context",
+        choices=("invocation", "full"),
+        help="native evidence source observation scope (default: invocation)",
     )
     run.add_argument("command", nargs=argparse.REMAINDER)
     run.set_defaults(handler=cmd_run)

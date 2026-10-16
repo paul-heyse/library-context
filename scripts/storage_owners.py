@@ -93,7 +93,10 @@ def observe(record: dict[str, Any]) -> dict[str, Any]:
                 )
             ):
                 return _result("active", "logical attachment owner is active")
-            if row.get("released") is not True or fixture._cleanup_pending(row):
+            from service_regeneration import completed_attachment
+
+            discarded = bool(row.get("installation_discard")) and completed_attachment(path, row)
+            if row.get("released") is not True or (fixture._cleanup_pending(row) and not discarded):
                 return _result("unresolved", "logical attachment release or cleanup unresolved")
             if fixture._command_observation(row)["status"] != "gone":
                 return _result("unresolved", "logical attachment command identity unresolved")

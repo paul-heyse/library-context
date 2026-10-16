@@ -314,6 +314,10 @@ def test_source_observations_distinguish_dirty_bytes_and_exclude_protected_input
         path.write_text("protected synthetic input")
     # Even explicitly tracked protected material must not be opened by hashing.
     git(project, "add", "-f", *protected)
+    for name in ("docs/design.md", "third_party/vendor.rs"):
+        path = project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("relevant source input")
     opened = []
     actual = context.digest_file
 
@@ -322,10 +326,11 @@ def test_source_observations_distinguish_dirty_bytes_and_exclude_protected_input
         return actual(path)
 
     monkeypatch.setattr(context, "digest_file", digest)
-    observer = context.SourceObserver(project)
+    observer = context.SourceObserver(project, scope="full")
     before = observer.observe()
     assert before["available"]
     assert not set(protected).intersection(opened)
+    assert {"docs/design.md", "third_party/vendor.rs"} <= set(before["files"])
     assert set(protected) <= set(before["excluded"])
     (project / "test_case.py").write_text("def test_pass(): assert True\n")
     (project / "new-input.py").write_text("untracked = True\n")

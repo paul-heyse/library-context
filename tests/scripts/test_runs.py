@@ -739,3 +739,20 @@ def test_exact_recovery_preserves_citation_obligations_and_retries_local_release
     row = storage.get(ident)
     assert row["obligations"][consumer]["until"]
     assert not row["obligations"]["citation:current"]["released_at"]
+
+
+def test_exact_resolution_does_not_enumerate_or_require_valid_metadata(root, monkeypatch):
+    root.mkdir()
+    exact = root / "20261016T000000.000Z-abcdef"
+    exact.mkdir()
+    (exact / runs.RECORD).write_text("damaged")
+    monkeypatch.setattr(
+        runs, "all_runs", lambda: pytest.fail("exact resolution enumerated history")
+    )
+    assert runs.resolve(exact.name) == exact
+    for reference in ("../outside", str(exact), ".."):
+        with pytest.raises(runs.RunNotFound):
+            runs.resolve(reference)
+    (root / "linked").symlink_to(exact, target_is_directory=True)
+    with pytest.raises(runs.RunNotFound, match="symlink"):
+        runs.resolve("linked")

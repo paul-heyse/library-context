@@ -82,7 +82,7 @@ owners, retaining their independent receipts. Direct-group exit alone cannot rel
 delegated writer remains active or unresolved. Complete safety inventories explicitly request
 `just runs list --all --json`, require complete coverage and fail closed on damaged/unknown records;
 the ordinary recent page is for discovery. Historical direct-only records gain no invented
-delegations. Host confirmation never establishes native request finality (ADR-0172).
+delegations. Host confirmation never establishes native request finality (ADR-0175).
 
 There are no new CPU/thread/worker limits, healthy-command timeouts, cache-size eviction limits,
 or routine clean commands. The diagnostic 64/100 GiB policy values are advisory observations.

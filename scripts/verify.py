@@ -584,6 +584,8 @@ class Options:
     test_all: bool = False
     complete_scope: bool = False  # Broadened commands survive focused full-mode reruns.
     required_release: bool = False  # Optimized acceptance provenance survives focused reruns.
+    source_context: str = "invocation"
+    internal_rerun: bool = False
 
     def __post_init__(self) -> None:
         if self.test_all or self.qualify:
@@ -601,6 +603,7 @@ class Options:
             "test_all": self.test_all,
             "complete_scope": self.complete_scope or self.qualify or self.test_all,
             "required_release": self.qualify or self.required_release,
+            "source_context": self.source_context,
         }
 
 
@@ -865,6 +868,12 @@ def resolve(
     full = options.qualify or options.test_all
     if (full or options.complete_scope) and os.environ.get("PYTEST_ADDOPTS", "").strip():
         raise PlanError("complete test scope refuses PYTEST_ADDOPTS; unset this filtering override")
+    if (
+        options.complete_scope
+        and not options.internal_rerun
+        and any(s.nextest_args or s.pytest_args for s in selections)
+    ):
+        raise PlanError("--complete-scope refuses initial tool filters or overrides")
     if full:
         mode = "qualify" if options.qualify else "test-all"
         if any(s.nextest_args or s.pytest_args for s in selections) or scoped:
@@ -1738,6 +1747,17 @@ def parser() -> argparse.ArgumentParser:
     scope = top.add_mutually_exclusive_group()
     scope.add_argument("--test-all", action="store_true", help="every ordinary test boundary")
     scope.add_argument("--qualify", action="store_true", help="every test boundary and leaf")
+    scope.add_argument(
+        "--complete-scope",
+        action="store_true",
+        help="complete explicitly selected boundaries, with coverage accounting",
+    )
+    top.add_argument(
+        "--source-context",
+        choices=("invocation", "full"),
+        default=None,
+        help="source observations: invocation/configuration (default) or full hashing",
+    )
     top.add_argument("--cli", action="store_true", help="store: build and exercise the native CLI")
     top.add_argument(
         "--restart-service",
@@ -1784,6 +1804,8 @@ def options_from(args: argparse.Namespace) -> Options:
         restart_service=args.restart_service,
         qualify=args.qualify,
         test_all=args.test_all,
+        complete_scope=args.complete_scope,
+        source_context=args.source_context or os.environ.get("LCTX_SOURCE_CONTEXT", "invocation"),
     )
 
 
@@ -1889,6 +1911,8 @@ def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
             or saved.get("test_all", False)
         ),
         required_release=saved.get("required_release", False) or saved.get("qualify", False),
+        source_context=saved.get("source_context", "invocation"),
+        internal_rerun=True,
     )
     return selections, options
 
@@ -2002,6 +2026,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if (
                 args.test_all
                 or args.qualify
+                or args.complete_scope
+                or args.source_context is not None
                 or any(
                     s.select or s.cargo_profile is not None or s.nextest_args or s.pytest_args
                     for s in selections
@@ -2012,21 +2038,38 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             selections, options = rerun_selection(args.rerun)
             prior = json.loads((runs.resolve(args.rerun) / runs.SUMMARY).read_text())
-            if prior.get("coverage") is not None:
+            coverage_context = prior.get("coverage_context")
+            if coverage_context is None and prior.get("coverage") is not None:
                 coverage_context = {"rerun_of": args.rerun, "coverage": prior["coverage"]}
-            else:
-                coverage_context = prior.get("coverage_context")
             if not selections:
                 print(f"verify: nothing to rerun: every boundary of {args.rerun} passed")
                 return 0
         plan = resolve(selections, options)
-        if options.test_all or options.qualify:
+        if options.test_all or options.qualify or options.complete_scope:
             from test_scope_coverage import audit
 
-            coverage = audit(plan, root=ROOT)
-            if not coverage["complete"]:
+            omitted = []
+            if options.complete_scope and not (options.test_all or options.qualify):
+                selected_ids = {item.boundary.id for item in plan}
+                omitted = (
+                    resolve(
+                        [
+                            Selection(boundary.id)
+                            for boundary in BOUNDARIES
+                            if boundary.id not in selected_ids
+                        ],
+                        replace(options, complete_scope=True, internal_rerun=True),
+                    )
+                    if len(selected_ids) < len(BOUNDARIES)
+                    else []
+                )
+            coverage = audit(plan, root=ROOT, excluded_plan=omitted)
+            coverage["selected_boundaries"] = [item.boundary.id for item in plan]
+            coverage["excluded_boundaries"] = [item.boundary.id for item in omitted]
+            if not coverage["selected_complete"]:
                 raise PlanError("incomplete test coverage: " + json.dumps(coverage, sort_keys=True))
         env = base_environment()
+        env["LCTX_SOURCE_CONTEXT"] = options.source_context
         target = target_directory(env, options.cargo_config)
     except (PlanError, runs.RunNotFound, OSError, ValueError) as error:
         print(f"verify: {error}", file=sys.stderr)
@@ -2096,7 +2139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     from verify_evidence.capture import optional_owner
 
-    with optional_owner(run_dir, ROOT) as evidence:
+    with optional_owner(run_dir, ROOT, source_context=options.source_context) as evidence:
         runtime.evidence = evidence
         if evidence is not None:
             evidence.session_id = session_id

@@ -35,6 +35,262 @@ def required_record(value: dict[str, Any] | None) -> dict[str, Any]:
     return value
 
 
+@pytest.fixture
+def regeneration_ready(recoverable, monkeypatch, tmp_path):
+    import service_regeneration as regeneration
+
+    installation, _, actions = recoverable
+    root = installation.directory
+    candidate = tmp_path / "new-lctx"
+    candidate.write_bytes(b"new immutable installer")
+    candidate.chmod(0o700)
+    server = {
+        "path": str(tmp_path / "new-surreal"),
+        "sha256": "a" * 64,
+        "http_version": service.VERSION,
+        "identity": "b" * 64,
+    }
+    state = {
+        "inventory": {
+            "namespaces": {service.NAMESPACE: "defined"},
+            "databases": {db: "defined" for db in service.DATABASES},
+        },
+        "fail": None,
+    }
+    for db in service.DATABASES:
+        for privileged in (False, True):
+            path = installation.runtime_path(db, installer=privileged)
+            value = json.loads(path.read_text())
+            value.update(
+                username=f"{db}_writer",
+                password="old-secret",
+                viewer_username=f"{db}_viewer",
+                viewer_password="old-viewer",
+                selection=str(root / f"{db}-selected.json"),
+            )
+            service.private_json(path, value)
+    monkeypatch.setattr(service, "_owned_server_generation", lambda *a: server)
+    monkeypatch.setattr(
+        service,
+        "_installation_executor",
+        lambda inst, **kw: setattr(inst, "_daemon_identity", ("test", "test")) or True,
+    )
+    monkeypatch.setattr(
+        service,
+        "_campaign_current_quiescence",
+        lambda *a, **kw: {"attachments": [], "coordination": {}, "executor_active": True},
+    )
+    monkeypatch.setattr(service, "systemctl", lambda *a: subprocess.CompletedProcess(a, 0))
+    monkeypatch.setattr(service, "_owned_daemon_start", lambda inst: actions.append("start"))
+    monkeypatch.setattr(regeneration.Storage, "publish", lambda *a, **kw: "test-owned-evidence")
+
+    def sql(inst, statement, *, cfg):
+        if statement.startswith("INFO"):
+            return [
+                {"result": {"namespaces": state["inventory"]["namespaces"]}},
+                {"result": {"databases": state["inventory"]["databases"]}},
+            ]
+        return [{"result": None}]
+
+    def cli(inst, action, token):
+        assert service.maintenance_owned(inst, {"LCTX_SURREAL_MAINTENANCE_TOKEN": token})
+        actions.append(action)
+        if state["fail"] == action:
+            raise service.FixtureFailed("installer", "controlled init failure")
+        if action == "init":
+            (root / "data/store").mkdir(exist_ok=True)
+            (root / "data/store/current").write_text("new generation data")
+
+    monkeypatch.setattr(service, "sql", sql)
+    monkeypatch.setattr(regeneration, "_cli", cli)
+    return installation, candidate, tmp_path / "server-record.json", state, actions
+
+
+def test_regeneration_refuses_unexpected_scopes_and_identity_before_discard(regeneration_ready):
+    import service_regeneration as regeneration
+
+    installation, candidate, descriptor, state, actions = regeneration_ready
+    for identity, scopes in (("foreign", "main,validation"), (installation.id, "validation")):
+        with pytest.raises(service.FixtureBlocked, match="exact installation ID"):
+            regeneration.regenerate(
+                installation, identity, scopes=scopes, installer=candidate, descriptor=descriptor
+            )
+    state["inventory"]["databases"]["operator"] = "protected"
+    with pytest.raises(service.FixtureBlocked, match="unexpected scopes"):
+        regeneration.regenerate(
+            installation,
+            installation.id,
+            scopes="main,validation",
+            installer=candidate,
+            descriptor=descriptor,
+        )
+    assert not actions
+    assert (installation.directory / "data/store/MANIFEST").read_text() == "cold-owned-data"
+
+
+def test_regeneration_failure_resumes_without_discarding_successor(regeneration_ready, monkeypatch):
+    import service_regeneration as regeneration
+
+    installation, candidate, descriptor, state, actions = regeneration_ready
+    root = installation.directory
+    previous = installation.record["service_generation"]
+    state["fail"] = "check"
+    with pytest.raises(service.FixtureFailed, match="controlled init failure"):
+        regeneration.regenerate(
+            installation,
+            installation.id,
+            scopes="main,validation",
+            installer=candidate,
+            descriptor=descriptor,
+        )
+    assert not (root / "data/store/MANIFEST").exists()
+    assert (root / "data/store/current").read_text() == "new generation data"
+    assert not (root / "main-selected.json").exists()
+    assert "open-admission" not in actions
+    marker = json.loads((root / "maintenance.json").read_text())
+    dead = {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())}
+    marker["owner"] = dead
+    service.private_json(root / "maintenance.json", marker)
+    state["fail"] = None
+    successor = service.Installation(root, json.loads((root / "installation.json").read_text()))
+    # The real descriptor validates full binary provenance; this protocol control
+    # supplies its already-checked private descriptor boundary.
+    monkeypatch.setattr(
+        service, "_descriptor", lambda path: json.loads((path / "installation.json").read_text())
+    )
+    actions.clear()
+    result = regeneration.regenerate(
+        successor,
+        successor.id,
+        scopes="main,validation",
+        installer=candidate,
+        descriptor=descriptor,
+    )
+    assert result["outcome"] == "passed"
+    assert actions == ["stop", "start", "check", "ready", "open-admission"]
+    assert (root / "data/store/current").read_text() == "new generation data"
+    assert not (root / "maintenance.json").exists()
+    final = json.loads((root / "installation.json").read_text())
+    assert final["service_generation"] != previous
+    assert final["installation_id"] == installation.id
+    assert not list((root / "regenerations").glob("*/staged/*"))
+    assert (
+        regeneration.completed_discard(root, final["regeneration"])["generation"]
+        == bytes(previous).hex()
+    )
+
+
+@pytest.mark.parametrize("failure", ["shutdown", "partial-config", "open-admission"])
+def test_regeneration_interrupted_boundaries_keep_exact_resume(
+    regeneration_ready, monkeypatch, failure
+):
+    import service_regeneration as regeneration
+
+    installation, candidate, descriptor, state, actions = regeneration_ready
+    root = installation.directory
+    stop, write = service._stop_owned, service._write_private
+
+    def fail_stop(inst):
+        stop(inst)
+        raise service.FixtureBlocked("stop", "interrupted shutdown")
+
+    def fail_write(path, content):
+        write(path, content)
+        if path == root / "main-runtime.json":
+            raise service.FixtureBlocked("write", "interrupted config installation")
+
+    if failure == "shutdown":
+        monkeypatch.setattr(service, "_stop_owned", fail_stop)
+    elif failure == "partial-config":
+        monkeypatch.setattr(service, "_write_private", fail_write)
+    else:
+        state["fail"] = "open-admission"
+    with pytest.raises((service.FixtureBlocked, service.FixtureFailed)):
+        regeneration.regenerate(
+            installation,
+            installation.id,
+            scopes="main,validation",
+            installer=candidate,
+            descriptor=descriptor,
+        )
+    marker = json.loads((root / "maintenance.json").read_text())
+    journal = Path(marker["regeneration"]["journal"])
+    phase = json.loads((journal.parent / "progress.json").read_text())["phase"]
+    assert (
+        phase
+        == {
+            "shutdown": "discarding",
+            "partial-config": "discarded",
+            "open-admission": "initialized",
+        }[failure]
+    )
+    if failure == "open-admission":
+        assert actions[-1] == "close-admission"
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())}
+    service.private_json(root / "maintenance.json", marker)
+    monkeypatch.setattr(service, "_stop_owned", stop)
+    monkeypatch.setattr(service, "_write_private", write)
+    monkeypatch.setattr(
+        service, "_descriptor", lambda path: json.loads((path / "installation.json").read_text())
+    )
+    state["fail"] = None
+    current = service.Installation(root, json.loads((root / "installation.json").read_text()))
+    assert (
+        regeneration.regenerate(
+            current,
+            current.id,
+            scopes="main,validation",
+            installer=candidate,
+            descriptor=descriptor,
+        )["outcome"]
+        == "passed"
+    )
+    assert (root / "data/store/current").read_text() == "new generation data"
+
+
+def test_regeneration_attachment_discard_preserves_unknown_and_rejects_tampering(
+    regeneration_ready, monkeypatch
+):
+    import service_regeneration as regeneration
+    import surrealdb_fixture as fixture
+
+    installation, candidate, descriptor, _, _ = regeneration_ready
+    root = installation.directory
+    generation = bytes(installation.record["service_generation"]).hex()
+    regeneration.regenerate(
+        installation,
+        installation.id,
+        scopes="main,validation",
+        installer=candidate,
+        descriptor=descriptor,
+    )
+    final = json.loads((root / "installation.json").read_text())
+    directory = root / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    row = {
+        "id": directory.name,
+        "fixture": installation.id,
+        "released": False,
+        "owner": {**service.ProcessIdentity.of().to_json(), "boot_id": str(uuid.uuid4())},
+        "command_cleanup": {"status": "unknown", "reason": "original uncertainty"},
+        "native_drain": {
+            "generation": generation,
+            "attachment": directory.name,
+            "directory": str(directory / "native-drain"),
+        },
+    }
+    service.private_json(directory / "record.json", row)
+    monkeypatch.setattr(fixture, "_complete_attachment_obligations", lambda *a, **kw: None)
+    acknowledged = regeneration.acknowledge_attachment(directory, final["regeneration"])
+    assert acknowledged["command_cleanup"] == row["command_cleanup"]
+    assert acknowledged["native_drain"] == row["native_drain"]
+    assert regeneration.completed_attachment(directory, acknowledged)
+    assert not fixture.native_protected(directory, acknowledged, {"status": "unknown"})
+    changed = {**acknowledged, "native_drain": {**row["native_drain"], "generation": "0" * 64}}
+    assert not regeneration.completed_attachment(directory, changed)
+    assert fixture.native_protected(directory, changed, {"status": "unknown"})
+
+
 def archive_member(archive: tarfile.TarFile, name: str):
     member = archive.extractfile(name)
     assert member is not None, f"expected archive file: {name}"
@@ -1964,7 +2220,7 @@ def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_dire
     valid = True
     with pytest.raises(service.FixtureBlocked, match="daemon-reload failed"):
         service.install(candidate, env=env)
-    assert json.loads((root / "installation.json").read_text())["native_schema_version"] == 8
+    assert json.loads((root / "installation.json").read_text())["native_schema_version"] == 9
     assert all((root / name).is_dir() for name in ("data", "tmp", "attachments", "serving"))
 
 

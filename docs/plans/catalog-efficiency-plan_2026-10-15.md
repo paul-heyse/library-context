@@ -184,6 +184,42 @@ not reasons to introduce runtime serialization.
 
 ## 6. Sole disposition and current checkpoint
 
+**Remaining-scope execution active, 2026-10-16.** Baseline `86e1931c` (production through
+`353277a9`). Operator approved execution through CE99, lightweight invocation source context
+by default with explicit full mode, and explicit regeneration of exact project installation
+`58abe9ea-2088-4109-95ab-8440a3749c51` / `library_context` main+validation after authenticated
+drainage. External operator scopes/client registrations and unexpected scopes remain protected.
+Three executors own CA00, CA01/CA02, and CD01–CD03/selected-complete verification; root owns
+regeneration, decisions, integration, native target/controls and CE80–CE99. Storage blocker is
+cleared. Native/model source must settle before target generation/acceptance; no old runtime
+result or prior pass is promoted. CE99 remains handback only; old plans are not edited.
+
+**Current execution evidence, 2026-10-16:** target-owned default required-peer build
+`20261016T062249.650Z-3b9d62` passed/cleanup confirmed; rehearsal-owned peer build
+`20261016T063724.347Z-209cba` also passed/cleanup confirmed. Default descriptor is
+`9fbab612b96f62d2e88070ffd2cb7f1d8ec7b7a3a5cf304592c1c041ed3c761e`; rehearsal descriptor is
+`98274179b0a2c87f0e20e12526a5b361f06a689aa57ba9f2de56b0147d9d8d14`. CD01–CD03 focused controls passed224 selected Python
+controls plus12 followups; root added unavailable-full-comparison and regeneration protocol
+controls, passed9. The first broader service/storage selection exposed one stale format8 assertion
+against its own format9 candidate; corrected, affected rerun passed. CA01/CA02 focused nextest
+run`5470e9a0-c5ef-4ad2-b672-b33337eb1151` passed18 controls; frozen-binary supplements passed distinct caller1, Summary-production6 and worklist4 controls.
+Scoped strict Ruff/Pyrefly and ADR lint passed after development-slice formatting. The redundant
+supplementary nextest was cancelled before testing (exit130), then replaced by those binary controls.
+An actual Cargo fine-grained lock-upgrade cycle was released by cancelling the redundant owned
+model tests-compile (exit130, interrupted); no cache/configuration/resource cap changed.
+
+Independent source review found two corrected issues (successor resume must join host clients and
+whole native executor before retry; unavailable full observations cannot report definite change).
+CA00 key-only cohort admission remains under correction: selected owned spillable capture uses
+single-root metadata and unique-per-root rich payload demand, then adaptive pure local assembly
+without native replay or32-disjoint-closure retention. Independent review also required retained
+borrow immutability for PreparedSyntax and the admitted CC03 runtime; both are source-corrected.
+Source capture and pre-emission resource-pressure controls remain pending. Its closure
+and native/persistence evidence remain open. ADR-0175 supersedes development discovery/observation
+clauses while carrying authenticated ownership/readiness/capture forward. CE80/default cutover,
+CE90 current-target acceptance and CE99 handback remain **not_run**. Original failed/Unknowns stay.
+
+
 This section alone owns current execution disposition for this review's scope. The approved
 CE00/CD00/CN00–CN05 slice is **implemented / focused-Tested, 2026-10-15**, based at
 `9ccfd842e2c0d5c8bf8341cac8341b5317d57084`. F01/F02/F03/F04/F07/F08 are corrected within this slice;

@@ -396,7 +396,10 @@ def plan(
         "operations": operations,
         "requirements": sorted(boundary.requirements),
         "fixture": boundary.fixture,
-        "environment": invocation.get("settings", {}),
+        "environment": {
+            **invocation.get("settings", {}),
+            "LCTX_SOURCE_CONTEXT": invocation.get("source_context", "invocation"),
+        },
         "readiness": "observe before execution; repair only by explicit just sync/service commands",
         "remaining_obligations": (
             "all original cases and boundaries outside this selection remain outstanding"

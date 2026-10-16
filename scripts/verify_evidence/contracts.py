@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = 1
-ADAPTER_VERSION = 1
+ADAPTER_VERSION = 2
 
 
 class CaptureUnsupported(ValueError):

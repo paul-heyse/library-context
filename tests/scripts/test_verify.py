@@ -695,9 +695,10 @@ def test_full_scope_audit_precedes_print_and_incomplete_scope_refuses_execution(
         "missing_python_files": [],
         "ignored_controls": [{"status": "excluded_by_default", "reason": "maintenance"}],
         "complete": True,
+        "selected_complete": True,
     }
 
-    def audit(plan, *, root):
+    def audit(plan, *, root, excluded_plan=()):
         seen.append((plan, root))
         return coverage
 
@@ -709,6 +710,7 @@ def test_full_scope_audit_precedes_print_and_incomplete_scope_refuses_execution(
     assert not any(p.boundary.family == "leaf" for p in seen[0][0])
     coverage.update(
         complete=False,
+        selected_complete=False,
         missing_rust_targets=["new-crate::lib"],
         missing_python_files=["tests/new.py"],
     )
@@ -770,13 +772,19 @@ def test_full_mode_reruns_keep_broad_provider_commands_profiles_and_coverage_con
         sys.modules,
         "test_scope_coverage",
         types.SimpleNamespace(
-            audit=lambda *a, **k: pytest.fail("focused rerun must not audit full scope")
+            audit=lambda *a, **k: {
+                "complete": False,
+                "selected_complete": True,
+                "missing_rust_targets": [],
+                "missing_python_files": [],
+            }
         ),
     )
     monkeypatch.setattr(verify, "observe_requirements", lambda *a, **k: {})
     assert verify.main(["--rerun", "full", "--print", "--json"]) == 0
     printed = json.loads(capsys.readouterr().out)
-    assert "coverage" not in printed
+    assert printed["coverage"]["selected_complete"]
+    assert not printed["coverage"]["complete"]
     assert printed["coverage_context"] == {"rerun_of": "full", "coverage": coverage}
     rerun_summary = verify.Summary(
         run / "summary.json",
@@ -1596,3 +1604,41 @@ def test_discovery_empty_required_selection_fails_without_rust_execution(monkeyp
 def test_rerun_refuses_profile_overrides_instead_of_silently_ignoring_them(capsys):
     assert verify.main(["--rerun", "prior", "--cargo-profile", "test", "--print"]) == 2
     assert "prior selection and profile" in capsys.readouterr().err
+
+
+def test_selected_complete_cli_requires_explicit_unfiltered_boundaries_and_preserves_scope(
+    tmp_path, monkeypatch
+):
+    parsed = verify.parse_args(
+        ["--complete-scope", "--source-context", "full", "--select", "providers"]
+    )
+    options = verify.options_from(parsed)
+    plan = verify.resolve(parsed.selections, options)
+    assert options.complete_scope and options.source_context == "full"
+    assert not options.qualify and not options.test_all
+    assert all(
+        "--ignore-default-filter" in step.argv
+        for boundary in plan
+        for step in boundary.steps
+        if step.step.tool == "nextest"
+    )
+    assert all(
+        "-E" not in step.argv
+        for boundary in plan
+        for step in boundary.steps
+        if step.step.tool == "nextest"
+    )
+    with pytest.raises(verify.PlanError, match="initial tool filters"):
+        verify.resolve([Selection("providers", nextest_args=["-E", "test(one)"])], options)
+    with pytest.raises(verify.PlanError, match="select at least"):
+        verify.resolve([], options)
+    run = tmp_path / "complete-run"
+    run.mkdir()
+    summary = verify.Summary(run / "summary.json", plan, options)
+    summary.finish([], "interrupted")
+    monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
+    again, retained = verify.rerun_selection("complete-run")
+    assert retained.source_context == "full" and retained.internal_rerun
+    assert [boundary.selection for boundary in verify.resolve(again, retained)] == [
+        boundary.selection for boundary in plan
+    ]

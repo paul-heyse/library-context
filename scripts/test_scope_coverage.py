@@ -76,7 +76,11 @@ def _python_files(root: Path, paths: Sequence[str], patterns: Sequence[str]) -> 
 
 
 def audit(
-    plan: Sequence[Any], *, root: Path, metadata: dict[str, Any] | None = None
+    plan: Sequence[Any],
+    *,
+    root: Path,
+    metadata: dict[str, Any] | None = None,
+    excluded_plan: Sequence[Any] = (),
 ) -> dict[str, Any]:
     """Account for default-feature Rust test targets and configured Python files.
 
@@ -183,6 +187,14 @@ def audit(
                         }
                     )
     missing_python = sorted(expected_python - covered_python)
+    excluded_rust, excluded_python = [], []
+    unexpected_rust, unexpected_python = missing_rust, missing_python
+    if excluded_plan:
+        omitted = audit(excluded_plan, root=root, metadata=metadata)
+        excluded_rust = sorted(set(missing_rust) - set(omitted["missing_rust_targets"]))
+        excluded_python = sorted(set(missing_python) - set(omitted["missing_python_files"]))
+        unexpected_rust = sorted(set(missing_rust) - set(excluded_rust))
+        unexpected_python = sorted(set(missing_python) - set(excluded_python))
     return {
         "basis": (
             "default-feature Cargo test targets and pytest-configured test files; "
@@ -196,4 +208,9 @@ def audit(
         "conditional_rust_targets": conditional,
         "ignored_controls": ignored_controls,
         "complete": not (missing_rust or missing_python or missing_roots),
+        "selected_complete": not (unexpected_rust or unexpected_python or missing_roots),
+        "excluded_rust_targets": excluded_rust,
+        "excluded_python_files": excluded_python,
+        "unexpected_missing_rust_targets": unexpected_rust,
+        "unexpected_missing_python_files": unexpected_python,
     }

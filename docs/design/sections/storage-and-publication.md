@@ -606,7 +606,18 @@ predecessor/successor evidence permits same-candidate reconciliation; failure ke
 Specialized recovery completes first and its original receipts remain unchanged. Same-digest
 stabilization retains its narrower contract; incompatible state uses current-design regeneration.
 
-> Decision: ADR-0163
+**Implemented / functional verification in progress, 2026-10-16:** explicit project regeneration
+requires the exact installation ID, both main/validation scopes, actual root/namespace inventory,
+exclusive host admission, current client/lease quiescence and authenticated whole-executor shutdown.
+Unexpected scopes and external selections/recovery assets refuse. An immutable private journal pins
+scope, candidates and predecessor/successor identities; intent precedes shutdown/discard and retries
+never discard successor data. Keep installation/unit/endpoint/default binding, rotate native
+generation and credentials, initialize/check current definitions, then reopen. Retire predecessor
+discovery bindings into operation evidence. Separate attachment discard acknowledgements preserve
+original failed/Unknown results. No compatibility reader, rollback data or implicit verification
+regeneration is introduced. The efficiency coordinator owns CE80/CE90 evidence and operator limits.
+
+> Decision: ADR-0163, ADR-0175
 
 Native graph/documents/functions/search/bulk operations are selected. Query planning tools are
 available for concrete uncertainties, not mandatory per-operation accounting or adoption proofs.

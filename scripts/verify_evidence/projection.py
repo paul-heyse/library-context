@@ -221,6 +221,7 @@ def prepare(directory: Path) -> dict[str, Any]:
             previous
             and previous["invocation"] == invocation["id"]
             and previous["tool"] == invocation["tool"]
+            and previous.get("adapter") == ADAPTER_VERSION
             and set(stats) == set(previous["sources"])
             and all(stats[name] == state["stat"] for name, state in previous["sources"].items())
         ):
@@ -233,6 +234,7 @@ def prepare(directory: Path) -> dict[str, Any]:
             previous is not None
             and previous["invocation"] == invocation["id"]
             and previous["tool"] == invocation["tool"]
+            and previous.get("adapter") == ADAPTER_VERSION
             and set(stats) == set(previous["sources"])
         )
         if incremental and previous is not None:
@@ -268,6 +270,7 @@ def prepare(directory: Path) -> dict[str, Any]:
         else:
             checkpoint = {
                 "version": VERSION,
+                "adapter": ADAPTER_VERSION,
                 "invocation": invocation["id"],
                 "tool": invocation["tool"],
                 "generation": uuid.uuid4().hex,
