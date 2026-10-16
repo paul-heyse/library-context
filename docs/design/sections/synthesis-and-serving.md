@@ -240,6 +240,18 @@ scores, so inserting unrelated content cannot change an older publication's rank
 uses distinct analyzed query terms and an explicitly identified exact eligible-vector route.
 Publication reconstructs and reconciles these derived statistics from selected canonical content.
 
+**Implemented source / focused acceptance pending, 2026-10-15 (ADR-0174).** Immutable document/term
+postings replace stored whole-term arrays; document lengths remain separate. A bounded candidate/query-term
+intersection uses the compound document/term index and aggregates only matched rows once. Selected corpus
+N/df/length, analyzer, zero-IDF match, eligibility, caps/ties/fusion and witnesses are unchanged. Shared
+postings belong to analyzed content within the exact derivation, with actual endpoint holds and complete
+five-family reconciliation/retirement. Canonical cold import/backup independently reconstructs derived
+rows. Native document v2 plus definition/derivation identity is a physical schema migration; owned targets
+regenerate without a legacy reader. CE80 governs shared/operator adoption. Actual access/scoring evidence
+and its limits belong to the efficiency coordinator.
+
+> Decision: ADR-0174
+
 **Implemented eligibility correction, qualification pending,2026-10-11:** positive dependency
 membership alone cannot represent a selected window/part's absence of bindings or its complete
 current supporting context. Eligibility also requires the current canonical witness dependencies

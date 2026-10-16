@@ -1596,6 +1596,89 @@ async fn indexed_occurrence_driver_checks_shared_dependencies_late_absence_and_u
     drop(loader);
     fixture.close().await.unwrap();
 }
+/// Inspect the exact SELECT embedded in production scoring, not a lookalike.
+/// Both IN dimensions must appear in every compound equality key in the plan.
+async fn qualify_posting_dimensions(reader: &NativeReader<()>) {
+    let scope = lctx_native::lexical_stats::scope_identity(reader).unwrap();
+    let mut vars = Variables::new();
+    vars.insert("scope", scope.hex());
+    let documents: Vec<RecordId> = reader.query(
+        "SELECT VALUE in FROM lexical_member WITH INDEX scoped_document WHERE scope=$scope AND family=0 ORDER BY id LIMIT 2", vars,
+    ).await.unwrap();
+    assert_eq!(documents.len(), 2);
+    let terms = ["needle", "absentterm"];
+    let mut vars = Variables::new();
+    vars.insert("token_documents", documents.clone());
+    vars.insert("query_terms", terms.to_vec());
+    let plan: Value = reader
+        .query_native(
+            format!(
+                "{} EXPLAIN FULL",
+                lctx_native::lexical_stats::posting_selection_sql()
+            ),
+            vars.clone(),
+        )
+        .await
+        .unwrap();
+    let steps = plan.as_array().expect("native EXPLAIN steps");
+    let mut found = false;
+    for step in steps.iter() {
+        let step = step.as_object().unwrap();
+        assert_ne!(
+            step.get("operation"),
+            Some(&Value::String("Iterate Table".to_owned())),
+            "postings cannot use a table iterator: {plan:?}"
+        );
+        if step.get("operation") != Some(&Value::String("Iterate Index".to_owned())) {
+            continue;
+        }
+        let detail = step.get("detail").unwrap().as_object().unwrap();
+        let index = detail.get("plan").unwrap().as_object().unwrap();
+        assert_eq!(
+            index.get("index"),
+            Some(&Value::String("document_term".to_owned()))
+        );
+        assert_eq!(
+            index.get("operator"),
+            Some(&Value::String("union".to_owned()))
+        );
+        let combinations = index.get("value").unwrap().as_array().unwrap();
+        assert_eq!(combinations.len(), documents.len() * terms.len());
+        for document in &documents {
+            for term in terms {
+                assert!(
+                    combinations.iter().any(|key| {
+                        let key = key.as_array().unwrap();
+                        key.len() == 2
+                            && key[0] == Value::RecordId(document.clone())
+                            && key[1] == Value::String(term.to_owned())
+                    }),
+                    "both candidate and query-term dimensions are required in each lookup: {plan:?}"
+                );
+            }
+        }
+        found = true;
+    }
+    assert!(
+        found,
+        "a compound posting index iteration is required: {plan:?}"
+    );
+    println!("CN07 production posting EXPLAIN FULL: {plan:?}");
+    let rows: Vec<Value> = reader
+        .query_native(lctx_native::lexical_stats::posting_selection_sql(), vars)
+        .await
+        .unwrap();
+    for row in rows {
+        let row = row.as_object().unwrap();
+        assert!(
+            documents
+                .iter()
+                .any(|id| row.get("in") == Some(&Value::RecordId(id.clone())))
+        );
+        assert_eq!(row.get("term"), Some(&Value::String("needle".to_owned())));
+    }
+}
+
 #[tokio::test]
 async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_same_unit() {
     let config = scoped::config();
@@ -1629,6 +1712,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
     assert_eq!(before.len(), 2);
     assert!(before.iter().all(|r| r.score.unwrap() > 0.0));
     assert!(before[0].score > before[1].score);
+    qualify_posting_dimensions(&a.reader).await;
     let btexts = (0..24)
         .map(|n| format!("needle unrelated {n} {}", nonce()))
         .collect::<Vec<_>>();

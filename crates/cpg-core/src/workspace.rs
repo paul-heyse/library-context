@@ -118,6 +118,8 @@ pub struct Workspace {
     >,
     cancellation: Cancellation,
     completion_gate: tokio::sync::Mutex<()>,
+    #[cfg(test)]
+    composition_control: composition_controls::Control,
     compilation_complete: Mutex<Option<CompilationCompletion>>,
     provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
@@ -295,6 +297,8 @@ impl Workspace {
             frozen_shared: Mutex::default(),
             cancellation,
             completion_gate: tokio::sync::Mutex::new(()),
+            #[cfg(test)]
+            composition_control: composition_controls::Control::default(),
             compilation_complete: Mutex::default(),
             provider_drains,
             admission_memo,
@@ -3103,30 +3107,11 @@ impl ProducerOutput {
                     .retain_product(request, production.clone())
                     .await?;
             }
-            // Only latest contributor composition, binding and coherent host visibility
-            // require this gate. Private singleton/capture work above can overlap.
-            let _completion = lctx_native::phase::wait(
-                "compiler_completion_gate",
-                self.workspace.completion_gate.lock(),
-            )
-            .await;
-            self.workspace.cancellation.check()?;
-            self.workspace.writable()?;
+            // Immutable composition and host carriers are prepared privately. Only
+            // capture/recheck, binding and the coherent visible handoff hold the gate.
             let mut handoff_charge =
                 StateCharge::new(&self.workspace.budget, "compiler completed handoff");
             let owner_key = descriptor.spec.identity()?;
-            if self
-                .workspace
-                .completed_owners
-                .lock()
-                .map_err(|_| poisoned())?
-                .0
-                .contains_key(&owner_key)
-            {
-                return Err(ModelError::Conflict(
-                    "duplicate completed native producer handoff",
-                ));
-            }
             // Local preparation backing drops on any failure; transfer to the persistent
             // owner happens only with the coherent handoff.
             handoff_charge.grow(
@@ -3135,112 +3120,12 @@ impl ProducerOutput {
                     + 128,
             )?;
             let descriptor_copy = descriptor.clone();
-            let previous_charge;
-            let previous = {
-                let visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
-                previous_charge = self.workspace.budget.reserve(
-                    "completion previous view snapshot",
-                    visible
-                        .values()
-                        .filter(|source| production.outputs().contains_key(source.name()))
-                        .map(|source| {
-                            std::mem::size_of::<(
-                                String,
-                                lctx_model::domain::completed::CompletedView,
-                            )>() + 64
-                                + source.name().len()
-                                + lctx_native::installed_view::view_heap(&source.view)
-                        })
-                        .sum(),
-                )?;
-                visible
-                    .iter()
-                    .filter(|(name, _)| production.outputs().contains_key(**name))
-                    .map(|(name, source)| ((*name).to_owned(), source.view.clone()))
-                    .collect()
-            };
-            for source in &pending {
-                if let Ok(previous) = self.workspace.relation(source.relation.name())
-                    && !source.contribution
-                    && !previous.contribution
-                {
-                    return Err(ModelError::Invalid(format!(
-                        "completed output {} already has an owner",
-                        source.relation.name()
-                    )));
-                }
-                if self
-                    .workspace
-                    .completed_by_producer
-                    .lock()
-                    .map_err(|_| poisoned())?
-                    .contains_key(&(self.name, source.relation.name()))
-                {
-                    return Err(ModelError::Conflict("duplicate exact producer output"));
-                }
-            }
-            let native = self.workspace.native.clone();
-            let budget = self.workspace.budget.clone();
-            let composed = production.clone();
-            let (views, views_charge) = self
-                .workspace
-                .native_calls
-                .call(async move {
-                    native
-                        .compose_production(&composed, &previous, &budget)
-                        .await
-                })
-                .await?;
-            drop(previous_charge);
-            let mut completed = Vec::new();
-            for pending in pending {
-                let name = pending.relation.name();
-                let supplied = views
-                    .get(name)
-                    .ok_or(ModelError::Schema("completed native output absent"))?;
+            handoff_charge.grow(pending.len().saturating_mul(512))?;
+            let make_relation = |source: &PendingRelation,
+                                 supplied: &lctx_model::domain::completed::CompletedView|
+             -> Result<Arc<CompletedRelation>, ModelError> {
                 let retained = self.workspace.budget.reserve(
-                    "completed visible relation backing",
-                    std::mem::size_of::<CompletedRelation>() + 128 + self.name.len()
-                        // Canonical snapshots own the relation and generated producer strings.
-                        + pending.relation.name().len().saturating_mul(3) + 64
-                        + lctx_native::installed_view::view_heap(supplied),
-                )?;
-                let view = supplied.clone();
-                completed.push(Arc::new(CompletedRelation {
-                    snapshot:
-                        lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
-                            &pending.relation,
-                            self.workspace.model.digest(),
-                            &view,
-                        )?,
-                    relation: pending.relation,
-                    producer: self.name.into(),
-                    implementation: self.implementation,
-                    configuration: self.configuration,
-                    contract: self.workspace.model.digest(),
-                    rows: view.rows,
-                    view,
-                    native: self.workspace.native.clone(),
-                    bridge: self.workspace.bridge.clone(),
-                    budget: self.workspace.budget.clone(),
-                    batch_rows: self.workspace.options.batch_rows,
-                    cancellation: self.workspace.cancellation.clone(),
-                    inputs: input_snapshots.clone(),
-                    profile: self.profile,
-                    contribution: pending.contribution,
-                    _files: self.workspace.files.clone(),
-                    _selection_charge: Some(Arc::from(retained)),
-                    _execution: self.workspace.execution.clone(),
-                }));
-            }
-            let mut singletons = Vec::new();
-            for source in &completed {
-                let supplied = production
-                    .outputs()
-                    .get(source.name())
-                    .ok_or(ModelError::Conflict("exact producer output absent"))?;
-                let retained = self.workspace.budget.reserve(
-                    "completed exact producer relation backing",
+                    "completed relation backing",
                     std::mem::size_of::<CompletedRelation>()
                         + 128
                         + self.name.len()
@@ -3248,39 +3133,187 @@ impl ProducerOutput {
                         + 64
                         + lctx_native::installed_view::view_heap(supplied),
                 )?;
-                let singleton = CompletedRelation {
+                Ok(Arc::new(CompletedRelation {
                     snapshot: analysis::sources::SourceSnapshot::of_completed_view(
                         &source.relation,
                         self.workspace.model.digest(),
                         supplied,
                     )?,
                     relation: source.relation.clone(),
-                    producer: source.producer.clone(),
-                    implementation: source.implementation,
-                    configuration: source.configuration,
-                    contract: source.contract,
+                    producer: self.name.into(),
+                    implementation: self.implementation,
+                    configuration: self.configuration,
+                    contract: self.workspace.model.digest(),
                     rows: supplied.rows,
                     view: supplied.clone(),
-                    native: source.native.clone(),
-                    bridge: source.bridge.clone(),
-                    budget: source.budget.clone(),
-                    batch_rows: source.batch_rows,
-                    cancellation: source.cancellation.clone(),
-                    inputs: source.inputs.clone(),
-                    profile: source.profile,
+                    native: self.workspace.native.clone(),
+                    bridge: self.workspace.bridge.clone(),
+                    budget: self.workspace.budget.clone(),
+                    batch_rows: self.workspace.options.batch_rows,
+                    cancellation: self.workspace.cancellation.clone(),
+                    inputs: input_snapshots.clone(),
+                    profile: self.profile,
                     contribution: source.contribution,
-                    _files: source._files.clone(),
+                    _files: self.workspace.files.clone(),
                     _selection_charge: Some(Arc::from(retained)),
-                    _execution: source._execution.clone(),
-                };
-                singletons.push(Arc::new(singleton));
-            }
+                    _execution: self.workspace.execution.clone(),
+                }))
+            };
+            let singletons = pending
+                .iter()
+                .map(|source| {
+                    let view = production
+                        .outputs()
+                        .get(source.relation.name())
+                        .ok_or(ModelError::Conflict("exact producer output absent"))?;
+                    make_relation(source, view)
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let mut predecessors: BTreeMap<&'static str, Option<Arc<CompletedRelation>>> = {
+                let _gate = lctx_native::phase::wait(
+                    "compiler_completion_gate",
+                    self.workspace.completion_gate.lock(),
+                )
+                .await;
+                self.workspace.cancellation.check()?;
+                self.workspace.writable()?;
+                let visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
+                pending
+                    .iter()
+                    .map(|source| {
+                        let name = source.relation.name();
+                        (name, visible.get(name).cloned())
+                    })
+                    .collect()
+            };
+            let mut prepared = BTreeMap::new();
+            let _completion = loop {
+                for (name, previous) in std::mem::take(&mut predecessors) {
+                    self.workspace.cancellation.check()?;
+                    // Admit the predecessor clone before moving it into registered work.
+                    let clone_charge = self.workspace.budget.reserve(
+                        "composition predecessor transfer",
+                        previous.as_ref().map_or(0, |source| {
+                            lctx_native::installed_view::view_heap(&source.view) + 128
+                        }),
+                    )?;
+                    let prior = previous.as_ref().map(|source| source.view.clone());
+                    let native = self.workspace.native.clone();
+                    let budget = self.workspace.budget.clone();
+                    let composed = production.clone();
+                    #[cfg(test)]
+                    self.workspace.composition_control.attempt(self.name, name);
+                    let result = self
+                        .workspace
+                        .native_calls
+                        .call(async move {
+                            let result = native
+                                .prepare_production_view(composed, name.to_owned(), prior, &budget)
+                                .await;
+                            drop(clone_charge);
+                            result
+                        })
+                        .await;
+                    let composed = match result {
+                        Ok(composed) => composed,
+                        Err(error) => {
+                            // Recheck even a failed preparation before reporting it. Native
+                            // failures retain original finality and are never replayed: an
+                            // unequal-payload conflict is monotone as contributors grow;
+                            // resource/owner/transport failures are actual attempt failures.
+                            let _gate = lctx_native::phase::wait(
+                                "compiler_completion_gate",
+                                self.workspace.completion_gate.lock(),
+                            )
+                            .await;
+                            let visible =
+                                self.workspace.completed.lock().map_err(|_| poisoned())?;
+                            let changed = visible.get(name).map(|source| &source.view)
+                                != previous.as_ref().map(|source| &source.view);
+                            tracing::debug!(
+                                relation = name,
+                                predecessor_changed = changed,
+                                "private composition failed before handoff"
+                            );
+                            return Err(error);
+                        }
+                    };
+                    let source = pending
+                        .iter()
+                        .find(|source| source.relation.name() == name)
+                        .ok_or(ModelError::Schema("prepared output relation"))?;
+                    let host = make_relation(source, composed.view())?;
+                    prepared.insert(name, (composed, host));
+                }
+                #[cfg(test)]
+                self.workspace.composition_control.prepared(self.name).await;
+                let gate = lctx_native::phase::wait(
+                    "compiler_completion_gate",
+                    self.workspace.completion_gate.lock(),
+                )
+                .await;
+                self.workspace.cancellation.check()?;
+                self.workspace.writable()?;
+                if self
+                    .workspace
+                    .completed_owners
+                    .lock()
+                    .map_err(|_| poisoned())?
+                    .0
+                    .contains_key(&owner_key)
+                {
+                    return Err(ModelError::Conflict(
+                        "duplicate completed native producer handoff",
+                    ));
+                }
+                {
+                    let visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
+                    let exact = self
+                        .workspace
+                        .completed_by_producer
+                        .lock()
+                        .map_err(|_| poisoned())?;
+                    for source in &pending {
+                        let name = source.relation.name();
+                        if !source.contribution
+                            && visible.get(name).is_some_and(|source| !source.contribution)
+                        {
+                            return Err(ModelError::Invalid(format!(
+                                "completed output {name} already has an owner"
+                            )));
+                        }
+                        if exact.contains_key(&(self.name, name)) {
+                            return Err(ModelError::Conflict("duplicate exact producer output"));
+                        }
+                        let (composition, _) = prepared
+                            .get(name)
+                            .ok_or(ModelError::Schema("completed native output absent"))?;
+                        if visible.get(name).map(|source| &source.view) != composition.predecessor()
+                        {
+                            predecessors.insert(name, visible.get(name).cloned());
+                        }
+                    }
+                }
+                if predecessors.is_empty() {
+                    break gate;
+                }
+                // Only affected relations are invalidated. Prepared independent outputs
+                // survive, and submitted native work already reached terminality above.
+                for name in predecessors.keys() {
+                    prepared.remove(name);
+                }
+                drop(gate);
+                // Release settled stale ingredients under the existing current/frozen/
+                // remaining-consumer demand owner before another rebase allocates.
+                // Unresolved native flights and actual borrowers remain protected.
+                self.workspace.refresh_membership_demand()?;
+            };
             // Bind scratch is admitted before cloning all affected bindings.
             let _bindings_charge = self.workspace.budget.reserve(
                 "completed visibility bind preparation",
-                completed
-                    .iter()
-                    .map(|source| {
+                prepared
+                    .values()
+                    .map(|(_, source)| {
                         std::mem::size_of::<lctx_model::domain::completed::CompletedBinding>()
                             + 512
                             + lctx_native::installed_view::view_heap(&source.view)
@@ -3293,21 +3326,30 @@ impl ProducerOutput {
                 .map_err(|_| poisoned())?
                 .1
                 .prepare_absorb(&handoff_charge)?;
-            let bindings = completed
-                .iter()
-                .map(|source| lctx_model::domain::completed::CompletedBinding {
-                    boundary: None,
-                    source: source.snapshot(),
-                    view: source.view.clone(),
-                    configuration: None,
-                })
+            let bindings = prepared
+                .values()
+                .map(
+                    |(_, source)| lctx_model::domain::completed::CompletedBinding {
+                        boundary: None,
+                        source: source.snapshot(),
+                        view: source.view.clone(),
+                        configuration: None,
+                    },
+                )
                 .collect::<Vec<_>>();
-            for binding in bindings {
+            let mut completed = Vec::with_capacity(prepared.len());
+            for ((composition, source), binding) in prepared.into_values().zip(bindings) {
                 let native = self.workspace.native.clone();
+                let budget = self.workspace.budget.clone();
                 self.workspace
                     .native_calls
-                    .call(async move { native.bind(binding).await })
+                    .call(async move {
+                        native
+                            .publish_prepared_production_view(composition, binding, &budget)
+                            .await
+                    })
                     .await?;
+                completed.push(source);
             }
             self.workspace.cancellation.check()?;
             let mut owners = self
@@ -3330,7 +3372,6 @@ impl ProducerOutput {
                 visible.insert(source.name(), source);
             }
             drop((owners, by_producer, visible));
-            drop(views_charge);
             self.workspace.refresh_membership_demand()?;
             Ok(())
         })
@@ -5387,5 +5428,178 @@ impl lctx_compiler_store::admission::ValidationPlanner for CompletedInputs {
         sql: &'a str,
     ) -> BoxFuture<'a, Result<datafusion::dataframe::DataFrame, ModelError>> {
         self.query_template(session, input, sql).boxed()
+    }
+}
+
+#[cfg(test)]
+mod composition_controls {
+    use super::*;
+    use lctx_model::domain::{
+        input::{Package, Release},
+        value::Literal,
+    };
+
+    #[derive(Default)]
+    pub(super) struct Control {
+        pauses: Mutex<BTreeMap<&'static str, Arc<Pause>>>,
+        attempts: Mutex<BTreeMap<(&'static str, &'static str), usize>>,
+    }
+    #[derive(Default)]
+    struct Pause {
+        ready: tokio::sync::Notify,
+        resume: tokio::sync::Notify,
+    }
+    impl Control {
+        pub(super) fn attempt(&self, producer: &'static str, relation: &'static str) {
+            *self
+                .attempts
+                .lock()
+                .unwrap()
+                .entry((producer, relation))
+                .or_default() += 1;
+        }
+        pub(super) async fn prepared(&self, producer: &'static str) {
+            let pause = self.pauses.lock().unwrap().remove(producer);
+            if let Some(pause) = pause {
+                pause.ready.notify_one();
+                pause.resume.notified().await;
+            }
+        }
+    }
+    #[tokio::test]
+    async fn private_composition_rebases_only_changed_outputs_and_never_publishes_cancelled_work() {
+        for cancelled in [false, true] {
+            let model = Arc::new(
+                ValidatedModel::declared(vec![
+                    Relation::of::<Package>(),
+                    Relation::of::<Release>(),
+                    Relation::of::<Literal>(),
+                ])
+                .unwrap(),
+            );
+            let workspace = Workspace::new(
+                model,
+                WorkspaceOptions::default(),
+                crate::test_native::store(),
+            )
+            .unwrap();
+            let output = workspace.output(
+                "paused",
+                Profile::Catalog,
+                ContentHash::of(b"private-composition"),
+                workspace.inputs("paused", Profile::Catalog, []).unwrap(),
+                [Package::NAME, Release::NAME],
+            );
+            let package = Package { name: "one".into() };
+            output
+                .contribute(
+                    Batch::new(workspace.model(), vec![package.clone()], workspace.budget())
+                        .unwrap(),
+                )
+                .unwrap();
+            output
+                .contribute(
+                    Batch::new(
+                        workspace.model(),
+                        vec![Release {
+                            package: package.id(),
+                            version: "1".into(),
+                        }],
+                        workspace.budget(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let pause = Arc::new(Pause::default());
+            workspace
+                .composition_control
+                .pauses
+                .lock()
+                .unwrap()
+                .insert("paused", pause.clone());
+            let completing = tokio::spawn(output.finish(ProviderOutcome::Complete));
+            pause.ready.notified().await;
+            assert!(
+                workspace.completed::<Package>().is_err(),
+                "private preparations are invisible"
+            );
+            let peer = workspace.output(
+                "peer",
+                Profile::Catalog,
+                ContentHash::of(b"peer"),
+                workspace.inputs("peer", Profile::Catalog, []).unwrap(),
+                [Package::NAME],
+            );
+            peer.contribute(
+                Batch::new(
+                    workspace.model(),
+                    vec![Package { name: "two".into() }],
+                    workspace.budget(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            peer.finish(ProviderOutcome::Complete).await.unwrap();
+            let old = workspace.completed::<Package>().unwrap();
+            let other = workspace.output(
+                "unrelated",
+                Profile::Catalog,
+                ContentHash::of(b"other"),
+                workspace.inputs("unrelated", Profile::Catalog, []).unwrap(),
+                [Literal::NAME],
+            );
+            other
+                .contribute(
+                    Batch::new(workspace.model(), vec![Literal::None], workspace.budget()).unwrap(),
+                )
+                .unwrap();
+            other.finish(ProviderOutcome::Complete).await.unwrap();
+            if cancelled {
+                workspace.cancellation.cancel();
+            }
+            pause.resume.notify_one();
+            let result = completing.await.unwrap();
+            if cancelled {
+                assert!(result.is_err());
+                assert_eq!(
+                    workspace.completed::<Package>().unwrap().view_identity(),
+                    old.view_identity()
+                );
+                assert!(workspace.completed::<Release>().is_err());
+            } else {
+                result.unwrap();
+                assert_eq!(workspace.completed::<Package>().unwrap().rows(), 2);
+                assert_eq!(workspace.completed::<Release>().unwrap().rows(), 1);
+                assert_eq!(workspace.completed::<Literal>().unwrap().rows(), 1);
+                assert_eq!(old.rows(), 1, "old selections remain exact");
+                assert_eq!(
+                    workspace
+                        .composition_control
+                        .attempts
+                        .lock()
+                        .unwrap()
+                        .get(&("paused", Package::NAME)),
+                    Some(&2)
+                );
+                assert_eq!(
+                    workspace
+                        .composition_control
+                        .attempts
+                        .lock()
+                        .unwrap()
+                        .get(&("paused", Release::NAME)),
+                    Some(&1)
+                );
+                workspace.validate().await.unwrap();
+            }
+            let completion = workspace.drain_owned_report().await;
+            workspace.complete_signal(&completion).await.unwrap();
+            lctx_model::domain::completion::complete::<()>(Ok(()), completion).unwrap();
+            lctx_model::domain::completion::complete::<()>(
+                Ok(()),
+                workspace.native.abandon_finality_report().await,
+            )
+            .unwrap();
+        }
     }
 }

@@ -12,11 +12,12 @@ use lctx_model::domain::{
     resources::ResourceBudget,
 };
 use std::collections::BTreeMap;
-const TABLES: [&str; 4] = [
+const TABLES: [&str; 5] = [
     "lexical_document",
     "lexical_member",
     "lexical_term",
     "lexical_corpus",
+    "lexical_posting",
 ];
 const FAMILIES: [&str; 4] = [
     "search_api_options",
@@ -108,14 +109,13 @@ pub fn corpus_id(scope: ContentHash, family: i16) -> RecordId {
 pub fn definitions() -> String {
     let mut sql = String::new();
     for (table, fields) in [
+        ("lexical_document", vec![("length", "int")]),
         (
-            "lexical_document",
+            "lexical_posting",
             vec![
-                ("length", "int"),
-                ("terms", "array<object>"),
-                ("terms.*.term", "string"),
-                ("terms.*.tf", "int"),
-                ("terms.*.dl", "int"),
+                ("in", "record<lexical_document>"),
+                ("term", "string"),
+                ("tf", "int"),
             ],
         ),
         (
@@ -157,7 +157,7 @@ pub fn definitions() -> String {
             sql.push_str(&format!("DEFINE FIELD {name} ON {table} TYPE {kind};\n"));
         }
     }
-    sql.push_str("DEFINE INDEX scoped_document ON lexical_member FIELDS scope,family,source UNIQUE;\nDEFINE INDEX scoped_term ON lexical_term FIELDS scope,family,term UNIQUE;\nDEFINE INDEX scoped_corpus ON lexical_corpus FIELDS scope,family UNIQUE;\n");
+    sql.push_str("DEFINE INDEX document_term ON lexical_posting FIELDS in,term UNIQUE;\nDEFINE INDEX scoped_document ON lexical_member FIELDS scope,family,source UNIQUE;\nDEFINE INDEX scoped_term ON lexical_term FIELDS scope,family,term UNIQUE;\nDEFINE INDEX scoped_corpus ON lexical_corpus FIELDS scope,family UNIQUE;\n");
     sql
 }
 fn value<T: serde::Serialize>(v: T) -> Result<Value, ModelError> {
@@ -189,24 +189,39 @@ fn increment(n: u64, by: u64) -> Result<u64, ModelError> {
         .ok_or(ModelError::Schema("lexical statistics overflow"))
 }
 pub(crate) struct Expected {
-    rows: [PreparedRows; 4],
+    rows: [PreparedRows; 5],
     scope: ContentHash,
     budget: ResourceBudget,
+}
+#[derive(Clone, Copy)]
+enum DocumentProjection {
+    AnalyzedSource,
+    StoredDocument,
+    Postings,
 }
 // A complete actual nomination stream feeds a charged identity spool, followed by
 // bounded point batches. Duplicate occurrences never multiply corpus documents.
 fn documents<Context>(
     reader: &NativeReader<Context>,
     mut nominees: crate::reader::NativeRows,
-    analyzed: bool,
+    projection: DocumentProjection,
     budget: &ResourceBudget,
 ) -> Result<crate::reader::NativeRows, ModelError> {
     let reader = reader.transport_reader();
     let budget = budget.clone();
     crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
         let mut ids = SortedRows::with_budget(&budget)?;
+        // Posting identities hash document and term, so batches sorted by document
+        // are not globally sorted by posting identity. Reconcile through one spillable
+        // identity spool, never by retaining an unbounded native result vector.
+        let mut postings = matches!(projection, DocumentProjection::Postings)
+            .then(|| SortedRows::with_budget(&budget))
+            .transpose()?;
         let result = async {
             while let Some(value) = nominees.next().await? {
+                if sender.is_closed() {
+                    break;
+                }
                 let value = object(value)?;
                 let source = RecordId::from_value(
                     value
@@ -228,6 +243,9 @@ fn documents<Context>(
         complete(result, terminal)?;
         let mut ids = ids.finish()?;
         loop {
+            if sender.is_closed() {
+                break;
+            }
             let mut batch = Vec::new();
             while batch.len() < 128 {
                 let Some(value) = ids.next_row()? else {
@@ -248,16 +266,25 @@ fn documents<Context>(
             }
             let mut vars = surrealdb::types::Variables::new();
             vars.insert("documents", batch);
-            let sql = if analyzed {
-                "SELECT id,text,search::analyze('lctx_discovery',text) AS tokens FROM $documents ORDER BY id"
-            } else {
-                "SELECT * FROM $documents ORDER BY id"
+            let sql = match projection {
+                DocumentProjection::AnalyzedSource => {
+                    "SELECT id,text,search::analyze('lctx_discovery',text) AS tokens FROM $documents ORDER BY id"
+                }
+                DocumentProjection::StoredDocument => "SELECT * FROM $documents ORDER BY id",
+                DocumentProjection::Postings => {
+                    "SELECT * FROM lexical_posting WITH INDEX document_term WHERE in IN $documents ORDER BY id"
+                }
             };
             let mut docs =
                 reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![sql.into()])?)?;
             let result = async {
                 while let Some(value) = docs.next().await? {
-                    if !sender.send(value).await? {
+                    if sender.is_closed() {
+                        break;
+                    }
+                    if let Some(postings) = &mut postings {
+                        postings.push(value)?;
+                    } else if !sender.send(value).await? {
                         break;
                     }
                 }
@@ -271,6 +298,14 @@ fn documents<Context>(
             );
             complete(result, terminal)?;
         }
+        if let Some(postings) = postings {
+            let mut postings = postings.finish()?;
+            while let Some(value) = postings.next_row()? {
+                if !sender.send(value).await? {
+                    break;
+                }
+            }
+        }
         Ok(())
     })
 }
@@ -279,7 +314,7 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
     let scope = scope_identity(&reader)?;
     let namespace = reader.derivation()?;
     let budget = loader.read_budget()?;
-    let mut expected = (0..4)
+    let mut expected = (0..5)
         .map(|_| SortedRows::with_budget(&budget))
         .collect::<Result<Vec<_>, _>>()?;
     for (family, _table) in FAMILIES.iter().enumerate() {
@@ -296,22 +331,92 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
             vars,
             &budget,
         )?;
-        let mut docs = documents(&reader, nominees, true, &budget)?;
-        let lowered:Result<(),ModelError>=async {
-  while let Some(doc)=docs.next().await? {
-   let charge=budget.reserve("lexical statistics document",serde_json::to_vec(&doc).map_err(ModelError::codec)?.len().saturating_mul(12))?;
-   let doc=object(doc)?;let id=RecordId::from_value(doc.get("id").cloned().ok_or(ModelError::Schema("lexical document id"))?).map_err(ModelError::codec)?;
-   let text=string(&doc,"text")?;let tokens=Vec::<String>::from_value(doc.get("tokens").cloned().ok_or(ModelError::Schema("lexical analyzed tokens"))?).map_err(ModelError::codec)?;
-   let mut frequencies=BTreeMap::<String,u64>::new();for token in &tokens {let n=frequencies.entry(token.clone()).or_default();*n=increment(*n,1)?;}
-   let mut key=KeySink::new("native-lexical-document/v1");key.part(b"analyzer",&analyzer_identity().0);key.part(b"text",text.as_bytes());let token_id=crate::derivation::address(namespace,"lexical_document",&key.finish().0);
-   let mut token_row=row(token_id.clone());token_row.insert("derivation",namespace.hex());token_row.insert("length",tokens.len());token_row.insert("terms",value(frequencies.iter().map(|(term,tf)|serde_json::json!({"term":term,"tf":tf,"dl":tokens.len()})).collect::<Vec<_>>())?);expected[0].push(Value::Object(token_row))?;
-   let mut member_key=KeySink::new("native-lexical-member/v1");member_key.part(b"scope",&scope.0);member_key.part(b"family",&family.to_le_bytes());member_key.part(b"document",&serde_json::to_vec(&id).map_err(ModelError::codec)?);
-   let mut member=row(crate::derivation::address(namespace,"lexical_member",&member_key.finish().0));member.insert("derivation",namespace.hex());member.insert("scope",scope.hex());member.insert("family",family);member.insert("source",id.clone());member.insert("in",token_id);member.insert("out",corpus_id(scope,family));expected[1].push(Value::Object(member))?;
-   for term in frequencies.keys(){let mut occurrence=row(RecordId::new("lexical_sort",format!("{}:{}",hex::encode(term.as_bytes()),hex::encode(serde_json::to_vec(&id).map_err(ModelError::codec)?))));occurrence.insert("term",term.clone());terms.push(Value::Object(occurrence))?;}
-   count=increment(count,1)?;total=increment(total,tokens.len() as u64)?;drop(charge);
-  }
-  Ok(())
-  }.await;
+        let mut docs = documents(
+            &reader,
+            nominees,
+            DocumentProjection::AnalyzedSource,
+            &budget,
+        )?;
+        let lowered: Result<(), ModelError> = async {
+            while let Some(doc) = docs.next().await? {
+                let charge = budget.reserve(
+                    "lexical statistics document",
+                    serde_json::to_vec(&doc)
+                        .map_err(ModelError::codec)?
+                        .len()
+                        .saturating_mul(12),
+                )?;
+                let doc = object(doc)?;
+                let id = RecordId::from_value(
+                    doc.get("id")
+                        .cloned()
+                        .ok_or(ModelError::Schema("lexical document id"))?,
+                )
+                .map_err(ModelError::codec)?;
+                let text = string(&doc, "text")?;
+                let tokens = Vec::<String>::from_value(
+                    doc.get("tokens")
+                        .cloned()
+                        .ok_or(ModelError::Schema("lexical analyzed tokens"))?,
+                )
+                .map_err(ModelError::codec)?;
+                let mut frequencies = BTreeMap::<String, u64>::new();
+                for token in &tokens {
+                    let n = frequencies.entry(token.clone()).or_default();
+                    *n = increment(*n, 1)?;
+                }
+                let mut key = KeySink::new("native-lexical-document/v2;postings");
+                key.part(b"analyzer", &analyzer_identity().0);
+                key.part(b"text", text.as_bytes());
+                let token_id =
+                    crate::derivation::address(namespace, "lexical_document", &key.finish().0);
+                let mut token_row = row(token_id.clone());
+                token_row.insert("derivation", namespace.hex());
+                token_row.insert("length", tokens.len());
+                expected[0].push(Value::Object(token_row))?;
+                // One immutable posting per analyzed document and distinct term; neither
+                // selected scope nor source occurrence multiplies these shared rows.
+                for (term, tf) in &frequencies {
+                    expected[4].push(posting(namespace, &token_id, term, *tf)?)?;
+                }
+                let mut member_key = KeySink::new("native-lexical-member/v1");
+                member_key.part(b"scope", &scope.0);
+                member_key.part(b"family", &family.to_le_bytes());
+                member_key.part(
+                    b"document",
+                    &serde_json::to_vec(&id).map_err(ModelError::codec)?,
+                );
+                let mut member = row(crate::derivation::address(
+                    namespace,
+                    "lexical_member",
+                    &member_key.finish().0,
+                ));
+                member.insert("derivation", namespace.hex());
+                member.insert("scope", scope.hex());
+                member.insert("family", family);
+                member.insert("source", id.clone());
+                member.insert("in", token_id);
+                member.insert("out", corpus_id(scope, family));
+                expected[1].push(Value::Object(member))?;
+                for term in frequencies.keys() {
+                    let mut occurrence = row(RecordId::new(
+                        "lexical_sort",
+                        format!(
+                            "{}:{}",
+                            hex::encode(term.as_bytes()),
+                            hex::encode(serde_json::to_vec(&id).map_err(ModelError::codec)?)
+                        ),
+                    ));
+                    occurrence.insert("term", term.clone());
+                    terms.push(Value::Object(occurrence))?;
+                }
+                count = increment(count, 1)?;
+                total = increment(total, tokens.len() as u64)?;
+                drop(charge);
+            }
+            Ok(())
+        }
+        .await;
         let mut terminal = Completion::default();
         terminal.step(
             "lexical analyzed-document stream drainage",
@@ -359,6 +464,60 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
         budget,
     })
 }
+fn posting(
+    namespace: ContentHash,
+    document: &RecordId,
+    term: &str,
+    tf: u64,
+) -> Result<Value, ModelError> {
+    let mut key = KeySink::new("native-lexical-posting/v1");
+    key.part(
+        b"document",
+        &serde_json::to_vec(document).map_err(ModelError::codec)?,
+    );
+    key.part(b"term", term.as_bytes());
+    let mut result = row(crate::derivation::address(
+        namespace,
+        "lexical_posting",
+        &key.finish().0,
+    ));
+    result.insert("derivation", namespace.hex());
+    result.insert("in", document.clone());
+    result.insert("term", term.to_owned());
+    result.insert("tf", value(tf)?);
+    Ok(Value::Object(result))
+}
+/// Candidate and term predicates are both compound-index dimensions. Shared by
+/// scoring and actual EXPLAIN controls so a different test query cannot qualify it.
+pub fn posting_selection_sql() -> &'static str {
+    "SELECT in,term,tf FROM lexical_posting WITH INDEX document_term WHERE in IN $token_documents AND term IN $query_terms ORDER BY in,term"
+}
+/// Exact selected-corpus BM25 over bounded candidate documents. The caller binds
+/// corpus_id, lexical_scope, family, query, and the distinct source document window.
+/// Physical postings alter access only; analyzer and scoring policy are unchanged.
+pub fn scoring_sql() -> String {
+    format!(
+        r#"RETURN {{
+ LET $corpus=(SELECT * FROM ONLY $corpus_id);
+ IF $corpus=NONE {{ THROW 'missing frozen lexical corpus'; }};
+ LET $query_terms=array::distinct(search::analyze('lctx_discovery',$query));
+ LET $df=object::from_entries((SELECT term,df FROM lexical_term WITH INDEX scoped_term WHERE scope=$lexical_scope AND family=$family AND term IN $query_terms).map(|$v|[$v.term,$v.df]));
+ LET $members=SELECT source,in,in.length AS length FROM lexical_member WITH INDEX scoped_document WHERE scope=$lexical_scope AND family=$family AND source IN $documents;
+ IF array::len($members)!=array::len($documents) {{ THROW 'missing frozen lexical document'; }};
+ LET $token_documents=array::distinct($members.in);
+ LET $lengths=object::from_entries($members.map(|$member| [<string>$member.in,$member.length]));
+ LET $postings=({});
+ // Matched terms are ordered as the previous BTreeMap-backed term arrays,
+ // preserving floating-point accumulation order as well as scoring policy.
+ // Aggregate the matched posting stream once. Source documents with equal
+ // analyzed content reuse its score; no document rescans the whole posting set.
+ LET $scores=object::from_entries((SELECT in,math::sum(math::max([0.0,math::ln(($corpus.documents-($df[term] ?? 0)+0.5)/(($df[term] ?? 0)+0.5))]) * tf * 2.5 / (tf+1.5*(0.25+0.75*$lengths[<string>in]/((<float>$corpus.total_length/$corpus.documents))))) AS score FROM $postings GROUP BY in).map(|$v|[<string>$v.in,$v.score]));
+ LET $ranked=$members.map(|$member| {{ id:$member.source,score:$scores[<string>$member.in] }});
+ RETURN SELECT id,score FROM $ranked WHERE score!=NONE;
+}};"#,
+        posting_selection_sql()
+    )
+}
 fn emit_term(
     rows: &mut SortedRows,
     namespace: ContentHash,
@@ -394,9 +553,18 @@ async fn check(loader: &Loader, expected: &Expected) -> Result<(), ModelError> {
             expected.rows.iter().cloned(),
             &expected.budget,
             || {
-                if index == 0 {
+                if index == 0 || index == 4 {
                     let nominees = reader.stream_prepared(PreparedQuery::new(vars, vec![], vec!["SELECT in FROM lexical_member WITH INDEX scoped_document WHERE scope=$scope ORDER BY id".into()])?)?;
-                    documents(&reader, nominees, false, &expected.budget)
+                    documents(
+                        &reader,
+                        nominees,
+                        if index == 0 {
+                            DocumentProjection::StoredDocument
+                        } else {
+                            DocumentProjection::Postings
+                        },
+                        &expected.budget,
+                    )
                 } else {
                     let scope_index = match *table {
                         "lexical_member" => "scoped_document",
@@ -447,7 +615,7 @@ pub(crate) async fn materialize_prepared(loader: &Loader) -> Result<Expected, Mo
         .budget
         .reserve("lexical statistics write window", 0)?;
     // Membership retention links require both immutable endpoints to exist.
-    for index in [0usize, 3, 2, 1] {
+    for index in [0usize, 4, 3, 2, 1] {
         let table = TABLES[index];
         let mut batch = Vec::new();
         let mut bytes = 0usize;
@@ -516,6 +684,80 @@ pub(crate) async fn reconcile_prepared(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn postings_are_shared_by_document_and_term_and_preserve_exact_frequency() {
+        let namespace = ContentHash::of(b"one realization");
+        let document = RecordId::new("lexical_document", "one");
+        let first = posting(namespace, &document, "needle", 3).unwrap();
+        assert_eq!(first, posting(namespace, &document, "needle", 3).unwrap());
+        let changed = posting(namespace, &document, "needle", 4).unwrap();
+        assert_eq!(
+            first.as_object().unwrap().get("id"),
+            changed.as_object().unwrap().get("id")
+        );
+        assert_ne!(
+            first, changed,
+            "immutable equality detects changed term frequency"
+        );
+        assert_ne!(
+            first.as_object().unwrap().get("id"),
+            posting(namespace, &document, "other", 3)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("id")
+        );
+        assert_ne!(
+            first.as_object().unwrap().get("id"),
+            posting(
+                namespace,
+                &RecordId::new("lexical_document", "two"),
+                "needle",
+                3
+            )
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("id")
+        );
+        assert_eq!(
+            first.as_object().unwrap().get("tf"),
+            Some(&value(3u64).unwrap())
+        );
+    }
+    #[test]
+    fn repeated_postings_coalesce_but_changed_frequency_refuses_without_leaking_spill_owners() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let namespace = ContentHash::of(b"one realization");
+        let document = RecordId::new("lexical_document", "one");
+        {
+            let mut rows = SortedRows::with_budget(&budget).unwrap();
+            rows.push(posting(namespace, &document, "needle", 3).unwrap())
+                .unwrap();
+            rows.push(posting(namespace, &document, "needle", 3).unwrap())
+                .unwrap();
+            let mut rows = rows.finish().unwrap();
+            assert!(rows.next_row().unwrap().is_some());
+            assert!(rows.next_row().unwrap().is_none());
+        }
+        assert_eq!(budget.reserved(), 0);
+        {
+            let mut rows = SortedRows::with_budget(&budget).unwrap();
+            rows.push(posting(namespace, &document, "needle", 3).unwrap())
+                .unwrap();
+            let changed = rows.push(posting(namespace, &document, "needle", 4).unwrap());
+            assert!(changed.is_err() || rows.finish().is_err());
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn posting_and_selected_corpus_scoring_programs_parse_at_the_pin() {
+        surrealdb_syn::parse(&definitions()).unwrap();
+        surrealdb_syn::parse(posting_selection_sql()).unwrap();
+        surrealdb_syn::parse(&scoring_sql()).unwrap();
+        assert!(!definitions().contains("terms.*"));
+        assert!(crate::derivation::FAMILIES.contains(&"lexical_posting"));
+    }
     #[test]
     fn retained_analyzer_policy_uses_compiled_native_declaration() {
         let actual = "DEFINE ANALYZER lctx_discovery TOKENIZERS class, camel FILTERS lowercase;";

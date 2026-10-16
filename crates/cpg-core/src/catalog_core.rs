@@ -245,35 +245,34 @@ pub async fn produce(
                 key.encode(&mut domain);
             }
             let domain = domain.finish();
-            let request = crate::catalog_products::request(&data, &output, domain, runtime)?;
-            let hit = match &request {
-                Some((request, _)) => crate::catalog_products::lookup(request, runtime).await?,
-                None => None,
-            };
+            let mut product_window =
+                crate::catalog_products::ProductWindow::new(&data, &output, domain, runtime)?;
+            let hit = product_window.lookup(runtime).await?;
             let reused = hit.is_some();
-            // Optional lookup metadata must not reduce the feasibility of fresh computation.
-            drop(request);
-            let (data, rows) = if let Some(rows) = hit {
-                (data, rows)
+            let (data, rows, mut product_window) = if let Some(rows) = hit {
+                (data, rows, product_window)
             } else {
                 let budget = runtime.budget().clone();
                 tokio::task::spawn_blocking(move || {
-                    let rows = build::build(&data, &budget)?;
-                    Ok::<_, ModelError>((data, rows))
+                    let rows = product_window.compute(|| build::build(&data, &budget))?;
+                    Ok::<_, ModelError>((data, rows, product_window))
                 })
                 .await
                 .map_err(ModelError::codec)??
             };
             // Bind only semantic payload rows from the cache. The current invocation frame
             // and all exact receipts above belong to this attempt and are never replayed.
-            let links = build::invocation_links(&data, &rows, &invocations, runtime.budget())?;
-            if !reused
-                && let Some((request, _hold)) =
-                    crate::catalog_products::request(&data, &output, domain, runtime)?
-            {
-                crate::catalog_products::retain(&request, &rows, runtime).await?;
-            }
+            let links = product_window.compute(|| {
+                build::invocation_links(&data, &rows, &invocations, runtime.budget())
+            })?;
+            // The request and payload are owned; current links were the last input borrower.
             drop(data);
+            product_window.prepare_emission(&rows, &links, runtime.budget())?;
+            if !reused {
+                product_window.retain(&rows, runtime).await?;
+            } else {
+                drop(product_window);
+            }
             emit_rows(&rows, &output).await?;
             for link in links.iter() {
                 output.push(link.clone()).await?;

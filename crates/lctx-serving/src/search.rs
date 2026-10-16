@@ -662,22 +662,8 @@ pub async fn lexical_scoped<Context>(
     // Native indexed table nomination precedes exact membership. Frozen publication
     // statistics alone determine scores, including zero-IDF lexical matches. Exact
     // equality nominations remain independently eligible at score zero.
-    let sql = r#"RETURN {
- LET $corpus=(SELECT * FROM ONLY $corpus_id);
- IF $corpus=NONE { THROW 'missing frozen lexical corpus'; };
- LET $query_terms=array::distinct(search::analyze('lctx_discovery',$query));
- LET $df=object::from_entries((SELECT term,df FROM lexical_term WHERE scope=$lexical_scope AND family=$family AND term IN $query_terms).map(|$v|[$v.term,$v.df]));
- LET $score_document=|$document| {
-  LET $member=(SELECT * FROM lexical_member WHERE scope=$lexical_scope AND family=$family AND source=$document LIMIT 1)[0];
-  IF $member=NONE { THROW 'missing frozen lexical document'; };
-  LET $terms=$member.in.terms.filter(|$t|$t.term IN $query_terms);
-  IF array::len($terms)=0 { RETURN NONE; };
-  RETURN math::sum($terms.map(|$t| math::max([0.0,math::ln(($corpus.documents-($df[$t.term] ?? 0)+0.5)/(($df[$t.term] ?? 0)+0.5))]) * $t.tf * 2.5 / ($t.tf+1.5*(0.25+0.75*$t.dl/((<float>$corpus.total_length/$corpus.documents))))));
- };
- LET $ranked=SELECT id,$score_document(id) AS score FROM $documents;
- RETURN SELECT id,score FROM $ranked WHERE score!=NONE;
-};"#;
-    let scores = score_documents(reader, documents, &vars, sql, budget).await?;
+    let sql = lctx_native::lexical_stats::scoring_sql();
+    let scores = score_documents(reader, documents, &vars, &sql, budget).await?;
     let rows =
         rank_occurrences(occurrences, &scores, Some(query), member_mode, cap, budget).await?;
     let binding = ChannelBinding::lexical(policy, query)?;

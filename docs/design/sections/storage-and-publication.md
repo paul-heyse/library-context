@@ -458,6 +458,17 @@ mechanisms have independent scoped review acceptance; the coordinator owns uncom
 
 ### §6.2 Readers
 
+**Implemented source / focused acceptance pending, 2026-10-15 (ADR-0174).** Private selector handles
+share charged live mappings or protected installed descriptor backing; public flat codec1/semantic-v4
+vectors remain. Independent reference admission lazily prepares each required original input once as
+schema-checked Arrow IPC under the existing spill/resource owner. Full-payload null-sensitive pairwise
+checks and reusable exact target ID/subtype projections consume local IPC. Original current ownership,
+empty/applicability checks, physical EOF and failure-atomic memo commit remain independently required.
+No prepared file or metadata descriptor grants completed authority. The efficiency coordinator owns
+selected functional evidence and remaining enclosing qualification.
+
+> Decision: ADR-0174
+
 **Implemented source / focused acceptance in progress, 2026-10-13.** Retained native attachment holds expected
 physical record bytes and incarnation after receiver preflight. An independently necessary boundary
 binds exact contributor/dependency closure and membership realization; each logical selector within

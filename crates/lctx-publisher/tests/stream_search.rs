@@ -224,6 +224,7 @@ audit_controls! {
     streamed_lexical_corpus_corruption: Lexical("lexical_corpus"),
     streamed_lexical_term_corruption: Lexical("lexical_term"),
     streamed_lexical_document_corruption: Lexical("lexical_document"),
+    streamed_lexical_posting_corruption: Lexical("lexical_posting"),
     streamed_lexical_member_corruption: Lexical("lexical_member"),
     streamed_api_options_corruption: Physical("search_api_options"),
     streamed_documentation_deployment_corruption: Physical("search_documentation_deployment"),
@@ -842,6 +843,7 @@ async fn streamed_control(target: AuditTarget) {
         ("lexical_corpus", "documents=documents+1"),
         ("lexical_term", "df=df+1"),
         ("lexical_document", "length=length+1"),
+        ("lexical_posting", "tf=tf+1"),
         ("lexical_member", "family=99"),
     ] {
         if !matches!(target, AuditTarget::Lexical(selected) if selected == table) {
@@ -853,6 +855,8 @@ async fn streamed_control(target: AuditTarget) {
         bind.insert("scope", scope.hex());
         let predicate = if table == "lexical_document" {
             "id IN (SELECT VALUE in FROM lexical_member WHERE scope=$scope)"
+        } else if table == "lexical_posting" {
+            "in IN (SELECT VALUE in FROM lexical_member WHERE scope=$scope)"
         } else {
             "scope=$scope"
         };

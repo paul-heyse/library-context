@@ -695,6 +695,7 @@ mod tests {
             "compiler_attempt",
             "entity_anchor",
             "lexical_document",
+            "lexical_posting",
         ] {
             assert!(
                 table_codec(excluded).is_err(),

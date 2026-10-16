@@ -205,6 +205,7 @@ fn validate_derived_row(row: &Value) -> Result<(), ModelError> {
             | "lex_occurs"
             | "vec_occurs"
             | "lexical_document"
+            | "lexical_posting"
             | "lexical_member"
             | "lexical_term"
             | "lexical_corpus"
@@ -682,6 +683,7 @@ mod tests {
             "vector",
             "lex_occurs",
             "lexical_document",
+            "lexical_posting",
             "lexical_corpus",
         ] {
             validate_derived_row(&row(table)).unwrap();

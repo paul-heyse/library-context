@@ -881,14 +881,17 @@ cannot extend this local wait. Global failure propagation, final content freeze,
 seal and abandonment retain their existing drainage/certainty contracts; local completion
 does not grant publication authority. The native-efficiency companion owns migration and acceptance.
 
-**Implemented / focused-Tested, 2026-10-14; full composition acceptance open.** A store-earned singleton result
-retains its exact descriptor, source and resource ownership. Required producer completion and local
-optional-retention preparation precede the Workspace visibility gate. Only a fully local, settled
-reservation refusal can decline capture; replay reads, pins and all native retention work remain
-mandatory. The gate rechecks current visibility, earns actual affected contributor unions, prepares
-host bookkeeping before binding, then hands off all affected outputs coherently. Eager visibility and
-exact frozen prefixes remain unchanged. The [Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-owns focused evidence and deferred assembled acceptance.
+**Implemented source / focused acceptance pending, 2026-10-15 (ADR-0174).** A store-earned singleton
+retains its exact descriptor, source and resource ownership. Required completion and genuine local
+optional-retention preparation precede private per-relation composition. Exact unions and charged
+host carriers prepare outside visibility exclusion. Under the gate, recheck cancellation, duplicate
+owners and affected predecessors; reprepare only changed relations, then bind and hand off all outputs
+coherently. Native errors/Unknown remain terminal, never stale misses. Eager visibility, exact old ports,
+Facts/Normalized barriers and final admission remain. Complete mutable-capture checks stay; see the
+[efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+for CN06/CN07/CC00–CC03 decisions, actual evidence and the separate enclosing acceptance boundary.
+
+> Decision: ADR-0174
 
 Completed relations and batch readers retain the execution owner and signal without retaining
 Workspace or its relation registry. Useful borrowers survive Workspace/source drop; explicit

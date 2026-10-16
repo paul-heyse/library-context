@@ -34,7 +34,9 @@ use lctx_model::domain::{
     *,
 };
 use production::production_bytes;
-pub use production::{CompletedProduction, PreparedRetention, RetentionPreparation};
+pub use production::{
+    CompletedProduction, PreparedProductionView, PreparedRetention, RetentionPreparation,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -225,7 +227,7 @@ pub struct NativeCompilerStore {
     endpoint: Option<String>,
     specifications: Mutex<BTreeMap<ContentHash, RegisteredContribution>>,
     known_views: Mutex<BTreeMap<ContentHash, CompletedView>>,
-    view_mappings: Mutex<BTreeMap<ContentHash, RetainedViewMappings>>,
+    view_mappings: Mutex<BTreeMap<ContentHash, SelectedViewMappings>>,
     installed_views:
         Mutex<BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>>,
     view_preparations: Mutex<BTreeMap<ContentHash, ViewPreparation>>,
@@ -246,7 +248,38 @@ pub struct NativeCompilerStore {
 }
 struct RetainedViewMappings {
     mappings: Vec<lctx_native::installed_view::ContributorRealization>,
-    _charge: Arc<Box<dyn Reservation>>,
+    _charge: d::charged::StateCharge,
+}
+/// Private metadata handles retain the original owner; sharing never earns authority.
+#[derive(Clone)]
+enum SelectedViewMappings {
+    Live(Arc<RetainedViewMappings>),
+    Held(Arc<lctx_native::installed_view::HeldInstalledView>),
+    Physical {
+        selection: Arc<lctx_native::installed_view::SelectedViewDescriptor>,
+        _owner: Arc<lctx_native::completed_state::NativeCompletedState>,
+    },
+    Published {
+        selection: Arc<lctx_native::installed_view::SelectedViewDescriptor>,
+        _owner: lctx_native::completed_state::PublishedCompletedState,
+    },
+}
+impl SelectedViewMappings {
+    fn as_slice(&self) -> &[lctx_native::installed_view::ContributorRealization] {
+        match self {
+            Self::Live(owner) => &owner.mappings,
+            Self::Held(owner) => &owner.completion().mappings,
+            Self::Physical { selection, .. } | Self::Published { selection, .. } => {
+                &selection.mappings
+            }
+        }
+    }
+}
+impl std::ops::Deref for SelectedViewMappings {
+    type Target = [lctx_native::installed_view::ContributorRealization];
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
 }
 struct RootInstallationGate {
     gate: Arc<tokio::sync::Mutex<()>>,
@@ -2107,7 +2140,7 @@ impl NativeCompilerStore {
             )
             .await?,
         );
-        self.remember_view_mapping(view, &mappings, budget)?;
+        self.remember_selected_view_mapping(view, &mappings)?;
         self.remember_view(view)?;
         let mut installed = self
             .installed_views
@@ -2291,7 +2324,7 @@ impl NativeCompilerStore {
                     .collect::<Vec<_>>();
                 self.declare_view_window(&requested, budget).await?;
                 for (view, (mappings, _)) in window.iter().zip(&mappings) {
-                    self.remember_view_mapping(view, mappings, budget)?;
+                    self.remember_selected_view_mapping(view, mappings)?;
                     self.remember_view(view)?;
                 }
             }
@@ -2347,15 +2380,16 @@ impl NativeCompilerStore {
             .lock()
             .map_err(|_| ModelError::Conflict("native per-view mapping owner"))?;
         if let Some(previous) = known.get(&view.identity) {
-            if !previous.mappings.iter().eq(rows()) {
+            if !previous.as_slice().iter().eq(rows()) {
                 return Err(ModelError::Conflict(
                     "exact per-view physical mapping changed",
                 ));
             }
         } else {
             let count = rows().count();
-            let charge = budget.reserve(
-                "retained exact per-view mappings",
+            let mut charge =
+                d::charged::StateCharge::new(budget, "retained exact per-view mappings");
+            charge.grow(
                 count
                     .saturating_mul(std::mem::size_of::<
                         lctx_native::installed_view::ContributorRealization,
@@ -2366,10 +2400,10 @@ impl NativeCompilerStore {
             selected.extend(rows().cloned());
             known.insert(
                 view.identity,
-                RetainedViewMappings {
+                SelectedViewMappings::Live(Arc::new(RetainedViewMappings {
                     mappings: selected,
-                    _charge: Arc::new(charge),
-                },
+                    _charge: charge,
+                })),
             );
         }
         Ok(())
@@ -2473,13 +2507,7 @@ impl NativeCompilerStore {
         self: &Arc<Self>,
         view: &CompletedView,
         budget: &ResourceBudget,
-    ) -> Result<
-        (
-            Vec<lctx_native::installed_view::ContributorRealization>,
-            d::charged::StateCharge,
-        ),
-        ModelError,
-    > {
+    ) -> Result<(SelectedViewMappings, d::charged::StateCharge), ModelError> {
         let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
         let reader = if let Some(flag) = self.read_cancellation()? {
             reader.with_read_cancellation(flag)
@@ -2510,13 +2538,7 @@ impl NativeCompilerStore {
             ),
         >,
         allow_cached_caps: bool,
-    ) -> Result<
-        (
-            Vec<lctx_native::installed_view::ContributorRealization>,
-            d::charged::StateCharge,
-        ),
-        ModelError,
-    > {
+    ) -> Result<(SelectedViewMappings, d::charged::StateCharge), ModelError> {
         use lctx_native::installed_view::ContributorRealization;
         let mut charge =
             d::charged::StateCharge::new(budget, "selected exact live dependency mappings");
@@ -2533,24 +2555,10 @@ impl NativeCompilerStore {
                 ));
             }
             held.ensure_borrowed_current(reader, budget).await?;
-            charge.grow(
-                held.completion()
-                    .mappings
-                    .len()
-                    .saturating_mul(std::mem::size_of::<ContributorRealization>()),
-            )?;
-            // The root owns its complete chosen dependency incidence. A different
-            // root may independently select equivalent copies of those same views.
-            return Ok((held.completion().mappings.clone(), charge));
+            // Retain the actual cap, including its already admitted descriptor.
+            return Ok((SelectedViewMappings::Held(held), charge));
         }
-        if let Some(mappings) = self.with_selected_mappings(view, |mappings| {
-            charge.grow(
-                mappings
-                    .len()
-                    .saturating_mul(std::mem::size_of::<ContributorRealization>()),
-            )?;
-            Ok(mappings.to_vec())
-        })? {
+        if let Some(mappings) = self.retained_selected_mappings(view)? {
             return Ok((mappings, charge));
         }
         let view_bytes = |view: &CompletedView| {
@@ -2648,7 +2656,7 @@ impl NativeCompilerStore {
                         .map_err(|_| ModelError::Conflict("native exact view mappings"))?
                         .get(&selected.identity)
                         .and_then(|entry| {
-                            entry.mappings.iter().find(|row| {
+                            entry.as_slice().iter().find(|row| {
                                 row.view == selected.identity && row.logical == *logical
                             })
                         })
@@ -2793,7 +2801,15 @@ impl NativeCompilerStore {
                 .len()
                 .saturating_mul(std::mem::size_of::<ContributorRealization>()),
         )?;
-        Ok((mappings.into_values().collect(), charge))
+        charge.grow(std::mem::size_of::<RetainedViewMappings>().saturating_add(256))?;
+        let retained = SelectedViewMappings::Live(Arc::new(RetainedViewMappings {
+            mappings: mappings.into_values().collect(),
+            _charge: charge,
+        }));
+        Ok((
+            retained,
+            d::charged::StateCharge::new(budget, "borrowed selected mappings"),
+        ))
     }
 
     /// Close durable canonical mutation and independently earn the exact physical
@@ -2850,7 +2866,7 @@ impl NativeCompilerStore {
                         false,
                     )
                     .await?;
-                for mapping in &mappings {
+                for mapping in mappings.as_slice() {
                     if mapping.view != view.identity && !selections.contains_key(&mapping.view) {
                         let known = self.known_views.lock().map_err(|_| {
                             ModelError::Conflict("physical dependency view inventory")
@@ -2871,7 +2887,17 @@ impl NativeCompilerStore {
                 mapping_charges.push(charge);
                 selections.insert(
                     view.identity,
-                    lctx_native::completed_state::ViewSelection { view, mappings },
+                    lctx_native::completed_state::ViewSelection {
+                        view,
+                        mappings: {
+                            selection_charge.grow(mappings.len().saturating_mul(
+                                std::mem::size_of::<
+                                    lctx_native::installed_view::ContributorRealization,
+                                >(),
+                            ))?;
+                            mappings.as_slice().to_vec()
+                        },
+                    },
                 );
             }
             Ok(())
@@ -3580,36 +3606,8 @@ impl NativeCompilerStore {
                     }
                     sources.push(self.receiver_root_under_gate(held, budget).await?);
                 }
-                // Reserve each receiver mapping before the native effect. Existing
-                // equivalent selections keep their own exact copies independently.
-                let mut pending_mappings = Vec::with_capacity(sources.len());
-                for source in &sources {
-                    let installed = source.completion();
-                    let exists = self
-                        .view_mappings
-                        .lock()
-                        .map_err(|_| ModelError::Conflict("receiver exact mappings"))?
-                        .contains_key(&installed.view.identity);
-                    if !exists {
-                        let rows = installed.mappings.iter();
-                        let count = rows.clone().count();
-                        let charge = budget.reserve(
-                            "retained exact per-view mappings",
-                            count
-                                .saturating_mul(std::mem::size_of::<
-                                    lctx_native::installed_view::ContributorRealization,
-                                >())
-                                .saturating_add(256),
-                        )?;
-                        let mut selected = Vec::with_capacity(count);
-                        selected.extend(rows.cloned());
-                        pending_mappings.push((
-                            installed.view.identity,
-                            selected,
-                            Arc::new(charge),
-                        ));
-                    }
-                }
+                // Installed receiver caps below retain the exact immutable descriptor.
+                // Do not duplicate that same payload into the mutable mapping registry.
                 let logical = descriptor.identity()?;
                 let registered = RegisteredContribution {
                     spec: descriptor.spec.clone(),
@@ -3652,18 +3650,6 @@ impl NativeCompilerStore {
                 )
                 .await?;
                 committed.store(true, Ordering::Release);
-                for (view, rows, charge) in pending_mappings {
-                    self.view_mappings
-                        .lock()
-                        .map_err(|_| ModelError::Conflict("receiver exact mappings"))?
-                        .insert(
-                            view,
-                            RetainedViewMappings {
-                                mappings: rows,
-                                _charge: charge,
-                            },
-                        );
-                }
                 for attached in attached {
                     let installed = attached.completion();
                     self.remember_view(&installed.view)?;
@@ -6538,6 +6524,14 @@ impl NativeCompilerStore {
             &[lctx_native::installed_view::ContributorRealization],
         ) -> Result<T, ModelError>,
     ) -> Result<Option<T>, ModelError> {
+        self.retained_selected_mappings(view)?
+            .map(|mappings| use_mappings(mappings.as_slice()))
+            .transpose()
+    }
+    fn retained_selected_mappings(
+        &self,
+        view: &CompletedView,
+    ) -> Result<Option<SelectedViewMappings>, ModelError> {
         let physical = self
             .physical_completed
             .lock()
@@ -6548,7 +6542,11 @@ impl NativeCompilerStore {
             if installed.view != *view {
                 return Err(ModelError::Conflict("physical selected mapping descriptor"));
             }
-            return use_mappings(&installed.mappings).map(Some);
+            let selection = installed.selection.clone();
+            return Ok(Some(SelectedViewMappings::Physical {
+                selection,
+                _owner: owner,
+            }));
         }
         let published = self
             .published_completion
@@ -6562,7 +6560,11 @@ impl NativeCompilerStore {
                     "published selected mapping descriptor",
                 ));
             }
-            return use_mappings(&installed.mappings).map(Some);
+            let selection = installed.selection.clone();
+            return Ok(Some(SelectedViewMappings::Published {
+                selection,
+                _owner: owner,
+            }));
         }
         let held = self
             .installed_views
@@ -6574,15 +6576,61 @@ impl NativeCompilerStore {
             if owner.completion().view != *view {
                 return Err(ModelError::Conflict("held selected mapping descriptor"));
             }
-            return use_mappings(&owner.completion().mappings).map(Some);
+            return Ok(Some(SelectedViewMappings::Held(owner)));
         }
-        let live = self
+        Ok(self
             .view_mappings
             .lock()
-            .map_err(|_| ModelError::Conflict("live selected mapping owner"))?;
-        live.get(&view.identity)
-            .map(|entry| use_mappings(&entry.mappings))
-            .transpose()
+            .map_err(|_| ModelError::Conflict("live selected mapping owner"))?
+            .get(&view.identity)
+            .cloned())
+    }
+    fn remember_selected_view_mapping(
+        &self,
+        view: &CompletedView,
+        mappings: &SelectedViewMappings,
+    ) -> Result<(), ModelError> {
+        // Preserve root-qualified order and conflict checks while retaining the existing
+        // admitted immutable allocation instead of copying it into a second registry Vec.
+        if mappings
+            .windows(2)
+            .any(|pair| (pair[0].view, pair[0].logical) >= (pair[1].view, pair[1].logical))
+            || view.contributions.iter().any(|logical| {
+                mappings
+                    .binary_search_by_key(&(view.identity, *logical), |mapping| {
+                        (mapping.view, mapping.logical)
+                    })
+                    .is_err()
+            })
+        {
+            return Err(ModelError::Conflict(
+                "exact per-view mapping order/root inventory",
+            ));
+        }
+        if let Some(previous) = self.retained_selected_mappings(view)? {
+            if previous.as_slice() != mappings.as_slice() {
+                return Err(ModelError::Conflict(
+                    "exact per-view physical mapping changed",
+                ));
+            }
+            return Ok(());
+        }
+        let mut registry = self
+            .view_mappings
+            .lock()
+            .map_err(|_| ModelError::Conflict("native per-view mapping owner"))?;
+        if let Some(previous) = registry.get(&view.identity) {
+            if previous.as_slice() != mappings.as_slice() {
+                return Err(ModelError::Conflict(
+                    "exact per-view physical mapping changed",
+                ));
+            }
+        } else {
+            // Registry node/header accounting is carried by the shared payload allocation.
+            // Existing selected preparation includes this fixed allowance.
+            registry.insert(view.identity, mappings.clone());
+        }
+        Ok(())
     }
     fn view_owners(&self, view: &CompletedView) -> Result<Vec<ContentHash>, ModelError> {
         if let Some(mut owners) = self.with_selected_mappings(view, |mappings| {
@@ -10443,10 +10491,10 @@ mod completion_tests {
             let mut terminal=d::completion::Completion::default();terminal.step("retained incoming record reader close",reader.close().await);let incoming=d::completion::complete(incoming,terminal)?.ok_or(ModelError::Conflict("retained incoming record missing"))?;
             let attached=lctx_native::installed_view::attach_live_views_retaining(receiver.client.clone(),receiver.attempt,std::slice::from_ref(&existing),vec![(incoming,selected[1].clone())],&budget).await?;
             assert_eq!(attached[0].completion().mappings,selected[0].completion().mappings,"actual attachment keeps receiver selectors while retaining original candidate bookkeeping");
-            let before=receiver.view_mappings.lock().map_err(|_|ModelError::Conflict("retained test mapping"))?.get(&existing.completion().view.identity).map(|row|row.mappings.clone()).unwrap();
+            let before=receiver.view_mappings.lock().map_err(|_|ModelError::Conflict("retained test mapping"))?.get(&existing.completion().view.identity).map(|row|row.as_slice().to_vec()).unwrap();
             let refused=receiver.receiver_root_under_gate(selected[2].clone(),&budget).await;
             assert!(matches!(refused,Err(ModelError::Conflict("receiver retained root eligibility collision"))),"same descriptor with absent local aliases must refuse substitution");
-            let after=receiver.view_mappings.lock().map_err(|_|ModelError::Conflict("retained test mapping"))?.get(&existing.completion().view.identity).map(|row|row.mappings.clone()).unwrap();assert_eq!(before,after);
+            let after=receiver.view_mappings.lock().map_err(|_|ModelError::Conflict("retained test mapping"))?.get(&existing.completion().view.identity).map(|row|row.as_slice().to_vec()).unwrap();assert_eq!(before,after);
             assert!(Arc::ptr_eq(receiver.installed_views.lock().map_err(|_|ModelError::Conflict("retained test protected root"))?.get(&existing.completion().view.identity).unwrap(),&selected[0]));
             Ok::<_,ModelError>(())
         }.await;
@@ -10491,12 +10539,13 @@ mod completion_tests {
             .unwrap();
         let known = store.view_mappings.lock().unwrap();
         assert_eq!(
-            known[&dependency.identity].mappings,
+            known[&dependency.identity].as_slice(),
             vec![chosen],
             "the receiver preserves its own exact equivalent dependency selection"
         );
         assert_eq!(
-            known[&root.identity].mappings, source_closure,
+            known[&root.identity].as_slice(),
+            source_closure,
             "root retains its own full closure without replacing the dependency root selection"
         );
         assert!(
@@ -10504,7 +10553,30 @@ mod completion_tests {
             "mapping allocations retain their budget owner"
         );
         drop(known);
+        let retained_before = budget.reserved();
+        let first = store.retained_selected_mappings(&root).unwrap().unwrap();
+        let second = store.retained_selected_mappings(&root).unwrap().unwrap();
+        let (SelectedViewMappings::Live(first_owner), SelectedViewMappings::Live(second_owner)) =
+            (&first, &second)
+        else {
+            panic!("live mapping owners");
+        };
+        assert!(
+            Arc::ptr_eq(first_owner, second_owner),
+            "private selection copies only the already admitted Arc handle"
+        );
+        assert_eq!(
+            budget.reserved(),
+            retained_before,
+            "cloning a handle allocates no descriptor or reservation"
+        );
         store.view_mappings.lock().unwrap().clear();
+        assert!(
+            budget.reserved() > 0,
+            "last asynchronous handle retains the exact payload grant"
+        );
+        drop(first);
+        drop(second);
         assert_eq!(budget.reserved(), 0);
     }
     #[test]

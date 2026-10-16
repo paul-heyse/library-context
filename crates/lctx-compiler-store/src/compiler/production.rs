@@ -53,6 +53,26 @@ impl CompletedProduction {
     }
 }
 
+/// Private exact composition over one captured predecessor. The original completed
+/// production and admitted backing survive preparation, rebase and host publication.
+/// This is not a new persisted selector or authority supplied by a caller.
+pub struct PreparedProductionView {
+    predecessor: Option<CompletedView>,
+    view: CompletedView,
+    _production: Arc<CompletedProduction>,
+    mappings: SelectedViewMappings,
+    _mapping_charge: d::charged::StateCharge,
+    _charge: Box<dyn Reservation>,
+}
+impl PreparedProductionView {
+    pub fn predecessor(&self) -> Option<&CompletedView> {
+        self.predecessor.as_ref()
+    }
+    pub fn view(&self) -> &CompletedView {
+        &self.view
+    }
+}
+
 /// A decline has no native request, reader, pin or mutation admission behind it.
 pub enum RetentionPreparation {
     Declined,
@@ -87,58 +107,101 @@ impl NativeCompilerStore {
         lease.finish_with(result).map(Arc::new)
     }
 
-    /// Compose against the latest visibility while its caller holds the visibility gate.
-    /// Singleton completion/private capture need not hold that gate.
-    pub async fn compose_production(
+    /// Prepare one exact immutable union without the host visibility gate. The
+    /// caller must compare its predecessor again under that gate before binding.
+    /// Failure remains terminal: submitted native work and Unknowns are never replayed.
+    pub async fn prepare_production_view(
         self: &Arc<Self>,
-        production: &CompletedProduction,
-        previous: &BTreeMap<String, CompletedView>,
+        production: Arc<CompletedProduction>,
+        relation: String,
+        previous: Option<CompletedView>,
         budget: &ResourceBudget,
-    ) -> Result<(BTreeMap<String, CompletedView>, Box<dyn Reservation>), ModelError> {
+    ) -> Result<PreparedProductionView, ModelError> {
         production.require(self, budget)?;
-        let lease = self.admit_mutation("compose completed producer visibility", true)?;
+        let singleton = production
+            .outputs
+            .get(&relation)
+            .ok_or(ModelError::Schema("completed production output relation"))?;
+        let lease = self.admit_mutation("prepare completed producer visibility", true)?;
         let result = lease
             .within(async {
+                let contributors_count = singleton
+                    .contributions
+                    .len()
+                    .saturating_add(previous.as_ref().map_or(0, |view| view.contributions.len()));
                 let charge = budget.reserve(
                     "composed production view backing",
-                    production
-                        .outputs
-                        .iter()
-                        .map(|(relation, singleton)| {
-                            let contributors = singleton.contributions.len().saturating_add(
-                                previous
-                                    .get(relation)
-                                    .map_or(0, |view| view.contributions.len()),
-                            );
-                            size_of::<CompletedView>()
-                                + 256
-                                + relation.len().saturating_mul(3)
-                                + contributors.saturating_mul(128)
-                        })
-                        .fold(0usize, usize::saturating_add),
+                    size_of::<PreparedProductionView>()
+                        + 512
+                        + relation.len().saturating_mul(4)
+                        + contributors_count.saturating_mul(192),
                 )?;
-                let mut views = BTreeMap::new();
-                for (relation, singleton) in &production.outputs {
-                    let mut contributors = singleton.contributions.clone();
-                    if let Some(prior) = previous.get(relation) {
-                        if prior.relation != *relation {
-                            return Err(ModelError::Conflict("previous completed view relation"));
-                        }
-                        self.registered_view(prior).await?;
-                        contributors.extend(prior.contributions.iter().copied());
+                let mut contributors = singleton.contributions.clone();
+                if let Some(prior) = &previous {
+                    if prior.relation != relation {
+                        return Err(ModelError::Conflict("previous completed view relation"));
                     }
-                    let view = if contributors == singleton.contributions {
-                        singleton.clone()
-                    } else {
-                        let candidate = CompletedView::new(relation.clone(), contributors, 0)?;
-                        let rows = self.count_completed_memberships(&candidate, budget).await?;
-                        CompletedView::new(candidate.relation, candidate.contributions, rows)?
-                    };
-                    views.insert(relation.clone(), view);
+                    self.registered_view(prior).await?;
+                    contributors.extend(prior.contributions.iter().copied());
                 }
-                self.declare_completed_views(&views.values().collect::<Vec<_>>(), budget)
+                let view = if contributors == singleton.contributions {
+                    singleton.clone()
+                } else {
+                    let candidate = CompletedView::new(relation, contributors, 0)?;
+                    let rows = self.count_completed_memberships(&candidate, budget).await?;
+                    CompletedView::new(candidate.relation, candidate.contributions, rows)?
+                };
+                let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+                let reader = if let Some(flag) = self.read_cancellation()? {
+                    reader.with_read_cancellation(flag)
+                } else {
+                    reader
+                };
+                let mut observed = BTreeMap::new();
+                let result = self
+                    .selected_view_mappings_read(&reader, &view, budget, &mut observed, false)
+                    .await;
+                let mut terminal = d::completion::Completion::default();
+                terminal.step(
+                    "private composition mapping reader close",
+                    reader.close().await,
+                );
+                let (mappings, mapping_charge) = d::completion::complete(result, terminal)?;
+                Ok((view, mappings, mapping_charge, charge))
+            })
+            .await;
+        let (view, mappings, mapping_charge, charge) = lease.finish_with(result)?;
+        Ok(PreparedProductionView {
+            predecessor: previous,
+            view,
+            _production: production,
+            mappings,
+            _mapping_charge: mapping_charge,
+            _charge: charge,
+        })
+    }
+
+    /// Publish only after the host has rechecked the exact predecessor. Private
+    /// mapping discovery has no persistent declaration/hold/registry side effects.
+    pub async fn publish_prepared_production_view(
+        self: &Arc<Self>,
+        prepared: PreparedProductionView,
+        binding: CompletedBinding,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        prepared._production.require(self, budget)?;
+        if binding.view != prepared.view {
+            return Err(ModelError::Conflict("prepared production binding view"));
+        }
+        let lease = self.admit_mutation("publish prepared producer visibility", true)?;
+        let result = lease
+            .within(async {
+                let _gate = self.root_gates([prepared.view.identity], budget).await?;
+                self.declare_view_window(&[(&prepared.view, prepared.mappings.as_slice())], budget)
                     .await?;
-                Ok((views, charge))
+                self.remember_selected_view_mapping(&prepared.view, &prepared.mappings)?;
+                self.remember_view(&prepared.view)?;
+                self.bind_inner(binding).await
             })
             .await;
         lease.finish_with(result)
@@ -285,7 +348,7 @@ impl NativeCompilerStore {
                             false,
                         )
                         .await?;
-                    for mapping in &mappings {
+                    for mapping in mappings.as_slice() {
                         if mapping.view != view.identity && !selections.contains_key(&mapping.view)
                         {
                             let dependency = {
@@ -307,10 +370,15 @@ impl NativeCompilerStore {
                         }
                     }
                     mapping_charges.push(mapping_charge);
-                    charge.grow(2048)?;
+                    charge.grow(2048usize.saturating_add(mappings.len().saturating_mul(
+                        size_of::<lctx_native::installed_view::ContributorRealization>(),
+                    )))?;
                     selections.insert(
                         view.identity,
-                        lctx_native::completed_state::ViewSelection { view, mappings },
+                        lctx_native::completed_state::ViewSelection {
+                            view,
+                            mappings: mappings.as_slice().to_vec(),
+                        },
                     );
                 }
                 Ok(())

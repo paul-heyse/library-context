@@ -83,6 +83,7 @@ pub const FAMILIES: &[&str] = &[
     "lex_occurs",
     "vec_occurs",
     "lexical_document",
+    "lexical_posting",
     "lexical_member",
     "lexical_term",
     "lexical_corpus",

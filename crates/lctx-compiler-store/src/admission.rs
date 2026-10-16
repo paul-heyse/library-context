@@ -1,4 +1,5 @@
 //! Independent native artifact admission. Compiler providers and captured filesystem inputs remain above.
+mod reference_preparation;
 mod uniform;
 pub use uniform::AdmittedUniformOwners;
 pub(crate) mod candidate;
@@ -2312,6 +2313,8 @@ impl AdmissionRuntime {
         let mut pending = PendingReferencePremises::new(self.budget());
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         let tables = inputs.reference_targets()?;
+        let mut prepared =
+            reference_preparation::PreparedReferenceTargets::new(self, session, owned);
         // A union of reference targets cannot hide conflicting nominal payloads.
         // Captured companions carry independently protected canonical rows; each
         // selected copy of their IDs must preserve every typed field as well.
@@ -2353,8 +2356,14 @@ impl AdmissionRuntime {
                 }
                 // Complete-empty authority needs no SQL preparation. Format only
                 // the comparison that will actually be planned and executed.
+                let left_local = prepared
+                    .input(*left_identity, left_relation, left_table)
+                    .await?;
+                let right_local = prepared
+                    .input(*right_identity, right_relation, right_table)
+                    .await?;
                 let Some(sql) =
-                    nominal_payload_conflict_sql(left_relation.schema(), left_table, right_table)
+                    nominal_payload_conflict_sql(left_relation.schema(), &left_local, &right_local)
                 else {
                     continue;
                 };
@@ -2362,7 +2371,7 @@ impl AdmissionRuntime {
                     owned.check_empty(self, session, left_identity).await?;
                     owned.check_empty(self, session, right_identity).await?;
                 }
-                let mut stream = crate::sql::query(session, &sql)
+                let mut stream = crate::sql::query(prepared.session(), &sql)
                     .await
                     .map_err(ModelError::codec)?
                     .execute_stream()
@@ -2457,14 +2466,12 @@ impl AdmissionRuntime {
                     // for old memo entries or facts staged earlier in this call.
                     continue;
                 }
-                let source_name = quote(source_table);
+                let source_local = prepared.input(*identity, relation, source_table).await?;
+                let source_name = quote(&source_local);
                 let field_name = quote(field.name());
                 let sql = if !targets.is_empty() {
-                    let target_tables = targets
-                        .iter()
-                        .map(|(_, (_, table))| format!("SELECT * FROM {}", quote(table)))
-                        .collect::<Vec<_>>()
-                        .join(" UNION ALL ");
+                    let target_table = prepared.family(&targets).await?;
+                    let target_tables = format!("SELECT * FROM {}", quote(&target_table));
                     format!(
                         "SELECT s.{field_name} FROM {source_name} s LEFT JOIN ({target_tables}) t ON s.{field_name}=t.id WHERE s.{field_name} IS NOT NULL AND (t.id IS NULL{subtype}) LIMIT 1"
                     )
@@ -2473,7 +2480,7 @@ impl AdmissionRuntime {
                         "SELECT {field_name} FROM {source_name} WHERE {field_name} IS NOT NULL LIMIT 1"
                     )
                 };
-                let mut stream = crate::sql::query(session, &sql)
+                let mut stream = crate::sql::query(prepared.session(), &sql)
                     .await
                     .map_err(ModelError::codec)?
                     .execute_stream()
@@ -2508,6 +2515,8 @@ impl AdmissionRuntime {
             owned.current(self, session).await?;
         }
         self.cancellation.check()?;
+        // Local file providers and their preparation charges end before later phases.
+        drop(prepared);
         pending.commit(&self.memo)?;
         Ok(())
     }
@@ -3256,6 +3265,373 @@ mod reference_empty_controls {
             native,
         )
         .unwrap()
+    }
+    #[derive(Debug)]
+    struct CountingReferenceTable {
+        inner: datafusion::datasource::MemTable,
+        scans: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    #[async_trait::async_trait]
+    impl datafusion::catalog::TableProvider for CountingReferenceTable {
+        fn schema(&self) -> arrow_schema::SchemaRef {
+            datafusion::catalog::TableProvider::schema(&self.inner)
+        }
+        fn table_type(&self) -> datafusion::logical_expr::TableType {
+            datafusion::logical_expr::TableType::Base
+        }
+        async fn scan(
+            &self,
+            state: &dyn datafusion::catalog::Session,
+            projection: Option<&Vec<usize>>,
+            filters: &[datafusion::logical_expr::Expr],
+            limit: Option<usize>,
+        ) -> datafusion::error::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+            self.scans.fetch_add(1, Ordering::SeqCst);
+            datafusion::catalog::TableProvider::scan(&self.inner, state, projection, filters, limit)
+                .await
+        }
+    }
+    #[derive(Debug)]
+    struct LateFailureReferenceTable(RecordBatch);
+    #[derive(Debug)]
+    struct LateFailureReferencePartition(RecordBatch);
+    impl datafusion::physical_plan::streaming::PartitionStream for LateFailureReferencePartition {
+        fn schema(&self) -> &arrow_schema::SchemaRef {
+            self.0.schema_ref()
+        }
+        fn execute(
+            &self,
+            _: Arc<datafusion::execution::TaskContext>,
+        ) -> datafusion::physical_plan::SendableRecordBatchStream {
+            Box::pin(
+                datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
+                    self.0.schema(),
+                    futures::stream::iter([
+                        Ok(self.0.clone()),
+                        Err(datafusion::error::DataFusionError::Execution(
+                            "late reference source EOF failure".into(),
+                        )),
+                    ]),
+                ),
+            )
+        }
+    }
+    #[async_trait::async_trait]
+    impl datafusion::catalog::TableProvider for LateFailureReferenceTable {
+        fn schema(&self) -> arrow_schema::SchemaRef {
+            self.0.schema()
+        }
+        fn table_type(&self) -> datafusion::logical_expr::TableType {
+            datafusion::logical_expr::TableType::Base
+        }
+        async fn scan(
+            &self,
+            _: &dyn datafusion::catalog::Session,
+            projection: Option<&Vec<usize>>,
+            _: &[datafusion::logical_expr::Expr],
+            _: Option<usize>,
+        ) -> datafusion::error::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+            Ok(Arc::new(
+                datafusion::physical_plan::streaming::StreamingTableExec::try_new(
+                    self.0.schema(),
+                    vec![Arc::new(LateFailureReferencePartition(self.0.clone()))],
+                    projection,
+                    vec![],
+                    false,
+                    None,
+                )?,
+            ))
+        }
+    }
+    #[tokio::test]
+    async fn prepared_reference_input_requires_eof_and_releases_failed_preparation() {
+        let relation = Relation::of::<Package>();
+        let runtime = runtime(
+            Arc::new(ValidatedModel::declared(vec![relation.clone()]).unwrap()),
+            None,
+        );
+        let row = Package {
+            name: "valid-prefix".into(),
+        };
+        let batch = Package::encode(&[row]).unwrap();
+        let session = SessionContext::new();
+        session
+            .register_table(
+                "late_failure",
+                Arc::new(LateFailureReferenceTable(batch.clone())),
+            )
+            .unwrap();
+        let baseline = runtime.budget().reserved();
+        let mut prepared =
+            reference_preparation::PreparedReferenceTargets::new(&runtime, &session, None);
+        assert_eq!(
+            runtime.budget().reserved(),
+            baseline,
+            "an unused reference preparation is allocation-free"
+        );
+        let identity = ContentHash::of(b"late-reference-input");
+        let error = prepared
+            .input(identity, &relation, "late_failure")
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("late reference source EOF failure")
+        );
+        assert!(runtime.memo.checked.lock().unwrap().0.is_empty());
+        // A failed stream cannot register its prefix as a prepared exact input.
+        session.deregister_table("late_failure").unwrap();
+        session.register_batch("late_failure", batch).unwrap();
+        let local = prepared
+            .input(identity, &relation, "late_failure")
+            .await
+            .unwrap();
+        let rows = crate::sql::query(
+            prepared.session(),
+            &format!("SELECT * FROM {}", crate::consumed_rows::identifier(&local)),
+        )
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+        assert_eq!(rows.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+        drop(rows);
+        drop(prepared);
+        assert_eq!(
+            runtime.budget().reserved(),
+            baseline,
+            "failed and successful private IPC owners release together"
+        );
+        lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
+    }
+    #[derive(
+        Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize,
+    )]
+    #[model(name = "reference_pair_sources")]
+    struct ReferencePair {
+        #[model(key)]
+        key: i64,
+        first: lctx_model::domain::Id<Package>,
+        second: lctx_model::domain::Id<Package>,
+    }
+    #[derive(
+        Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize,
+    )]
+    #[model(name = "reference_full_payloads")]
+    struct ReferencePayload {
+        #[model(key)]
+        key: i64,
+        payload: lctx_model::domain::Id<Package>,
+        active: bool,
+        nullable: Option<lctx_model::domain::Id<Package>>,
+        members: Vec<i64>,
+    }
+    #[tokio::test]
+    async fn prepared_reference_conflicts_preserve_complete_typed_and_null_payloads() {
+        let relation = Relation::of::<ReferencePayload>();
+        let model = Arc::new(
+            ValidatedModel::declared(vec![Relation::of::<Package>(), relation.clone()]).unwrap(),
+        );
+        let runtime = runtime(model, None);
+        let first = Package {
+            name: "first".into(),
+        }
+        .id();
+        let second = Package {
+            name: "second".into(),
+        }
+        .id();
+        let row = ReferencePayload {
+            key: 1,
+            payload: first,
+            active: true,
+            nullable: Some(first),
+            members: vec![1, 2],
+        };
+        let mut variants = vec![row.clone()];
+        let mut changed = row.clone();
+        changed.payload = second;
+        variants.push(changed);
+        let mut changed = row.clone();
+        changed.active = false;
+        variants.push(changed);
+        let mut changed = row.clone();
+        changed.nullable = None;
+        variants.push(changed);
+        let mut changed = row.clone();
+        changed.members.reverse();
+        variants.push(changed);
+        let session = SessionContext::new();
+        session
+            .register_batch(
+                "left_payload",
+                ReferencePayload::encode(std::slice::from_ref(&row)).unwrap(),
+            )
+            .unwrap();
+        let mut prepared =
+            reference_preparation::PreparedReferenceTargets::new(&runtime, &session, None);
+        let left = prepared
+            .input(ContentHash::of(b"left-payload"), &relation, "left_payload")
+            .await
+            .unwrap();
+        for (index, variant) in variants.into_iter().enumerate() {
+            session.deregister_table("right_payload").unwrap();
+            session
+                .register_batch(
+                    "right_payload",
+                    ReferencePayload::encode(&[variant]).unwrap(),
+                )
+                .unwrap();
+            let right = prepared
+                .input(
+                    ContentHash::of(format!("right-payload-{index}").as_bytes()),
+                    &relation,
+                    "right_payload",
+                )
+                .await
+                .unwrap();
+            let sql = nominal_payload_conflict_sql(relation.schema(), &left, &right).unwrap();
+            let batches = crate::sql::query(prepared.session(), &sql)
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let rows = batches.iter().map(RecordBatch::num_rows).sum::<usize>();
+            assert_eq!(
+                rows,
+                usize::from(index != 0),
+                "typed payload variant {index} preserves complete comparison including list order"
+            );
+        }
+        drop(prepared);
+        lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
+    }
+    #[tokio::test]
+    async fn prepared_references_read_originals_once_across_fields_and_target_sets() {
+        let model = Arc::new(
+            ValidatedModel::declared(vec![
+                Relation::of::<Package>(),
+                Relation::of::<ReferencePair>(),
+            ])
+            .unwrap(),
+        );
+        let runtime = runtime(model, None);
+        let package = Package {
+            name: "same-package".into(),
+        };
+        let pair = ReferencePair {
+            key: 1,
+            first: package.id(),
+            second: package.id(),
+        };
+        let first = CompletedView::new(
+            Package::NAME.into(),
+            [ContentHash::of(b"first-package-copy")].into(),
+            1,
+        )
+        .unwrap();
+        let second = CompletedView::new(
+            Package::NAME.into(),
+            [ContentHash::of(b"second-package-copy")].into(),
+            1,
+        )
+        .unwrap();
+        let source = CompletedView::new(
+            ReferencePair::NAME.into(),
+            [ContentHash::of(b"reference-pair-copy")].into(),
+            1,
+        )
+        .unwrap();
+        let mut inputs = selected(&runtime, vec![first.clone(), source]);
+        let mut later = selected(&runtime, vec![second.clone()]);
+        inputs.relations.insert(
+            (Package::NAME, Some(PublicationBoundary::Facts)),
+            later.relations.pop_first().unwrap().1,
+        );
+        let session = SessionContext::new_with_config_rt(
+            runtime.context.copied_config(),
+            runtime.context.runtime_env(),
+        );
+        let mut counters = Vec::new();
+        for ((name, prefix), selected) in &inputs.relations {
+            let batch = if *name == Package::NAME {
+                Package::encode(std::slice::from_ref(&package)).unwrap()
+            } else {
+                ReferencePair::encode(std::slice::from_ref(&pair)).unwrap()
+            };
+            let scans = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            session
+                .register_table(
+                    ValidationInputs::table(name, *prefix),
+                    Arc::new(CountingReferenceTable {
+                        inner: datafusion::datasource::MemTable::try_new(
+                            selected.relation.schema().clone(),
+                            vec![vec![batch]],
+                        )
+                        .unwrap(),
+                        scans: scans.clone(),
+                    }),
+                )
+                .unwrap();
+            counters.push(scans);
+        }
+        runtime
+            .validate_references(&session, &[], &inputs, None)
+            .await
+            .unwrap();
+        assert!(
+            counters
+                .iter()
+                .all(|count| count.load(Ordering::SeqCst) == 1),
+            "full-payload comparisons and both reference fields share one original scan"
+        );
+        assert!(
+            runtime.memo.checked.lock().unwrap().0.is_empty(),
+            "preparation supplies no portable success"
+        );
+        let baseline = runtime.budget().reserved();
+        let tables = inputs.reference_targets().unwrap();
+        let all = tables
+            .iter()
+            .filter(|(_, (relation, _))| relation.name() == Package::NAME)
+            .collect::<Vec<_>>();
+        let mut prepared =
+            reference_preparation::PreparedReferenceTargets::new(&runtime, &session, None);
+        let one = prepared.family(&all[..1]).await.unwrap();
+        let both = prepared.family(&all).await.unwrap();
+        assert_ne!(
+            one, both,
+            "different ordered target sets do not share preparation"
+        );
+        let retained = runtime.budget().reserved();
+        assert_eq!(both, prepared.family(&all).await.unwrap());
+        assert_eq!(
+            runtime.budget().reserved(),
+            retained,
+            "a reused family retains no extra metadata or lookup grant"
+        );
+        assert!(
+            counters
+                .iter()
+                .all(|count| count.load(Ordering::SeqCst) <= 2)
+        );
+        drop(prepared);
+        assert_eq!(
+            runtime.budget().reserved(),
+            baseline,
+            "private IPC grants end with the invocation"
+        );
+        runtime.cancellation.cancel();
+        assert!(
+            runtime
+                .validate_references(&session, &[], &inputs, None)
+                .await
+                .is_err()
+        );
+        lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
     }
     #[tokio::test]
     async fn reference_target_preparation_preserves_roles_epochs_and_descriptor_refusal() {
