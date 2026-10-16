@@ -38,6 +38,37 @@ pub struct SealedIpc {
     reader_allowance: usize,
     directory: Arc<tempfile::TempDir>,
 }
+/// Read-only table registrations over existing sealed input files. This owner cannot create
+/// files or allocate writer IDs, and can be retained by a single physical read stream.
+pub struct InvocationRead {
+    session: SessionContext,
+    budget: ResourceBudget,
+    cancellation: Cancellation,
+    directory: Arc<tempfile::TempDir>,
+    charge: StateCharge,
+}
+impl InvocationRead {
+    pub fn session(&self) -> &SessionContext { &self.session }
+    pub async fn adopt(&mut self, sealed: &SealedIpc, name: &str) -> Result<(), ModelError> {
+        sealed.adopt_to(&self.session, &self.directory, &self.budget, &self.cancellation, &mut self.charge, name).await
+    }
+}
+impl SealedIpc {
+    async fn adopt_to(&self, session: &SessionContext, directory: &Arc<tempfile::TempDir>,
+        budget: &ResourceBudget, cancellation: &Cancellation, charge: &mut StateCharge, name: &str,
+    ) -> Result<(), ModelError> {
+        cancellation.check()?;
+        if !Arc::ptr_eq(&self.directory, directory) || !self.budget.shares_pool(budget) {
+            return Err(ModelError::Conflict("invocation IPC owner differs"));
+        }
+        let bytes = self.reader_allowance;
+        charge.grow(bytes)?;
+        let result = session.register_arrow(name, self.path.to_string_lossy(),
+            ArrowReadOptions::default().schema(self.schema.as_ref())).await.map_err(crate::sql::model_error);
+        if result.is_err() { charge.release(bytes); }
+        result
+    }
+}
 impl InvocationIpc {
     pub fn new(
         source: &SessionContext,
@@ -113,17 +144,19 @@ impl InvocationIpc {
             .map_err(ModelError::codec)?;
         Ok(())
     }
-    pub async fn adopt(&mut self, sealed: &SealedIpc, name: &str) -> Result<(), ModelError> {
+    pub fn reader(&self) -> Result<InvocationRead, ModelError> {
         self.cancellation.check()?;
-        if !Arc::ptr_eq(&sealed.directory, &self.directory) || !sealed.budget.shares_pool(&self.budget) {
-            return Err(ModelError::Conflict("invocation IPC owner differs"));
-        }
-        let bytes = sealed.reader_allowance;
-        self.charge.grow(bytes)?;
-        let result = self.session.register_arrow(name, sealed.path.to_string_lossy(),
-            ArrowReadOptions::default().schema(sealed.schema.as_ref())).await.map_err(crate::sql::model_error);
-        if result.is_err() { self.charge.release(bytes); }
-        result
+        let mut charge = StateCharge::new(&self.budget, "invocation IPC read session");
+        charge.grow(size_of::<InvocationRead>() + 16384 + 4096)?;
+        Ok(InvocationRead {
+            session: SessionContext::new_with_config_rt(self.session.copied_config()
+                .with_create_default_catalog_and_schema(true), self.session.runtime_env()),
+            budget: self.budget.clone(), cancellation: self.cancellation.clone(),
+            directory: self.directory.clone(), charge,
+        })
+    }
+    pub async fn adopt(&mut self, sealed: &SealedIpc, name: &str) -> Result<(), ModelError> {
+        sealed.adopt_to(&self.session, &self.directory, &self.budget, &self.cancellation, &mut self.charge, name).await
     }
     pub async fn materialize(
         &mut self,

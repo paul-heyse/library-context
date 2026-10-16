@@ -1,10 +1,10 @@
 //! Invocation-local successful native frontier captures. IPC is private preparation, never
 //! completed-input authority. Coverage is published only after checked EOF and file finality.
-use crate::{admission::Cancellation, consumed_rows::{PreparedEdges, coverage_index::CoverageIndex}, invocation_ipc::{InvocationIpc, SealedIpc}};
+use crate::{admission::Cancellation, consumed_rows::{PreparedEdges, coverage_index::CoverageIndex}, invocation_ipc::{InvocationIpc, InvocationRead, SealedIpc}};
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use arrow_schema::SchemaRef;
-use datafusion::physical_plan::{SendableRecordBatchStream, stream::RecordBatchStreamAdapter};
-use futures::{StreamExt, TryStreamExt};
+use datafusion::physical_plan::{SendableRecordBatchStream, RecordBatchStream};
+use futures::{Stream, TryStreamExt};
 use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget};
 use std::{collections::{BTreeMap, BTreeSet}, future::Future, sync::Arc};
 
@@ -12,7 +12,6 @@ struct Group {
     schema: SchemaRef,
     key_field: &'static str,
     windows: Vec<Window>,
-    next_unadopted: usize,
     indexes: Vec<Option<CoverageIndex>>,
     pending: Option<(usize, CoverageIndex)>,
 }
@@ -69,12 +68,6 @@ impl FrontierCapture {
                 group.indexes[level] = Some(pending);
             }
         }
-        // Each complete window is registered once. Already adopted history is not revisited.
-        while group.next_unadopted < group.windows.len() {
-            let window = &group.windows[group.next_unadopted];
-            self.ipc.adopt(&window.rows, &window.rows_name).await?;
-            group.next_unadopted += 1;
-        }
         Ok(())
     }
     fn routes(&self, group: &str, keys: &[[u8;16]]) -> Result<BTreeMap<[u8;16], usize>, ModelError> {
@@ -102,7 +95,7 @@ impl FrontierCapture {
         } else {
             self.charge.grow(512 + group.len() + schema.fields().iter().map(|f| f.size()).sum::<usize>())?;
             self.groups.insert(group.clone(), Group { schema: schema.clone(), key_field, windows: Vec::new(),
-                next_unadopted: 0, indexes: Vec::new(), pending: None });
+                indexes: Vec::new(), pending: None });
         }
         let _keys = self.budget.reserve("native-capture-key-window", keys.len() * 256 + 4096)?;
         self.prepare_group(&group).await?;
@@ -172,12 +165,44 @@ impl FrontierCapture {
                 selected.iter().map(|index| format!("SELECT * FROM {}", windows[*index].rows_name)).collect::<Vec<_>>().join(" UNION ALL "),
                 key_predicate(key_field, &keys))
         };
-        let stream = crate::sql::query(self.ipc.session(), &sql).await.map_err(crate::sql::model_error)?
+        let mut reader = self.ipc.reader()?;
+        if selected.is_empty() {
+            reader.adopt(&windows[0].rows, &windows[0].rows_name).await?;
+        } else {
+            for index in selected { reader.adopt(&windows[index].rows, &windows[index].rows_name).await?; }
+        }
+        let stream = crate::sql::query(reader.session(), &sql).await.map_err(crate::sql::model_error)?
             .execute_stream().await.map_err(crate::sql::model_error)?;
-        let stream = stream.map(move |row| { let _hold = &retained; row });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
+        Ok(Box::pin(CapturedRead { inner: Some(stream), reader: Some(reader), query: Some(retained), schema }))
+
     }
 }
+struct CapturedRead {
+    inner: Option<SendableRecordBatchStream>,
+    reader: Option<InvocationRead>,
+    query: Option<Box<dyn lctx_model::domain::resources::Reservation>>,
+    schema: SchemaRef,
+}
+impl CapturedRead {
+    fn finish(&mut self) {
+        drop(self.inner.take());
+        drop(self.reader.take());
+        drop(self.query.take());
+    }
+}
+impl Unpin for CapturedRead {}
+impl Stream for CapturedRead {
+    type Item = Result<RecordBatch, datafusion::error::DataFusionError>;
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        let Some(inner) = &mut this.inner else { return std::task::Poll::Ready(None); };
+        let result = inner.as_mut().poll_next(cx);
+        if matches!(&result, std::task::Poll::Ready(None | Some(Err(_)))) { this.finish(); }
+        result
+    }
+}
+impl RecordBatchStream for CapturedRead { fn schema(&self) -> SchemaRef { self.schema.clone() } }
+impl Drop for CapturedRead { fn drop(&mut self) { self.finish(); } }
 fn key_predicate(field: &str, keys: &[[u8; 16]]) -> String {
     if keys.is_empty() { return "FALSE".into(); }
     format!("{} IN ({})", crate::consumed_rows::identifier(field),
@@ -236,7 +261,7 @@ impl NominalBuffer {
 mod tests {
     use super::*;
     use crate::consumed_rows::{ClosureTable, NominalClosure};
-    use datafusion::{error::DataFusionError, prelude::SessionContext};
+    use datafusion::{error::DataFusionError, prelude::SessionContext, physical_plan::stream::RecordBatchStreamAdapter};
     use lctx_model::domain::{Relation, input::Package};
     use std::sync::atomic::{AtomicUsize, Ordering};
     fn schema() -> SchemaRef {
@@ -351,11 +376,42 @@ mod tests {
             let routes = capture.routes("ids", &[[3;16],[29;16],[99;16]]).unwrap();
             assert_eq!(routes, BTreeMap::from([([3;16],2),([29;16],28)]));
             assert_eq!(capture.groups["ids"].indexes.iter().flatten().count(), 1);
-            assert_eq!(capture.groups["ids"].next_unadopted, 32);
+            assert_eq!(capture.groups["ids"].windows.len(), 32);
+            // No data-window provider remains registered in the persistent writer owner.
+            assert!(capture.ipc.session().catalog_names().iter().all(|name| {
+                let catalog = capture.ipc.session().catalog(name).unwrap();
+                catalog.schema_names().iter().all(|name| catalog.schema(name).unwrap().table_names().is_empty())
+            }));
             let rows = capture.read("ids".into(), "id", Arc::new(vec![[3;16],[29;16]]), schema(), |_| async {
                 panic!("indexed historical keys cannot reissue native work")
             }).await.unwrap();
             assert_eq!(ids(rows).await, [[3;16],[29;16]]);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn selected_reader_metadata_releases_at_eof_or_drop() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        {
+            let owner = owner(&budget).await;
+            let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
+            let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
+                Ok(stream(vec![Ok(batch(&[[1;16]]))]))
+            }).await.unwrap();
+            assert_eq!(ids(rows).await, [[1;16]]);
+            let retained = budget.reserved();
+            let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
+                panic!("same input cannot reissue")
+            }).await.unwrap();
+            assert!(budget.reserved() > retained);
+            assert_eq!(ids(rows).await, [[1;16]]);
+            assert_eq!(budget.reserved(), retained);
+            let rows = capture.read("ids".into(), "id", Arc::new(vec![[1;16]]), schema(), |_| async {
+                panic!("same input cannot reissue")
+            }).await.unwrap();
+            assert!(budget.reserved() > retained);
+            drop(rows);
+            assert_eq!(budget.reserved(), retained);
         }
         assert_eq!(budget.reserved(), 0);
     }
