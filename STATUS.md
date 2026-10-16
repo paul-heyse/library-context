@@ -4,14 +4,13 @@ _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); 
 [Coordinator §6](docs/plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns runtime F01–F09 and all remaining prior efficiency scope.
 RC01–RC05 and controlled-write mutation scope were operator-approved; safety/ADR/consumer gates remain.
 The previous five efficiency plans are superseded for execution; immutable historical citations retain their records.
-[Completion §2](docs/plans/catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations) retains exact receipts, 16 unreleased default attachments and separate disposal acknowledgements.
+[Completion §2](docs/plans/catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations) retains inherited receipts/attachment identities; coordinator §6 records current discard acknowledgements.
 Prior CE80 is delivered; CE90/CE99 transfer to RE90/RE99. Existing implementation/focused passes remain scoped.
 Latest reconstruction: 1 passed/6 timed out after 900s; native obligations and original Unknowns protected.
-Reported SurrealDB ~143GB resident private memory remains unclassified. No new native target or default operation started.
-Independent plan review: Accept scoped; `just docs-check` passed473 pages/zero link errors. Production decisions/acceptance remain open.
-Current: compiler, analysis, backup and native-premise/incidence source integrated through `8725907c`; all three worktrees merged and removed.
-Affected-package/all-target release check `214521…ec832b` passed. Focused pure run `221158…3e2dfd`:58 passed/8 failed, cleanup confirmed; repairs in progress.
-Independent capture review requires budget-feasible unmerged coverage reads; native atomic candidate validation and final acceptance remain open.
+Historical SurrealDB ~143GB resident private memory remains unclassified. Candidate and default regenerated; default `232319…739293` passed with23 separate discard acknowledgements.
+Current: compiler, analysis, backup and production atomic native source integrated; all three worktrees merged and removed.
+Pre-cutover native atomic cases and current native recovery/handoff controls passed; final focused Summary/capture run `232832…feb49a` passed20 controls.
+Independent assembled review accepts the corrected source within scope. Native integration, selected-complete functional acceptance and final hygiene remain open at coordinator §6.
 Embedding inference, submitted MCP runtime, real-library/operator adoption and paused older-track execution remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)

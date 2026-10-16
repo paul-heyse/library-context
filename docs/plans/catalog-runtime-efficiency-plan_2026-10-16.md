@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: combined target and execution plan
 
-**Proposed target, 2026-10-16; operator-approved rule directions.** This coordinator schedules
+**Accepted target / implementation in progress, 2026-10-16; operator-approved rule directions.** This coordinator schedules
 the [runtime review](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md)
 and takes over every remaining obligation of the previous Catalog-efficiency plan set.
 Approval of a direction establishes neither implementation nor verified closure.
@@ -179,27 +179,29 @@ interfaces permit parallel reasoning; verified working prerequisites permit depe
 The previous efficiency functional implementation is integrated, CE80 delivered, and CE90/CE99
 transferred to RE90/RE99. Authoring checks and independent plan review remain at §8; they do not close production findings.
 CX00/CX01, typed Base/Summary, shared exact frontier capture/index/read ownership, RP00/RP01,
-receiving protection and actual-incidence lowering are integrated on main through `8725907c`.
+receiving protection, actual-incidence lowering and atomic production cutover are integrated through `bdc83d2b`.
 The runtime-compiler, runtime-analysis and runtime-publication worktrees are fully integrated and removed.
 Cross-checkout concurrent Cargo lock-upgrade contention was observed; duplicate owned checks were
 interrupted and integrated builds retain normal internal parallelism. Two worktree preparations
 passed; publication preparation failed during source changes and is not a product pass.
 Root owns RN00/RN01/RN02 and cross-owner integration. Invocation-local window writers reuse exact
 owner issuance across material production loops while capturing each window's physical expectations.
-The fixed preparation allowance is being replaced with a bound derived from actual control lowering
-and model-owned expected-object bindings. No new database campaign/default-target mutation has started.
+The fixed preparation allowance is replaced with a bound derived from actual control lowering
+and model-owned expected-object bindings. Candidate and approved default regeneration are recorded below.
 The operator selected candidate validation then conditional exact default regeneration after
-host/executor drainage. [ADR-0178](../adr/0178-atomic-bounded-native-effects.md) remains a Proposed
-atomic candidate: independent RN00 source/design review accepted the bounded direction with complete
+host/executor drainage. [ADR-0178](../adr/0178-atomic-bounded-native-effects.md) governs selected
+atomic apply: independent RN00 source/design review accepted the bounded direction with complete
 replay-context checks and explicit separation of pending-row inventory from executor drainage.
-Candidate raw apply controls are being implemented before replacing production split execution.
+Revealing native candidate controls passed before `e7bf2741` replaced production split execution;
+its independent final assessment found IR01, corrected centrally by `a5f50a53`; native regression is recorded below.
 [ADR-0179](../adr/0179-joined-owned-producer-execution.md) governs joined placement;
 [ADR-0180](../adr/0180-shared-exact-base-preparation.md) governs shared Base preparation.
 Independent source reviews accept the inspected compiler/backup/receiving and native candidate
 contracts within their stated scopes. A later independent capture review identified CR01: mandatory
 coverage compaction can defeat singleton retry under budget pressure. Successful unmerged coverage
-must remain readable without native reissue; this correction and a high-fan-out nominal-frontier
-feasibility case are in progress before RA00 acceptance.
+must remain readable without native reissue. Correction `a66bf293` retains exact unmerged runs and
+uses native-only bounded streaming IPC for high fan-out, with revealing pressure/no-reissue cases.
+Independent review accepts this correction at source level; root functional controls remain pending.
 Affected-package/all-target release check `20261016T214521.563Z-ec832b` **passed** with host cleanup
 confirmed. Earlier check failures `213438.056Z-3b2690`/`214340.067Z-e74758` were corrected before that
 pass. Focused run `214909.554Z-38bac9` failed during build, with no tests executed: duplicate native
@@ -209,6 +211,86 @@ address future-incompatible Send recursion warnings. The narrower library run
 **failed**, host cleanup confirmed. Failures concern changed shared-preparation retention accounting,
 the StateCharge header allowance and a compacted-batch fixture assumption; their exact contracts
 are being reconciled rather than weakening production admission. Enclosing acceptance remains open.
+CLI build `20261016T222019.851Z-c4c119` **passed** with cleanup confirmed. Candidate install
+`20261016T222501.657Z-12c1b5` **passed**: exact wholly owned installation
+`8826d464-01cc-49ec-b5ed-d7418acd8996`, selected configuration
+`/home/paul/.local/state/library-context/runtime-efficiency-20261016-candidate/installation.json`,
+borrowing existing pinned server generation `9fbab612…`. Native controls below retain their exact scopes.
+Keep this exact target/configuration and existing service/run/storage owners through proof and disposal;
+do not create a replacement or infer native finality from host child exit.
+Native permanent-era fencing/recovery `20261016T222822.643Z-e0238a` **passed**1 case with enclosing
+maintenance/fixture and host cleanup confirmed. Window/premise run `222917.877Z-c5fad5` ran10 cases:
+9 **passed**,1 **failed** on an incorrect cancellation error assertion. `736ee5d1` strengthens that
+control to typed stopped-admission, unchanged pending inventory and exact native effect/reference
+absence; rerun remains pending. Its original attachment `488f61ea…` is released/native-confirmed,
+so this failure creates no inferred cleanup action. Atomic unobserved-acknowledgement and known-commit
+stopped-reference-release run `222955.675Z-48a706` **passed**2 actual native cases, enclosing fixture
+and host cleanup confirmed. Pure complete-window sizing `222501.849Z-7c9539` **passed**1 control.
+Native close-cut `20261016T223333.728Z-92ccce`, freeze-cut `223906.152Z-6bba18` and row/hold overlap
+`224231.678Z-f40869` each **passed**1 control with enclosing fixture and host cleanup confirmed.
+They establish their pre-cutover atomic packets, not all final production consumers.
+Integrated pure `224722.597Z-530075` ran72 controls:71 **passed**,1 **failed**, cleanup confirmed.
+All prior eight failures and the compaction/high-fan-out cases passed. `55632e58` corrects the remaining
+unconsumed-reader lifetime by deferring physical execution until first poll, preserving exact assertions;
+rerun is pending. CLI/schema-generator build `225606.685Z-86bc98` **passed**, cleanup confirmed;
+the native generated control asset was regenerated from its authority.
+
+The [assembled design review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+retains its inspected baseline and correction reassessments. IR01: failed apply could adopt another owner's committed
+receipt during recovery. Shared exact replay context now governs lowering, recovered knowledge and
+reference settlement; mismatch retains primary failure and pending ownership without releasing the
+winner's witness. Independent source reassessment accepts that correction. Actual both-policy
+native regression `20261016T230242.700Z-e10173` **passed** its body; the enclosing fixture **failed**
+because the negative collision deliberately retains Outstanding/Unknown recipients, including
+attachment `c94ccce9-5aa0-4209-81c1-3fcac9ef2b3f`. Host cleanup is confirmed; original Unknown remains.
+Same-campaign regeneration through its authenticated host/executor shutdown/discard owner settles
+current obligations separately. Initial `230644.462Z-782246` **blocked** before mutation on an
+incorrect borrowed-server provenance origin. `f7adeb45` preserves the authorized origin through
+regeneration/resume; tooling run `231404.710Z-a1d249` **passed**41 selected controls with cleanup
+confirmed. Same exact candidate regeneration `231440.220Z-c352c4` **passed**, host cleanup confirmed,
+with generation `bb05b4a9188a78e57451d6e98c960cf65087f8cfe73ae7944bd4c502ea8e0540`
+and journal `3800ca485b61f574dce459d04e0e739a8e1021b80b4d71eaf28d5bb07579e5d9`.
+The existing acknowledgement validator confirms `c94ccce9…` is released through exact whole-target
+discard, separately from its preserved original Unknown. Current native test binary from
+`231253.399Z-82d2b5` was reused through the fixture owner while Summary source was independently
+edited: permanent-era `232117.779Z-e3fa81` **passed**1, backup-gate orders `232154.635Z-db580b`
+**passed**1, unobserved acknowledgement/known-commit stopped release `232218.796Z-bc5545`
+**passed**2; each enclosing command and host cleanup confirmed. Initial direct selection
+`232056.272Z-955f8d` ran0 cases because of an incorrect full test name; it establishes no test pass.
+Approved exact default regeneration `232319.399Z-739293` **passed**, host cleanup confirmed,
+through the existing authenticated host/executor shutdown owner. New generation is
+`1b7ae070a26755c60d87888e1b2291b75b120d6a89941bae7c87dc001c79db4c`, journal
+`21343c88a458c8df763770a0c998950921522037461e2e5aba8b99ccaccc7e14`, same pinned peer.
+All23 previously protected attachments have separately validated discard acknowledgements from
+this operation; original records/outcomes are retained. All195 historical attachment records are
+released. This settles their resource obligations by whole-target discard, not by promoting their
+original native outcomes or completing paused older-track acceptance.
+
+[I:F01](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F01)
+refines R:F09: post-refusal rich-row deduplication alone still enumerates equivalent C×K proof
+products after queue exhaustion. `ad0813ae` adds charged current endpoint groups without changing
+proof inventory, admitted work, partial outcomes or necessary distinct outputs. Independent review
+is checking endpoint-local exception routing and other candidate support products before acceptance.
+[I:F02](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F02)
+refines R:F08: capture poisoning covered pure preparation before actual native start. `99f42979`
+splits pure preparation from admitted physical start; the independent reviewer accepts this source
+correction. Focused grouped Summary/capture/read-lifetime/owner-context run `231253.399Z-82d2b5`
+compiled without emitted warnings and ran42 controls:41 **passed**,1 **failed**, host cleanup
+confirmed. The new adjacency-pressure fixture reached an earlier accounting-metadata reservation
+instead of the intended pure adjacency-index boundary; `32460297` corrects its revealing setup.
+The capture first-poll/lifetime, pure-plan/start, current Call grouping and recovered-owner matrix
+controls passed. `58e6cf67` completes exact deferred routing and exhausted Alias/Path support
+factoring; `df99020c` corrects the extended fixture's typed event ownership. Initial rerun
+`232441.405Z-55f9da` **failed** during compilation, no tests executed; the omitted detailed
+diagnostic is separately retained in `232648.497Z-b792e8`. Final focused rerun
+`232832.699Z-feb49a` **passed**20 controls, no emitted compile warnings, host cleanup confirmed.
+The assembled reviewer now **Accept scoped / Interface-checked** the production source through
+`58e6cf67`; its original dated F01/F02 diagnoses remain preserved. Current native epoch-drift
+final-handoff control `233110.389Z-adfef6` **passed**1 actual case with enclosing maintenance/fixture
+and host cleanup confirmed. Cancellation/parallel ingress integration `233254.735Z-ddca94` is
+in progress on the same candidate. RE90 also selects the inherited delayed-first-issue/original
+attempt retry, interrupted closing-before-cleanup and two-successor recovery controls as separate
+exclusive maintenance invocations; they are not subsumed by the new never-issued-owner case.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 Current service status observed23 protected attachments rather than the inherited16; all remain
@@ -225,7 +307,7 @@ boot differs from their retained receipts; no local deletion or rewritten Unknow
 | [R:F06](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F06) | open; publisher/RP00 | Each exact snapshot descriptor acquired once with complete copy/dependency preservation |
 | [R:F07](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F07) | open; publisher/RP01 | Exact source finalized before carrier; failed finalization retains Unknown and unpublished output |
 | [R:F08](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F08) | open; Base/RA00 | Shared discovery/typed support preserves root universes, once-only effects and singleton feasibility |
-| [R:F09](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09) | open investigation; Summary/RA01–RA02 | Distinguish avoidable duplicate work from necessary output and deliver selected exact route |
+| [R:F09](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09) | implemented/focused-Tested; Summary/RA01–RA02; integrated acceptance open | Exact endpoint/support factoring preserves necessary output; ordinary/recursive consumers must reach their assertions |
 
 The following E obligations are transferred with their implemented or decided baseline, **not
 promoted to enclosing verified closure**. RE90 owns remaining verification and any scope-owned

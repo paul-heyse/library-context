@@ -161,6 +161,15 @@ remain visible. Correspondence releases after its final SCC/pair consumer. The
 [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current controls and enclosing acceptance; this changes private preparation, not Summary meaning.
 
+**Implemented / functional verification in progress, 2026-10-16:** ordinary proof-pair admission
+keeps its canonical order and original work allowance. Once the queue is permanently exhausted,
+model-owned current endpoint indexes group caller origin/input and eligible callee output before
+examining equivalent refused combinations. Proof inventory and Pareto representatives remain
+independent. A group publishes a residual only with an actually refused pair; groups containing
+only pending/processed pairs are reconsidered for new current proofs. Distinct residual products
+remain complete and charged. This removes avoidable post-exhaustion Cartesian examination without
+changing exhaustion, witnesses or partial-result meaning; the runtime coordinator owns acceptance.
+
 > Decision: ADR-0180
 
 **Implemented / source-accepted, 2026-10-14; pure port/worklist controls passed, native composition open.** Summary prepares immutable

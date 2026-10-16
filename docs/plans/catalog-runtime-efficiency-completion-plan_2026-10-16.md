@@ -11,7 +11,7 @@ defines RE80/RE90/RE99. Retained receipt observations below do not establish fre
 publication, selected backup and independent restore. `lctx-native` retains protected copies,
 incarnations, pins, transactions and session finality. The
 [storage/publication owner](../design/sections/storage-and-publication.md#section-6-1), ADR-0145's
-carried decisions and ADR-0173 govern the implemented boundary. Model transport declares complete
+carried decisions and ADR-0178 govern the implemented boundary. Model transport declares complete
 logical/physical correspondence; a local archive cannot create receiving validity.
 
 The existing selected backup already retains all root-qualified physical copies and uses one

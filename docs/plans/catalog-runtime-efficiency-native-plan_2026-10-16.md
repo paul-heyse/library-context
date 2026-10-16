@@ -1,20 +1,20 @@
 # Catalog runtime efficiency: native effects and protected premises
 
-**Proposed, 2026-10-16.** Companion to the
+**Accepted target / implemented source, integrated acceptance pending, 2026-10-16.** Companion to the
 [coordinator](catalog-runtime-efficiency-plan_2026-10-16.md), which owns rules, dependencies and
 sole current disposition. This document develops runtime F03–F05 and the memory investigation.
 It preserves inherited admission, ingress, recovery and lifecycle obligations without duplicating
-their status. Production implementation and native controls are not_run for this new target.
+their status. The coordinator retains exact source/candidate/production evidence boundaries.
 
 ## 1. Responsibility, foundations and target
 
 `lctx-native` owns actual effects, protected physical content, incarnations, sessions and recovery.
 Compiler-store and publisher consume these capabilities without manufacturing receiving validity.
 The [storage owner](../design/sections/storage-and-publication.md#section-6-1),
-[semantic compilation](../design/sections/semantic-model.md#section-15-11) and ADR-0173 own the
+[semantic compilation](../design/sections/semantic-model.md#section-15-11) and ADR-0178 own the
 current contracts. The model retains identities, meaning and structured completion observations.
 
-Current `control/authorization.rs` captures expected guards/owner/era, commits intent and payload
+The RE00 baseline `control/authorization.rs` captured expected guards/owner/era, committed intent and payload
 separately, records terminal knowledge and settles references. `control/coordination.rs` supplies
 complete attempt/installation admission and scalar guard checks. `control/schema.surql` already
 uses bulk immutable insertion, but touches declared incidence before determining what changes.

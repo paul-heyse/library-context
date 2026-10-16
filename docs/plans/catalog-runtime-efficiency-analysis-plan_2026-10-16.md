@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: Base preparation and Summary expansion
 
-**Proposed, 2026-10-16.** Companion to the
+**Accepted target / implemented source, integrated acceptance pending, 2026-10-16.** Companion to the
 [coordinator](catalog-runtime-efficiency-plan_2026-10-16.md), which alone owns disposition,
 rule decisions and shared dependencies. This document develops runtime F08/F09 and preserves the
 previous Base/Summary/analytics delivery and its remaining functional acceptance.
@@ -67,7 +67,7 @@ namespace skips and never means unavailable input.
 
 Agree the common discovery interface with CX00 before overlapping source integration. RA00 can
 reason against existing batch/partition contracts while CX00 changes acquisition. RN03 is a
-prerequisite only where new retained premises are consumed. Apply the RC05 ADR-0176/owner route,
+prerequisite only where new retained premises are consumed. Apply the RC05 ADR-0180/owner route,
 then migrate expression/read capture and compatible field-support consumers without adding a
 parallel legacy path. Keep genuinely different field universes separate.
 
@@ -110,6 +110,16 @@ No new graph engine, incremental framework or blanket pair cutoff is selected by
 If the selected route changes model/support semantics or a substantial ownership boundary, apply
 the binding's bounded design/target review before RA02, alongside the required operator decision.
 The present plan review cannot certify a future changed semantic contract.
+
+**Selected implementation, 2026-10-16:** exact existing-model factoring. Keep the canonical
+admission prefix; permanent work exhaustion selects charged current Call endpoint groups.
+Route deferred pending/processed exceptions through their exact caller/callee endpoint indexes,
+without scanning or reserving unrelated groups. Alias and Path retain their complete successful
+support products before exhaustion; afterward each residual class stops at its first actually
+refused witness. All-excepted classes emit nothing and remain revisitable for new current proofs.
+Alias's original event and Path's output event remain distinct. No semantic rule change is selected.
+The [assembled review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+assesses that route; the coordinator retains its source and functional evidence boundaries.
 
 ## 4. RA02 — Deliver the selected Summary route
 
