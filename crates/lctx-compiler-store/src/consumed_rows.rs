@@ -980,6 +980,12 @@ struct NativeFrontier {
     charge: std::sync::Arc<charged::StateCharge>,
 }
 impl PreparedEdges {
+    pub(crate) fn shares_owner(&self, other: &Self) -> bool { std::sync::Arc::ptr_eq(&self.0, &other.0) }
+    pub fn capture_discovery(&self, budget: &ResourceBudget, cancellation: &crate::admission::Cancellation)
+        -> Result<crate::frontier_capture::FrontierCapture, ModelError> {
+        crate::frontier_capture::FrontierCapture::new(self.clone(), budget, cancellation)
+    }
+
     /// Forward fields share one exact table/frontier demand. Decode only their nominal columns;
     /// each declaration retains its target namespace, including duplicate fields across epochs.
     /// Strict reverse links reuse the same id projection to establish physical owner presence.
@@ -990,6 +996,7 @@ impl PreparedEdges {
         frontier: NativeFrontier,
         budget: &ResourceBudget,
         cancellation: Option<&crate::admission::Cancellation>,
+        capture: Option<&mut crate::frontier_capture::FrontierCapture>,
         mut accept: impl FnMut([u8; 16], usize, [u8; 16]) -> Result<(), ModelError>,
     ) -> Result<Option<std::sync::Arc<Vec<[u8; 16]>>>, ModelError> {
         use arrow_array::{Array, FixedSizeBinaryArray};
@@ -1007,13 +1014,7 @@ impl PreparedEdges {
         {
             return Err(ModelError::Schema("native forward table binding"));
         }
-        let selected = crate::compiler_provider::select_table(
-            self.0.provider(source).await?,
-            keys.clone(),
-            charge,
-        )?
-        .ok_or(ModelError::Schema("native nominal edge binding"))?;
-        let schema = selected.schema();
+        let schema = self.0.tables[source].relation.schema().clone();
         let _projection_charge = budget.reserve(
             "native-forward-projection",
             edges
@@ -1029,14 +1030,22 @@ impl PreparedEdges {
         }
         projection.sort_unstable();
         projection.dedup();
-        let state = self.0.session.state();
-        let plan = selected
-            .scan(&state, Some(&projection), &[], None)
-            .await
-            .map_err(crate::sql::model_error)?;
-        let mut stream = plan
-            .execute(0, self.0.session.task_ctx())
-            .map_err(crate::sql::model_error)?;
+        let projected = std::sync::Arc::new(schema.project(&projection).map_err(ModelError::codec)?);
+        let issue = |selected_keys: std::sync::Arc<Vec<[u8; 16]>>| {
+            let charge = charge.clone();
+            let projection = projection.clone();
+            async move {
+                let selected = crate::compiler_provider::select_table(
+                    self.0.provider(source).await?, selected_keys, charge)?
+                    .ok_or(ModelError::Schema("native nominal edge binding"))?;
+                let state = self.0.session.state();
+                let plan = selected.scan(&state, Some(&projection), &[], None).await.map_err(crate::sql::model_error)?;
+                plan.execute(0, self.0.session.task_ctx()).map_err(crate::sql::model_error)
+            }
+        };
+        let mut stream = if let Some(capture) = capture {
+            capture.read(format!("forward_{source}"), "id", keys.clone(), projected, issue).await?
+        } else { issue(keys.clone()).await? };
         // The existing frontier charge covers this additional compact key vector, and follows
         // any reverse selected provider that borrows it. No rich owner rows are retained.
         let mut present = if presence {
@@ -1106,30 +1115,32 @@ impl PreparedEdges {
         keys: std::sync::Arc<Vec<[u8; 16]>>,
         charge: std::sync::Arc<charged::StateCharge>,
         cancellation: Option<&crate::admission::Cancellation>,
+        capture: Option<&mut crate::frontier_capture::FrontierCapture>,
         mut accept: impl FnMut([u8; 16], [u8; 16]) -> Result<(), ModelError>,
     ) -> Result<(), ModelError> {
         use arrow_array::{Array, FixedSizeBinaryArray};
-        let provider = self.0.provider(edge.table).await?;
-        let selected = crate::compiler_provider::select_field_table(
-            provider,
-            edge.field,
-            keys.clone(),
-            charge,
-        )?
-        .ok_or(ModelError::Schema("native nominal edge binding"))?;
-        let schema = selected.schema();
+        let schema = self.0.tables[edge.table].relation.schema().clone();
         let projection = vec![
             schema.index_of("id").map_err(ModelError::codec)?,
             schema.index_of(edge.field).map_err(ModelError::codec)?,
         ];
-        let state = self.0.session.state();
-        let plan = selected
-            .scan(&state, Some(&projection), &[], None)
-            .await
-            .map_err(crate::sql::model_error)?;
-        let mut stream = plan
-            .execute(0, self.0.session.task_ctx())
-            .map_err(crate::sql::model_error)?;
+        let projected = std::sync::Arc::new(schema.project(&projection).map_err(ModelError::codec)?);
+        let issue = |selected_keys: std::sync::Arc<Vec<[u8; 16]>>| {
+            let charge = charge.clone();
+            let projection = projection.clone();
+            async move {
+                let selected = crate::compiler_provider::select_field_table(
+                    self.0.provider(edge.table).await?, edge.field, selected_keys, charge)?
+                    .ok_or(ModelError::Schema("native nominal edge binding"))?;
+                let state = self.0.session.state();
+                let plan = selected.scan(&state, Some(&projection), &[], None).await.map_err(crate::sql::model_error)?;
+                plan.execute(0, self.0.session.task_ctx()).map_err(crate::sql::model_error)
+            }
+        };
+        let mut stream = if let Some(capture) = capture {
+            capture.read(format!("reverse_{}_{}_{}_{}", edge.source, edge.target, edge.table, edge.field),
+                edge.field, keys.clone(), projected, issue).await?
+        } else { issue(keys.clone()).await? };
         while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
             check_cancellation(cancellation)?;
             let ids = batch
@@ -1177,7 +1188,7 @@ impl PreparedEdges {
         roots: &[PreparedRoot],
         budget: &ResourceBudget,
     ) -> Result<PreparedRootBatch, ModelError> {
-        self.batch_inner(roots, budget, None).await
+        self.batch_inner(roots, budget, None, None).await
     }
     pub async fn batch_with_cancellation(
         &self,
@@ -1185,13 +1196,22 @@ impl PreparedEdges {
         budget: &ResourceBudget,
         cancellation: &crate::admission::Cancellation,
     ) -> Result<PreparedRootBatch, ModelError> {
-        self.batch_inner(roots, budget, Some(cancellation)).await
+        self.batch_inner(roots, budget, Some(cancellation), None).await
+    }
+    pub async fn batch_with_capture(
+        &self, roots: &[PreparedRoot], budget: &ResourceBudget,
+        cancellation: &crate::admission::Cancellation,
+        capture: &mut crate::frontier_capture::FrontierCapture,
+    ) -> Result<PreparedRootBatch, ModelError> {
+        capture.require_owner(self, budget)?;
+        self.batch_inner(roots, budget, Some(cancellation), Some(capture)).await
     }
     async fn batch_inner(
         &self,
         roots: &[PreparedRoot],
         budget: &ResourceBudget,
         cancellation: Option<&crate::admission::Cancellation>,
+        mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
     ) -> Result<PreparedRootBatch, ModelError> {
         check_cancellation(cancellation)?;
         let mut charge = charged::StateCharge::new(budget, "semantic-root-batch-memberships");
@@ -1221,28 +1241,30 @@ impl PreparedEdges {
                     .saturating_mul(128)
                     .saturating_add(4096),
             )?;
-            let mut literals = Vec::new();
-            while literals.len() < resources::TRANSFER_ROWS
+            let mut root_keys = Vec::new();
+            while root_keys.len() < resources::TRANSFER_ROWS
                 && selected.peek().is_some_and(|key| key.0 == kind)
             {
                 let (_, key) = selected.next().expect("selected root window");
-                let hex = key
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>();
-                literals.push(format!("X'{hex}'"));
+                root_keys.push(*key);
             }
-            let sql = format!(
-                "SELECT CAST({kind} AS BIGINT) AS kind,id FROM {} WHERE id IN ({}) ORDER BY id",
-                identifier(&self.0.tables[kind as usize].alias),
-                literals.join(",")
-            );
-            let mut stream = crate::sql::query(&self.0.session, &sql)
-                .await
-                .map_err(crate::sql::model_error)?
-                .execute_stream()
-                .await
-                .map_err(crate::sql::model_error)?;
+            let source_keys = std::sync::Arc::new(root_keys);
+            let schema = std::sync::Arc::new(arrow_schema::Schema::new(vec![
+                arrow_schema::Field::new("kind", arrow_schema::DataType::Int64, false),
+                arrow_schema::Field::new("id", arrow_schema::DataType::FixedSizeBinary(16), false),
+            ]));
+            let issue = |keys: std::sync::Arc<Vec<[u8; 16]>>| async move {
+                let predicate = if keys.is_empty() { "FALSE".into() } else {
+                    format!("id IN ({})", keys.iter().map(|key| format!("X'{}'",hex::encode(key))).collect::<Vec<_>>().join(","))
+                };
+                let sql = format!("SELECT CAST({kind} AS BIGINT) AS kind,id FROM {} WHERE {predicate} ORDER BY id",
+                    identifier(&self.0.tables[kind as usize].alias));
+                crate::sql::query(&self.0.session, &sql).await.map_err(crate::sql::model_error)?
+                    .execute_stream().await.map_err(crate::sql::model_error)
+            };
+            let mut stream = if let Some(capture) = capture.as_deref_mut() {
+                capture.read(format!("presence_{kind}"), "id", source_keys, schema, issue).await?
+            } else { issue(source_keys).await? };
             while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
                 check_cancellation(cancellation)?;
                 let _transfer = budget.reserve(
@@ -1292,6 +1314,7 @@ impl PreparedEdges {
             Some((&mut adjacency, &mut adjacency_charge)),
             budget,
             cancellation,
+            capture.as_deref_mut(),
         )
         .await?;
         drop(pending);
@@ -1474,6 +1497,7 @@ impl PreparedEdges {
             None,
             budget,
             None,
+            None,
         )
         .await?;
         drop(pending);
@@ -1492,6 +1516,7 @@ impl PreparedEdges {
         )>,
         budget: &ResourceBudget,
         cancellation: Option<&crate::admission::Cancellation>,
+        mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
     ) -> Result<(), ModelError> {
         while !pending.is_empty() {
             check_cancellation(cancellation)?;
@@ -1519,7 +1544,9 @@ impl PreparedEdges {
                         .map(|(_, key)| *key)
                         .collect::<Vec<_>>(),
                 );
+                if let Some(capture) = capture.as_deref_mut() { capture.begin_acquisition(); }
                 let source = self.0.source(usize::try_from(kind).map_err(ModelError::codec)?, budget).await?;
+                if let Some(capture) = capture.as_deref_mut() { capture.complete_acquisition(); }
                 let mut cursor = EdgeCursor::new(source, budget)?;
             for key in &frontier[offset..end] {
                 cursor.targets(*key, budget, |target| {
@@ -1549,6 +1576,7 @@ impl PreparedEdges {
                         },
                         budget,
                         cancellation,
+                        capture.as_deref_mut(),
                         |source, kind, key| {
                             check_cancellation(cancellation)?;
                             let target = (kind as i64, key);
@@ -1575,6 +1603,7 @@ impl PreparedEdges {
                         selected,
                         frontier_charge.clone(),
                         cancellation,
+                        capture.as_deref_mut(),
                         |source, key| {
                             check_cancellation(cancellation)?;
                             let target = (edge.target as i64, key);
@@ -1593,7 +1622,6 @@ impl PreparedEdges {
             }
             tokio::task::yield_now().await;
         }
-        drop(cursor);
         Ok(())
     }
 
@@ -1714,8 +1742,8 @@ impl PreparedRootBatch {
             &self._charge,
             self.union._charge.as_ref(),
             &self.union.edges._provider_charge,
-            &self.union.edges._index_charge,
-        ] {
+        ].into_iter().chain(self.union.edges.adjacency.iter()
+            .filter_map(tokio::sync::OnceCell::get).map(|source| &source._index_charge)) {
             if charge
                 .budget()
                 .is_none_or(|owner| !owner.shares_pool(budget))

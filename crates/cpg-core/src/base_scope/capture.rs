@@ -67,38 +67,43 @@ impl<'a> CapturedBase<'a> {
         let membership_phase = lctx_native::phase::Phase::begin("base_cohort_membership_capture");
         let mut ipc = InvocationIpc::new(source, budget, cancellation, None)?;
         let mut members = ipc.begin(schema())?;
-        for (partition, key) in keys.iter().enumerate() {
+        let _transfer = budget.reserve("Base-membership-write-window", resources::TRANSFER_ROWS * 64 + 4096)?;
+        let mut discovery = scopes.edges.capture_discovery(budget, cancellation)?;
+        let mut start = 0;
+        let mut maximum = keys.len();
+        while start < keys.len() {
             cancellation.check()?;
-            // Keep the existing single-root discovery bound; no32-way membership owner.
-            let batch = scopes
-                .edges
-                .batch_with_cancellation(
-                    &[crate::consumed_rows::PreparedRoot {
-                        table: root_table,
-                        key: *key,
-                        kind: root_kind,
-                    }],
-                    budget,
-                    cancellation,
-                )
-                .await?;
-            let _transfer = budget.reserve(
-                "Base-membership-write-window",
-                resources::TRANSFER_ROWS * 64 + 4096,
-            )?;
+            let width = (keys.len() - start).min(maximum);
+            let requests = keys[start..start + width].iter().map(|key| crate::consumed_rows::PreparedRoot {
+                table: root_table, key: *key, kind: root_kind,
+            }).collect::<Vec<_>>();
+            let batch = scopes.edges.batch_with_capture(&requests, budget, cancellation, &mut discovery).await;
+            let batch = match batch {
+                Ok(batch) => batch,
+                Err(error) if width > 1 && discovery.permits_local_retry() && local_resource(&error) => {
+                    maximum = (width / 2).max(1);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let mut rows = Vec::with_capacity(resources::TRANSFER_ROWS);
-            for row in batch.memberships(0)? {
-                rows.push(row);
-                if rows.len() == resources::TRANSFER_ROWS {
-                    members.push(&encode_members(partition, &rows)?)?;
+            for partition in 0..width {
+                for row in batch.memberships(partition)? {
+                    rows.push(row);
+                    if rows.len() == resources::TRANSFER_ROWS {
+                        members.push(&encode_members(start + partition, &rows)?)?;
+                        rows.clear();
+                    }
+                }
+                if !rows.is_empty() {
+                    members.push(&encode_members(start + partition, &rows)?)?;
                     rows.clear();
                 }
             }
-            if !rows.is_empty() {
-                members.push(&encode_members(partition, &rows)?)?;
-            }
-            drop(batch);
+            start += width;
         }
+        drop(discovery);
+        drop(_transfer);
         members.finish(&mut ipc, MEMBERS).await?;
         membership_phase.finish(lctx_native::phase::Terminal::Passed);
         let payload_phase = lctx_native::phase::Phase::begin("base_unique_payload_capture");

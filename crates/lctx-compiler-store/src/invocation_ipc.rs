@@ -28,6 +28,16 @@ pub struct IpcCapture {
     charge: StateCharge,
     _directory: Arc<tempfile::TempDir>,
 }
+/// A completely written private input. Local registration can be retried while this exact
+/// owner retains its file and metadata; no source acquisition is repeated by adoption.
+pub struct SealedIpc {
+    path: std::path::PathBuf,
+    schema: SchemaRef,
+    budget: ResourceBudget,
+    _charge: StateCharge,
+    reader_allowance: usize,
+    directory: Arc<tempfile::TempDir>,
+}
 impl InvocationIpc {
     pub fn new(
         source: &SessionContext,
@@ -103,6 +113,18 @@ impl InvocationIpc {
             .map_err(ModelError::codec)?;
         Ok(())
     }
+    pub async fn adopt(&mut self, sealed: &SealedIpc, name: &str) -> Result<(), ModelError> {
+        self.cancellation.check()?;
+        if !Arc::ptr_eq(&sealed.directory, &self.directory) || !sealed.budget.shares_pool(&self.budget) {
+            return Err(ModelError::Conflict("invocation IPC owner differs"));
+        }
+        let bytes = sealed.reader_allowance;
+        self.charge.grow(bytes)?;
+        let result = self.session.register_arrow(name, sealed.path.to_string_lossy(),
+            ArrowReadOptions::default().schema(sealed.schema.as_ref())).await.map_err(crate::sql::model_error);
+        if result.is_err() { self.charge.release(bytes); }
+        result
+    }
     pub async fn materialize(
         &mut self,
         frame: datafusion::dataframe::DataFrame,
@@ -144,30 +166,52 @@ impl IpcCapture {
         self.charge.grow(256)?;
         self.writer.write(batch).map_err(ModelError::codec)
     }
-    pub async fn finish(mut self, owner: &mut InvocationIpc, name: &str) -> Result<(), ModelError> {
+    pub fn seal(mut self) -> Result<SealedIpc, ModelError> {
         self.cancellation.check()?;
-        if !Arc::ptr_eq(&self._directory, &owner.directory)
-            || !self.budget.shares_pool(&owner.budget)
-        {
-            return Err(ModelError::Conflict("invocation IPC owner differs"));
-        }
         self.writer.finish().map_err(ModelError::codec)?;
         drop(self.writer);
-        owner.charge.grow(
-            self.charge
-                .reserved()
-                .saturating_mul(2)
-                .saturating_add(4096),
-        )?;
-        owner
-            .session
-            .register_arrow(
-                name,
-                self.path.to_string_lossy(),
-                ArrowReadOptions::default().schema(self.schema.as_ref()),
-            )
-            .await
-            .map_err(crate::sql::model_error)?;
-        Ok(())
+        let reader_allowance = self.charge.reserved().saturating_mul(2).saturating_add(4096);
+        // The writer/footer allocations ended at sealing. Keep only this file/schema owner;
+        // registration separately admits the physical reader's metadata allowance.
+        let retained = size_of::<SealedIpc>() + self.path.as_os_str().len()
+            + self.schema.fields().iter().map(|field| field.size()).sum::<usize>() + 512;
+        if self.charge.reserved() > retained { self.charge.release(self.charge.reserved() - retained); }
+        Ok(SealedIpc { path: self.path, schema: self.schema, budget: self.budget,
+            _charge: self.charge, reader_allowance, directory: self._directory })
+    }
+    pub async fn finish(self, owner: &mut InvocationIpc, name: &str) -> Result<(), ModelError> {
+        let sealed = self.seal()?;
+        owner.adopt(&sealed, name).await
+    }
+}
+
+#[cfg(test)]
+mod sealed_controls {
+    use super::*;
+    #[tokio::test]
+    async fn sealed_input_survives_local_registration_refusal_without_recapture() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        {
+            let session = SessionContext::new();
+            let cancellation = Cancellation::default();
+            let mut ipc = InvocationIpc::new(&session, &budget, &cancellation, None).unwrap();
+            let schema = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+                "id", arrow_schema::DataType::Int64, false)]));
+            let input = RecordBatch::try_new(schema.clone(), vec![Arc::new(arrow_array::Int64Array::from(vec![7]))]).unwrap();
+            let mut writer = ipc.begin(schema).unwrap();
+            writer.push(&input).unwrap();
+            let sealed = writer.seal().unwrap();
+            let retained = budget.reserved();
+            let pressure = budget.reserve("sealed-local-registration-control", budget.limit() - retained).unwrap();
+            assert!(matches!(ipc.adopt(&sealed, "selected").await, Err(ModelError::Resource { .. })));
+            drop(pressure);
+            ipc.adopt(&sealed, "selected").await.unwrap();
+            let rows = crate::sql::query(ipc.session(), "SELECT id FROM selected").await.unwrap().collect().await.unwrap();
+            assert_eq!(rows.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+            assert_eq!(rows[0].column(0).as_any().downcast_ref::<arrow_array::Int64Array>().unwrap().value(0), 7);
+            let mut foreign = InvocationIpc::new(&session, &budget, &cancellation, None).unwrap();
+            assert!(foreign.adopt(&sealed, "foreign").await.is_err());
+        }
+        assert_eq!(budget.reserved(), 0);
     }
 }
