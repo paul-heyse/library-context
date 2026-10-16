@@ -42,6 +42,7 @@ pub fn config() -> RuntimeConfig {
     ))
     .unwrap()
 }
+#[allow(dead_code, reason = "Shared fixture consumers select default or explicit actual pools")]
 pub async fn reader(
     config: &RuntimeConfig,
     entities: &[Entity],
@@ -93,16 +94,16 @@ pub async fn reader_with_budget(
             outputs: groups.keys().cloned().collect::<BTreeSet<_>>(),
         };
     let specification_identity = specification.identity()?;
-    let producing = store.producing_scope(specification_identity, &budget)?;
+    let producing = store.producing_scope(specification_identity, budget)?;
     let contribution = store.begin_contribution(specification).await?;
     for relation in &relations {
         let batch = lctx_native::codec::decode_bodies(
             relation,
             groups.remove(relation.name()).unwrap(),
-            &budget,
+            budget,
         )?;
         store
-            .write_batch(&contribution, relation, &batch, &budget)
+            .write_batch(&contribution, relation, &batch, budget)
             .await?;
     }
     let views = store
@@ -111,7 +112,7 @@ pub async fn reader_with_budget(
             ProviderOutcome::Complete,
             &relations,
             &BTreeMap::new(),
-            &budget,
+            budget,
         )
         .await?;
     let recovery = store.recovery_scope()?;
@@ -123,7 +124,7 @@ pub async fn reader_with_budget(
     let loader =
         lctx_native::Loader::for_attempt_views(client.clone(), store.attempt(), selected.clone())
             .with_derivation(derivation)
-            .with_budget(&budget);
+            .with_budget(budget);
     let references = producing.run(async {
         loader.entity_references(entities).await?;
         loader.assertion_references(assertions).await
@@ -133,12 +134,12 @@ pub async fn reader_with_budget(
     lctx_model::domain::completion::complete(references, terminal)?;
     let descriptors = views.values().cloned().collect::<Vec<_>>();
     let reader = store
-        .reader_for_views(&descriptors, &budget)
+        .reader_for_views(&descriptors, budget)
         .await?
         .with_derivation(derivation);
     let mut installed = Vec::new();
     for view in &descriptors {
-        installed.push(store.installed_view(view, &budget).await?);
+        installed.push(store.installed_view(view, budget).await?);
     }
     Ok(ScopedFixture {
         reader,

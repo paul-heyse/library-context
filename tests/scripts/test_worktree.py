@@ -382,6 +382,139 @@ def test_unknown_fixture_state_is_not_absent(repo, tmp_path, monkeypatch):
     assert (base / "unknown").exists()
 
 
+def run_receipt(directory: Path, *, active: bool = False, cleanup: bool = True) -> Path:
+    import json
+
+    from harness import ProcessIdentity
+
+    directory.mkdir(parents=True)
+    owner = ProcessIdentity.of().to_json()
+    if not active:
+        owner["boot_id"] = "previous-boot"
+    record = {
+        "schema": 2,
+        "id": directory.name,
+        "owner": owner,
+        "argv": ["inert"],
+        "termination": None if active else "completed",
+        "child": None,
+    }
+    if cleanup:
+        record["cleanup"] = {"status": "confirmed"}
+    (directory / "record.json").write_text(json.dumps(record))
+    return directory
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_complete_run_inventory_accepts_schema2_empty_root(tmp_path, exists):
+    directory = tmp_path / "runs"
+    if exists:
+        directory.mkdir()
+    rows = worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+    assert rows == []
+
+
+def test_complete_run_inventory_hydrates_history_beyond_recent_page(tmp_path):
+    directory = tmp_path / "runs"
+    names = {f"20261016T000000.{number:03}Z-aaaaaa" for number in range(24)}
+    for name in names:
+        run_receipt(directory / name)
+    rows = worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+    assert {row["id"] for row in rows} == names
+    assert all(not row["protected"] and not row["owner_live"] for row in rows)
+
+
+@pytest.mark.parametrize("change", ["addition", "deletion", "replacement", "root-replacement"])
+def test_complete_run_inventory_refuses_membership_change(tmp_path, monkeypatch, change):
+    directory = tmp_path / "runs"
+    original = run_receipt(directory / "original")
+    harness = worktree._harness
+
+    def changing(script, args, key, root):
+        result = harness(script, args, key, root)
+        if change == "addition":
+            run_receipt(root / "new")
+        elif change == "deletion":
+            original.rename(tmp_path / "removed")
+        elif change == "replacement":
+            original.rename(tmp_path / "removed")
+            run_receipt(root / "original")
+        else:
+            root.rename(tmp_path / "previous-root")
+            run_receipt(root / "original")
+        return result
+
+    monkeypatch.setattr(worktree, "_harness", changing)
+    with pytest.raises(RuntimeError, match="run membership changed"):
+        worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+
+
+@pytest.mark.parametrize("redirect", ["root", "entry", "dangling-entry", "receipt", "unknown-file"])
+def test_complete_run_inventory_refuses_redirected_or_unknown_content(
+    tmp_path, monkeypatch, redirect
+):
+    directory = tmp_path / "runs"
+    outside = run_receipt(tmp_path / "outside")
+    if redirect == "root":
+        directory.symlink_to(outside, target_is_directory=True)
+    else:
+        directory.mkdir()
+        if redirect in {"entry", "dangling-entry"}:
+            (directory / "redirected").symlink_to(
+                outside if redirect == "entry" else tmp_path / "absent", target_is_directory=True
+            )
+        elif redirect == "receipt":
+            candidate = directory / "candidate"
+            candidate.mkdir()
+            (candidate / "record.json").symlink_to(outside / "record.json")
+        else:
+            (directory / "unclassified").write_text("unknown owner")
+    monkeypatch.setattr(
+        worktree, "_harness", lambda *args: pytest.fail("redirected inventory reached owner reader")
+    )
+    with pytest.raises(RuntimeError, match=r"redirected|unknown run entry"):
+        worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+
+
+def test_complete_run_inventory_refuses_corrupt_receipt(tmp_path):
+    directory = tmp_path / "runs"
+    run_receipt(directory / "corrupt")
+    (directory / "corrupt" / "record.json").write_text("not JSON")
+    with pytest.raises(RuntimeError, match="run owner observation unavailable"):
+        worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_complete_run_inventory_preserves_unknown_and_active_owner_protection(tmp_path, active):
+    directory = tmp_path / "runs"
+    run_receipt(directory / "held", active=active, cleanup=False)
+    rows = worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+    assert len(rows) == 1
+    assert rows[0]["protected"]
+    assert rows[0]["owner_live"] is active
+    assert rows[0]["host_cleanup"]["status"] == "unknown"
+
+
+def test_complete_run_inventory_refuses_display_selection_and_missing_rows(tmp_path, monkeypatch):
+    import json
+
+    directory = tmp_path / "runs"
+    run_receipt(directory / "held")
+    with pytest.raises(RuntimeError, match="complete unfiltered"):
+        worktree._listing("runs.py", ("list", "--json"), "LCTX_RUNS_ROOT", directory)
+    harness = worktree._harness
+
+    def incomplete(script, args, key, root):
+        result = harness(script, args, key, root)
+        payload = json.loads(result.stdout)
+        payload["runs"] = []
+        return subprocess.CompletedProcess(result.args, 0, json.dumps(payload), result.stderr)
+
+    monkeypatch.setattr(worktree, "_harness", incomplete)
+    with pytest.raises(RuntimeError, match="run coverage is incomplete"):
+        worktree._listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", directory)
+
+
 @pytest.mark.parametrize("kind", ["attachment", "incomplete"])
 def test_ended_fixture_with_unresolved_cleanup_protects_worktree(repo, tmp_path, monkeypatch, kind):
     base = tmp_path / "wt"

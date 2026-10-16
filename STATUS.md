@@ -2,16 +2,13 @@
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 **Catalog efficiency through CE99 executing, 2026-10-16.**
 [Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns decisions/receipts.
-Source through `5c09255e`: reviewed lifecycle/consumer repairs and fallback-guard leak fix.
-Full compile/strict Clippy passed `100051…972c4a`; Ruff/Pyrefly/ADR/agent/docs passed.
-Native16-control rerun `102612…e85711` finished14 passed,1 failed,1 timed out; host cleanup confirmed.
-Session-release/constructor/pool/sibling controls passed. Public physical completion lacked its
-recovery lease; repair/CLI and post-split full compile/strict Clippy passed through `104333…294f84`.
-Batching timed out360s after four completed trials; split into six same-assertion controls for rerun.
-Native Unknown attachment retained. No weakened assertions, timeout increase or disk purge.
-Rehearsal regeneration passed `104326…dab02c`; native/consumer controls `104419…e765e0` active.
-Default unchanged; no worktree. **Next:**
-finish native acceptance, CE80/CE90/CE99. Coordinator owns exact receipts and unresolved obligations.
+Source through `c492789a`: actual publication-child ownership, direct import scopes and charged setup continuations.
+Native rerun `104419…e765e0`:15 owner controls passed;3 lexical setup failures,11 compound timeouts;
+host cleanup confirmed, native Unknown retained. No assertion/timeout relaxation or resource caps.
+Merged repairs address setup scopes/pools; next probe enables existing phase/retry telemetry.
+Full compile/strict Clippy/CLI `111726…f23bcf` passed; Pyrefly/ADR/docs passed, affected Ruff corrected/passed.
+Worktree safety migration passed35 controls `111823…1b248c`; merged worktree removed, no auxiliary checkout.
+Default unchanged; rehearsal regenerated `112247…ed471c`, generation `fcb747…`. **Next:** native probe, CE80–CE99.
 MCP/embedding/real-library and old-plan edits remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)

@@ -28,6 +28,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -388,22 +389,85 @@ def _harness(script: str, args: Sequence[str], key: str, directory: Path):
     )
 
 
+def _run_membership(directory: Path) -> tuple[tuple[int, int] | None, dict[str, tuple[int, int]]]:
+    """Anchor a safety inventory without following redirected or unknown entries.
+
+    Removal already holds exclusive checkout admission. Check both sides of the
+    owner's complete observation as well, so an uncoordinated replacement cannot
+    turn a live display's membership semantics into deletion authority.
+    """
+    try:
+        root = directory.lstat()
+    except FileNotFoundError:
+        return None, {}
+    except OSError as error:
+        raise RuntimeError(f"cannot inspect {directory}: run root unavailable") from error
+    if not stat.S_ISDIR(root.st_mode):
+        raise RuntimeError(f"cannot inspect {directory}: run root is redirected or not a directory")
+    members = {}
+    try:
+        for path in directory.iterdir():
+            identity = path.lstat()
+            if not stat.S_ISDIR(identity.st_mode):
+                raise RuntimeError(f"cannot inspect {directory}: unknown run entry {path.name}")
+            record = path / "record.json"
+            if record.is_symlink():
+                raise RuntimeError(
+                    f"cannot inspect {directory}: run receipt is redirected: {path.name}"
+                )
+            members[path.name] = (identity.st_dev, identity.st_ino)
+        current = directory.lstat()
+    except OSError as error:
+        raise RuntimeError(f"cannot inspect {directory}: run membership unavailable") from error
+    if (root.st_dev, root.st_ino) != (current.st_dev, current.st_ino):
+        raise RuntimeError(f"cannot inspect {directory}: run root changed during inspection")
+    return (root.st_dev, root.st_ino), members
+
+
 def _listing(script: str, args: Sequence[str], key: str, directory: Path) -> list[dict]:
+    before = None
+    if script == "runs.py":
+        if tuple(args) != ("list", "--all", "--json") or key != "LCTX_RUNS_ROOT":
+            raise RuntimeError(
+                f"cannot inspect {directory}: complete unfiltered run inventory required"
+            )
+        before = _run_membership(directory)
     result = _harness(script, args, key, directory)
     try:
         rows = json.loads(result.stdout) if result.returncode == 0 else None
     except ValueError:
         rows = None
     if script == "runs.py":
+        after = _run_membership(directory)
+        if before != after:
+            raise RuntimeError(
+                f"cannot inspect {directory}: run membership changed during inspection"
+            )
+        assert before is not None
+        names = set(before[1])
+        coverage = rows.get("coverage") if isinstance(rows, dict) else None
+        entries = rows.get("runs") if isinstance(rows, dict) else None
         if (
             not isinstance(rows, dict)
-            or rows.get("schema") != 1
+            or rows.get("schema") != 2
             or rows.get("next_cursor") is not None
-            or rows.get("coverage", {}).get("complete") is not True
-            or rows.get("coverage", {}).get("directory_membership_stable") is not True
+            or not isinstance(coverage, dict)
+            or coverage.get("complete") is not True
+            or any(coverage.get(field) != len(names) for field in (
+                "directory_count", "examined_records", "hydrated_records", "returned_records"
+            ))
+            or not isinstance(entries, list)
+            or any(
+                not isinstance(row, dict) or not isinstance(row.get("id"), str)
+                for row in entries
+            )
+            or len(entries) != len(names)
+            or {row["id"] for row in entries} != names
         ):
             raise RuntimeError(f"cannot inspect {directory}: run coverage is incomplete")
-        rows = rows.get("runs")
+        if any(row.get("corrupt") is not False for row in entries):
+            raise RuntimeError(f"cannot inspect {directory}: run owner observation unavailable")
+        rows = entries
     if not isinstance(rows, list):
         detail = (result.stderr.strip().splitlines() or ["no output"])[-1]
         raise RuntimeError(f"cannot inspect {directory} with {script}: {detail}")

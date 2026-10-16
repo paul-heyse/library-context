@@ -23,6 +23,7 @@ bytes.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 [dev-dependencies]
+tracing-subscriber.workspace = true
 cpg-core = { path = "../cpg-core" }
 cpg-extract = { path = "../cpg-extract" }
 datafusion.workspace = true

@@ -184,8 +184,9 @@ not reasons to introduce runtime serialization.
 
 ## 6. Sole disposition and current checkpoint
 
-**Remaining scope executing after storage repair, 2026-10-16.** Production through `0fac2df8`; fixture-only
-ownership corrections are source-reviewed and committed; runtime remains unverified. Operator approved all remaining
+**Remaining scope executing after storage repair, 2026-10-16.** Source through`c492789a`, with
+follow-up fixture/dependency and CD01 safety-consumer changes on shared main. Fifteen native owner
+controls passed; lexical/analysis/reconstruction and enclosing acceptance remain open. Operator approved all remaining
 scope through CE99, lightweight source context, and exact default installation
 `58abe9ea-2088-4109-95ab-8440a3749c51` main+validation regeneration after authenticated drainage.
 Default remains unchanged; owned rehearsal E1 remains installed. Original failures/Unknown stay.
@@ -260,7 +261,28 @@ checked/open and bootstrap absent. Separate whole-target discard acknowledgement
 attachment obligation without changing its native Unknown. Current native/consumer selection
 `20261016T104419.245Z-e765e0` is active: same owner controls plus six granular batching comparisons,
 actual lexical/index-plan, corruption, selected-backup reconstruction and Base/SourceCall/Summary
-consumer controls, keep-going with existing allowances. No current pass claim yet.
+consumer controls, keep-going with existing allowances. This run compiled with future-incompatible
+Send-proof recursion-depth warnings in two large continuations; metadata-only compile/Clippy did
+not expose them. Source-only worker repairs use the existing admitted charged continuation seam,
+without suppressing warnings or raising recursion limits. Three lexical controls failed in the
+shared scoped fixture before their assertions: unrelated client plus missing actual recovery scope.
+The bounded source scan additionally found omitted scope entry in public direct imports and
+publication's private session; owned private child-session and admitted method fixes are underway.
+All six granular batching controls plus Base and SourceCall controls timed out at360s in this
+combined run; do not infer native algorithmic success, a specific conflict cause or an SDK join
+stall from cancellation diagnostics. The earlier four completed trials remain exact bounded evidence.
+Summary/selected-backup also timed out at900s (one terminal cleanup finished902s). Final nextest
+`8b2a3df8-bbd4-4d87-bfca-89ae8773fc6d`:29 run,15 passed,3 failed,11 timed out; exit100, host
+cleanup confirmed. All15 native owner controls passed, including physical completion. Attachment
+`24dbc918-6d43-4f01-bd20-addcf94f139d` retains native Unknown. Independent causal inspection
+confirmed different compile/validate/finalize stages and real finalization conflicts, but cannot
+attribute pretimeout duration or collided keys; simultaneous abandonment remains an alternative.
+The next discriminator is existing phase/retry telemetry through an opt-in valid RUST_LOG fixture
+subscriber. No resource caps or assertion/timeout relaxation. Source is committed`6ab62326`; corrections are
+isolated in source-only worktree`efficiency-final-scope`, with no environment setup/builds while
+native workers are live. Main production stayed frozen for the run. Independent review requires
+restoring the original pinned-server-version check in the owned retirement route before integration.
+Current cited run logs/receipts retain consumer`citation:catalog-efficiency-current-acceptance`.
 
 **Current execution evidence, 2026-10-16:** target-owned default required-peer build
 `20261016T062249.650Z-3b9d62` passed/cleanup confirmed; rehearsal-owned peer build
@@ -379,6 +401,37 @@ source-only; actual RocksDB interleavings, physical query plans, scoring/cold re
 CE80 and selected CE90 remain independent exits. Admitted Arrow/unsupported regex refuse; H2/TLS
 workspace remains outside the stated ingress allocation contract.
 
+
+**Latest integration, 2026-10-16:** source-only worktree`efficiency-final-scope` merged as`c492789a`.
+Public direct imports enter actual admitted recovery; private publication and readback use the same
+source factory with independent child sessions, matching pools and distinct source cancellation.
+Standalone retirement has its own receipt-bound owner. Independent review caught a lost engine-version
+check; the shared connected-installation validator now preserves it with schema/generation checks
+before effects. Large setup continuations are charged/erased before nested task-local wrappers;
+actual nonempty direct-import regression control and opt-in phase/retry subscriber are added.
+First integration hygiene`20261016T111121.419Z-d6018a` failed101: the shared fixture needed the existing
+pinned tracing-subscriber dev dependency in its two additional consumers; exact lock diff adds only
+those two edges, no version changes. Redundant budget borrows and one shared helper's intentionally
+unused default route are corrected. Full compile/strict Clippy passed within rerun
+`20261016T111726.434Z-f23bcf`; CLI build also passed0/cleanup confirmed.
+
+Worktree removal exposed CD01's unmigrated consumer of obsolete run-list schema1. The bounded fix
+anchors complete unfiltered schema2 inventory to exact before/after root/entry identities, requires
+complete matching counts/IDs and refuses redirected, unknown or corrupt ownership. It preserves live,
+retained, survivor and unresolved protections. First Python attempt`20261016T111656.794Z-356b0f`
+failed setup because `/tmp/pytest-of-paul` belongs to another UID; no foreign content changed.
+Owned-run temporary-root rerun`20261016T111823.803Z-1b248c` passed35 controls/cleanup confirmed.
+The fully merged worktree/branch were then removed through the repaired owner without force.
+Full refresh`20261016T111941.066Z-0e4f3e` passed warnings-inclusive Pyrefly, ADR/agent lint
+and docs464 pages/zero errors; failed Ruff on8 new long lines and1 non-raw regex. Those are
+corrected; affected Ruff rerun passed. No diagnostics were suppressed. Guard-free native refresh
+`20261016T112112.063Z-b88a87` passed, rebuilding the source/lock-current extension. Fresh rehearsal
+regeneration`20261016T112247.949Z-ed471c` passed0/cleanup confirmed, both scopes checked/open,
+bootstrap absent; generation`fcb7477d2ffc2fe854f2191062db40bd683a30d00991bd5d2dcbd98f392d6d4b`,
+journal`484e1be371ff29f462f7d80f8ba16573c4f17dc0c390d6751f3d95161cb9b5f3`.
+The original prior Unknown is preserved with a separate authenticated discard acknowledgement.
+Default CE80 and CE90/CE99 remain unexecuted. Next native selection uses existing telemetry to
+distinguish pretimeout work/retry stages without caps, assertion changes or allowance increases.
 
 This section alone owns current execution disposition for this review's scope. The approved
 CE00/CD00/CN00–CN05 slice is **implemented / focused-Tested, 2026-10-15**, based at

@@ -328,7 +328,12 @@ stripe-child disposal behind permanent fencing. No native qualification or speed
 
 Recovery scopes belong to actual source finalization or explicit maintenance/direct-command owners.
 They retain sessions, reservations and exact reconciliation/reference-release actions through checked
-terminals. Persist pending request metadata before issue, then known Committed/reference-release
+terminals. Public physical completion and direct imports enter their own admitted recovery scope;
+already-admitted finalization keeps its existing parent. Private publication owns a separate child
+of the source factory in the same actual resource pool, with source admission/cancellation and child
+session finality kept distinct. Standalone retirement has its own receipt-bound factory and retains
+the same pinned-server/installation checks before effects. Borrowed source sessions are never closed
+as private-child cleanup. Persist pending request metadata before issue, then known Committed/reference-release
 metadata before releasing its last native outcome witness. Missing recipients refuse before issue;
 pending recovery prevents session/signal/source completion. Session close acknowledges the exact
 ordered SDK detach after those prerequisites; authentication invalidation alone is insufficient.
