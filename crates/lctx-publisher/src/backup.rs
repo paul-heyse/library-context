@@ -82,7 +82,6 @@ async fn backup_owned(
         cancel.check()?;
         let completed =
             lctx_native::completed_state::published_completed_state(&viewer, &budget).await?;
-        let metadata = recovery_metadata(config, handle)?;
         // One dedicated exporter session, with one external transaction across all metadata,
         // closure and content reads. There is no independent export or per-page snapshot.
         let exporting = lctx_native::reader::connect(
@@ -161,6 +160,55 @@ async fn backup_owned(
         )
         .await?;
         cancel.check()?;
+        Ok((manifest, state_receipt, sql, state))
+    }
+    .await;
+    let source_finality = async {
+        let mut completion = Completion::default();
+        if exporter.is_some() {
+            let session = exporter_guard.take().expect("owned exporter close guard");
+            let closed = session.close().await;
+            if closed.is_err() {
+                viewer.retain_unknown();
+                completion.remote = RemoteState::Unknown;
+            }
+            completion.step("backup pre-begin exporter session close", closed);
+        }
+        if let Some(transaction) = transaction {
+            let cancelled = transaction.cancel_ref().await.map_err(ModelError::codec);
+            let mut retain = cancelled.is_err();
+            if cancelled.is_err() {
+                viewer.retain_unknown();
+                completion.remote = RemoteState::Unknown;
+            }
+            completion.step("backup snapshot explicit cancellation", cancelled);
+            let closed = transaction
+                .close_session()
+                .await
+                .map_err(|error| ModelError::Cause(Box::new(error)));
+            if closed.is_err() {
+                retain = true;
+                viewer.retain_unknown();
+                completion.remote = RemoteState::Unknown;
+            }
+            completion.step("backup snapshot session close", closed);
+            if retain {
+                // Retain this transaction's exact original SDK session after an
+                // uncertain cancel/close; no replacement client can settle it.
+                std::mem::forget(transaction);
+            }
+        }
+        completion.step(
+            "backup retained manifest pin release",
+            pin_guard.close(&viewer).await,
+        );
+        completion
+    };
+    let result = after_source(result, source_finality, |(manifest, state_receipt, sql, state)| {
+        // Checked source EOF and successful exact session finality precede all local
+        // carrier work. These owned spools no longer borrow a snapshot or source pin.
+        cancel.check()?;
+        let metadata = recovery_metadata(config, handle)?;
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
             .append(true)
@@ -185,46 +233,9 @@ async fn backup_owned(
         };
         receipt.validate()?;
         Ok(receipt)
-    }
+    })
     .await;
     let mut completion = Completion::default();
-    if exporter.is_some() {
-        let session = exporter_guard.take().expect("owned exporter close guard");
-        let closed = session.close().await;
-        if closed.is_err() {
-            viewer.retain_unknown();
-            completion.remote = RemoteState::Unknown;
-        }
-        completion.step("backup pre-begin exporter session close", closed);
-    }
-    if let Some(transaction) = transaction {
-        let cancelled = transaction.cancel_ref().await.map_err(ModelError::codec);
-        let mut retain = cancelled.is_err();
-        if cancelled.is_err() {
-            viewer.retain_unknown();
-            completion.remote = RemoteState::Unknown;
-        }
-        completion.step("backup snapshot explicit cancellation", cancelled);
-        let closed = transaction
-            .close_session()
-            .await
-            .map_err(|error| ModelError::Cause(Box::new(error)));
-        if closed.is_err() {
-            retain = true;
-            viewer.retain_unknown();
-            completion.remote = RemoteState::Unknown;
-        }
-        completion.step("backup snapshot session close", closed);
-        if retain {
-            // Retain this transaction's exact original SDK session after an
-            // uncertain cancel/close; no replacement client can settle it.
-            std::mem::forget(transaction);
-        }
-    }
-    completion.step(
-        "backup retained manifest pin release",
-        pin_guard.close(&viewer).await,
-    );
     if let Some(sources) = sources {
         completion.cleanup(
             sources.path().display().to_string(),
@@ -247,6 +258,16 @@ async fn backup_owned(
     receipt.ok_or(ModelError::Conflict(
         "backup checked completion receipt absent",
     ))
+}
+
+/// Source finalization is mandatory even on export failure. The local consumer cannot
+/// observe successful spool output until all source finalizers acknowledge completion.
+async fn after_source<T, U>(
+    exported: Result<T, ModelError>,
+    finalization: impl std::future::Future<Output = Completion>,
+    carrier: impl FnOnce(T) -> Result<U, ModelError>,
+) -> Result<U, ModelError> {
+    complete(exported, finalization.await).and_then(carrier)
 }
 
 fn recovery_metadata(
@@ -597,6 +618,97 @@ pub(crate) mod grpc_export_fixture;
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[tokio::test]
+    async fn source_finalization_acknowledgements_gate_actual_carrier_bytes() {
+        let scratch = tempfile::tempdir().unwrap();
+        let sql = scratch.path().join("claims.sql");
+        let state = scratch.path().join("state");
+        let output = scratch.path().join("carrier");
+        std::fs::write(&sql, b"exact claims").unwrap();
+        std::fs::write(&state, b"exact state").unwrap();
+        std::fs::write(&output, b"untouched before source finality").unwrap();
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        let (close, closed) = tokio::sync::oneshot::channel();
+        let finalization = async {
+            cancelled.await.unwrap();
+            closed.await.unwrap();
+            Completion::default()
+        };
+        let mut operation = Box::pin(after_source(Ok(()), finalization, |_| {
+            crate::backup_import::write_carrier(&sql, &state, &output, &budget)
+        }));
+        assert!(futures::poll!(operation.as_mut()).is_pending());
+        assert_eq!(std::fs::read(&output).unwrap(), b"untouched before source finality");
+        cancel.send(()).unwrap();
+        assert!(futures::poll!(operation.as_mut()).is_pending());
+        assert_eq!(std::fs::read(&output).unwrap(), b"untouched before source finality");
+        close.send(()).unwrap();
+        let digest = operation.await.unwrap();
+        assert_eq!(digest, crate::backup_import::carrier_digest(&output, &budget).unwrap());
+        assert!(std::fs::read(&output).unwrap().starts_with(b"LCTX-BACKUP/1\n"));
+    }
+
+    #[tokio::test]
+    async fn failed_source_finalization_refuses_carrier_and_retains_primary_and_finalizers() {
+        for export_failed in [false, true] {
+            for failed_step in ["backup snapshot explicit cancellation", "backup snapshot session close"] {
+                let exported = if export_failed {
+                    Err(ModelError::Conflict("late source EOF failure"))
+                } else { Ok(()) };
+                let finalization = async {
+                    let mut completion = Completion::default();
+                    completion.remote = RemoteState::Unknown;
+                    completion.step(failed_step, Err(ModelError::Conflict("lost source acknowledgement")));
+                    completion
+                };
+                let error = after_source(exported, finalization, |_| -> Result<(), ModelError> {
+                    panic!("uncertain source must never construct a carrier")
+                }).await.unwrap_err();
+                let ModelError::Completion(outcome) = error else { panic!("structured source outcome"); };
+                assert_eq!(outcome.completion.remote, RemoteState::Unknown);
+                assert_eq!(outcome.completion.failures[0].step, failed_step);
+                if export_failed {
+                    assert!(matches!(outcome.primary.as_deref(), Some(ModelError::Conflict("late source EOF failure"))));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn known_export_failure_still_finalizes_source_without_constructing_carrier() {
+        let finalized = std::cell::Cell::new(false);
+        let error = after_source(
+            Err::<(), _>(ModelError::Conflict("known export failure")),
+            async {
+                finalized.set(true);
+                Completion::default()
+            },
+            |_| -> Result<(), ModelError> { panic!("failed export must not construct carrier") },
+        ).await.unwrap_err();
+        assert!(finalized.get());
+        assert!(matches!(error, ModelError::Conflict("known export failure")));
+        assert!(error.permits_storage_cleanup());
+    }
+
+    #[tokio::test]
+    async fn local_carrier_failure_after_source_close_has_no_native_uncertainty() {
+        let scratch = tempfile::tempdir().unwrap();
+        let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
+        let provisional = staged.path().to_owned();
+        let output = scratch.path().join("backup");
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let error = after_source(Ok(()), std::future::ready(Completion::default()), |_| {
+            crate::backup_import::write_carrier(&scratch.path().join("missing-source"), &scratch.path().join("missing-state"), staged.path(), &budget)
+        }).await.unwrap_err();
+        assert!(error.permits_storage_cleanup());
+        assert!(!matches!(error, ModelError::Completion(ref outcome) if outcome.completion.remote == RemoteState::Unknown));
+        let error = complete_backup(staged, &output, Err(error), Ok(()), |_| panic!("failed carrier must remain unpublished")).unwrap_err();
+        assert!(error.permits_storage_cleanup());
+        assert!(!output.exists());
+        assert!(!provisional.exists());
+    }
 
     #[tokio::test]
     async fn retirement_cancelled_during_selection_lock_wait_preserves_pointer() {
