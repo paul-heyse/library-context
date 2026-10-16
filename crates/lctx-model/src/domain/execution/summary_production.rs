@@ -1585,7 +1585,7 @@ fn path_candidates(
     discovery: &Discovery<'_>,
     vocabulary: &Vocabulary,
     branch: &WorkBranch,
-    mut consume: impl FnMut(WorkItem) -> Result<(), ModelError>,
+    mut consume: impl FnMut(WorkItem) -> Result<bool, ModelError>,
 ) -> Result<(), ModelError> {
     let descriptor = branch.descriptor();
     let Some(place) = vocabulary.places.get(&descriptor.output) else {
@@ -1603,7 +1603,7 @@ fn path_candidates(
     let Some(PlaceRoot::Entry { declaration }) = vocabulary.roots.get(&input.root) else {
         return Ok(());
     };
-    for definition in discovery
+    'aliases: for definition in discovery
         .definitions
         .get(site)
         .into_iter()
@@ -1653,13 +1653,9 @@ fn path_candidates(
                                     .into_iter()
                                     .flatten()
                                 {
-                                    consume(WorkItem::Alias(
-                                        branch.id(),
-                                        vs.id(),
-                                        rs.id(),
-                                        ds.id(),
-                                        us.id(),
-                                    ))?;
+                                    if consume(WorkItem::Alias(
+                                        branch.id(), vs.id(), rs.id(), ds.id(), us.id(),
+                                    ))? { break 'aliases; }
                                 }
                             }
                         }
@@ -1668,7 +1664,7 @@ fn path_candidates(
             }
         }
     }
-    for step in discovery
+    'paths: for step in discovery
         .call_steps
         .get(site)
         .into_iter()
@@ -1707,7 +1703,7 @@ fn path_candidates(
                     .into_iter()
                     .flatten()
                 {
-                    consume(WorkItem::Path(branch.id(), vs.id(), ps.id(), step.id()))?;
+                    if consume(WorkItem::Path(branch.id(), vs.id(), ps.id(), step.id()))? { break 'paths; }
                 }
             }
         }
@@ -1811,8 +1807,9 @@ fn residual(
 }
 
 /// The published residual tuple is the exact post-refusal equivalence class. Proof identity
-/// and queue charging remain outside this boundary: only repeated rich output construction
-/// is factored, after every candidate has received its original admission outcome.
+/// and original queue admissions remain separate. Exhausted grouping supplies an actual
+/// refused witness while preserving pending/processed exceptions; this helper also deduplicates
+/// rich products from other explicit refusal routes.
 fn materialize_residual(
     residual_context: ResidualContext<'_>,
     item: WorkItem,
@@ -1969,14 +1966,20 @@ fn enqueue(
         materialized += exhausted.calls(&enqueue_context, new, queue, processed, out)?;
     }
     path_candidates(data, discovery, vocabulary, &progress.branches[&new], |item| {
-        if processed.contains(&item) { return Ok(()); }
-        if let Err(reason) = queue.insert(item)? {
+        exhausted.examined += 1;
+        if processed.contains(&item) || queue.contains(&item) { return Ok(false); }
+        if queue.exhausted() {
             materialized += usize::from(materialize_residual(
                 ResidualContext { discovery, data, invocation, component: component_id, progress, seeds },
-                item, reason, out,
+                item, obligation::ObligationKind::SummaryPairWorkLimit, out,
             )?);
+            // Alias ignores all support IDs; Path ignores support/step IDs, and every
+            // step in this bucket has the same call site. Each is one exact residual
+            // group, but their two events may differ. Only an actual refusal ends it.
+            return Ok(true);
         }
-        Ok(())
+        let _ = queue.insert(item)?;
+        Ok(false)
     })?;
     Ok(materialized)
 }
@@ -3227,6 +3230,7 @@ mod actual_input_property_controls {
     #[test]
     fn indexed_alias_discovery_preserves_every_support_combination_in_source_order() {
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        {
         let mut data = SummaryData::new(&budget);
         let path = AccessPath::empty();
         let input_root = PlaceRoot::Entry {
@@ -3273,7 +3277,7 @@ mod actual_input_property_controls {
             modality: q.modality,
             approximation: q.approximation,
             kind: TransferKind::Derived,
-            call_site: None,
+            call_site: Some(nominal(55)),
             provenance: ProvenanceClass::Composed,
         });
         let branch = WorkBranch {
@@ -3287,7 +3291,7 @@ mod actual_input_property_controls {
                 status: analysis::policy::EvidenceStatus::StructurallyObserved,
                 heuristic: false,
             },
-            cost: ProofCost::SOURCE,
+            cost: ProofCost { depth: 2, steps: 5, rank: 2 },
         };
         let definition = FlowDefinitionObservation {
             qualification: q.id(),
@@ -3430,13 +3434,137 @@ mod actual_input_property_controls {
         let mut actual = Vec::new();
         path_candidates(&data, &discovery, &data.vocabulary, &branch, |item| {
             actual.push(item);
-            Ok(())
+            Ok(false)
         })
         .unwrap();
         assert_eq!(actual.len(), 32);
         assert_eq!(actual, expected);
         drop(discovery);
         assert_eq!(budget.reserved(), retained);
+        // Two legitimate support groups have different events: Alias uses the original
+        // call; Path uses this output call site. Repeated steps still share the latter.
+        let formal = PlaceRoot::Formal { declaration: nominal(1) };
+        let formal_place = Place { root: formal.id(), path: path.id() };
+        data.entry.roots.insert(formal).unwrap();
+        data.entry.places.insert(formal_place.clone()).unwrap();
+        let use_ = FlowUse { occurrence: nominal(40), place: formal_place.id() };
+        data.entry.uses.insert(use_.clone()).unwrap();
+        data.entry.owners.insert(OccurrenceOwnership { occurrence: use_.occurrence,
+            owner: nominal(1), entity: branch.descriptor().owner }).unwrap();
+        let path_value = FlowValueObservation { qualification: q.id(), use_: use_.id(), sink: nominal(41),
+            kind: FlowSinkKind::Return, transfer: TransferKind::Derived, through_call: true };
+        data.entry.values.insert(path_value.clone()).unwrap();
+        let (call_path, steps) = FlowCallPath::new(&[
+            (nominal(2),nominal(40),FlowCallOperandRole::Argument),
+            (nominal(2),nominal(41),FlowCallOperandRole::Callee),
+        ]).unwrap();
+        let path_observed = FlowValuePathObservation { qualification: q.id(), value: path_value.id(), path: call_path.id() };
+        data.path.call_paths.insert(call_path).unwrap();
+        for step in steps { data.path.call_steps.insert(step).unwrap(); }
+        data.path.value_paths.insert(path_observed.clone()).unwrap();
+        for n in [20,21] {
+            data.entry.value_supports.insert(support!(FlowValueSupport,path_value,n)).unwrap();
+            data.path.value_path_supports.insert(support!(FlowValuePathSupport,path_observed,n)).unwrap();
+        }
+        let events = [55,2].map(|n| normalized::events::NormalizedCallEvent {
+            site: nominal(n), origin: nominal(56), context: q.context, owner: branch.descriptor().owner });
+        for event in &events { data.bindings.event_events.insert(event.clone()).unwrap(); }
+        let (_, definition) = super::super::configuration::summaries(nominal(1),Default::default()).unwrap();
+        let (invocation,_) = owner::AnalysisInvocation::new(nominal(2),q.context,definition.id(),None,[]);
+        let seeds = [branch.clone()];
+        let mut discovery = Discovery::new(&data,&[],&budget).unwrap();
+        discovery.seeds.insert(branch.origin,0);
+        let mut all = Vec::new();
+        path_candidates(&data,&discovery,&data.vocabulary,&branch,|item| { all.push(item); Ok(false) }).unwrap();
+        assert_eq!(&all[..32],expected);
+        let mut expected_paths = Vec::new();
+        for step in data.path.call_steps.iter() {
+            for vs in data.entry.value_supports.iter().filter(|support| support.assertion == path_value.id()) {
+                for ps in data.path.value_path_supports.iter().filter(|support| support.assertion == path_observed.id()) {
+                    expected_paths.push(WorkItem::Path(branch.id(),vs.id(),ps.id(),step.id()));
+                }
+            }
+        }
+        assert_eq!(&all[32..],expected_paths);
+        assert_eq!(all.len(),40);
+        let component = [branch.descriptor().owner];
+        let component_id = ContentHash::of(b"alias-path-groups");
+        let mut progress = Progress::new(Default::default(),&budget);
+        progress.admit(&branch,&data.vocabulary).unwrap();
+        let mut queue = summary_worklist::WorkQueue::new(3,&budget);
+        assert_eq!(queue.insert(all[0]).unwrap(),Ok(true));
+        assert_eq!(queue.pop().unwrap(),Some(all[0]));
+        assert_eq!(queue.insert(all[1]).unwrap(),Ok(true));
+        let mut processed = charged::ChargedSet::default();
+        let mut charge = StateCharge::new(&budget,"path-control-processed");
+        processed.insert(&mut charge,all[0]).unwrap();
+        let mut exhausted = ExhaustedGroups::new(&budget);
+        let mut out = SummaryRecords::new(invocation.id(),&budget);
+        retain_proof(&mut out,&invocation,&branch).unwrap();
+        assert_eq!(enqueue(EnqueueContext { discovery:&discovery,data:&data,vocabulary:&data.vocabulary,calls:&[],
+            component:&component,component_id,invocation:&invocation,progress:&progress,seeds:&seeds },
+            branch.id(),&mut queue,&processed,&mut exhausted,&mut out).unwrap(),2);
+        assert_eq!(exhausted.examined,4);
+        assert_eq!(queue.work(),3);
+        assert_eq!(queue.pending().copied().collect::<Vec<_>>(),[all[1]]);
+        let over = AssertionQualification { approximation:Approximation::Over,..q.clone() };
+        let mut expected_out = SummaryRecords::new(invocation.id(),&budget);
+        expected_out.vocabulary.qualified(&over,&Diagram::always()).unwrap();
+        for event in &events {
+            expected_out.residuals.insert(SummaryResidual { invocation:invocation.id(),component:component_id,
+                origin:branch.origin,event:event.id(),channel:analysis::AnalysisChannel::Value,phase:CallPhase::Call,
+                input:input.id(),output:output.id(),reason:obligation::ObligationKind::SummaryPairWorkLimit,
+                qualification:over.id() }).unwrap();
+            let subject = owner::ObligationSubject::SourceCall { occurrence:event.site };
+            expected_out.obligations.insert(owner::AnalysisObligation { invocation:invocation.id(),subject:subject.id(),
+                channel:analysis::AnalysisChannel::Value,phase:CallPhase::Call,qualification:over.id(),
+                reason:obligation::ObligationKind::SummaryPairWorkLimit,responsible:analysis::AnalysisMethod::Summaries }).unwrap();
+            expected_out.subjects.insert(subject).unwrap();
+        }
+        assert!(out.residuals.same(&expected_out.residuals));
+        assert!(out.obligations.same(&expected_out.obligations));
+        assert!(out.subjects.same(&expected_out.subjects));
+        assert!(out.vocabulary.qualifications.values().eq(expected_out.vocabulary.qualifications.values()));
+        assert_eq!(out.premises.len(),1);
+        assert_eq!(out.proof_origins.len(),1);
+        // Every tuple can legitimately already be processed or pending. That produces no
+        // refusal; a new improving witness must still expose its unattempted equivalents.
+        let mut excepted = summary_worklist::WorkQueue::new(79,&budget);
+        let mut seen = charged::ChargedSet::default();
+        for item in &all { assert_eq!(excepted.insert(*item).unwrap(),Ok(true)); }
+        for _ in 0..39 {
+            let item = excepted.pop().unwrap().unwrap();
+            seen.insert(&mut charge,item).unwrap();
+        }
+        let pending_last = all.iter().copied().max().unwrap();
+        assert_eq!(excepted.pending().copied().collect::<Vec<_>>(),[pending_last]);
+        let mut groups = ExhaustedGroups::new(&budget);
+        let mut later = SummaryRecords::new(invocation.id(),&budget);
+        retain_proof(&mut later,&invocation,&branch).unwrap();
+        assert_eq!(enqueue(EnqueueContext { discovery:&discovery,data:&data,vocabulary:&data.vocabulary,calls:&[],
+            component:&component,component_id,invocation:&invocation,progress:&progress,seeds:&seeds },
+            branch.id(),&mut excepted,&seen,&mut groups,&mut later).unwrap(),0);
+        assert!(later.residuals.is_empty());
+        assert_eq!(groups.examined,40);
+        let replacement = WorkBranch { premise:SummaryPremise::Local { alternative:nominal(57) },
+            cost:ProofCost::SOURCE,..branch.clone() };
+        assert_eq!(progress.admit(&replacement,&data.vocabulary).unwrap(),summary_worklist::Admission::Advanced);
+        assert!(!progress.current(branch.id()));
+        retain_proof(&mut later,&invocation,&replacement).unwrap();
+        assert_eq!(enqueue(EnqueueContext { discovery:&discovery,data:&data,vocabulary:&data.vocabulary,calls:&[],
+            component:&component,component_id,invocation:&invocation,progress:&progress,seeds:&seeds },
+            replacement.id(),&mut excepted,&seen,&mut groups,&mut later).unwrap(),2);
+        assert_eq!(groups.examined,42);
+        assert!(later.residuals.same(&expected_out.residuals));
+        assert!(later.obligations.same(&expected_out.obligations));
+        assert!(later.subjects.same(&expected_out.subjects));
+        assert_eq!(later.proof_origins.len(),2);
+        assert_eq!(later.premises.len(),2);
+        assert_eq!(excepted.work(),79);
+        assert_eq!(excepted.pending().copied().collect::<Vec<_>>(),[pending_last]);
+        }
+        assert_eq!(budget.reserved(),0);
+
     }
     #[test]
     fn actual_summary_does_not_decode_unused_provider_defaults_or_decorator_normalizer_inputs() {

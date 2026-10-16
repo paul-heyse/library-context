@@ -21,6 +21,12 @@ impl charged::AdmittedMutation<BTreeSet<ProofId>> for RemoveProof {
     fn additional(&self, _: &BTreeSet<ProofId>) -> Result<usize, ModelError> { Ok(0) }
     fn apply(self, proofs: &mut BTreeSet<ProofId>) { proofs.remove(&self.0); }
 }
+struct RemoveCaller(CallerEndpoint);
+impl charged::AdmittedMutation<BTreeSet<CallerEndpoint>> for RemoveCaller {
+    type Output = ();
+    fn additional(&self, _: &BTreeSet<CallerEndpoint>) -> Result<usize, ModelError> { Ok(0) }
+    fn apply(self, callers: &mut BTreeSet<CallerEndpoint>) { callers.remove(&self.0); }
+}
 #[derive(Default)]
 pub(super) struct EndpointIndex {
     semantics: ChargedMap<ContentHash, BTreeSet<ProofId>>,
@@ -68,13 +74,15 @@ pub(super) struct ExhaustedGroups {
     callees: charged::ChargedSet<(Id<CallBindingAttempt>, CalleeEndpoint)>,
     complete: charged::ChargedSet<GroupPair>,
     deferred: ChargedMap<GroupPair, BTreeSet<(bool, ProofId)>>,
+    deferred_callees: ChargedMap<(Id<CallBindingAttempt>, CalleeEndpoint), BTreeSet<CallerEndpoint>>,
     charge: StateCharge,
     pub(super) examined: usize,
+    pub(super) deferred_visited: usize,
 }
 impl ExhaustedGroups {
     pub(super) fn new(budget: &ResourceBudget) -> Self {
         Self { callers: Default::default(), callees: Default::default(), complete: Default::default(),
-            deferred: Default::default(), charge: StateCharge::new(budget, "summary-exhausted-endpoints"), examined: 0 }
+            deferred: Default::default(), deferred_callees: Default::default(), charge: StateCharge::new(budget, "summary-exhausted-endpoints"), examined: 0, deferred_visited: 0 }
     }
     fn group(
         &mut self, context: &EnqueueContext<'_>, key: GroupPair, witness: (ProofId, bool),
@@ -97,19 +105,45 @@ impl ExhaustedGroups {
                 invocation: context.invocation, component: context.component_id, progress: context.progress,
                 seeds: context.seeds }, item, obligation::ObligationKind::SummaryPairWorkLimit, out)?;
             self.complete.insert(&mut self.charge, key)?;
-            self.deferred.remove(&mut self.charge, &key)?;
+            self.forget_deferred(key)?;
             return Ok(usize::from(made));
         }
-        self.deferred.insert_set(&mut self.charge, key, (caller_new, new))?;
+        self.defer(key, (caller_new, new))?;
         Ok(0)
     }
-    fn deferred_for(
-        &self, attempt: Id<CallBindingAttempt>, endpoint: CallerEndpoint, callee: CalleeEndpoint, caller_new: bool,
-    ) -> Result<(Vec<GroupPair>, Box<dyn Reservation>), ModelError> {
-        let charge = self.charge.budget().expect("exhausted endpoint owner").reserve(
-            "summary-exhausted-exceptions", self.deferred.len() * size_of::<GroupPair>())?;
-        let keys = self.deferred.keys().filter(|key| key.0 == attempt && if caller_new { key.1 == endpoint } else { key.2 == callee }).copied().collect();
-        Ok((keys, charge))
+    fn defer(&mut self, key: GroupPair, witness: (bool, ProofId)) -> Result<(), ModelError> {
+        self.deferred.insert_set(&mut self.charge, key, witness)?;
+        self.deferred_callees.insert_set(&mut self.charge, (key.0, key.2), key.1)?;
+        Ok(())
+    }
+    fn forget_deferred(&mut self, key: GroupPair) -> Result<(), ModelError> {
+        if self.deferred.remove(&mut self.charge, &key)?.is_some() {
+            let reverse = (key.0, key.2);
+            self.deferred_callees.mutate(&mut self.charge, reverse, RemoveCaller(key.1))?;
+            if self.deferred_callees[&reverse].is_empty() { self.deferred_callees.remove(&mut self.charge, &reverse)?; }
+        }
+        Ok(())
+    }
+    /// Caller prefixes use the primary ordered key; reverse lookups use the charged
+    /// callee index. Empty unrelated endpoints require neither scanning nor allocation.
+    fn next_deferred(
+        &mut self, attempt: Id<CallBindingAttempt>, endpoint: CallerEndpoint, callee: CalleeEndpoint,
+        caller_new: bool, after: Option<GroupPair>,
+    ) -> Option<GroupPair> {
+        use std::ops::Bound::{Excluded, Included};
+        let next = if caller_new {
+            let first = (attempt, endpoint, (callee.0, [0;16]));
+            let last = (attempt, endpoint, (callee.0, [255;16]));
+            self.deferred.range((after.map_or(Included(first), Excluded), Included(last))).next().map(|(key, _)| *key)
+        } else {
+            let keys = self.deferred_callees.get(&(attempt, callee))?;
+            let first = (endpoint.0, ([0;16],[0;16]));
+            let last = (endpoint.0, ([255;16],[255;16]));
+            keys.range((after.map_or(Included(first), |key| Excluded(key.1)), Included(last)))
+                .next().map(|caller| (attempt, *caller, callee))
+        };
+        self.deferred_visited += usize::from(next.is_some());
+        next
     }
     pub(super) fn calls(
         &mut self, context: &EnqueueContext<'_>, new: ProofId,
@@ -130,8 +164,11 @@ impl ExhaustedGroups {
                     made += self.group(context, (call.attempt, caller_key, *callee), (new, true), queue, processed, out)?;
                 }
             } else {
-                let (keys, _charge) = self.deferred_for(call.attempt, caller_key, callee_key, true)?;
-                for key in keys { made += self.group(context, key, (new, true), queue, processed, out)?; }
+                let mut after = None;
+                while let Some(key) = self.next_deferred(call.attempt, caller_key, (call.callee, callee_key.1), true, after) {
+                    made += self.group(context, key, (new, true), queue, processed, out)?;
+                    after = Some(key);
+                }
             }
         }
         for index in context.discovery.callees.get(&branch.descriptor().owner).into_iter().flatten() {
@@ -142,10 +179,61 @@ impl ExhaustedGroups {
                     made += self.group(context, (call.attempt, *caller, callee_key), (new, false), queue, processed, out)?;
                 }
             } else {
-                let (keys, _charge) = self.deferred_for(call.attempt, caller_key, callee_key, false)?;
-                for key in keys { made += self.group(context, key, (new, false), queue, processed, out)?; }
+                let mut after = None;
+                while let Some(key) = self.next_deferred(call.attempt, (call.owner, caller_key.1), callee_key, false, after) {
+                    made += self.group(context, key, (new, false), queue, processed, out)?;
+                    after = Some(key);
+                }
             }
         }
         Ok(made)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> { serde_json::from_value(serde_json::json!(vec![n;16])).unwrap() }
+    #[test]
+    fn disjoint_deferred_regions_require_no_visits_or_allocation_for_completed_endpoints() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        {
+            let mut groups = ExhaustedGroups::new(&budget);
+            let attempt = id(1);
+            let caller = id(2);
+            let callee = id(4);
+            for n in 1..=128u8 {
+                groups.defer((attempt, (caller, ([3;16],[n;16])), (callee,[n;16])), (true,(id(3),id(n)))).unwrap();
+            }
+            groups.defer((attempt,(caller,([3;16],[7;16])),(callee,[200;16])), (true,(id(3),id(7)))).unwrap();
+            groups.defer((attempt,(caller,([3;16],[200;16])),(callee,[7;16])), (false,(id(3),id(7)))).unwrap();
+            let retained = budget.reserved();
+            let pressure = budget.reserve("deferred-unrelated-singleton", budget.limit() - retained).unwrap();
+            for _ in 0..1024 {
+                assert!(groups.next_deferred(attempt,(caller,([3;16],[250;16])),(callee,[250;16]),true,None).is_none());
+                assert!(groups.next_deferred(attempt,(caller,([3;16],[250;16])),(callee,[250;16]),false,None).is_none());
+            }
+            assert_eq!(groups.deferred_visited,0);
+            assert_eq!(budget.reserved(),retained + pressure.size());
+            let mut after = None;
+            let mut caller_matches = Vec::new();
+            while let Some(key) = groups.next_deferred(attempt,(caller,([3;16],[7;16])),(callee,[7;16]),true,after) {
+                caller_matches.push(key); after=Some(key);
+            }
+            assert_eq!(caller_matches.len(),2);
+            after=None;
+            let mut callee_matches = Vec::new();
+            while let Some(key) = groups.next_deferred(attempt,(caller,([3;16],[7;16])),(callee,[7;16]),false,after) {
+                callee_matches.push(key); after=Some(key);
+            }
+            assert_eq!(callee_matches.len(),2);
+            assert_eq!(groups.deferred_visited,4);
+            drop(pressure);
+            groups.forget_deferred((attempt,(caller,([3;16],[7;16])),(callee,[7;16]))).unwrap();
+            let remaining = groups.next_deferred(attempt,(caller,([3;16],[7;16])),(callee,[7;16]),false,None).unwrap();
+            assert_eq!(remaining.1.1.1,[200;16]);
+            assert!(groups.next_deferred(attempt,(caller,([3;16],[7;16])),(callee,[7;16]),false,Some(remaining)).is_none());
+        }
+        assert_eq!(budget.reserved(),0);
     }
 }
