@@ -2567,25 +2567,48 @@ mod nominal_closure_controls {
 
     #[tokio::test]
     async fn pure_adjacency_metadata_refusal_does_not_fail_frontier_acquisition() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        #[derive(Debug)]
+        struct AdjacencyRefusal {
+            backing: ResourceBudget,
+            refuse: AtomicBool,
+        }
+        impl resources::ResourcePool for AdjacencyRefusal {
+            fn reserve(&self, owner: &'static str, bytes: usize)
+                -> Result<Box<dyn resources::Reservation>, ModelError> {
+                if owner == "semantic-edge-batch-index" && self.refuse.swap(false, Ordering::Relaxed) {
+                    return Err(ModelError::Resource {
+                        owner, requested: bytes, used: self.backing.reserved(), limit: self.backing.limit(),
+                    });
+                }
+                self.backing.reserve(owner, bytes)
+            }
+            fn reserved(&self) -> usize { self.backing.reserved() }
+            fn limit(&self) -> usize { self.backing.limit() }
+        }
         let (session, tables, _, _) = fixture();
         let mut plan = NominalClosure::new(tables).unwrap();
         plan.follow(0, "package", 1).unwrap();
-        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let pool = Arc::new(AdjacencyRefusal {
+            backing: ResourceBudget::fixed(16 << 20).unwrap(), refuse: AtomicBool::new(false),
+        });
+        let budget = ResourceBudget::from_pool(pool.clone()).unwrap();
         {
             let edges = plan.prepare(&session, &budget).await.unwrap();
-            // Earn the port before applying local pressure. This exercises the actual
-            // adjacency metadata reservation, before contextual SQL or native execution.
+            // Earn the port before refusing the actual adjacency payload reservation.
+            // StateCharge's earlier bookkeeping reservations must succeed: starving the
+            // whole pool would exercise fragment metadata instead of this boundary.
             edges.0.provider(0).await.unwrap();
             let mut capture = edges.capture_discovery(&budget, &crate::admission::Cancellation::default()).unwrap();
-            let pressure = budget.reserve("local-membership-pressure", budget.limit() - budget.reserved() - 1).unwrap();
+            pool.refuse.store(true, Ordering::Relaxed);
             let error = edges.0.source(0, &budget, Some(&mut capture)).await.err().unwrap();
-            assert!(matches!(error, ModelError::Resource { owner: "semantic-edge-batch-index", .. }));
+            assert!(matches!(error, ModelError::Resource { owner: "semantic-edge-batch-index", .. }), "{error:?}");
+            assert!(!pool.refuse.load(Ordering::Relaxed), "the exact local reservation was reached");
             assert!(capture.permits_local_retry());
             capture.require_owner(&edges, &budget).unwrap();
             assert!(edges.0.adjacency[0].get().is_none());
-            // A narrower membership group releases pressure, without replacing the
-            // source owner or interpreting a failed native operation as a local refusal.
-            drop(pressure);
+            // A later local retry can reuse the earned port without interpreting a
+            // failed native operation as a local refusal or replacing the source owner.
             edges.0.source(0, &budget, Some(&mut capture)).await.unwrap();
             assert!(edges.0.adjacency[0].get().is_some());
             assert!(capture.permits_local_retry());
