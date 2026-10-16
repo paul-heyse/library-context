@@ -123,11 +123,16 @@ impl DerivedStaging {
         for row in &rows {
             validate_derived_row(row)?;
         }
+        let mut writer = immutable_window::WindowWriter::for_owner(
+            client,
+            EffectOwner::FrozenAttempt(self.attempt()),
+            Some(budget),
+        );
         for window in
             immutable_window::ImmutableWindows::for_loading(rows, None, Some(self.root.clone()))
                 .with_budget(Some(budget))
         {
-            immutable_window::install_staging_window(client, self, window?, budget).await?;
+            immutable_window::install_staging_window(&mut writer, self, window?, budget).await?;
         }
         Ok(())
     }
@@ -135,7 +140,7 @@ impl DerivedStaging {
     /// Parent-private: no arbitrary SQL escapes this capability's fixed production callers.
     pub(super) async fn effect(
         &self,
-        client: &Surreal<Client>,
+        writer: &mut immutable_window::WindowWriter<'_>,
         sql: &str,
         mut bindings: Variables,
         budget: &ResourceBudget,
@@ -173,13 +178,7 @@ impl DerivedStaging {
             "{FROZEN_COMPLETION_GUARD} fn::native_touch($staging_root); LET $staging=SELECT * FROM ONLY $staging_root FOR UPDATE; LET $staging_object_guard=SELECT * FROM ONLY $staging_guard FOR UPDATE; IF $staging=NONE OR $staging.state!='open' OR $staging.attempt!=$__attempt OR $staging.completion!=$staging_completion OR $staging.admission!=$staging_admission OR $staging.derivation!=$staging_derivation OR $staging.validity_epoch!=$staging_validity_epoch OR $staging_object_guard.phase!='active' OR $staging_object_guard.incarnation!=$staging_incarnation {{ THROW 'publication staging capability fenced'; }}; {sql}"
         );
         charge.try_resize(immutable_window::plan_bytes(&guarded, &bindings)?)?;
-        effect_for_owner(
-            client,
-            EffectOwner::FrozenAttempt(data.attempt),
-            &guarded,
-            bindings,
-        )
-        .await
+        writer.effect(&guarded, bindings).await
     }
 }
 const FROZEN_COMPLETION_GUARD: &str = "LET $staging_installation=SELECT * FROM ONLY native_installation:current; IF !$__owner.admitted OR $__owner.epoch!=$staging_attempt_epoch OR $__owner.completed_identity!=$staging_completed_identity OR $__owner.completed_revision!=$staging_completed_revision OR $__owner.validity_epoch!=$staging_validity_epoch OR $staging_installation.validity_epoch!=$staging_validity_epoch { THROW 'publication staging frozen completion changed'; }; LET $staging_semantic_guard=SELECT * FROM ONLY $staging_admission_guard FOR UPDATE; IF $staging_semantic_guard=NONE OR $staging_semantic_guard.phase!='active' OR $staging_semantic_guard.incarnation!=$staging_admission_incarnation { THROW 'publication staging semantic admission changed'; };";
@@ -408,7 +407,12 @@ impl DerivedStaging {
         let sql = format!(
             "LET $staging_predicate=type::record('native_predicate',[$staging_root]); IF (SELECT VALUE revision FROM ONLY $staging_predicate)!=$staging_audit_revision+1 {{ THROW 'publication derived audit changed'; }}; {install_sql}; UPDATE $staging_root SET state='published',derived_children=$staging_inventory_rows,derived_inventory=$staging_inventory_digest RETURN NONE;"
         );
-        match self.effect(loader.client(), &sql, bindings, budget).await {
+        let mut writer = immutable_window::WindowWriter::for_owner(
+            loader.client(),
+            EffectOwner::FrozenAttempt(self.attempt()),
+            Some(budget),
+        );
+        match self.effect(&mut writer, &sql, bindings, budget).await {
             Ok(()) => Ok(PublishedMarker {
                 handle: handle.clone(),
             }),

@@ -2311,9 +2311,11 @@ impl NativeCompilerStore {
             None,
         )
         .with_budget(Some(budget));
+        let mut writer = crate::control::WindowWriter::new(
+            &self.client, Some(self.attempt), Some(budget),
+        );
         for window in windows {
-            crate::control::install_window(&self.client, Some(self.attempt), window?, Some(budget))
-                .await?;
+            writer.install(window?).await?;
         }
         let _pair_handles = budget.reserve(
             "semantic view hold page handles",
@@ -5762,6 +5764,7 @@ impl NativeCompilerStore {
         let owner = contribution
             .map(|id| RecordId::new("compiler_contribution", id.hex()))
             .unwrap_or_else(|| RecordId::new("native_attempt", self.attempt.hex()));
+        let mut writer = crate::control::WindowWriter::new(&self.client, Some(self.attempt), budget);
         for window in crate::control::ImmutableWindows::new(
             rows,
             Some(self.attempt),
@@ -5770,8 +5773,7 @@ impl NativeCompilerStore {
         )
         .with_budget(budget)
         {
-            crate::control::install_window(&self.client, Some(self.attempt), window?, budget)
-                .await?;
+            writer.install(window?).await?;
         }
         Ok(())
     }

@@ -531,13 +531,14 @@ pub async fn complete_selected<Context>(
         "original selected completion",
         sources.len().saturating_mul(512),
     )?;
+    let mut writer = crate::control::WindowWriter::new(reader.client(), attempt, Some(budget));
     for source in sources {
         let layout = layout(reader, source)
             .await?
             .ok_or(ModelError::Conflict("original layout missing"))?;
         validate_layout(reader, &layout).await?;
         if let Some(attempt) = attempt {
-            drain_pending(reader, attempt, None, &layout, budget, true).await?;
+            drain_pending(reader, &mut writer, attempt, None, &layout, budget, true).await?;
         }
         if completed.insert(layout.blob.id()) {
             complete_blob(reader, attempt, &layout, budget).await?;
@@ -792,6 +793,7 @@ mod tests {
             .chunks(CHUNK_BYTES)
             .enumerate()
             .map(|(index, bytes)| blob.piece((index * CHUNK_BYTES) as u64, bytes).unwrap());
+        let mut writer = crate::control::WindowWriter::new(client, Some(attempt), Some(budget));
         for window in crate::control::ImmutableWindows::from_charged_iter(
             pieces.map(|row| Ok((row, None))),
             Some(attempt),
@@ -800,9 +802,7 @@ mod tests {
         )
         .with_budget(Some(budget))
         {
-            crate::control::install_window(client, Some(attempt), window.unwrap(), Some(budget))
-                .await
-                .unwrap();
+            writer.install(window.unwrap()).await.unwrap();
         }
     }
     /// Both finalizers observe the same revision, then exact layout/piece replay
@@ -1407,7 +1407,7 @@ pub(crate) fn pending_root_identity(
     Ok(row.id)
 }
 async fn install_owned(
-    client: &Surreal<Client>,
+    writer: &mut crate::control::WindowWriter<'_>,
     attempt: ContentHash,
     contribution: Option<ContentHash>,
     owner: RecordId,
@@ -1418,12 +1418,12 @@ async fn install_owned(
         crate::control::ImmutableWindows::new(vec![row], Some(attempt), contribution, Some(owner))
             .with_budget(Some(budget))
     {
-        crate::control::install_window(client, Some(attempt), window?, Some(budget)).await?;
+        writer.install(window?).await?;
     }
     Ok(())
 }
-async fn stage<Context>(
-    reader: &crate::NativeReader<Context>,
+async fn stage(
+    writer: &mut crate::control::WindowWriter<'_>,
     attempt: ContentHash,
     contribution: Option<ContentHash>,
     source: &RecordId,
@@ -1432,7 +1432,7 @@ async fn stage<Context>(
 ) -> Result<(), ModelError> {
     let root = pending_id(attempt, source)?;
     install_owned(
-        reader.client(),
+        writer,
         attempt,
         contribution,
         RecordId::new("native_attempt", attempt.hex()),
@@ -1442,7 +1442,7 @@ async fn stage<Context>(
     .await?;
     let ordinal = ordinal_id(&root, chunk.ordinal)?;
     install_owned(
-        reader.client(),
+        writer,
         attempt,
         contribution,
         root.clone(),
@@ -1466,8 +1466,7 @@ async fn stage<Context>(
     )
     .with_budget(Some(budget))
     {
-        crate::control::install_window(reader.client(), Some(attempt), window?, Some(budget))
-            .await?;
+        writer.install(window?).await?;
     }
     Ok(())
 }
@@ -1543,6 +1542,7 @@ fn replay_page_rows<'a>(
 }
 async fn drain_pending<Context>(
     reader: &crate::NativeReader<Context>,
+    writer: &mut crate::control::WindowWriter<'_>,
     attempt: ContentHash,
     contribution: Option<ContentHash>,
     layout: &Layout,
@@ -1601,13 +1601,7 @@ async fn drain_pending<Context>(
                     )
                     .with_budget(Some(budget))
                     {
-                        crate::control::install_window(
-                            reader.client(),
-                            Some(attempt),
-                            window?,
-                            Some(budget),
-                        )
-                        .await?;
+                        writer.install(window?).await?;
                     }
                 } else {
                     for value in values {
@@ -1726,6 +1720,7 @@ impl PendingOriginals {
             .checked_mul(std::mem::size_of::<(Blob, u64, &[u8])>())
             .ok_or(ModelError::Schema("original ingress slice metadata"))?;
         let _metadata = budget.reserve("original ingress slice metadata", metadata_bytes)?;
+        let mut writer = crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
         let mut segments = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             chunk.validate()?;
@@ -1737,7 +1732,7 @@ impl PendingOriginals {
                         .map(|id| RecordId::new("compiler_contribution", id.hex()))
                         .unwrap_or_else(|| RecordId::new("native_attempt", attempt.hex()));
                     install_owned(
-                        reader.client(),
+                        &mut writer,
                         attempt,
                         contribution,
                         owner,
@@ -1760,7 +1755,7 @@ impl PendingOriginals {
                     }
                     segments.push((layout.blob, start, chunk.body.0.as_slice()));
                 }
-                None => stage(reader, attempt, contribution, &source, chunk, budget).await?,
+                None => stage(&mut writer, attempt, contribution, &source, chunk, budget).await?,
             }
         }
         let pieces = blob_piece_rows(
@@ -1777,8 +1772,7 @@ impl PendingOriginals {
         )
         .with_budget(Some(budget))
         {
-            crate::control::install_window(reader.client(), Some(attempt), window?, Some(budget))
-                .await?;
+            writer.install(window?).await?;
         }
         Ok(())
     }
@@ -1797,6 +1791,7 @@ impl PendingOriginals {
         if !sources.is_empty() {
             self.retain_budget(budget)?;
         }
+        let mut writer = crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
         for source in sources {
             let layout = Layout::source(source)?;
             validate_layout(reader, &layout).await?;
@@ -1804,7 +1799,7 @@ impl PendingOriginals {
                 .map(|id| RecordId::new("compiler_contribution", id.hex()))
                 .unwrap_or_else(|| RecordId::new("native_attempt", attempt.hex()));
             install_owned(
-                reader.client(),
+                &mut writer,
                 attempt,
                 contribution,
                 owner,
@@ -1812,7 +1807,7 @@ impl PendingOriginals {
                 budget,
             )
             .await?;
-            drain_pending(reader, attempt, contribution, &layout, budget, true).await?;
+            drain_pending(reader, &mut writer, attempt, contribution, &layout, budget, true).await?;
         }
         Ok(())
     }
@@ -1917,6 +1912,7 @@ async fn process_pending<Context>(
     vars.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
     vars.insert("after", Value::None);
     let _charge = budget.reserve("pending original root page", 32 * 4096)?;
+    let mut writer = crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
     loop {
         let values=rows(reader,"SELECT * FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$attempt AND ($after=NONE OR id>$after) ORDER BY id LIMIT 32",vars.clone()).await?;
         if values.is_empty() {
@@ -1942,7 +1938,7 @@ async fn process_pending<Context>(
             if !replay && !header(reader, &layout.blob).await? {
                 return Err(ModelError::Conflict("pending original blob not completed"));
             }
-            drain_pending(reader, attempt, None, &layout, budget, replay).await?;
+            drain_pending(reader, &mut writer, attempt, None, &layout, budget, replay).await?;
             vars.insert("after", root.id);
         }
     }

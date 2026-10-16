@@ -317,26 +317,88 @@ impl Iterator for ImmutableWindows<'_> {
         }
     }
 }
+/// Invocation-local immutable writer. Only the owner's original issuance is reused;
+/// every window captures its own physical expectations and checks current eligibility.
+pub struct WindowWriter<'a> {
+    client: &'a Surreal<Client>,
+    budget: Option<&'a ResourceBudget>,
+    owner: EffectOwner,
+    issuance: Option<IssuanceEra>,
+}
+impl<'a> WindowWriter<'a> {
+    pub fn new(
+        client: &'a Surreal<Client>,
+        attempt: Option<ContentHash>,
+        budget: Option<&'a ResourceBudget>,
+    ) -> Self {
+        Self::for_owner(
+            client,
+            attempt.map(EffectOwner::OpenAttempt).unwrap_or(EffectOwner::Installation),
+            budget,
+        )
+    }
+    pub(super) fn for_owner(
+        client: &'a Surreal<Client>,
+        owner: EffectOwner,
+        budget: Option<&'a ResourceBudget>,
+    ) -> Self {
+        Self { client, budget, owner, issuance: None }
+    }
+    pub async fn install(&mut self, window: ImmutableWindow) -> Result<(), ModelError> {
+        let _charge: Option<Box<dyn Reservation>> = if window.charges.is_empty() {
+            self.budget
+                .map(|budget| budget.reserve("native immutable window", window.bytes))
+                .transpose()?
+        } else {
+            None
+        };
+        self.effect(&window.sql, window.bindings.into()).await
+    }
+    pub(super) async fn effect(
+        &mut self,
+        sql: &str,
+        bindings: Variables,
+    ) -> Result<(), ModelError> {
+        // Retain the payload/construction charges while preparing the complete protocol.
+        // The same prepared request is sized and executed, without a second lowering.
+        let workspace_bytes = plan_bytes(sql, &bindings)?.saturating_add(131072);
+        let _workspace = self.budget
+            .map(|budget| budget.reserve("native immutable complete preparation", workspace_bytes))
+            .transpose()?;
+        if self.issuance.is_none() {
+            self.issuance = Some(match self.owner {
+                EffectOwner::Installation => IssuanceEra::capture(self.client).await?,
+                _ => authorization::owner_issuance(self.client, &self.owner).await?,
+            });
+        }
+        let prepared = authorization::prepare_owner_effect(
+            self.client,
+            &self.owner,
+            self.issuance.expect("captured exact immutable owner issuance"),
+            sql,
+            bindings,
+        ).await?;
+        if prepared.bytes()? > workspace_bytes {
+            return Err(ModelError::Schema("native immutable complete preparation bound"));
+        }
+        // Recovery retains this request's identity. Neither retry nor a later window
+        // refreshes the original owner's generation/era after an eligibility cut.
+        authorization::execute_prepared_owner_effect(self.client, prepared).await
+    }
+}
 pub async fn install_window(
     client: &Surreal<Client>,
     attempt: Option<ContentHash>,
     window: ImmutableWindow,
     budget: Option<&ResourceBudget>,
 ) -> Result<(), ModelError> {
-    let _charge: Option<Box<dyn Reservation>> = if window.charges.is_empty() {
-        budget
-            .map(|budget| budget.reserve("native immutable window", window.bytes))
-            .transpose()?
-    } else {
-        None
-    };
-    effect(client, attempt, &window.sql, window.bindings.into()).await
+    WindowWriter::new(client, attempt, budget).install(window).await
 }
 
 /// A frozen derivation can only retain derived children and exact existing canonical
 /// external endpoints. It cannot introduce a canonical payload after native freeze.
 pub(super) async fn install_staging_window(
-    client: &Surreal<Client>,
+    writer: &mut WindowWriter<'_>,
     staging: &staging::DerivedStaging,
     mut window: ImmutableWindow,
     budget: &ResourceBudget,
@@ -374,7 +436,7 @@ pub(super) async fn install_staging_window(
         window.sql
     );
     staging
-        .effect(client, &window.sql, window.bindings.into(), budget)
+        .effect(writer, &window.sql, window.bindings.into(), budget)
         .await
 }
 
