@@ -30,6 +30,9 @@ use crate::domain::{
     *,
 };
 use crate::{Domain, DomainCode, DomainSum};
+#[path = "summary_enqueue.rs"]
+mod enqueue_groups;
+use enqueue_groups::{EndpointIndex, ExhaustedGroups};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 fn invalid(s: impl Into<String>) -> ModelError {
@@ -1360,6 +1363,7 @@ struct Progress {
     branches: ChargedMap<ProofId, WorkBranch>,
     by_owner: ChargedMap<Id<EntityRef>, BTreeSet<ProofId>>,
     frontier: summary_worklist::Frontier<ContentHash, ProofId>,
+    endpoints: EndpointIndex,
     charge: StateCharge,
 }
 impl Progress {
@@ -1368,10 +1372,11 @@ impl Progress {
             branches: Default::default(),
             by_owner: Default::default(),
             frontier: summary_worklist::Frontier::new(limits, b),
+            endpoints: EndpointIndex::default(),
             charge: StateCharge::new(b, "finite-summary-progress"),
         }
     }
-    fn admit(&mut self, branch: &WorkBranch) -> Result<summary_worklist::Admission, ModelError> {
+    fn admit(&mut self, branch: &WorkBranch, vocabulary: &Vocabulary) -> Result<summary_worklist::Admission, ModelError> {
         let result = self.frontier.insert(
             branch.semantic(),
             summary_worklist::Representative {
@@ -1387,7 +1392,11 @@ impl Progress {
             self.branches
                 .insert(&mut self.charge, branch.id(), branch.clone())?;
         }
+        if result == summary_worklist::Admission::Advanced { self.index_current(branch, vocabulary)?; }
         Ok(result)
+    }
+    fn index_current(&mut self, branch: &WorkBranch, vocabulary: &Vocabulary) -> Result<(), ModelError> {
+        self.endpoints.track(branch, vocabulary, &self.branches, &self.frontier, &mut self.charge)
     }
     fn current(&self, id: ProofId) -> bool {
         self.branches
@@ -1706,13 +1715,12 @@ fn path_candidates(
     Ok(())
 }
 impl EnqueueContext<'_> {
-    fn candidates(
+    fn call_candidates(
         &self,
         new: ProofId,
-        mut consume: impl FnMut(WorkItem) -> Result<(), ModelError>,
+        mut consume: impl FnMut(WorkItem) -> Result<bool, ModelError>,
     ) -> Result<(), ModelError> {
         let Self {
-            data,
             discovery,
             vocabulary,
             calls,
@@ -1727,13 +1735,6 @@ impl EnqueueContext<'_> {
         if !progress.current(new) {
             return Ok(());
         }
-        let caller_eligible = |branch: &WorkBranch| {
-            vocabulary
-                .places
-                .get(&branch.descriptor().output)
-                .and_then(|p| vocabulary.roots.get(&p.root))
-                .is_some_and(|r| matches!(r, PlaceRoot::Occurrence { .. }))
-        };
         let mut caller = discovery
             .callers
             .get(&branch.descriptor().owner)
@@ -1766,12 +1767,12 @@ impl EnqueueContext<'_> {
                 continue;
             }
             if call.owner == branch.descriptor().owner
-                && caller_eligible(branch)
+                && enqueue_groups::caller_eligible(vocabulary, branch)
                 && let Some(rows) = progress.by_owner.get(&call.callee)
             {
                 for other in rows {
-                    if progress.current(*other) {
-                        consume(WorkItem::Call(call.attempt, new, *other))?;
+                    if progress.current(*other) && !consume(WorkItem::Call(call.attempt, new, *other))? {
+                        return Ok(());
                     }
                 }
             }
@@ -1779,13 +1780,15 @@ impl EnqueueContext<'_> {
                 && let Some(rows) = progress.by_owner.get(&call.owner)
             {
                 for other in rows {
-                    if progress.current(*other) && caller_eligible(&progress.branches[other]) {
-                        consume(WorkItem::Call(call.attempt, *other, new))?;
+                    if progress.current(*other)
+                        && enqueue_groups::caller_eligible(vocabulary, &progress.branches[other])
+                        && !consume(WorkItem::Call(call.attempt, *other, new))? {
+                        return Ok(());
                     }
                 }
             }
         }
-        path_candidates(data, discovery, vocabulary, branch, consume)
+        Ok(())
     }
 }
 
@@ -1948,41 +1951,36 @@ fn enqueue(
     new: ProofId,
     queue: &mut summary_worklist::WorkQueue<WorkItem>,
     processed: &charged::ChargedSet<WorkItem>,
+    exhausted: &mut ExhaustedGroups,
     out: &mut SummaryRecords,
 ) -> Result<usize, ModelError> {
-    let EnqueueContext {
-        discovery,
-        data,
-        component_id,
-        invocation,
-        progress,
-        seeds,
-        ..
-    } = enqueue_context;
+    let EnqueueContext { discovery, data, vocabulary, component_id, invocation, progress, seeds, .. } = enqueue_context;
+    if !progress.current(new) { return Ok(0); }
     let mut materialized = 0;
-    enqueue_context.candidates(new, |item| {
-        if processed.contains(&item) {
-            return Ok(());
-        }
+    // Preserve the original canonical admissions exactly until the permanent queue limit.
+    if !queue.exhausted() {
+        enqueue_context.call_candidates(new, |item| {
+            exhausted.examined += 1;
+            if !processed.contains(&item) { let _ = queue.insert(item)?; }
+            Ok(!queue.exhausted())
+        })?;
+    }
+    if queue.exhausted() {
+        materialized += exhausted.calls(&enqueue_context, new, queue, processed, out)?;
+    }
+    path_candidates(data, discovery, vocabulary, &progress.branches[&new], |item| {
+        if processed.contains(&item) { return Ok(()); }
         if let Err(reason) = queue.insert(item)? {
             materialized += usize::from(materialize_residual(
-                ResidualContext {
-                    discovery,
-                    data,
-                    invocation,
-                    component: component_id,
-                    progress,
-                    seeds,
-                },
-                item,
-                reason,
-                out,
+                ResidualContext { discovery, data, invocation, component: component_id, progress, seeds },
+                item, reason, out,
             )?);
         }
         Ok(())
     })?;
     Ok(materialized)
 }
+
 fn retain_proof(
     out: &mut SummaryRecords,
     invocation: &owner::AnalysisInvocation,
@@ -2468,6 +2466,7 @@ fn produce_with_application(
         }
         let component_id = digest.finish();
         let mut queue = summary_worklist::WorkQueue::new(limits.work, budget);
+        let mut exhausted = ExhaustedGroups::new(budget);
         let mut processed = charged::ChargedSet::default();
         let mut processed_charge = StateCharge::new(budget, "summary-processed-pairs");
         let _component_seeds = budget.reserve(
@@ -2488,7 +2487,7 @@ fn produce_with_application(
         component_seeds.sort_unstable();
         for index in component_seeds {
             let seed = &seeds[index];
-            if let summary_worklist::Admission::Refused(reason) = progress.admit(seed)? {
+            if let summary_worklist::Admission::Refused(reason) = progress.admit(seed, &vocabulary)? {
                 origin_boundary(&mut out, invocation, component_id, seed, reason)?;
             }
         }
@@ -2524,6 +2523,7 @@ fn produce_with_application(
                 id,
                 &mut queue,
                 &processed,
+                &mut exhausted,
                 &mut out,
             )?;
         }
@@ -2762,6 +2762,7 @@ fn produce_with_application(
                                 }
                                 retain_proof(&mut out, invocation, &branch)?;
                                 if admission == summary_worklist::Admission::Advanced {
+                                    progress.index_current(&branch, &vocabulary)?;
                                     enqueue(
                                         EnqueueContext {
                                             discovery: &discovery,
@@ -2777,6 +2778,7 @@ fn produce_with_application(
                                         branch.id(),
                                         &mut queue,
                                         &processed,
+                                        &mut exhausted,
                                         &mut out,
                                     )?;
                                 }
@@ -2930,6 +2932,7 @@ fn produce_with_application(
                             out.keys.insert(branch.branch.key().clone())?;
                             retain_proof(&mut out, invocation, &branch)?;
                             if admission == summary_worklist::Admission::Advanced {
+                                progress.index_current(&branch, &vocabulary)?;
                                 enqueue(
                                     EnqueueContext {
                                         discovery: &discovery,
@@ -2945,6 +2948,7 @@ fn produce_with_application(
                                     branch.id(),
                                     &mut queue,
                                     &processed,
+                                    &mut exhausted,
                                     &mut out,
                                 )?;
                             }
@@ -3129,7 +3133,7 @@ mod assumption_controls {
                 cost: ProofCost::SOURCE,
             };
             out.witnesses.insert(witness).unwrap();
-            progress.admit(&branch).unwrap();
+            progress.admit(&branch, &out.vocabulary).unwrap();
         }
         // Both enter and leave the actual finite Summary publication, including derivations and contributions.
         publish(
@@ -3712,7 +3716,7 @@ mod exhausted_candidate_controls {
         }
     }
     /// Actual private production context; no graph service or replacement queue model.
-    fn exercise(callers: u8, callees: u8, distinct_outputs: bool, recursive: bool, competing: bool) {
+    fn exercise(callers: u8, callees: u8, distinct_outputs: bool, recursive: bool, competing: bool, exceptions: u8) {
         let budget = ResourceBudget::fixed(32 << 20).unwrap();
         {
             let (_, definition) = super::super::configuration::summaries(id(1), Default::default()).unwrap();
@@ -3757,28 +3761,44 @@ mod exhausted_candidate_controls {
                 let value = branch((caller_owner, input, caller_output), id(14), 50 + n, &q,
                     if competing && n == 0 { ProofCost { depth: 1, steps: 3, rank: 1 } }
                     else { ProofCost::SOURCE }, &budget);
-                progress.admit(&value).unwrap();
+                progress.admit(&value, &data.vocabulary).unwrap();
                 if n == 0 { seeds.push(value.clone()); }
                 if competing && n == 0 {
                     let other = branch((caller_owner, input, caller_output), value.origin, 80, &q,
                         ProofCost { depth: 2, steps: 2, rank: 2 }, &budget);
-                    assert_eq!(progress.admit(&other).unwrap(), summary_worklist::Admission::Advanced);
+                    assert_eq!(progress.admit(&other, &data.vocabulary).unwrap(), summary_worklist::Admission::Advanced);
                 }
             }
             for n in 0..callees {
                 let input = place(&mut data, 100 + n, false);
                 let output = place(&mut data, if distinct_outputs { 130 + n } else { 130 }, true);
                 let value = branch((callee_owner, input, output), id(15), 160 + n, &q,
-                    ProofCost::SOURCE, &budget);
-                progress.admit(&value).unwrap();
+                    if exceptions > 0 { ProofCost { depth: 2, steps: 5, rank: 2 } } else { ProofCost::SOURCE }, &budget);
+                progress.admit(&value, &data.vocabulary).unwrap();
                 if n == 0 { seeds.push(value); }
             }
+            let first_caller = progress.branches.values().find(|b| b.descriptor().owner == caller_owner).unwrap().id();
+            let callee_ids = progress.branches.values().filter(|b| b.descriptor().owner == callee_owner).map(WorkBranch::id).collect::<Vec<_>>();
+            let replacement = if exceptions > 0 {
+                let old = &progress.branches[&callee_ids[usize::from(exceptions - 1)]];
+                Some((old.id(), branch((callee_owner, old.descriptor().input, old.descriptor().output),
+                    old.origin, 250, &q, ProofCost::SOURCE, &budget)))
+            } else { None };
             let mut discovery = Discovery::new(&data, &calls, &budget).unwrap();
             for (index, seed) in seeds.iter().enumerate() { discovery.seeds.insert(seed.origin, index); }
             let mut component = vec![caller_owner, callee_owner]; component.sort(); component.dedup();
             let component_id = ContentHash::of(b"component");
-            let mut queue = summary_worklist::WorkQueue::new(1, &budget);
-            let processed = charged::ChargedSet::default();
+            let queue_limit = if exceptions > 0 { 3 } else { 1 };
+            let mut queue = summary_worklist::WorkQueue::new(queue_limit, &budget);
+            let mut exhausted = ExhaustedGroups::new(&budget);
+            let mut processed = charged::ChargedSet::default();
+            let mut processed_charge = StateCharge::new(&budget, "exhausted-control-processed");
+            if exceptions > 0 {
+                let item = WorkItem::Call(attempt.id(), first_caller, callee_ids[0]);
+                assert_eq!(queue.insert(item).unwrap(), Ok(true));
+                assert_eq!(queue.pop().unwrap(), Some(item));
+                processed.insert(&mut processed_charge, item).unwrap();
+            }
             let mut out = SummaryRecords::new(invocation.id(), &budget);
             for value in progress.branches.values() { retain_proof(&mut out, &invocation, value).unwrap(); }
             let proof_ids = out.premises.iter().map(Record::id).collect::<BTreeSet<_>>();
@@ -3787,9 +3807,9 @@ mod exhausted_candidate_controls {
                 constructed += enqueue(EnqueueContext { discovery: &discovery, data: &data,
                     vocabulary: &data.vocabulary, calls: &calls, component: &component,
                     component_id, invocation: &invocation, progress: &progress, seeds: &seeds },
-                    value.id(), &mut queue, &processed, &mut out).unwrap();
+                    value.id(), &mut queue, &processed, &mut exhausted, &mut out).unwrap();
             }
-            assert_eq!(queue.work(), 1);
+            assert_eq!(queue.work(), queue_limit);
             assert_eq!(queue.pending().count(), 1);
             // Independent finite Cartesian expectation: every refused pair maps to the complete
             // model residual tuple; input proof identity is deliberately absent from that tuple.
@@ -3798,7 +3818,8 @@ mod exhausted_candidate_controls {
             let over = AssertionQualification { approximation: Approximation::Over, ..q.clone() };
             for caller in progress.branches.values().filter(|b| b.descriptor().owner == caller_owner) {
                 for callee in progress.branches.values().filter(|b| b.descriptor().owner == callee_owner) {
-                    if pending.contains(&WorkItem::Call(attempt.id(), caller.id(), callee.id())) { continue; }
+                    let item = WorkItem::Call(attempt.id(), caller.id(), callee.id());
+                    if pending.contains(&item) || processed.contains(&item) { continue; }
                     expected.vocabulary.qualified(&over, &Diagram::always()).unwrap();
                     expected.residuals.insert(SummaryResidual { invocation: invocation.id(),
                         component: component_id, origin: caller.origin, event: event.id(),
@@ -3823,27 +3844,70 @@ mod exhausted_candidate_controls {
             assert_eq!(out.premises.iter().map(Record::id).collect::<BTreeSet<_>>(), proof_ids);
             assert_eq!(out.proof_origins.len(), progress.branches.len());
             assert_eq!(out.costs.len(), progress.branches.len());
-            if !recursive && !competing {
+            if !recursive && !competing && exceptions == 0 {
                 assert_eq!(constructed, if distinct_outputs { usize::from(callers * callees) - 1 }
                     else { usize::from(callers) });
             }
+            if !recursive && !competing && exceptions == 0 {
+                assert!(exhausted.examined <= constructed + 3,
+                    "examined {} pairs for {} residuals", exhausted.examined, constructed);
+            }
+            let examined = exhausted.examined;
             // Repeating discovery constructs no new rich products and consumes no queue work.
             for value in progress.branches.values().filter(|b| b.descriptor().owner == caller_owner) {
                 assert_eq!(enqueue(EnqueueContext { discovery: &discovery, data: &data,
                     vocabulary: &data.vocabulary, calls: &calls, component: &component,
                     component_id, invocation: &invocation, progress: &progress, seeds: &seeds },
-                    value.id(), &mut queue, &processed, &mut out).unwrap(), 0);
+                    value.id(), &mut queue, &processed, &mut exhausted, &mut out).unwrap(), 0);
             }
-            assert_eq!(queue.work(), 1);
+            assert_eq!(queue.work(), queue_limit);
+            assert_eq!(exhausted.examined, examined);
+            if let Some((retired, replacement)) = replacement {
+                assert!(out.residuals.is_empty(), "pending and processed are not refused work");
+                assert_eq!(progress.admit(&replacement, &data.vocabulary).unwrap(), summary_worklist::Admission::Advanced);
+                assert!(!progress.current(retired));
+                assert!(progress.current(replacement.id()));
+                retain_proof(&mut out, &invocation, &replacement).unwrap();
+                assert_eq!(enqueue(EnqueueContext { discovery: &discovery, data: &data,
+                    vocabulary: &data.vocabulary, calls: &calls, component: &component,
+                    component_id, invocation: &invocation, progress: &progress, seeds: &seeds },
+                    replacement.id(), &mut queue, &processed, &mut exhausted, &mut out).unwrap(), 1);
+                let caller = &progress.branches[&first_caller];
+                expected.vocabulary.qualified(&over, &Diagram::always()).unwrap();
+                expected.residuals.insert(SummaryResidual { invocation: invocation.id(), component: component_id,
+                    origin: caller.origin, event: event.id(), channel: analysis::AnalysisChannel::Value,
+                    phase: CallPhase::Call, input: caller.descriptor().input, output: replacement.descriptor().output,
+                    reason: obligation::ObligationKind::SummaryPairWorkLimit, qualification: over.id() }).unwrap();
+                let subject = owner::ObligationSubject::SourceCall { occurrence: event.site };
+                expected.obligations.insert(owner::AnalysisObligation { invocation: invocation.id(), subject: subject.id(),
+                    channel: analysis::AnalysisChannel::Value, phase: CallPhase::Call, qualification: over.id(),
+                    reason: obligation::ObligationKind::SummaryPairWorkLimit, responsible: analysis::AnalysisMethod::Summaries }).unwrap();
+                expected.subjects.insert(subject).unwrap();
+                assert!(out.residuals.same(&expected.residuals));
+                assert!(out.obligations.same(&expected.obligations));
+                assert!(out.subjects.same(&expected.subjects));
+                assert!(out.vocabulary.qualifications.values().eq(expected.vocabulary.qualifications.values()));
+                assert!(out.premises.get(retired.1).is_some(), "retired representative proof remains published");
+                assert_eq!(out.proof_origins.len(), progress.branches.len());
+                assert_eq!(out.costs.len(), progress.branches.len());
+                assert_eq!(queue.work(), queue_limit);
+                assert_eq!(queue.pending().copied().collect::<BTreeSet<_>>(), pending);
+            }
         }
         assert_eq!(budget.reserved(), 0);
     }
     #[test]
-    fn equivalent_exhausted_candidates_construct_one_complete_residual() { exercise(1, 5, false, false, false); }
+    fn equivalent_exhausted_candidates_construct_one_complete_residual() { exercise(1, 5, false, false, false, 0); }
     #[test]
-    fn distinct_exhausted_candidates_preserve_every_output() { exercise(1, 5, true, false, false); }
+    fn equivalent_callee_inputs_and_distinct_caller_inputs_examine_only_residual_groups() { exercise(12, 20, false, false, false, 0); }
     #[test]
-    fn distinct_caller_inputs_and_callee_outputs_retain_necessary_cross_product() { exercise(4, 5, true, false, false); }
+    fn distinct_exhausted_candidates_preserve_every_output() { exercise(1, 5, true, false, false, 0); }
     #[test]
-    fn recursive_endpoints_and_incomparable_proofs_preserve_full_inventory() { exercise(2, 4, true, true, true); }
+    fn distinct_caller_inputs_and_callee_outputs_retain_necessary_cross_product() { exercise(4, 5, true, false, false, 0); }
+    #[test]
+    fn processed_only_exception_does_not_hide_new_current_generation() { exercise(1, 2, false, false, false, 1); }
+    #[test]
+    fn pending_only_exception_does_not_hide_new_current_generation() { exercise(1, 2, false, false, false, 2); }
+    #[test]
+    fn recursive_endpoints_and_incomparable_proofs_preserve_full_inventory() { exercise(2, 4, true, true, true, 0); }
 }

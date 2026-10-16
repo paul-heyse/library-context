@@ -197,6 +197,10 @@ impl<T: Ord + HeapSize> WorkQueue<T> {
         );
         Ok(Some(pair))
     }
+    /// Work never decreases, so this is a permanent admission boundary. Pending
+    /// duplicates and processed exceptions remain distinct from refused candidates.
+    pub fn exhausted(&self) -> bool { self.work >= self.limit }
+    pub fn contains(&self, item: &T) -> bool { self.pending.contains(item) }
     pub fn pending(&self) -> impl Iterator<Item = &T> {
         self.pending.iter()
     }
