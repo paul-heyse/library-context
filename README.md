@@ -57,7 +57,9 @@ repository scope or `just fixture -- cargo nextest run …` for a fixture-backed
 Managed verification also retains invocation-owned native evidence. Start with
 `just verify report RUN --json`, then `just verify cases RUN --outcome failed --limit 50 --json`.
 Use the returned invocation-qualified case or stable reference with
-`just verify evidence RUN --case CASE --phase call --limit-bytes 65536 --json`.
+`just verify evidence RUN --case CASE --phase PHASE --limit-bytes 65536 --json`, using the
+phase returned with that observation. Compilation failures appear under `build`, including
+rendered Cargo diagnostics captured on stdout, even when no test recording was produced.
 Responses expose native coverage, omissions and opaque continuation cursors (`--cursor TOKEN`).
 Rows describe phases, attempts and supplemental observations; they are not counts of executions.
 `just verify events RUN --step STEP --json` selects durable milestones and native observations;
