@@ -1,4 +1,5 @@
 //! Focused controls for the shared content, exact-view and durable ownership cutover.
+use futures::FutureExt;
 use lctx_model::domain::{ContentHash, ModelError, resources::ResourceBudget};
 use lctx_native::{RuntimeConfig, control};
 use surrealdb::types::{Object, RecordId, Value, Variables};
@@ -740,47 +741,36 @@ fn maintenance_config() -> RuntimeConfig {
     cfg
 }
 
-// Read fixture lifecycle state before any setup effects. Failed observation still
-// invalidates the checked session; source4 refusal deliberately keeps its raw path.
+// Read fixture lifecycle state before any setup effects. The explicit factory lease
+// owns session finality on failed observation as well as after the maintenance body.
 async fn maintenance_snapshot(
     client: &surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,
     expected_inventory: Option<&str>,
-) -> (bool, Option<String>) {
-    let result = async {
-        let mut response = client
-            .query("SELECT admission_open,history_inventory FROM native_installation:current")
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
-        let [row] = rows.as_slice() else {
-            return Err(ModelError::Schema("exact maintenance installation"));
-        };
-        let Some(Value::Bool(open)) = row.get("admission_open") else {
-            return Err(ModelError::Schema("maintenance admission state"));
-        };
-        let inventory = match row.get("history_inventory") {
-            None | Some(Value::None) => None,
-            Some(Value::String(value)) => Some(value.clone()),
-            _ => return Err(ModelError::Schema("maintenance inventory state")),
-        };
-        if expected_inventory.is_some_and(|expected| inventory.as_deref() != Some(expected)) {
-            return Err(ModelError::Conflict(
-                "separately qualified maintenance inventory required",
-            ));
-        }
-        Ok((*open, inventory))
+) -> Result<(bool, Option<String>), ModelError> {
+    let mut response = client
+        .query("SELECT admission_open,history_inventory FROM native_installation:current")
+        .await
+        .map_err(ModelError::codec)?
+        .check()
+        .map_err(ModelError::codec)?;
+    let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
+    let [row] = rows.as_slice() else {
+        return Err(ModelError::Schema("exact maintenance installation"));
+    };
+    let Some(Value::Bool(open)) = row.get("admission_open") else {
+        return Err(ModelError::Schema("maintenance admission state"));
+    };
+    let inventory = match row.get("history_inventory") {
+        None | Some(Value::None) => None,
+        Some(Value::String(value)) => Some(value.clone()),
+        _ => return Err(ModelError::Schema("maintenance inventory state")),
+    };
+    if expected_inventory.is_some_and(|expected| inventory.as_deref() != Some(expected)) {
+        return Err(ModelError::Conflict(
+            "separately qualified maintenance inventory required",
+        ));
     }
-    .await;
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    if result.is_err() {
-        completion.step(
-            "maintenance state observation session invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
-        );
-    }
-    lctx_model::domain::completion::complete(result, completion).unwrap()
+    Ok((*open, inventory))
 }
 
 async fn cleanup_owned_attempt(
@@ -897,11 +887,15 @@ async fn transaction_timeouts_preserve_executor_stack_and_following_queries() {
 #[ignore = "permanent era cuts require explicit exclusive validation maintenance"]
 async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut() {
     let cfg = maintenance_config();
-    let client = lctx_compiler_store::compiler::check_installation(&cfg)
-        .await
-        .unwrap();
-    let (admission_was_open, _) = maintenance_snapshot(&client, None).await;
-    let result=async {
+    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+    let (client, lease) = lctx_native::reader::connect_owned(
+        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
+    ).await.unwrap();
+    let mut admission_was_open = None;
+    let result=std::panic::AssertUnwindSafe(control::with_recovery_scope(lease.recovery_scope().clone(), async {
+        lctx_native::installation::check_connected_installation(&client, cfg.service_generation).await?;
+        admission_was_open = Some(maintenance_snapshot(&client, None).await?.0);
     let object=RecordId::new("native_guard",control::fresh_identity("delayed-first-intent")?.hex());
     let sql="CREATE $object SET revision=0,retired=false,phase='active',incarnation=1 RETURN NONE";
     let mut bindings=Variables::new();bindings.insert("object",object.clone());
@@ -932,22 +926,35 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
         let mut response=client.query("SELECT VALUE id FROM $object; SELECT VALUE id FROM $attempt; SELECT VALUE id FROM $effect").bind(("object",object)).bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("effect",RecordId::new("native_effect",request.operation.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let payload:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;let attempts:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;let effects:Vec<RecordId>=response.take(2).map_err(ModelError::codec)?;
         Ok::<_,ModelError>((request,next,first_refused,retry_refused,disposition,attempt_refused,payload,attempts,effects))
-    }.await;
+    })).catch_unwind().await.unwrap_or_else(|panic| {
+        Err(ModelError::Cause(Box::new(lctx_model::domain::completion::ThreadPanic::new(
+            "owned maintenance native control", panic,
+        ))))
+    });
     let mut completion = lctx_model::domain::completion::Completion::default();
+    if result.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+        completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+    }
+    control::with_recovery_scope(lease.recovery_scope().clone(), async {
     completion.step(
         "era control admission restoration",
-        if admission_was_open {
-            lctx_compiler_store::compiler::open_admission(&cfg).await
-        } else {
-            lctx_compiler_store::compiler::close_admission(&cfg).await
+        match admission_was_open {
+            Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
+            Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
+            None => Ok(()), // Failed observation grants no admission-state change.
         },
     );
+    }).await;
     completion.step(
-        "maintenance fixture session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
+        "owned maintenance fixture factory finalization",
+        lease.complete_with(&completion).await,
     );
+    drop(client);
+    drop(lease);
+    drop(factory);
     let (request, next, first, retry, disposition, attempt_refused, payload, attempts, effects) =
         lctx_model::domain::completion::complete(result, completion).unwrap();
+    assert_eq!(budget.reserved(), 0);
     assert_eq!(next.era, request.issuance.era + 1);
     assert!(first && retry && attempt_refused);
     assert_eq!(
@@ -965,12 +972,16 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
 #[ignore = "closing crash recovery and era cuts require explicit validation maintenance"]
 async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_through_drain() {
     let cfg = maintenance_config();
-    let client = lctx_compiler_store::compiler::check_installation(&cfg)
-        .await
-        .unwrap();
-    let (admission_was_open, _) = maintenance_snapshot(&client, None).await;
+    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+    let (client, lease) = lctx_native::reader::connect_owned(
+        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
+    ).await.unwrap();
+    let mut admission_was_open = None;
     let mut acquired_attempts = Vec::new();
-    let result=async {
+    let result=std::panic::AssertUnwindSafe(control::with_recovery_scope(lease.recovery_scope().clone(), async {
+        lctx_native::installation::check_connected_installation(&client, cfg.service_generation).await?;
+        admission_was_open = Some(maintenance_snapshot(&client, None).await?.0);
         // The host lease is exclusive and initially closed. Admit only this owned
         // setup through the real attempt protocol, then close before crash recovery.
         lctx_compiler_store::compiler::open_admission(&cfg).await?;
@@ -1001,9 +1012,17 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
         for target in targets {control::retire(&client,target).await?;}
         control::cut_era(&client).await?;
         Ok::<_,ModelError>(())
-    }.await;
+    })).catch_unwind().await.unwrap_or_else(|panic| {
+        Err(ModelError::Cause(Box::new(lctx_model::domain::completion::ThreadPanic::new(
+            "owned maintenance native control", panic,
+        ))))
+    });
     let mut completion = lctx_model::domain::completion::Completion::default();
-    if result.is_err() {
+    if result.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+        completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+    }
+    control::with_recovery_scope(lease.recovery_scope().clone(), async {
+    if result.is_err() && admission_was_open.is_some() {
         completion.step(
             "failed attempt setup admission closure",
             lctx_compiler_store::compiler::close_admission(&cfg).await,
@@ -1017,34 +1036,43 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
     }
     completion.step(
         "closing control admission restoration",
-        if admission_was_open {
-            lctx_compiler_store::compiler::open_admission(&cfg).await
-        } else {
-            lctx_compiler_store::compiler::close_admission(&cfg).await
+        match admission_was_open {
+            Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
+            Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
+            None => Ok(()), // Failed observation grants no admission-state change.
         },
     );
+    }).await;
     completion.step(
-        "maintenance fixture session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
+        "owned maintenance fixture factory finalization",
+        lease.complete_with(&completion).await,
     );
+    drop(client);
+    drop(lease);
+    drop(factory);
     lctx_model::domain::completion::complete(result, completion).unwrap();
+    assert_eq!(budget.reserved(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "successor ownership across permanent cuts requires explicit validation maintenance"]
 async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() {
     let cfg = maintenance_config();
-    let client = lctx_compiler_store::compiler::check_installation(&cfg)
-        .await
-        .unwrap();
-    let (admission_was_open, _) = maintenance_snapshot(&client, None).await;
+    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+    let (client, lease) = lctx_native::reader::connect_owned(
+        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
+    ).await.unwrap();
+    let mut admission_was_open = None;
     let nonce = control::fresh_identity("maintenance-successors").unwrap();
     let parent = RecordId::new("native_guard", format!("successor_parent_{}", nonce.hex()));
     let child = RecordId::new("native_guard", format!("successor_child_{}", nonce.hex()));
     let cleanup_target =
         RecordId::new("native_guard", format!("successor_cleanup_{}", nonce.hex()));
     let mut acquired_attempts = Vec::new();
-    let result=async {
+    let result=std::panic::AssertUnwindSafe(control::with_recovery_scope(lease.recovery_scope().clone(), async {
+        lctx_native::installation::check_connected_installation(&client, cfg.service_generation).await?;
+        admission_was_open = Some(maintenance_snapshot(&client, None).await?.0);
         let original=control::IssuanceEra::capture(&client).await?;
         // Fresh attempts need real admission even under the exclusive host lease.
         // Setup errors still flow through original-admission restoration below.
@@ -1095,9 +1123,17 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         lctx_compiler_store::compiler::open_admission(&cfg).await?;
         control::retire(&client,cleanup_target.clone()).await?;
         Ok::<_,ModelError>((old_cleanup_fenced,old_retirement_fenced,cleanup_one,retirement_one,cleanup_two,retirement_two,repeat_one,repeat_two,stale_predecessors,progress,cleaned,final_claim,holds,payloads,cleanup_era,epochs,claimed,retirement,cleanup,original))
-    }.await;
+    })).catch_unwind().await.unwrap_or_else(|panic| {
+        Err(ModelError::Cause(Box::new(lctx_model::domain::completion::ThreadPanic::new(
+            "owned maintenance native control", panic,
+        ))))
+    });
     let mut completion = lctx_model::domain::completion::Completion::default();
-    if result.is_err() {
+    if result.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+        completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+    }
+    control::with_recovery_scope(lease.recovery_scope().clone(), async {
+    if result.is_err() && admission_was_open.is_some() {
         completion.step(
             "failed attempt setup admission closure",
             lctx_compiler_store::compiler::close_admission(&cfg).await,
@@ -1111,16 +1147,20 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
     }
     completion.step(
         "successor control admission restoration",
-        if admission_was_open {
-            lctx_compiler_store::compiler::open_admission(&cfg).await
-        } else {
-            lctx_compiler_store::compiler::close_admission(&cfg).await
+        match admission_was_open {
+            Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
+            Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
+            None => Ok(()), // Failed observation grants no admission-state change.
         },
     );
+    }).await;
     completion.step(
-        "maintenance fixture session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
+        "owned maintenance fixture factory finalization",
+        lease.complete_with(&completion).await,
     );
+    drop(client);
+    drop(lease);
+    drop(factory);
     let (
         cleanup_fenced,
         retirement_fenced,
@@ -1143,6 +1183,7 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         cleanup,
         original,
     ) = lctx_model::domain::completion::complete(result, completion).unwrap();
+    assert_eq!(budget.reserved(), 0);
     assert_eq!(cleanup_era, original);
     assert!(
         cleanup_fenced
