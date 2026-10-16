@@ -375,7 +375,8 @@ async fn root_native_query_cancellation_drains_before_fresh_checked_query() {
     let client = lctx_compiler_store::compiler::check_installation(&installer)
         .await
         .unwrap();
-    let native = NativeReader::private(client.clone());
+    let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let native = NativeReader::private(client.clone()).with_budget(&budget);
     // The first provisional row proves real native dispatch. Keep the stream owned
     // outside the polling task: task cancellation does not claim remote query abort.
     let rows = std::sync::Arc::new(tokio::sync::Mutex::new(
@@ -429,7 +430,11 @@ async fn root_native_query_cancellation_drains_before_fresh_checked_query() {
     })
     .await
     .expect("fresh checked query completes after explicit cancelled-polling drainage");
+    drop(fresh);
+    drop(rows);
+    native.close().await.unwrap();
     client.invalidate().await.unwrap();
+    assert_eq!(budget.reserved(), 0, "completed reads release their caller budget");
 }
 
 #[tokio::test]
