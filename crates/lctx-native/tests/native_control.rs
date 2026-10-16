@@ -892,6 +892,7 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
     let (client, lease) = lctx_native::reader::connect_owned(
         &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
     ).await.unwrap();
+    let connection = client.connection_completion().unwrap();
     let mut admission_was_open = None;
     let result=std::panic::AssertUnwindSafe(control::with_recovery_scope(lease.recovery_scope().clone(), async {
         lctx_native::installation::check_connected_installation(&client, cfg.service_generation).await?;
@@ -949,12 +950,21 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
         "owned maintenance fixture factory finalization",
         lease.complete_with(&completion).await,
     );
+    let joined = completion.is_satisfied();
     drop(client);
     drop(lease);
     drop(factory);
+    // Session close acknowledges native detachment. The SDK lifecycle task still
+    // owns admitted connection backing until all handles drop and its join completes.
+    if joined {
+        completion.step(
+            "owned maintenance fixture SDK completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
+    }
+    drop(connection);
     let (request, next, first, retry, disposition, attempt_refused, payload, attempts, effects) =
         lctx_model::domain::completion::complete(result, completion).unwrap();
-    assert_eq!(budget.reserved(), 0);
     assert_eq!(next.era, request.issuance.era + 1);
     assert!(first && retry && attempt_refused);
     assert_eq!(
@@ -966,6 +976,7 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
         payload.is_empty() && attempts.is_empty() && effects.is_empty(),
         "a delayed first intent cannot materialize after the cut"
     );
+    assert_eq!(budget.reserved(), 0);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -977,6 +988,7 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
     let (client, lease) = lctx_native::reader::connect_owned(
         &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
     ).await.unwrap();
+    let connection = client.connection_completion().unwrap();
     let mut admission_was_open = None;
     let mut acquired_attempts = Vec::new();
     let result=std::panic::AssertUnwindSafe(control::with_recovery_scope(lease.recovery_scope().clone(), async {
@@ -1047,9 +1059,19 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
         "owned maintenance fixture factory finalization",
         lease.complete_with(&completion).await,
     );
+    let joined = completion.is_satisfied();
     drop(client);
     drop(lease);
     drop(factory);
+    // Session close acknowledges native detachment. The SDK lifecycle task still
+    // owns admitted connection backing until all handles drop and its join completes.
+    if joined {
+        completion.step(
+            "owned maintenance fixture SDK completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
+    }
+    drop(connection);
     lctx_model::domain::completion::complete(result, completion).unwrap();
     assert_eq!(budget.reserved(), 0);
 }
@@ -1063,6 +1085,7 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
     let (client, lease) = lctx_native::reader::connect_owned(
         &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
     ).await.unwrap();
+    let connection = client.connection_completion().unwrap();
     let mut admission_was_open = None;
     let nonce = control::fresh_identity("maintenance-successors").unwrap();
     let parent = RecordId::new("native_guard", format!("successor_parent_{}", nonce.hex()));
@@ -1158,9 +1181,19 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         "owned maintenance fixture factory finalization",
         lease.complete_with(&completion).await,
     );
+    let joined = completion.is_satisfied();
     drop(client);
     drop(lease);
     drop(factory);
+    // Session close acknowledges native detachment. The SDK lifecycle task still
+    // owns admitted connection backing until all handles drop and its join completes.
+    if joined {
+        completion.step(
+            "owned maintenance fixture SDK completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
+    }
+    drop(connection);
     let (
         cleanup_fenced,
         retirement_fenced,
@@ -1183,7 +1216,6 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         cleanup,
         original,
     ) = lctx_model::domain::completion::complete(result, completion).unwrap();
-    assert_eq!(budget.reserved(), 0);
     assert_eq!(cleanup_era, original);
     assert!(
         cleanup_fenced
@@ -1212,4 +1244,5 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         final_claim, claimed,
         "successor preserves the originally claimed item identity/incarnation/cutoff"
     );
+    assert_eq!(budget.reserved(), 0);
 }
