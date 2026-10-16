@@ -1373,12 +1373,15 @@ impl<Context> NativeReader<Context> {
             let invalidated = if let Some(factory) = &factory {
                 factory.close_session().await
             } else {
-                self.client.invalidate().await.map_err(sdk_error)
+                self.client
+                    .close_session()
+                    .await
+                    .map_err(|error| ModelError::Cause(Box::new(error)))
             };
             session.confirmed = invalidated.is_ok();
             if invalidated.is_err() {
                 completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
-                completion.step("owned reader session invalidation", invalidated);
+                completion.step("owned reader session detachment", invalidated);
                 return lctx_model::domain::completion::complete(Ok(()), completion);
             }
             self.operations
@@ -4240,7 +4243,11 @@ impl SessionFinalizationGuard {
         if self.closed.load(std::sync::atomic::Ordering::Acquire) {
             return Ok(());
         }
-        let invalidated = self.client.invalidate().await.map_err(sdk_error);
+        let invalidated = self
+            .client
+            .close_session()
+            .await
+            .map_err(|error| ModelError::Cause(Box::new(error)));
         if invalidated.is_ok() {
             self.closed
                 .store(true, std::sync::atomic::Ordering::Release);
@@ -4249,7 +4256,7 @@ impl SessionFinalizationGuard {
         if invalidated.is_err() {
             completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
         }
-        completion.step("owned session invalidation", invalidated);
+        completion.step("owned session detachment", invalidated);
         lctx_model::domain::completion::complete(Ok(()), completion)
     }
 }
@@ -5044,5 +5051,87 @@ mod streaming_tests {
                 .is_err(),
             "full expected row equality cannot hide an outer completion error"
         );
+    }
+}
+
+#[cfg(test)]
+mod acknowledged_session_controls {
+    use super::*;
+    use lctx_model::domain::{completion, resources::ResourceBudget};
+
+    async fn selected_context(
+        scope: &Arc<crate::control::RecoveryScope>,
+        budget: &ResourceBudget,
+    ) -> Result<String, ModelError> {
+        let reader = NativeReader::private(scope.client().clone()).with_budget(budget);
+        let result = crate::control::with_recovery_scope(
+            scope.clone(),
+            reader.query_native::<String>(
+                "RETURN session::ns() + ':' + session::db();",
+                Variables::new(),
+            ),
+        )
+        .await;
+        let mut finality = completion::Completion::default();
+        finality.step("sibling control query transport", reader.close().await);
+        completion::complete(result, finality)
+    }
+
+    #[tokio::test]
+    async fn acknowledged_child_session_close_preserves_parent_and_prequeued_sibling() {
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
+        ))
+        .unwrap();
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let factory = crate::control::RecoveryFactoryOwner::new(
+            config.receipt_binding().unwrap(),
+            budget.clone(),
+        )
+        .unwrap();
+        let (client, parent_lease) = connect_owned(
+            &config.endpoint,
+            &config.writer_credentials(),
+            config.namespace.as_str(),
+            config.database.as_str(),
+            &factory,
+        )
+        .await
+        .unwrap();
+        let parent = parent_lease.recovery_scope().clone();
+        // Both SDK clone events precede close. Closing one must preserve the other's
+        // inherited selection/authentication and the parent's independent session.
+        let (first, first_signals, first_lease) = parent.fork_session(&budget).unwrap();
+        let (sibling, sibling_signals, sibling_lease) = parent.fork_session(&budget).unwrap();
+        let connection = client.connection_completion().unwrap();
+        let observed = async {
+            first_lease.close_session().await?;
+            first_lease.close_session().await?;
+            let parent_context = selected_context(&parent, &budget).await?;
+            let sibling_context = selected_context(&sibling, &budget).await?;
+            Ok::<_, ModelError>((parent_context, sibling_context))
+        }
+        .await;
+        let mut finality = completion::Completion::default();
+        finality.step("closed child finality", first_lease.complete().await);
+        finality.step("live sibling finality", sibling_lease.complete().await);
+        finality.step("parent session finality", parent_lease.complete().await);
+        let observed = completion::complete(observed, finality);
+        drop((
+            first,
+            first_signals,
+            first_lease,
+            sibling,
+            sibling_signals,
+            sibling_lease,
+        ));
+        drop((parent, parent_lease, client, factory));
+        connection.wait().await.unwrap();
+        drop(connection);
+        let (parent_context, sibling_context) = observed.unwrap();
+        let expected = format!("{}:{}", config.namespace.as_str(), config.database.as_str());
+        assert_eq!(parent_context, expected);
+        assert_eq!(sibling_context, expected);
+        assert_eq!(budget.reserved(), 0);
     }
 }

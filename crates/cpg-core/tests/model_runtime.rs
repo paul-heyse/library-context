@@ -90,12 +90,21 @@ async fn compute_and_external_reservations_share_one_compiler_pool() {
     drop(first);
     drop(second);
     drop(empty);
+    let connection = workspace
+        .native()
+        .recovery_scope()
+        .unwrap()
+        .client()
+        .connection_completion()
+        .unwrap();
     let mut finality = workspace.drain_owned_report().await;
     finality.merge(workspace.native().abandon_finality_report().await);
     let signal = workspace.complete_signal(&finality).await;
     finality.step("compute control signal", signal);
     completion::complete(Ok(()), finality).unwrap();
     drop(workspace);
+    connection.wait().await.unwrap();
+    drop(connection);
     assert_eq!(budget.reserved(), 0);
 }
 

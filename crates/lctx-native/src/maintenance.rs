@@ -115,6 +115,7 @@ pub async fn maintenance_client(
         ));
     }
     let client = crate::installation::check_installation(config).await?;
+    let session = crate::reader::SessionFinalizationGuard::new(client.clone());
     let result = async {
         if marker(&client).await?.get("admission_open") != Some(&native(false)) {
             return Err(ModelError::Conflict("native maintenance closed admission"));
@@ -124,12 +125,10 @@ pub async fn maintenance_client(
     .await;
     if let Err(error) = result {
         let mut completion = lctx_model::domain::completion::Completion::default();
-        completion.step(
-            "failed maintenance session invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
-        );
+        completion.step("failed maintenance session close", session.close().await);
         return lctx_model::domain::completion::complete(Err(error), completion);
     }
+    session.transfer();
     Ok(client)
 }
 

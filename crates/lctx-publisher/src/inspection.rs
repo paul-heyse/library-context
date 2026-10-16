@@ -143,8 +143,9 @@ pub async fn list(config: &RuntimeConfig) -> Result<Vec<SnapshotHandle>, ModelEr
         config.database.as_str(),
     )
     .await?;
-    lctx_native::control::check_installation(&client, config.service_generation).await?;
+    let session = reader::SessionFinalizationGuard::new(client.clone());
     let result = async {
+        lctx_native::control::check_installation(&client, config.service_generation).await?;
         let mut response = client
             .query("SELECT handle,manifest,views FROM publication ORDER BY id")
             .await
@@ -169,10 +170,7 @@ pub async fn list(config: &RuntimeConfig) -> Result<Vec<SnapshotHandle>, ModelEr
     }
     .await;
     let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.step(
-        "publication listing session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
-    );
+    completion.step("publication listing session close", session.close().await);
     lctx_model::domain::completion::complete(result, completion)
 }
 pub async fn audit(

@@ -24,6 +24,7 @@ pub async fn check_definitions(
         config.database.as_str(),
     )
     .await?;
+    let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
     let result = async {
         lctx_native::control::check_installation(&client, config.service_generation).await?;
         let loader = lctx_native::Loader::new(client.clone());
@@ -32,8 +33,8 @@ pub async fn check_definitions(
     .await;
     let mut completion = Completion::default();
     completion.step(
-        "definition verification session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
+        "definition verification session close",
+        session.close().await,
     );
     complete(result, completion)
 }
@@ -55,6 +56,7 @@ pub async fn install_definitions(
         config.database.as_str(),
     )
     .await?;
+    let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
     let result = async {
         lctx_native::control::check_installation(&client, config.service_generation).await?;
         let loader = lctx_native::Loader::new(client.clone());
@@ -65,8 +67,8 @@ pub async fn install_definitions(
     .await;
     let mut completion = Completion::default();
     completion.step(
-        "definition installation session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
+        "definition installation session close",
+        session.close().await,
     );
     complete(result, completion)
 }

@@ -37,17 +37,17 @@ mod notification;
 #[doc(hidden)]
 /// Channels for receiving a SurrealQL database export
 pub mod channel {
-	pub use async_channel::{Receiver, Sender, bounded, unbounded};
+    pub use async_channel::{Receiver, Sender, bounded, unbounded};
 }
 
 #[cfg(feature = "parse")]
 pub mod parse {
-	//! Parse SurrealQL text without connecting to a database.
+    //! Parse SurrealQL text without connecting to a database.
 
-	/// Parses a SurrealQL value from its textual representation.
-	pub fn value(input: &str) -> anyhow::Result<crate::types::Value> {
-		surrealdb_syn::value(input).map_err(anyhow::Error::new)
-	}
+    /// Parses a SurrealQL value from its textual representation.
+    pub fn value(input: &str) -> anyhow::Result<crate::types::Value> {
+        surrealdb_syn::value(input).map_err(anyhow::Error::new)
+    }
 }
 
 #[doc(inline)]
@@ -74,6 +74,7 @@ use async_channel::{Receiver, Sender};
 use method::BoxFuture;
 use semver::{Version, VersionReq};
 use surrealdb_engine_api::SessionId;
+pub use surrealdb_engine_api::{ConnectionCompletion, LifecycleCompletion, LifecycleError};
 #[doc(inline)]
 pub use surrealdb_types::Error;
 use surrealdb_types::NotAllowedError;
@@ -84,7 +85,10 @@ use self::conn::Router;
 use self::opt::{Endpoint, EndpointKind, WaitFor};
 
 // Channel for waiters
-type Waiter = (watch::Sender<Option<WaitFor>>, watch::Receiver<Option<WaitFor>>);
+type Waiter = (
+    watch::Sender<Option<WaitFor>>,
+    watch::Receiver<Option<WaitFor>>,
+);
 
 const SUPPORTED_VERSIONS: &str = ">=3.0.0-alpha.1, <4.0.0";
 
@@ -95,152 +99,151 @@ pub trait Connection: conn::Sealed {}
 #[derive(Debug)]
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Connect<C: Connection, Response> {
-	surreal: Surreal<C>,
-	address: Result<Endpoint>,
-	capacity: usize,
-	response_type: PhantomData<Response>,
+    surreal: Surreal<C>,
+    address: Result<Endpoint>,
+    capacity: usize,
+    response_type: PhantomData<Response>,
 }
 
 impl<C, R> Connect<C, R>
 where
-	C: Connection,
+    C: Connection,
 {
-	/// Sets the maximum capacity of the connection
-	///
-	/// This is used to set bounds of the channels used internally
-	/// as well set the capacity of the `HashMap` used for routing
-	/// responses in case of the WebSocket client.
-	///
-	/// Setting this capacity to `0` (the default) means that
-	/// unbounded channels will be used. If your queries per second
-	/// are so high that the client is running out of memory,
-	/// it might be helpful to set this to a number that works best
-	/// for you.
-	///
-	/// This applies to the remote engines. An embedded connection queues
-	/// nothing between the caller and the datastore — each request is awaited
-	/// where it is made — so there is no channel for it to bound, and it is
-	/// ignored.
-	///
-	/// # Examples
-	///
-	/// ```no_run
-	/// # #[tokio::main]
-	/// # async fn main() -> surrealdb::Result<()> {
-	/// use surrealdb::engine::remote::ws::Ws;
-	/// use surrealdb::Surreal;
-	///
-	/// let db = Surreal::new::<Ws>("localhost:8000")
-	///     .with_capacity(100_000)
-	///     .await?;
-	/// # Ok(())
-	/// # }
-	/// ```
-	pub const fn with_capacity(mut self, capacity: usize) -> Self {
-		self.capacity = capacity;
-		self
-	}
+    /// Sets the maximum capacity of the connection
+    ///
+    /// This is used to set bounds of the channels used internally
+    /// as well set the capacity of the `HashMap` used for routing
+    /// responses in case of the WebSocket client.
+    ///
+    /// Setting this capacity to `0` (the default) means that
+    /// unbounded channels will be used. If your queries per second
+    /// are so high that the client is running out of memory,
+    /// it might be helpful to set this to a number that works best
+    /// for you.
+    ///
+    /// This applies to the remote engines. An embedded connection queues
+    /// nothing between the caller and the datastore — each request is awaited
+    /// where it is made — so there is no channel for it to bound, and it is
+    /// ignored.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> surrealdb::Result<()> {
+    /// use surrealdb::engine::remote::ws::Ws;
+    /// use surrealdb::Surreal;
+    ///
+    /// let db = Surreal::new::<Ws>("localhost:8000")
+    ///     .with_capacity(100_000)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub const fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = capacity;
+        self
+    }
 }
 
 impl<Client> IntoFuture for Connect<Client, Surreal<Client>>
 where
-	Client: Connection,
+    Client: Connection,
 {
-	type Output = Result<Surreal<Client>>;
-	type IntoFuture = BoxFuture<'static, Self::Output>;
+    type Output = Result<Surreal<Client>>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
 
-	fn into_future(self) -> Self::IntoFuture {
-		Box::pin(async move {
-			let endpoint = self.address?;
-			let endpoint_kind = EndpointKind::from(endpoint.url.scheme());
-			let client = Client::connect(endpoint, self.capacity, None).await?;
-			if endpoint_kind.is_remote() {
-				client.verify_server_version().await?;
-			}
-			// Both ends of the channel are still alive at this point
-			client.inner.waiter.0.send(Some(WaitFor::Connection)).ok();
-			Ok(client)
-		})
-	}
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let endpoint = self.address?;
+            let endpoint_kind = EndpointKind::from(endpoint.url.scheme());
+            let client = Client::connect(endpoint, self.capacity, None).await?;
+            if endpoint_kind.is_remote() {
+                client.verify_server_version().await?;
+            }
+            // Both ends of the channel are still alive at this point
+            client.inner.waiter.0.send(Some(WaitFor::Connection)).ok();
+            Ok(client)
+        })
+    }
 }
 
 impl<Client> IntoFuture for Connect<Client, ()>
 where
-	Client: Connection,
+    Client: Connection,
 {
-	type Output = Result<()>;
-	type IntoFuture = BoxFuture<'static, Self::Output>;
+    type Output = Result<()>;
+    type IntoFuture = BoxFuture<'static, Self::Output>;
 
-	fn into_future(self) -> Self::IntoFuture {
-		Box::pin(async move {
-			// Avoid establishing another connection if already connected
-			if self.surreal.inner.router.get().is_some() {
-				return Err(Error::connection(
-					"Already connected".to_string(),
-					Some(crate::types::ConnectionError::AlreadyConnected),
-				));
-			}
-			let endpoint = self.address?;
-			let endpoint_kind = EndpointKind::from(endpoint.url.scheme());
-			let session_clone = self.surreal.inner.session_clone.clone();
-			let client = Client::connect(endpoint, self.capacity, Some(session_clone)).await?;
-			if endpoint_kind.is_remote() {
-				client.verify_server_version().await?;
-			}
-			let router = client.inner.router.wait().clone();
-			self.surreal.inner.router.set(router).map_err(|_| {
-				Error::connection(
-					"Already connected".to_string(),
-					Some(crate::types::ConnectionError::AlreadyConnected),
-				)
-			})?;
-			// Both ends of the channel are still alive at this point
-			self.surreal.inner.waiter.0.send(Some(WaitFor::Connection)).ok();
-			Ok(())
-		})
-	}
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            // Avoid establishing another connection if already connected
+            if self.surreal.inner.router.get().is_some() {
+                return Err(Error::connection(
+                    "Already connected".to_string(),
+                    Some(crate::types::ConnectionError::AlreadyConnected),
+                ));
+            }
+            let endpoint = self.address?;
+            let endpoint_kind = EndpointKind::from(endpoint.url.scheme());
+            let session_clone = self.surreal.inner.session_clone.clone();
+            let client = Client::connect(endpoint, self.capacity, Some(session_clone)).await?;
+            if endpoint_kind.is_remote() {
+                client.verify_server_version().await?;
+            }
+            let router = client.inner.router.wait().clone();
+            self.surreal.inner.router.set(router).map_err(|_| {
+                Error::connection(
+                    "Already connected".to_string(),
+                    Some(crate::types::ConnectionError::AlreadyConnected),
+                )
+            })?;
+            // Both ends of the channel are still alive at this point
+            self.surreal
+                .inner
+                .waiter
+                .0
+                .send(Some(WaitFor::Connection))
+                .ok();
+            Ok(())
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub(crate) enum ExtraFeatures {
-	Backup,
-	LiveQueries,
+    Backup,
+    LiveQueries,
 }
 
 #[derive(Debug, Clone)]
 struct SessionClone {
-	sender: Sender<SessionId>,
-	#[allow(dead_code)]
-	receiver: Receiver<SessionId>,
+    sender: Sender<SessionId>,
+    #[allow(dead_code)]
+    receiver: Receiver<SessionId>,
 }
 
 impl SessionClone {
-	fn new() -> Self {
-		let (sender, receiver) = async_channel::unbounded();
-		Self {
-			sender,
-			receiver,
-		}
-	}
+    fn new() -> Self {
+        let (sender, receiver) = async_channel::unbounded();
+        Self { sender, receiver }
+    }
 }
 
 #[derive(Debug)]
 struct Inner {
-	router: OnceLock<Router>,
-	waiter: Waiter,
-	session_clone: SessionClone,
+    router: OnceLock<Router>,
+    waiter: Waiter,
+    session_clone: SessionClone,
 }
 
 impl Inner {
-	fn clone_session(&self, old: Uuid, new: Uuid) {
-		self.session_clone
-			.sender
-			.try_send(SessionId::Clone {
-				old,
-				new,
-			})
-			.ok();
-	}
+    fn clone_session(&self, old: Uuid, new: Uuid) {
+        self.session_clone
+            .sender
+            .try_send(SessionId::Clone { old, new })
+            .ok();
+    }
 }
 
 /// A database client instance for embedded or remote databases.
@@ -249,173 +252,244 @@ impl Inner {
 /// Rust](crate#running-surrealdb-embedded-in-rust) for tips on how to optimize
 /// performance for the client when working with embedded instances.
 pub struct Surreal<C: Connection> {
-	inner: Arc<Inner>,
-	session_id: Uuid,
-	engine: PhantomData<C>,
+    inner: Arc<Inner>,
+    session_id: Uuid,
+    session_close: OnceLock<LifecycleCompletion>,
+    engine: PhantomData<C>,
 }
 
 #[doc(hidden)]
 impl<C> From<Arc<Inner>> for Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	fn from(inner: Arc<Inner>) -> Self {
-		let session_id = Uuid::new_v4();
-		inner.session_clone.sender.try_send(SessionId::Initial(session_id)).ok();
-		Surreal {
-			inner,
-			session_id,
-			engine: PhantomData,
-		}
-	}
+    fn from(inner: Arc<Inner>) -> Self {
+        let session_id = Uuid::new_v4();
+        inner
+            .session_clone
+            .sender
+            .try_send(SessionId::Initial(session_id))
+            .ok();
+        Surreal {
+            inner,
+            session_id,
+            session_close: OnceLock::new(),
+            engine: PhantomData,
+        }
+    }
 }
 
 #[doc(hidden)]
 impl<C> From<(OnceLock<Router>, Waiter, SessionClone)> for Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	fn from((router, waiter, session_clone): (OnceLock<Router>, Waiter, SessionClone)) -> Self {
-		Arc::new(Inner {
-			router,
-			waiter,
-			session_clone,
-		})
-		.into()
-	}
+    fn from((router, waiter, session_clone): (OnceLock<Router>, Waiter, SessionClone)) -> Self {
+        Arc::new(Inner {
+            router,
+            waiter,
+            session_clone,
+        })
+        .into()
+    }
 }
 
 #[doc(hidden)]
 impl<C> From<(Router, Waiter, SessionClone)> for Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	fn from((router, waiter, session_clone): (Router, Waiter, SessionClone)) -> Self {
-		let oncelock = OnceLock::with_value(router);
-		(oncelock, waiter, session_clone).into()
-	}
+    fn from((router, waiter, session_clone): (Router, Waiter, SessionClone)) -> Self {
+        let oncelock = OnceLock::with_value(router);
+        (oncelock, waiter, session_clone).into()
+    }
 }
 
 impl<C> Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	async fn check_server_version(&self, version: &Version) -> Result<()> {
-		// invalid version requirements should be caught during development
-		let req = VersionReq::parse(SUPPORTED_VERSIONS).expect("valid supported versions");
-		if !req.matches(version) {
-			return Err(Error::internal(format!(
-				"server version `{version}` does not match the range supported by the client `{SUPPORTED_VERSIONS}`"
-			)));
-		}
+    /// Close this exact gRPC session after caller-owned operations reached terminality.
+    /// This is session detachment, not query drainage. SDK clones own independent sessions.
+    /// Interrupted/repeated waits observe the same queued close without issuing it again.
+    /// Unsupported transports refuse before queueing any session lifecycle action.
+    pub async fn close_session(&self) -> std::result::Result<(), LifecycleError> {
+        let router = self.inner.router.extract()?;
+        let completion = if let Some(completion) = self.session_close.get() {
+            completion
+        } else {
+            let charge = match router
+                .engine
+                .session_close_admission(conn::ctx(self.session_id))
+                .await
+            {
+                Ok(charge) => charge,
+                Err(error) => {
+                    if let Some(completion) = self.session_close.get() {
+                        return completion.wait().await;
+                    }
+                    return Err(error.into());
+                }
+            };
+            // Registration AND queueing belong to the same winning initialization.
+            self.session_close.get_or_init(|| {
+                let (completion, acknowledgment) = LifecycleCompletion::channel(charge);
+                match router
+                    .engine
+                    .register_session_close(conn::ctx(self.session_id), acknowledgment.clone())
+                {
+                    Err(error) => acknowledgment.complete(Err(error)),
+                    Ok(()) => {
+                        if self
+                            .inner
+                            .session_clone
+                            .sender
+                            .try_send(SessionId::Drop(self.session_id))
+                            .is_err()
+                        {
+                            acknowledgment.complete(Err(Error::internal(
+                                "Session lifecycle owner is unavailable".into(),
+                            )));
+                        }
+                    }
+                }
+                completion
+            })
+        };
+        completion.wait().await
+    }
+    /// Capture before releasing handles, then await and drop the token after all owners drop.
+    /// This qualifies only the SDK lifecycle task/admitted engine backing, not H2/TLS or queries.
+    pub fn connection_completion(&self) -> Result<ConnectionCompletion> {
+        self.inner.router.extract()?.engine.connection_completion()
+    }
 
-		Ok(())
-	}
+    async fn check_server_version(&self, version: &Version) -> Result<()> {
+        // invalid version requirements should be caught during development
+        let req = VersionReq::parse(SUPPORTED_VERSIONS).expect("valid supported versions");
+        if !req.matches(version) {
+            return Err(Error::internal(format!(
+                "server version `{version}` does not match the range supported by the client `{SUPPORTED_VERSIONS}`"
+            )));
+        }
 
-	// If the server denies the `version` RPC method via its capabilities, skip
-	// the version check rather than failing to connect — the operator has
-	// explicitly opted out of exposing the version, and the rest of the
-	// connection is still usable.
-	async fn verify_server_version(&self) -> Result<()> {
-		match self.version().await {
-			Ok(mut version) => {
-				// we would like to be able to connect to pre-releases too
-				version.pre = Default::default();
-				self.check_server_version(&version).await
-			}
-			Err(e) if matches!(e.not_allowed_details(), Some(NotAllowedError::Method { .. })) => {
-				debug!(
-					"Skipping server version check; the `version` RPC method is denied by server capabilities"
-				);
-				Ok(())
-			}
-			Err(e) => Err(e),
-		}
-	}
+        Ok(())
+    }
+
+    // If the server denies the `version` RPC method via its capabilities, skip
+    // the version check rather than failing to connect — the operator has
+    // explicitly opted out of exposing the version, and the rest of the
+    // connection is still usable.
+    async fn verify_server_version(&self) -> Result<()> {
+        match self.version().await {
+            Ok(mut version) => {
+                // we would like to be able to connect to pre-releases too
+                version.pre = Default::default();
+                self.check_server_version(&version).await
+            }
+            Err(e)
+                if matches!(
+                    e.not_allowed_details(),
+                    Some(NotAllowedError::Method { .. })
+                ) =>
+            {
+                debug!(
+                    "Skipping server version check; the `version` RPC method is denied by server capabilities"
+                );
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl<C> Clone for Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	fn clone(&self) -> Self {
-		let session_id = Uuid::new_v4();
-		self.inner.clone_session(self.session_id, session_id);
-		Self {
-			inner: Arc::clone(&self.inner),
-			session_id,
-			engine: self.engine,
-		}
-	}
+    fn clone(&self) -> Self {
+        let session_id = Uuid::new_v4();
+        self.inner.clone_session(self.session_id, session_id);
+        Self {
+            inner: Arc::clone(&self.inner),
+            session_id,
+            session_close: OnceLock::new(),
+            engine: self.engine,
+        }
+    }
 }
 
 impl<C> Drop for Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	fn drop(&mut self) {
-		self.inner.session_clone.sender.try_send(SessionId::Drop(self.session_id)).ok();
-	}
+    fn drop(&mut self) {
+        self.inner
+            .session_clone
+            .sender
+            .try_send(SessionId::Drop(self.session_id))
+            .ok();
+    }
 }
 
 impl<C> Debug for Surreal<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("Surreal")
-			.field("router", &self.inner.router)
-			.field("session_id", &self.session_id)
-			.field("engine", &self.engine)
-			.finish()
-	}
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Surreal")
+            .field("router", &self.inner.router)
+            .field("session_id", &self.session_id)
+            .field("engine", &self.engine)
+            .finish()
+    }
 }
 
 trait OnceLockExt {
-	fn with_value(value: Router) -> OnceLock<Router> {
-		let cell = OnceLock::new();
-		match cell.set(value) {
-			Ok(()) => cell,
-			Err(_) => unreachable!("don't have exclusive access to `cell`"),
-		}
-	}
+    fn with_value(value: Router) -> OnceLock<Router> {
+        let cell = OnceLock::new();
+        match cell.set(value) {
+            Ok(()) => cell,
+            Err(_) => unreachable!("don't have exclusive access to `cell`"),
+        }
+    }
 
-	fn extract(&self) -> Result<&Router>;
+    fn extract(&self) -> Result<&Router>;
 }
 
 impl OnceLockExt for OnceLock<Router> {
-	fn extract(&self) -> Result<&Router> {
-		let router = self.get().ok_or_else(|| {
-			Error::connection(
-				"Connection uninitialised".to_string(),
-				Some(crate::types::ConnectionError::Uninitialised),
-			)
-		})?;
-		Ok(router)
-	}
+    fn extract(&self) -> Result<&Router> {
+        let router = self.get().ok_or_else(|| {
+            Error::connection(
+                "Connection uninitialised".to_string(),
+                Some(crate::types::ConnectionError::Uninitialised),
+            )
+        })?;
+        Ok(router)
+    }
 }
 
 /// Used by engine code (HTTP, local, any, and WS on wasm) when converting std/io errors.
 #[allow(dead_code)]
 fn std_error_to_types_error(error: impl std::fmt::Display) -> Error {
-	Error::internal(error.to_string())
+    Error::internal(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn test_supported_versions() {
-		let req = VersionReq::parse(SUPPORTED_VERSIONS).expect("valid supported versions");
-		assert!(req.matches(&Version::parse("3.0.0-alpha.1").unwrap()));
-		assert!(req.matches(&Version::parse("3.0.0-beta.3").unwrap()));
-		assert!(req.matches(&Version::parse("3.0.0-rc.2").unwrap()));
-		assert!(req.matches(&Version::parse("3.0.0").unwrap()));
-		assert!(req.matches(&Version::parse("3.0.1").unwrap()));
-		assert!(req.matches(&Version::parse("3.9.0").unwrap()));
+    #[test]
+    fn test_supported_versions() {
+        let req = VersionReq::parse(SUPPORTED_VERSIONS).expect("valid supported versions");
+        assert!(req.matches(&Version::parse("3.0.0-alpha.1").unwrap()));
+        assert!(req.matches(&Version::parse("3.0.0-beta.3").unwrap()));
+        assert!(req.matches(&Version::parse("3.0.0-rc.2").unwrap()));
+        assert!(req.matches(&Version::parse("3.0.0").unwrap()));
+        assert!(req.matches(&Version::parse("3.0.1").unwrap()));
+        assert!(req.matches(&Version::parse("3.9.0").unwrap()));
 
-		assert!(!req.matches(&Version::parse("2.9.0").unwrap()));
-		assert!(!req.matches(&Version::parse("4.0.0").unwrap()));
-	}
+        assert!(!req.matches(&Version::parse("2.9.0").unwrap()));
+        assert!(!req.matches(&Version::parse("4.0.0").unwrap()));
+    }
 }

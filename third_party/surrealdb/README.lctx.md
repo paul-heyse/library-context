@@ -65,3 +65,14 @@ claim a bound on process RSS, shared H2/TLS/network/runtime scheduler allocation
 external bare SDK outputs or legacy-zstd peers. Configured gzip and modern zstd use admitted
 workspaces. Current acceptance belongs to the catalog-efficiency coordinator; old physical-
 terminal controls do not qualify these new seams.
+
+The acknowledged-session adapter exposes gRPC `close_session` and a separate non-retaining
+`connection_completion` join for the SDK session-lifecycle task. Close is ordered with existing
+clone/drop events; interrupted or repeated waits observe one retained result. Sibling sessions
+remain usable, and closed handles cannot create fresh authenticated sessions. Failed close retains
+its typed cause and allocation grants. Connection joining follows actual client-owner drop and
+retains its own backing through the final token/error borrower; it does not qualify shared H2/TLS
+or runtime workspace or remote executor drainage. Native consumers check query/pin/source finality
+separately before close. Other engines explicitly refuse this qualified API while retaining their
+original public session-event interface. Transaction::close_session borrows its exact client.
+No server wire change or dependency version move is involved.

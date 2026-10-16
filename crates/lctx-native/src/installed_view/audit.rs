@@ -4049,7 +4049,7 @@ mod tests {
                 let failed=audit_memberships_scoped(&reader,&closure,&budget,&audit).await;
                 variables.insert("row",original[0].clone());client.query("UPSERT $id CONTENT $row RETURN NONE").bind(variables).await.unwrap().check().unwrap();
                 let observations=audit.observations();audit.close().await.unwrap();
-                let failed=failed.err().expect("missing set correspondence must refuse");
+                let failed=failed.expect_err("missing set correspondence must refuse");
                 let cause=match kind {
                     "backing"=>"installed membership backing missing",
                     "backing guard"|"endpoint guard"=>"installed set guard missing",

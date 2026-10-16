@@ -18,12 +18,15 @@
 //! channel before each route.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Duration as StdDuration;
 
 use async_channel::Sender;
 use surrealdb_engine_api::{
-	DbExportConfig, EngineContext, EngineFuture, MlExportConfig, SurrealEngine,
+    DbExportConfig, EngineContext, EngineFuture, MlExportConfig, SurrealEngine,
 };
 use surrealdb_protocol::proto::rpc::v1 as rpc;
 use surrealdb_protocol::proto::rpc::v1::surreal_db_service_client::SurrealDbServiceClient;
@@ -34,22 +37,20 @@ use tonic::transport::Channel;
 use uuid::Uuid;
 
 use crate::types::prost::Message;
-use crate::types::{
-	Action, Array, Notification, Object, ValidationError, Value, Variables,
-};
+use crate::types::{Action, Array, Notification, Object, ValidationError, Value, Variables};
 use crate::{Error, ExtraFeatures, SessionId};
 
 type EngineResult<T> = crate::Result<T>;
-mod ingress;
 mod buffered;
+mod ingress;
 use buffered::MAX_STATEMENTS;
 use ingress::{deserialization_error, kind_str};
 
 fn validate_query_byte_capability(supported: bool, bytes: u32) -> EngineResult<()> {
-	if bytes != 0 && !supported {
-		return Err(Error::configuration("The server does not advertise QUERY_BATCH_BYTES_V1; explicit query framing cannot be guaranteed".to_owned(), None));
-	}
-	Ok(())
+    if bytes != 0 && !supported {
+        return Err(Error::configuration("The server does not advertise QUERY_BATCH_BYTES_V1; explicit query framing cannot be guaranteed".to_owned(), None));
+    }
+    Ok(())
 }
 
 enum AdmittedDelivery<'a> {
@@ -60,23 +61,31 @@ impl AdmittedDelivery<'_> {
     async fn send(&mut self, event: surrealdb_rpc::AdmittedQueryStreamEvent) -> Result<(), ()> {
         match self {
             Self::Stream(sender) => sender.send(event).await.map_err(|_| ()),
-            Self::Buffered(buffer) => { buffer.ingest(event); Ok(()) },
+            Self::Buffered(buffer) => {
+                buffer.ingest(event);
+                Ok(())
+            }
         }
     }
 }
 
 enum QueryDelivery {
-	Plain(Sender<QueryStreamItem>),
-	Admitted(Sender<surrealdb_rpc::AdmittedQueryStreamEvent>),
+    Plain(Sender<QueryStreamItem>),
+    Admitted(Sender<surrealdb_rpc::AdmittedQueryStreamEvent>),
 }
 
 impl QueryDelivery {
-	async fn send(&self, item: QueryStreamItem) -> Result<(), ()> {
-		match self {
-			Self::Plain(sender) => sender.send(item).await.map_err(|_| ()),
-			Self::Admitted(sender) => sender.send(surrealdb_rpc::AdmittedQueryStreamEvent::Item(surrealdb_rpc::AdmittedQueryStreamItem::new(item, Vec::new()))).await.map_err(|_| ()),
-		}
-	}
+    async fn send(&self, item: QueryStreamItem) -> Result<(), ()> {
+        match self {
+            Self::Plain(sender) => sender.send(item).await.map_err(|_| ()),
+            Self::Admitted(sender) => sender
+                .send(surrealdb_rpc::AdmittedQueryStreamEvent::Item(
+                    surrealdb_rpc::AdmittedQueryStreamItem::new(item, Vec::new()),
+                ))
+                .await
+                .map_err(|_| ()),
+        }
+    }
 }
 
 /// An application end frame precedes the gRPC status and HTTP/2 terminal.
@@ -84,39 +93,45 @@ impl QueryDelivery {
 /// late errors and refusing further payload. Local decode/admission refusal
 /// can terminate tonic before physical body EOF and proves no remote finality.
 async fn drain_after_end<T>(
-	stream: &mut (impl futures::Stream<Item = Result<T, tonic::Status>> + Unpin),
-	late_frame_error: impl FnOnce(T) -> Error,
+    stream: &mut (impl futures::Stream<Item = Result<T, tonic::Status>> + Unpin),
+    late_frame_error: impl FnOnce(T) -> Error,
 ) -> EngineResult<()> {
-	use futures::StreamExt;
-	match stream.next().await {
-		None => Ok(()),
-		Some(Err(status)) => Err(status_to_error(status)),
-		Some(Ok(frame)) => Err(late_frame_error(frame)),
-	}
+    use futures::StreamExt;
+    match stream.next().await {
+        None => Ok(()),
+        Some(Err(status)) => Err(status_to_error(status)),
+        Some(Ok(frame)) => Err(late_frame_error(frame)),
+    }
 }
 
 fn late_query_frame(response: rpc::QueryResponse) -> Error {
-	match response.frame {
-		Some(rpc::query_response::Frame::Error(error)) => proto_error(error),
-		Some(rpc::query_response::Frame::Batch(batch)) if batch.error.is_some() => {
-			proto_error(batch.error.expect("guarded batch error"))
-		}
-		_ => Error::internal("Query stream carried a frame after its end".to_string()),
-	}
+    match response.frame {
+        Some(rpc::query_response::Frame::Error(error)) => proto_error(error),
+        Some(rpc::query_response::Frame::Batch(batch)) if batch.error.is_some() => {
+            proto_error(batch.error.expect("guarded batch error"))
+        }
+        _ => Error::internal("Query stream carried a frame after its end".to_string()),
+    }
 }
 
 /// Query rejection still owns the physical stream. Keep every later typed failure
 /// in the SDK cause chain and wait for EOF, including after a malformed End count.
 async fn drain_query_terminal(
-	stream: &mut (impl futures::Stream<Item = Result<rpc::QueryResponse, tonic::Status>> + Unpin),
-	mut failure: Option<Error>,
+    stream: &mut (impl futures::Stream<Item = Result<rpc::QueryResponse, tonic::Status>> + Unpin),
+    mut failure: Option<Error>,
 ) -> EngineResult<()> {
-	use futures::StreamExt;
-	while let Some(item) = stream.next().await {
-		let error = match item { Ok(frame) => late_query_frame(frame), Err(status) => status_to_error(status) };
-		failure = Some(match failure { Some(primary) => primary.append_cause(error), None => error });
-	}
-	failure.map_or(Ok(()), Err)
+    use futures::StreamExt;
+    while let Some(item) = stream.next().await {
+        let error = match item {
+            Ok(frame) => late_query_frame(frame),
+            Err(status) => status_to_error(status),
+        };
+        failure = Some(match failure {
+            Some(primary) => primary.append_cause(error),
+            None => error,
+        });
+    }
+    failure.map_or(Ok(()), Err)
 }
 
 /// The gRPC scheme used to connect to `grpc://` endpoints.
@@ -149,21 +164,21 @@ impl crate::Surreal<Client> {
 
 impl crate::Connection for Client {}
 impl crate::conn::Sealed for Client {
-	#[allow(private_interfaces)]
-	fn connect(
-		address: crate::opt::Endpoint,
-		_capacity: usize,
-		session_clone: Option<crate::SessionClone>,
-	) -> crate::method::BoxFuture<'static, crate::Result<crate::Surreal<Self>>> {
-		Box::pin(async move {
-			let session_clone = session_clone.unwrap_or_else(crate::SessionClone::new);
-			let (engine, features) =
-				connect_engine(&address, session_clone.receiver.clone()).await?;
-			let router = crate::conn::Router::from_engine(engine, features, address.config);
-			let waiter = tokio::sync::watch::channel(Some(crate::opt::WaitFor::Connection));
-			Ok((router, waiter, session_clone).into())
-		})
-	}
+    #[allow(private_interfaces)]
+    fn connect(
+        address: crate::opt::Endpoint,
+        _capacity: usize,
+        session_clone: Option<crate::SessionClone>,
+    ) -> crate::method::BoxFuture<'static, crate::Result<crate::Surreal<Self>>> {
+        Box::pin(async move {
+            let session_clone = session_clone.unwrap_or_else(crate::SessionClone::new);
+            let (engine, features) =
+                connect_engine(&address, session_clone.receiver.clone()).await?;
+            let router = crate::conn::Router::from_engine(engine, features, address.config);
+            let waiter = tokio::sync::watch::channel(Some(crate::opt::WaitFor::Connection));
+            Ok((router, waiter, session_clone).into())
+        })
+    }
 }
 
 /// Opens a gRPC connection and starts the task that keeps its sessions in
@@ -171,150 +186,186 @@ impl crate::conn::Sealed for Client {
 ///
 /// Shared by this engine's own `Sealed::connect` and by the `Any` engine.
 pub(crate) async fn connect_engine(
-	address: &crate::opt::Endpoint,
-	session_rx: async_channel::Receiver<SessionId>,
-) -> crate::Result<(Arc<dyn SurrealEngine>, std::collections::HashSet<ExtraFeatures>)> {
-	let mut connection_reservations = Vec::new();
-	if let Some(owner) = &address.config.grpc.ingress_admission {
-		// Explicit SDK-owned layouts and endpoint text copies; underlying
-		// HTTP/2/TLS runtimes retain their independently owned workspace.
-		let bytes = std::mem::size_of::<GrpcEngine>()
-			+ std::mem::size_of::<rpc::GetCapabilitiesRequest>()
-			+ 4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>()
-			+ address.url.as_str().len().checked_mul(2).ok_or_else(|| Error::configuration("Endpoint workspace size overflow".to_owned(), None))?;
-		connection_reservations.push(owner.reserve(surrealdb_rpc::IngressStage::Connection, bytes)?);
-	}
-	// tonic speaks HTTP/2 and does not recognise the `grpc`/`grpcs` schemes
-	// this SDK exposes to callers.
-	//
-	// The scheme is swapped textually rather than with `Url::set_scheme`,
-	// which refuses to move a URL between a non-special scheme (`grpc`) and a
-	// special one (`http`).
-	let is_tls = address.url.scheme() == "grpcs";
-	let scheme = if is_tls {
-		"https"
-	} else {
-		"http"
-	};
-	let dst = match address.url.as_str().split_once("://") {
-		Some((_, rest)) => format!("{scheme}://{rest}"),
-		None => {
-			return Err(Error::configuration(
-				format!("Invalid gRPC endpoint: {}", address.url),
-				None,
-			));
-		}
-	};
+    address: &crate::opt::Endpoint,
+    session_rx: async_channel::Receiver<SessionId>,
+) -> crate::Result<(
+    Arc<dyn SurrealEngine>,
+    std::collections::HashSet<ExtraFeatures>,
+)> {
+    let mut connection_reservations = Vec::new();
+    if let Some(owner) = &address.config.grpc.ingress_admission {
+        // Explicit SDK-owned layouts and endpoint text copies; underlying
+        // HTTP/2/TLS runtimes retain their independently owned workspace.
+        let bytes = std::mem::size_of::<GrpcEngine>()
+            + std::mem::size_of::<rpc::GetCapabilitiesRequest>()
+            + 4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>()
+            + address.url.as_str().len().checked_mul(2).ok_or_else(|| {
+                Error::configuration("Endpoint workspace size overflow".to_owned(), None)
+            })?;
+        connection_reservations
+            .push(owner.reserve(surrealdb_rpc::IngressStage::Connection, bytes)?);
+    }
+    // tonic speaks HTTP/2 and does not recognise the `grpc`/`grpcs` schemes
+    // this SDK exposes to callers.
+    //
+    // The scheme is swapped textually rather than with `Url::set_scheme`,
+    // which refuses to move a URL between a non-special scheme (`grpc`) and a
+    // special one (`http`).
+    let is_tls = address.url.scheme() == "grpcs";
+    let scheme = if is_tls { "https" } else { "http" };
+    let dst = match address.url.as_str().split_once("://") {
+        Some((_, rest)) => format!("{scheme}://{rest}"),
+        None => {
+            return Err(Error::configuration(
+                format!("Invalid gRPC endpoint: {}", address.url),
+                None,
+            ));
+        }
+    };
 
-	#[cfg_attr(not(feature = "rustls"), expect(unused_mut))]
-	let mut builder = tonic::transport::Endpoint::from_shared(dst)
-		.map_err(|e| Error::configuration(e.to_string(), None))?;
+    #[cfg_attr(not(feature = "rustls"), expect(unused_mut))]
+    let mut builder = tonic::transport::Endpoint::from_shared(dst)
+        .map_err(|e| Error::configuration(e.to_string(), None))?;
 
-	// A caller-supplied TLS configuration cannot be honoured here: tonic builds
-	// its own client configuration and offers no way to adopt a `rustls`
-	// one, so a private certificate authority, a client certificate or a custom
-	// verifier would all be silently ignored -- and a connection the caller
-	// expected to be pinned would instead trust the public roots. Refusing is
-	// the only answer that does not weaken what was asked for.
-	#[cfg(any(feature = "native-tls", feature = "rustls"))]
-	if address.config.tls_config.is_some() {
-		return Err(Error::configuration(
-			"A custom TLS configuration is not supported over `grpcs://`; \
+    // A caller-supplied TLS configuration cannot be honoured here: tonic builds
+    // its own client configuration and offers no way to adopt a `rustls`
+    // one, so a private certificate authority, a client certificate or a custom
+    // verifier would all be silently ignored -- and a connection the caller
+    // expected to be pinned would instead trust the public roots. Refusing is
+    // the only answer that does not weaken what was asked for.
+    #[cfg(any(feature = "native-tls", feature = "rustls"))]
+    if address.config.tls_config.is_some() {
+        return Err(Error::configuration(
+            "A custom TLS configuration is not supported over `grpcs://`; \
 			 the connection would fall back to the public roots instead"
-				.to_string(),
-			None,
-		));
-	}
+                .to_string(),
+            None,
+        ));
+    }
 
-	if is_tls {
-		#[cfg(feature = "rustls")]
-		{
-			builder = builder
-				.tls_config(tonic::transport::ClientTlsConfig::new().with_webpki_roots())
-				.map_err(|e| Error::configuration(e.to_string(), None))?;
-		}
-		#[cfg(not(feature = "rustls"))]
-		return Err(Error::configuration(
-			"Connecting over `grpcs://` requires the `rustls` feature".to_string(),
-			None,
-		));
-	}
+    if is_tls {
+        #[cfg(feature = "rustls")]
+        {
+            builder = builder
+                .tls_config(tonic::transport::ClientTlsConfig::new().with_webpki_roots())
+                .map_err(|e| Error::configuration(e.to_string(), None))?;
+        }
+        #[cfg(not(feature = "rustls"))]
+        return Err(Error::configuration(
+            "Connecting over `grpcs://` requires the `rustls` feature".to_string(),
+            None,
+        ));
+    }
 
-	let channel = builder.connect().await.map_err(|e| {
-		Error::connection(e.to_string(), crate::types::ConnectionError::ConnectionFailed)
-	})?;
-	// Advertise what this client can decode, which is what lets the server
-	// compress its responses -- the direction an export travels.
-	let mut client = SurrealDbServiceClient::new(channel.clone())
-		.accept_compressed(CompressionEncoding::Zstd)
-		.accept_compressed(CompressionEncoding::Gzip);
-	// A caller's own limit governs the handshake as well. It is the first
-	// response this client decodes, and a limit applied only once the handshake
-	// has been read would let a server hand this client more than the caller
-	// allowed before the caller had any way to object -- while `GrpcConfig`
-	// documents the bound as applying in either direction.
-	if let Some(limit) = address.config.grpc.max_message_size {
-		client = client.max_decoding_message_size(limit).max_encoding_message_size(limit);
-	}
-	let capabilities = if let Some(owner) = &address.config.grpc.ingress_admission {
-		let response = fetch_admitted_capabilities(channel.clone(), address.config.grpc.max_message_size, owner.clone()).await?;
-		connection_reservations.extend(response.leases);
-		response.response.capabilities.ok_or_else(|| Error::internal("Server did not report its capabilities".to_owned()))?
-	} else { fetch_capabilities(&mut client).await? };
-	// The other direction has no negotiation of its own: a client compresses
-	// unconditionally, and a server that cannot decode the encoding rejects the
-	// call. The handshake says which codecs it can decode, so an upload can be
-	// compressed without first spending a rejected call to find out.
-	let compress_requests = server_accepts_request_encoding(&capabilities);
-	// Take the message size from the server rather than leaving tonic's 4 MiB
-	// default in place: the server splits a query's records across frames, but
-	// a single record larger than the default would still be undecodable, and
-	// the limit the operator configured is the one that applies.
-	let advertised = capabilities
-		.limits
-		.as_ref()
-		.map(|limits| limits.max_message_bytes)
-		.and_then(|limit| usize::try_from(limit).ok())
-		.filter(|limit| *limit > 0);
-	let configured = address.config.grpc.max_message_size;
-	if let (Some(configured), Some(advertised)) = (configured, advertised)
-		&& configured > advertised
-	{
-		warn!(
-			"The configured gRPC message size ({configured} bytes) is larger than the server \
+    let channel = builder.connect().await.map_err(|e| {
+        Error::connection(
+            e.to_string(),
+            crate::types::ConnectionError::ConnectionFailed,
+        )
+    })?;
+    // Advertise what this client can decode, which is what lets the server
+    // compress its responses -- the direction an export travels.
+    let mut client = SurrealDbServiceClient::new(channel.clone())
+        .accept_compressed(CompressionEncoding::Zstd)
+        .accept_compressed(CompressionEncoding::Gzip);
+    // A caller's own limit governs the handshake as well. It is the first
+    // response this client decodes, and a limit applied only once the handshake
+    // has been read would let a server hand this client more than the caller
+    // allowed before the caller had any way to object -- while `GrpcConfig`
+    // documents the bound as applying in either direction.
+    if let Some(limit) = address.config.grpc.max_message_size {
+        client = client
+            .max_decoding_message_size(limit)
+            .max_encoding_message_size(limit);
+    }
+    let capabilities = if let Some(owner) = &address.config.grpc.ingress_admission {
+        let response = fetch_admitted_capabilities(
+            channel.clone(),
+            address.config.grpc.max_message_size,
+            owner.clone(),
+        )
+        .await?;
+        connection_reservations.extend(response.leases);
+        response
+            .response
+            .capabilities
+            .ok_or_else(|| Error::internal("Server did not report its capabilities".to_owned()))?
+    } else {
+        fetch_capabilities(&mut client).await?
+    };
+    // The other direction has no negotiation of its own: a client compresses
+    // unconditionally, and a server that cannot decode the encoding rejects the
+    // call. The handshake says which codecs it can decode, so an upload can be
+    // compressed without first spending a rejected call to find out.
+    let compress_requests = server_accepts_request_encoding(&capabilities);
+    // Take the message size from the server rather than leaving tonic's 4 MiB
+    // default in place: the server splits a query's records across frames, but
+    // a single record larger than the default would still be undecodable, and
+    // the limit the operator configured is the one that applies.
+    let advertised = capabilities
+        .limits
+        .as_ref()
+        .map(|limits| limits.max_message_bytes)
+        .and_then(|limit| usize::try_from(limit).ok())
+        .filter(|limit| *limit > 0);
+    let configured = address.config.grpc.max_message_size;
+    if let (Some(configured), Some(advertised)) = (configured, advertised)
+        && configured > advertised
+    {
+        warn!(
+            "The configured gRPC message size ({configured} bytes) is larger than the server \
 			 accepts ({advertised} bytes); requests stay bounded by the server's figure. Raise \
 			 SURREAL_GRPC_MAX_MESSAGE_SIZE on the server to send more than that."
-		);
-	}
-	if let Some(limit) = max_response_size(configured, advertised) {
-		client = client.max_decoding_message_size(limit);
-	}
-	let max_request_size = max_request_size(configured, advertised);
-	if let Some((limit, _)) = max_request_size {
-		client = client.max_encoding_message_size(limit);
-	}
+        );
+    }
+    if let Some(limit) = max_response_size(configured, advertised) {
+        client = client.max_decoding_message_size(limit);
+    }
+    let max_request_size = max_request_size(configured, advertised);
+    if let Some((limit, _)) = max_request_size {
+        client = client.max_encoding_message_size(limit);
+    }
 
-	let features = extra_features(&capabilities);
-	let engine = Arc::new(GrpcEngine {
-		client,
-		channel,
-		max_response_size: max_response_size(configured, advertised),
-		_connection_reservations: connection_reservations,
+    let features = extra_features(&capabilities);
+    let engine = Arc::new(GrpcEngine {
+        client,
+        channel,
+        max_response_size: max_response_size(configured, advertised),
+        _connection_reservations: connection_reservations,
         connection_admission: address.config.grpc.ingress_admission.clone(),
-		compress_requests,
-		max_request_size,
-		server_version: capabilities.server_version,
-		query_batch_bytes: capabilities.capabilities.iter().any(|name| name == "QUERY_BATCH_BYTES_V1"),
-		sessions: SessionRegistry::default(),
-		query_timeout: address
-			.config
-			.query_timeout
-			.map(proto::Duration::try_from)
-			.transpose()
-			.map_err(|e| Error::configuration(format!("Invalid query timeout: {e}"), None))?,
-	});
-	tokio::spawn(session_task(Arc::clone(&engine), session_rx));
-	Ok((engine, features))
+        compress_requests,
+        max_request_size,
+        server_version: capabilities.server_version,
+        query_batch_bytes: capabilities
+            .capabilities
+            .iter()
+            .any(|name| name == "QUERY_BATCH_BYTES_V1"),
+        sessions: SessionRegistry::default(),
+        pending_closes: Mutex::new(None),
+        connection_completion: OnceLock::new(),
+        query_timeout: address
+            .config
+            .query_timeout
+            .map(proto::Duration::try_from)
+            .transpose()
+            .map_err(|e| Error::configuration(format!("Invalid query timeout: {e}"), None))?,
+    });
+    let completion_charge = match &engine.connection_admission {
+        Some(owner) => Some(owner.reserve(
+            surrealdb_rpc::IngressStage::Connection,
+            surrealdb_engine_api::ConnectionCompletion::allocation_bytes(),
+        )?),
+        None => None,
+    };
+    let task = tokio::spawn(session_task(Arc::clone(&engine), session_rx));
+    engine
+        .connection_completion
+        .set(surrealdb_engine_api::ConnectionCompletion::new(
+            task,
+            completion_charge,
+        ))
+        .expect("new connection completion owner");
+    Ok((engine, features))
 }
 
 /// Translates the server's reported capabilities into what the SDK gates on.
@@ -323,21 +374,26 @@ pub(crate) async fn connect_engine(
 /// populated, and is assumed to support both rather than having features
 /// silently disabled.
 fn extra_features(
-	capabilities: &rpc::ServerCapabilities,
+    capabilities: &rpc::ServerCapabilities,
 ) -> std::collections::HashSet<ExtraFeatures> {
-	const EXPORT: &str = "surrealdb.protocol.rpc.v1.SurrealDBService/ExportSurql";
-	let denied = |method: &str| capabilities.denied_methods.iter().any(|m| m == method);
-	let mut features = std::collections::HashSet::new();
-	if !denied(EXPORT) {
-		// SurrealQL export and import are core RPCs rather than a named
-		// capability, so they are assumed unless the operator denies them.
-		features.insert(ExtraFeatures::Backup);
-	}
-	let reports_any = !capabilities.capabilities.is_empty();
-	if !reports_any || capabilities.capabilities.iter().any(|c| c == "LIVE_QUERIES") {
-		features.insert(ExtraFeatures::LiveQueries);
-	}
-	features
+    const EXPORT: &str = "surrealdb.protocol.rpc.v1.SurrealDBService/ExportSurql";
+    let denied = |method: &str| capabilities.denied_methods.iter().any(|m| m == method);
+    let mut features = std::collections::HashSet::new();
+    if !denied(EXPORT) {
+        // SurrealQL export and import are core RPCs rather than a named
+        // capability, so they are assumed unless the operator denies them.
+        features.insert(ExtraFeatures::Backup);
+    }
+    let reports_any = !capabilities.capabilities.is_empty();
+    if !reports_any
+        || capabilities
+            .capabilities
+            .iter()
+            .any(|c| c == "LIVE_QUERIES")
+    {
+        features.insert(ExtraFeatures::LiveQueries);
+    }
+    features
 }
 
 /// The encoding requests are compressed with once the server is known to accept
@@ -356,10 +412,10 @@ const REQUEST_ENCODING_TOKEN: &str = "zstd";
 /// uncompressed and do not probe". So silence answers no, and the only yes is an
 /// explicit mention.
 fn server_accepts_request_encoding(capabilities: &rpc::ServerCapabilities) -> bool {
-	capabilities
-		.accepted_message_encodings
-		.iter()
-		.any(|encoding| encoding.eq_ignore_ascii_case(REQUEST_ENCODING_TOKEN))
+    capabilities
+        .accepted_message_encodings
+        .iter()
+        .any(|encoding| encoding.eq_ignore_ascii_case(REQUEST_ENCODING_TOKEN))
 }
 
 /// Whether a failed handshake failed *because* the request was compressed.
@@ -369,59 +425,80 @@ fn server_accepts_request_encoding(capabilities: &rpc::ServerCapabilities) -> bo
 /// That header is the discriminator rather than the status message, whose
 /// wording belongs to the peer's implementation.
 fn rejected_request_encoding(status: &tonic::Status) -> bool {
-	status.code() == tonic::Code::Unimplemented
-		&& status.metadata().contains_key("grpc-accept-encoding")
+    status.code() == tonic::Code::Unimplemented
+        && status.metadata().contains_key("grpc-accept-encoding")
 }
 
 async fn fetch_capabilities(
-	client: &mut SurrealDbServiceClient<Channel>,
+    client: &mut SurrealDbServiceClient<Channel>,
 ) -> crate::Result<rpc::ServerCapabilities> {
-	get_capabilities(client).await.map_err(|status| {
-		Error::connection(
-			status.message().to_string(),
-			crate::types::ConnectionError::ConnectionFailed,
-		)
-	})
+    get_capabilities(client).await.map_err(|status| {
+        Error::connection(
+            status.message().to_string(),
+            crate::types::ConnectionError::ConnectionFailed,
+        )
+    })
 }
 
 async fn fetch_admitted_capabilities(
-	channel: Channel,
-	limit: Option<usize>,
-	owner: Arc<dyn surrealdb_rpc::IngressAdmission>,
+    channel: Channel,
+    limit: Option<usize>,
+    owner: Arc<dyn surrealdb_rpc::IngressAdmission>,
 ) -> EngineResult<ingress::CapabilitiesResponse> {
-	let mut client = tonic::client::Grpc::new(channel)
-		.accept_compressed(CompressionEncoding::Zstd).accept_compressed(CompressionEncoding::Gzip);
-	if let Some(limit) = limit { client = client.max_decoding_message_size(limit).max_encoding_message_size(limit); }
-	client.ready().await.map_err(|error| admitted_display_error("gRPC service unavailable: ", &error, owner.as_ref()))?;
-	let request = rpc::GetCapabilitiesRequest { context: None, client: Some(rpc::ClientInfo {
-		name: "surrealdb-rust".to_owned(), version: env!("CARGO_PKG_VERSION").to_owned(), platform: "rust".to_owned(), metadata: Vec::new(),
-	}) };
-	let path = tonic::codegen::http::uri::PathAndQuery::from_static("/surrealdb.protocol.rpc.v1.SurrealDBService/GetCapabilities");
-	let mut request = tonic::Request::new(request);
-    request.extensions_mut().insert(tonic::GrpcMethod::new("surrealdb.protocol.rpc.v1.SurrealDBService", "GetCapabilities"));
-    client.unary(request, path, ingress::CapabilitiesCodec(owner.clone())).await
-		.map(tonic::Response::into_inner).map_err(|status| connection_status_error(status, owner.as_ref()))
+    let mut client = tonic::client::Grpc::new(channel)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .accept_compressed(CompressionEncoding::Gzip);
+    if let Some(limit) = limit {
+        client = client
+            .max_decoding_message_size(limit)
+            .max_encoding_message_size(limit);
+    }
+    client.ready().await.map_err(|error| {
+        admitted_display_error("gRPC service unavailable: ", &error, owner.as_ref())
+    })?;
+    let request = rpc::GetCapabilitiesRequest {
+        context: None,
+        client: Some(rpc::ClientInfo {
+            name: "surrealdb-rust".to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            platform: "rust".to_owned(),
+            metadata: Vec::new(),
+        }),
+    };
+    let path = tonic::codegen::http::uri::PathAndQuery::from_static(
+        "/surrealdb.protocol.rpc.v1.SurrealDBService/GetCapabilities",
+    );
+    let mut request = tonic::Request::new(request);
+    request.extensions_mut().insert(tonic::GrpcMethod::new(
+        "surrealdb.protocol.rpc.v1.SurrealDBService",
+        "GetCapabilities",
+    ));
+    client
+        .unary(request, path, ingress::CapabilitiesCodec(owner.clone()))
+        .await
+        .map(tonic::Response::into_inner)
+        .map_err(|status| connection_status_error(status, owner.as_ref()))
 }
 
 /// The handshake, keeping the `Status` so a caller can tell *why* it failed.
 async fn get_capabilities(
-	client: &mut SurrealDbServiceClient<Channel>,
+    client: &mut SurrealDbServiceClient<Channel>,
 ) -> Result<rpc::ServerCapabilities, tonic::Status> {
-	let request = rpc::GetCapabilitiesRequest {
-		context: None,
-		client: Some(rpc::ClientInfo {
-			name: "surrealdb-rust".to_string(),
-			version: env!("CARGO_PKG_VERSION").to_string(),
-			platform: "rust".to_string(),
-			metadata: Vec::new(),
-		}),
-	};
-	client
-		.get_capabilities(request)
-		.await?
-		.into_inner()
-		.capabilities
-		.ok_or_else(|| tonic::Status::internal("Server did not report its capabilities"))
+    let request = rpc::GetCapabilitiesRequest {
+        context: None,
+        client: Some(rpc::ClientInfo {
+            name: "surrealdb-rust".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            platform: "rust".to_string(),
+            metadata: Vec::new(),
+        }),
+    };
+    client
+        .get_capabilities(request)
+        .await?
+        .into_inner()
+        .capabilities
+        .ok_or_else(|| tonic::Status::internal("Server did not report its capabilities"))
 }
 
 /// An operation that must be re-applied to a cloned session.
@@ -432,77 +509,65 @@ async fn get_capabilities(
 /// replayable (`RemoteCommand::replayable`).
 #[derive(Debug, Clone)]
 enum Replayable {
-	Use {
-		namespace: Option<String>,
-		database: Option<String>,
-	},
-	Set {
-		key: String,
-		value: Value,
-	},
-	Unset {
-		key: String,
-	},
-	Signin(Object),
-	Signup(Object),
-	Authenticate(Token),
-	Invalidate,
+    Use {
+        namespace: Option<String>,
+        database: Option<String>,
+    },
+    Set {
+        key: String,
+        value: Value,
+    },
+    Unset {
+        key: String,
+    },
+    Signin(Object),
+    Signup(Object),
+    Authenticate(Token),
+    Invalidate,
 }
 
 impl Replayable {
-	/// Whether this operation leaves `prev` with nothing left to contribute,
-	/// so the log can carry this one in `prev`'s place.
-	///
-	/// A `Use` carries `None` for "leave unchanged", so it only subsumes an
-	/// earlier one when it sets every field that one set. A bind subsumes an
-	/// earlier bind or removal of the same variable, whichever way round.
-	fn supersedes(&self, prev: &Self) -> bool {
-		match (prev, self) {
-			(
-				Replayable::Use {
-					namespace: pn,
-					database: pd,
-				},
-				Replayable::Use {
-					namespace: nn,
-					database: nd,
-				},
-			) => (pn.is_none() || nn.is_some()) && (pd.is_none() || nd.is_some()),
-			(
-				Replayable::Set {
-					key: previous,
-					..
-				}
-				| Replayable::Unset {
-					key: previous,
-				},
-				Replayable::Set {
-					key: next,
-					..
-				}
-				| Replayable::Unset {
-					key: next,
-				},
-			) => previous == next,
-			_ => false,
-		}
-	}
+    /// Whether this operation leaves `prev` with nothing left to contribute,
+    /// so the log can carry this one in `prev`'s place.
+    ///
+    /// A `Use` carries `None` for "leave unchanged", so it only subsumes an
+    /// earlier one when it sets every field that one set. A bind subsumes an
+    /// earlier bind or removal of the same variable, whichever way round.
+    fn supersedes(&self, prev: &Self) -> bool {
+        match (prev, self) {
+            (
+                Replayable::Use {
+                    namespace: pn,
+                    database: pd,
+                },
+                Replayable::Use {
+                    namespace: nn,
+                    database: nd,
+                },
+            ) => (pn.is_none() || nn.is_some()) && (pd.is_none() || nd.is_some()),
+            (
+                Replayable::Set { key: previous, .. } | Replayable::Unset { key: previous },
+                Replayable::Set { key: next, .. } | Replayable::Unset { key: next },
+            ) => previous == next,
+            _ => false,
+        }
+    }
 
-	/// Whether this operation may change what an earlier one set, which stops
-	/// the search for something to coalesce with.
-	///
-	/// Authenticating, or dropping an authentication, re-establishes the
-	/// session: what it leaves selected and bound is its business. Coalescing
-	/// across one of these would move a later operation in front of it.
-	fn resets_session_state(&self) -> bool {
-		matches!(
-			self,
-			Replayable::Signin(_)
-				| Replayable::Signup(_)
-				| Replayable::Authenticate(_)
-				| Replayable::Invalidate
-		)
-	}
+    /// Whether this operation may change what an earlier one set, which stops
+    /// the search for something to coalesce with.
+    ///
+    /// Authenticating, or dropping an authentication, re-establishes the
+    /// session: what it leaves selected and bound is its business. Coalescing
+    /// across one of these would move a later operation in front of it.
+    fn resets_session_state(&self) -> bool {
+        matches!(
+            self,
+            Replayable::Signin(_)
+                | Replayable::Signup(_)
+                | Replayable::Authenticate(_)
+                | Replayable::Invalidate
+        )
+    }
 }
 
 /// What the gRPC engine establishes for a session: the identity the server
@@ -513,9 +578,11 @@ impl Replayable {
 /// the SDK's own session id is only a local handle onto it.
 #[derive(Debug)]
 struct GrpcSession {
-	server: Uuid,
-	replay: Mutex<Vec<Replayable>>,
+    server: Uuid,
+    replay: Mutex<Vec<Replayable>>,
     ingress: Mutex<SessionIngress>,
+    closed: AtomicBool,
+    detached: AtomicBool,
 }
 
 // Fixed slots retain bootstrap outputs for qualified native callers. A new
@@ -529,42 +596,47 @@ struct SessionIngress {
 }
 
 impl GrpcSession {
-	fn new(server: Uuid) -> Arc<Self> {
-		Arc::new(Self {
-			server,
-			replay: Mutex::new(Vec::new()),
+    fn new(server: Uuid) -> Arc<Self> {
+        Arc::new(Self {
+            server,
+            replay: Mutex::new(Vec::new()),
             ingress: Mutex::new(SessionIngress::default()),
-		})
-	}
+            closed: AtomicBool::new(false),
+            detached: AtomicBool::new(false),
+        })
+    }
 
-	/// Appends an operation to the replay log, coalescing it into the entry it
-	/// supersedes.
-	///
-	/// The log is what a clone is rebuilt from, so it only has to describe the
-	/// state the session reached -- not how many times it was set. Without
-	/// this a session that re-selects a database or rebinds a variable per
-	/// request grows its log for the connection's lifetime, and the first
-	/// clone then replays every redundant entry as its own round trip.
-	fn record(&self, op: Replayable) {
-		let mut replay = self.replay.lock().expect("session registry poisoned");
-		for previous in replay.iter_mut().rev() {
-			// Stop before anything that re-establishes the session: replacing
-			// an operation on the far side of one would move this operation in
-			// front of it.
-			if previous.resets_session_state() {
-				break;
-			}
-			if op.supersedes(previous) {
-				*previous = op;
-				return;
-			}
-		}
-		replay.push(op);
-	}
+    /// Appends an operation to the replay log, coalescing it into the entry it
+    /// supersedes.
+    ///
+    /// The log is what a clone is rebuilt from, so it only has to describe the
+    /// state the session reached -- not how many times it was set. Without
+    /// this a session that re-selects a database or rebinds a variable per
+    /// request grows its log for the connection's lifetime, and the first
+    /// clone then replays every redundant entry as its own round trip.
+    fn record(&self, op: Replayable) {
+        let mut replay = self.replay.lock().expect("session registry poisoned");
+        for previous in replay.iter_mut().rev() {
+            // Stop before anything that re-establishes the session: replacing
+            // an operation on the far side of one would move this operation in
+            // front of it.
+            if previous.resets_session_state() {
+                break;
+            }
+            if op.supersedes(previous) {
+                *previous = op;
+                return;
+            }
+        }
+        replay.push(op);
+    }
 
-	fn log(&self) -> Vec<Replayable> {
-		self.replay.lock().expect("session registry poisoned").clone()
-	}
+    fn log(&self) -> Vec<Replayable> {
+        self.replay
+            .lock()
+            .expect("session registry poisoned")
+            .clone()
+    }
 }
 
 /// The sessions this engine is serving, and what the server made of each.
@@ -574,466 +646,620 @@ impl GrpcSession {
 /// and a caller can still tell that reconnecting is what to do.
 type SessionRegistry = surrealdb_engine_api::SessionRegistry<Arc<GrpcSession>, Error>;
 
+// One exact admitted node per queued explicit close; no history/cache capacity is retained.
+struct PendingClose {
+    id: Uuid,
+    acknowledgment: surrealdb_engine_api::LifecycleAcknowledgment,
+    next: Option<Box<PendingClose>>,
+    _charge: Option<Arc<dyn surrealdb_rpc::IngressReservation>>,
+}
 struct GrpcEngine {
-	client: SurrealDbServiceClient<Channel>,
-	channel: Channel,
-	max_response_size: Option<usize>,
-	_connection_reservations: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+    client: SurrealDbServiceClient<Channel>,
+    channel: Channel,
+    max_response_size: Option<usize>,
+    _connection_reservations: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
     connection_admission: Option<Arc<dyn surrealdb_rpc::IngressAdmission>>,
-	/// Whether the server accepted a compressed request during the handshake.
-	/// Only the uploads large enough to pay for it consult this.
-	compress_requests: bool,
-	/// Reported once at connect; `version` answers from it rather than
-	/// spending a round trip, as the protocol intends.
-	server_version: String,
-	/// Explicit support, never inferred from an absent capability list.
-	query_batch_bytes: bool,
-	sessions: SessionRegistry,
-	/// The largest request this client will send, which is the smaller of what
-	/// the server said it accepts and what the caller configured, paired with
-	/// the side that set it so a refusal can name the setting that moves it.
-	/// `None` when neither said anything, which leaves tonic's default in
-	/// place.
-	///
-	/// Deliberately not the limit on what this client will *decode*: that one
-	/// follows the caller's configuration alone, since it bounds memory here
-	/// rather than what the far end will take.
-	max_request_size: Option<(usize, LimitSource)>,
-	/// Converted once at connect: the wire counts seconds in an `i64`, so the
-	/// conversion is fallible, and a per-request context has nowhere to report
-	/// a failure that the configuration caused.
-	query_timeout: Option<proto::Duration>,
+    /// Whether the server accepted a compressed request during the handshake.
+    /// Only the uploads large enough to pay for it consult this.
+    compress_requests: bool,
+    /// Reported once at connect; `version` answers from it rather than
+    /// spending a round trip, as the protocol intends.
+    server_version: String,
+    /// Explicit support, never inferred from an absent capability list.
+    query_batch_bytes: bool,
+    sessions: SessionRegistry,
+    pending_closes: Mutex<Option<Box<PendingClose>>>,
+    connection_completion: OnceLock<surrealdb_engine_api::ConnectionCompletion>,
+    /// The largest request this client will send, which is the smaller of what
+    /// the server said it accepts and what the caller configured, paired with
+    /// the side that set it so a refusal can name the setting that moves it.
+    /// `None` when neither said anything, which leaves tonic's default in
+    /// place.
+    ///
+    /// Deliberately not the limit on what this client will *decode*: that one
+    /// follows the caller's configuration alone, since it bounds memory here
+    /// rather than what the far end will take.
+    max_request_size: Option<(usize, LimitSource)>,
+    /// Converted once at connect: the wire counts seconds in an `i64`, so the
+    /// conversion is fallible, and a per-request context has nowhere to report
+    /// a failure that the configuration caused.
+    query_timeout: Option<proto::Duration>,
 }
 
 // Generated proto messages do not derive `Debug`, so this cannot either.
 impl std::fmt::Debug for GrpcEngine {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("GrpcEngine").field("server_version", &self.server_version).finish()
-	}
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GrpcEngine")
+            .field("server_version", &self.server_version)
+            .finish()
+    }
 }
 
 impl GrpcEngine {
-	fn client(&self) -> SurrealDbServiceClient<Channel> {
-		self.client.clone()
-	}
+    fn take_close(&self, id: Uuid) -> Option<surrealdb_engine_api::LifecycleAcknowledgment> {
+        let mut head = self
+            .pending_closes
+            .lock()
+            .expect("session close registry poisoned");
+        let mut cursor = &mut *head;
+        loop {
+            if cursor.as_ref()?.id == id {
+                let node = cursor.take().expect("matched close node");
+                *cursor = node.next;
+                return Some(node.acknowledgment);
+            }
+            cursor = &mut cursor.as_mut()?.next;
+        }
+    }
+    fn client(&self) -> SurrealDbServiceClient<Channel> {
+        self.client.clone()
+    }
 
-    async fn lifecycle_unary<Q, R>(&self, request: Q, path: &'static str) -> EngineResult<ingress::UnaryResponse<R>>
-    where Q: Message + Send + Sync + 'static, R: ingress::UnaryMessage {
+    async fn lifecycle_unary<Q, R>(
+        &self,
+        request: Q,
+        path: &'static str,
+    ) -> EngineResult<ingress::UnaryResponse<R>>
+    where
+        Q: Message + Send + Sync + 'static,
+        R: ingress::UnaryMessage,
+    {
         let mut client = tonic::client::Grpc::new(self.channel.clone())
-            .accept_compressed(CompressionEncoding::Zstd).accept_compressed(CompressionEncoding::Gzip);
-        if let Some(limit) = self.max_response_size { client = client.max_decoding_message_size(limit); }
-        if let Some((limit, _)) = self.max_request_size { client = client.max_encoding_message_size(limit); }
-        client.ready().await.map_err(|error| match &self.connection_admission {
-            Some(owner) => admitted_display_error("gRPC service unavailable: ", &error, owner.as_ref()),
-            None => Error::internal(format!("gRPC service unavailable: {error}")),
-        })?;
+            .accept_compressed(CompressionEncoding::Zstd)
+            .accept_compressed(CompressionEncoding::Gzip);
+        if let Some(limit) = self.max_response_size {
+            client = client.max_decoding_message_size(limit);
+        }
+        if let Some((limit, _)) = self.max_request_size {
+            client = client.max_encoding_message_size(limit);
+        }
+        client
+            .ready()
+            .await
+            .map_err(|error| match &self.connection_admission {
+                Some(owner) => {
+                    admitted_display_error("gRPC service unavailable: ", &error, owner.as_ref())
+                }
+                None => Error::internal(format!("gRPC service unavailable: {error}")),
+            })?;
         let method = path.rsplit('/').next().expect("static RPC path");
         let path = tonic::codegen::http::uri::PathAndQuery::from_static(path);
         let mut request = tonic::Request::new(request);
-        request.extensions_mut().insert(tonic::GrpcMethod::new("surrealdb.protocol.rpc.v1.SurrealDBService", method));
+        request.extensions_mut().insert(tonic::GrpcMethod::new(
+            "surrealdb.protocol.rpc.v1.SurrealDBService",
+            method,
+        ));
         let result = if let Some(owner) = &self.connection_admission {
-            client.unary(request, path, ingress::UnaryCodec::<Q, R>::new(owner.clone())).await.map(tonic::Response::into_inner)
+            client
+                .unary(
+                    request,
+                    path,
+                    ingress::UnaryCodec::<Q, R>::new(owner.clone()),
+                )
+                .await
+                .map(tonic::Response::into_inner)
         } else {
-            client.unary(request, path, ingress::UnaryCodec::<Q, R>::unadmitted()).await.map(tonic::Response::into_inner)
+            client
+                .unary(request, path, ingress::UnaryCodec::<Q, R>::unadmitted())
+                .await
+                .map(tonic::Response::into_inner)
         };
         result.map_err(|status| {
             if let Some(owner) = &self.connection_admission {
                 let mut leases = Vec::new();
                 let error = admitted_status_error(status, owner.as_ref(), &mut leases);
                 ingress::retain_error(error, leases)
-            } else { status_to_error(status) }
+            } else {
+                status_to_error(status)
+            }
         })
     }
 
-	/// Hands back `request` once it is known to encode within the size this
-	/// connection may send, refusing it with the limit and the setting that
-	/// moves it otherwise.
-	///
-	/// Every unary request goes through this, including the ones whose size a
-	/// caller cannot influence. Taking the encoded length of a small message
-	/// costs almost nothing, and a rule with no exceptions spares each reader
-	/// re-deriving per call site whether a given request is bounded -- a
-	/// judgement that has to be made again every time a method is added.
-	///
-	/// The streaming uploads are the deliberate exception. They are framed in
-	/// fixed chunks that both peers floor their message size at, so no frame
-	/// they produce can exceed the limit.
-	fn checked<M: Message>(&self, request: M) -> EngineResult<M> {
-		check_message_size(self.max_request_size, &request)?;
-		Ok(request)
-	}
+    /// Hands back `request` once it is known to encode within the size this
+    /// connection may send, refusing it with the limit and the setting that
+    /// moves it otherwise.
+    ///
+    /// Every unary request goes through this, including the ones whose size a
+    /// caller cannot influence. Taking the encoded length of a small message
+    /// costs almost nothing, and a rule with no exceptions spares each reader
+    /// re-deriving per call site whether a given request is bounded -- a
+    /// judgement that has to be made again every time a method is added.
+    ///
+    /// The streaming uploads are the deliberate exception. They are framed in
+    /// fixed chunks that both peers floor their message size at, so no frame
+    /// they produce can exceed the limit.
+    fn checked<M: Message>(&self, request: M) -> EngineResult<M> {
+        check_message_size(self.max_request_size, &request)?;
+        Ok(request)
+    }
 
-	/// A client that compresses what it sends, or `None` when the server did not
-	/// say it could decode the encoding.
-	///
-	/// Kept separate from [`client`](Self::client) rather than compressing
-	/// everything: a query or an RPC call is a few hundred bytes, where framing
-	/// and compressing costs more than it saves, while an import streams a whole
-	/// database past.
-	fn compressed_upload_client(&self) -> Option<SurrealDbServiceClient<Channel>> {
-		self.compress_requests.then(|| self.client.clone().send_compressed(REQUEST_ENCODING))
-	}
+    /// A client that compresses what it sends, or `None` when the server did not
+    /// say it could decode the encoding.
+    ///
+    /// Kept separate from [`client`](Self::client) rather than compressing
+    /// everything: a query or an RPC call is a few hundred bytes, where framing
+    /// and compressing costs more than it saves, while an import streams a whole
+    /// database past.
+    fn compressed_upload_client(&self) -> Option<SurrealDbServiceClient<Channel>> {
+        self.compress_requests
+            .then(|| self.client.clone().send_compressed(REQUEST_ENCODING))
+    }
 
-	fn context(&self, session: Uuid, transaction: Option<Uuid>) -> rpc::RequestContext {
-		rpc::RequestContext {
-			session: Some(proto::Uuid::from_uuid(session)),
-			transaction: transaction.map(proto::Uuid::from_uuid),
-			timeout: self.query_timeout,
-		}
-	}
+    fn context(&self, session: Uuid, transaction: Option<Uuid>) -> rpc::RequestContext {
+        rpc::RequestContext {
+            session: Some(proto::Uuid::from_uuid(session)),
+            transaction: transaction.map(proto::Uuid::from_uuid),
+            timeout: self.query_timeout,
+        }
+    }
 
-	/// Waits for a session to exist server-side, and builds the context a
-	/// request on it carries.
-	async fn ready(&self, ctx: EngineContext) -> EngineResult<rpc::RequestContext> {
-		Ok(self.ready_session(ctx).await?.0)
-	}
+    /// Waits for a session to exist server-side, and builds the context a
+    /// request on it carries.
+    async fn ready(&self, ctx: EngineContext) -> EngineResult<rpc::RequestContext> {
+        Ok(self.ready_session(ctx).await?.0)
+    }
 
-	/// As [`ready`](Self::ready), also handing back the session's registry
-	/// entry.
-	///
-	/// An operation that shapes the session has to record itself in the same
-	/// entry afterwards. Returning it here is what keeps that to one pass over
-	/// the registry, whose lock every concurrent request contends for.
-	async fn ready_session(
-		&self,
-		ctx: EngineContext,
-	) -> EngineResult<(rpc::RequestContext, Arc<GrpcSession>)> {
-		let session = self.sessions.resolve(ctx.session).await?;
-		let context = self.context(session.server, ctx.transaction);
-		Ok((context, session))
-	}
+    /// As [`ready`](Self::ready), also handing back the session's registry
+    /// entry.
+    ///
+    /// An operation that shapes the session has to record itself in the same
+    /// entry afterwards. Returning it here is what keeps that to one pass over
+    /// the registry, whose lock every concurrent request contends for.
+    async fn ready_session(
+        &self,
+        ctx: EngineContext,
+    ) -> EngineResult<(rpc::RequestContext, Arc<GrpcSession>)> {
+        let session = self.sessions.resolve(ctx.session).await?;
+        if session.closed.load(Ordering::Acquire) {
+            return Err(Error::internal("Session has been explicitly closed".into()));
+        }
+        let context = self.context(session.server, ctx.transaction);
+        Ok((context, session))
+    }
 
-	/// Attaches a session and replays `log` onto it, so the clone is a copy of
-	/// the session it was made from.
-	///
-	/// A replay that fails fails the session: the alternative is a clone that
-	/// runs unauthenticated, or in the wrong namespace, and reports errors
-	/// naming neither. Only the operations that did apply are recorded, so the
-	/// clone's own log describes the state it actually reached.
-	async fn establish_clone(&self, log: Vec<Replayable>) -> EngineResult<Arc<GrpcSession>> {
-		let session = GrpcSession::new(self.attach().await?);
-		for op in log {
-			self.apply(self.context(session.server, None), op.clone(), &session).await?;
-			session.record(op);
-		}
-		Ok(session)
-	}
+    /// Attaches a session and replays `log` onto it, so the clone is a copy of
+    /// the session it was made from.
+    ///
+    /// A replay that fails fails the session: the alternative is a clone that
+    /// runs unauthenticated, or in the wrong namespace, and reports errors
+    /// naming neither. Only the operations that did apply are recorded, so the
+    /// clone's own log describes the state it actually reached.
+    async fn establish_clone(&self, log: Vec<Replayable>) -> EngineResult<Arc<GrpcSession>> {
+        let session = GrpcSession::new(self.attach().await?);
+        for op in log {
+            self.apply(self.context(session.server, None), op.clone(), &session)
+                .await?;
+            session.record(op);
+        }
+        Ok(session)
+    }
 
-	/// Publishes how establishing a session turned out.
-	///
-	/// Published either way: waiters must not hang, and a failure has to reach
-	/// the request that goes on to need the session.
-	fn publish(&self, id: Uuid, established: EngineResult<Arc<GrpcSession>>) {
-		if let Err(error) = established.as_ref() {
-			trace!("failed to establish session {id}: {error}");
-		}
-		self.sessions.entry(id).publish(established);
-	}
+    /// Publishes how establishing a session turned out.
+    ///
+    /// Published either way: waiters must not hang, and a failure has to reach
+    /// the request that goes on to need the session.
+    fn publish(&self, id: Uuid, established: EngineResult<Arc<GrpcSession>>) {
+        if let Err(error) = established.as_ref() {
+            trace!("failed to establish session {id}: {error}");
+        }
+        self.sessions.entry(id).publish(established);
+    }
 
-	async fn apply(&self, context: rpc::RequestContext, op: Replayable, session: &GrpcSession) -> EngineResult<()> {
-		match op {
-			Replayable::Use {
-				namespace,
-				database,
-			} => {
-				self.use_ns_db_inner(context, namespace, database, &session).await?;
-			}
-			Replayable::Set {
-				key,
-				value,
-			} => self.set_inner(context, key, value).await?,
-			Replayable::Unset {
-				key,
-			} => self.unset_inner(context, key).await?,
-			Replayable::Signin(credentials) => {
-				self.signin_inner(context, credentials, session).await?;
-			}
-			Replayable::Signup(credentials) => {
-				self.signup_inner(context, credentials, session).await?;
-			}
-			Replayable::Authenticate(token) => {
-				self.authenticate_inner(context, token, &session).await?;
-			}
-			Replayable::Invalidate => self.invalidate_inner(context).await?,
-		}
-		Ok(())
-	}
-
-	/// Asks the server for a session, which it allocates and names.
-	///
-	/// The request carries no session of its own: a server refuses to create
-	/// a session under an id a client chose, so that an id cannot be squatted
-	/// or pre-created. The id it answers with is what every subsequent request
-	/// on this session carries.
-	async fn attach(&self) -> EngineResult<Uuid> {
-		let ingress::UnaryResponse { response, leases: _leases } = self.lifecycle_unary::<_, rpc::AttachSessionResponse>(self.checked(rpc::AttachSessionRequest {
-				context: None,
-			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/AttachSession").await?;
-		response
-			.session
-			.ok_or_else(|| Error::internal("Server did not allocate a session".to_string()))?
-			.to_uuid()
-			.map_err(|e| Error::internal(e.to_string()))
-	}
-
-	async fn detach(&self, session: Uuid) -> EngineResult<()> {
-		self.lifecycle_unary::<_, rpc::DetachSessionResponse>(self.checked(rpc::DetachSessionRequest {
-				context: Some(self.context(session, None)),
-			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/DetachSession").await?;
-		Ok(())
-	}
-
-	// The `_inner` methods carry the actual RPC so both the trait method and
-	// the replay path can call them without recursing through `ready()`.
-
-	async fn use_ns_db_inner(
-		&self,
-		context: rpc::RequestContext,
-		namespace: Option<String>,
-		database: Option<String>,
+    async fn apply(
+        &self,
+        context: rpc::RequestContext,
+        op: Replayable,
         session: &GrpcSession,
-	) -> EngineResult<(Option<String>, Option<String>)> {
-		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::UseResponse>(self.checked(rpc::UseRequest {
-				context: Some(context),
-				namespace: namespace.map(nullable),
-				database: database.map(nullable),
-			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Use").await?;
-        session.ingress.lock().expect("session ingress poisoned").selection = leases;
-		// The protocol reports an empty string for "nothing selected".
-		let opt = |s: String| (!s.is_empty()).then_some(s);
-		Ok((opt(response.namespace), opt(response.database)))
-	}
+    ) -> EngineResult<()> {
+        match op {
+            Replayable::Use {
+                namespace,
+                database,
+            } => {
+                self.use_ns_db_inner(context, namespace, database, &session)
+                    .await?;
+            }
+            Replayable::Set { key, value } => self.set_inner(context, key, value).await?,
+            Replayable::Unset { key } => self.unset_inner(context, key).await?,
+            Replayable::Signin(credentials) => {
+                self.signin_inner(context, credentials, session).await?;
+            }
+            Replayable::Signup(credentials) => {
+                self.signup_inner(context, credentials, session).await?;
+            }
+            Replayable::Authenticate(token) => {
+                self.authenticate_inner(context, token, &session).await?;
+            }
+            Replayable::Invalidate => self.invalidate_inner(context).await?,
+        }
+        Ok(())
+    }
 
-	async fn set_inner(
-		&self,
-		context: rpc::RequestContext,
-		key: String,
-		value: Value,
-	) -> EngineResult<()> {
-		let request = rpc::SetVariableRequest {
-			context: Some(context),
-			name: key,
-			value: Some(to_proto_value(value)?),
-		};
-		self.lifecycle_unary::<_, rpc::SetVariableResponse>(self.checked(request)?, "/surrealdb.protocol.rpc.v1.SurrealDBService/SetVariable").await?;
-		Ok(())
-	}
+    /// Asks the server for a session, which it allocates and names.
+    ///
+    /// The request carries no session of its own: a server refuses to create
+    /// a session under an id a client chose, so that an id cannot be squatted
+    /// or pre-created. The id it answers with is what every subsequent request
+    /// on this session carries.
+    async fn attach(&self) -> EngineResult<Uuid> {
+        let ingress::UnaryResponse {
+            response,
+            leases: _leases,
+        } = self
+            .lifecycle_unary::<_, rpc::AttachSessionResponse>(
+                self.checked(rpc::AttachSessionRequest { context: None })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/AttachSession",
+            )
+            .await?;
+        response
+            .session
+            .ok_or_else(|| Error::internal("Server did not allocate a session".to_string()))?
+            .to_uuid()
+            .map_err(|e| Error::internal(e.to_string()))
+    }
 
-	async fn unset_inner(&self, context: rpc::RequestContext, key: String) -> EngineResult<()> {
-		self.lifecycle_unary::<_, rpc::UnsetVariableResponse>(self.checked(rpc::UnsetVariableRequest {
-				context: Some(context),
-				name: key,
-			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/UnsetVariable").await?;
-		Ok(())
-	}
+    async fn detach(&self, session: Uuid) -> EngineResult<()> {
+        self.lifecycle_unary::<_, rpc::DetachSessionResponse>(
+            self.checked(rpc::DetachSessionRequest {
+                context: Some(self.context(session, None)),
+            })?,
+            "/surrealdb.protocol.rpc.v1.SurrealDBService/DetachSession",
+        )
+        .await?;
+        Ok(())
+    }
 
-	async fn signin_inner(
-		&self,
-		context: rpc::RequestContext,
-		credentials: Object,
+    // The `_inner` methods carry the actual RPC so both the trait method and
+    // the replay path can call them without recursing through `ready()`.
+
+    async fn use_ns_db_inner(
+        &self,
+        context: rpc::RequestContext,
+        namespace: Option<String>,
+        database: Option<String>,
         session: &GrpcSession,
-	) -> EngineResult<Token> {
-		let request = rpc::SigninRequest {
-			context: Some(context),
-			access_method: Some(access_method(credentials)?),
-		};
-		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::SigninResponse>(self.checked(request)?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Signin").await?;
-        session.ingress.lock().expect("session ingress poisoned").auth = leases;
-		tokens_to_token(response.tokens)
-	}
+    ) -> EngineResult<(Option<String>, Option<String>)> {
+        let ingress::UnaryResponse { response, leases } = self
+            .lifecycle_unary::<_, rpc::UseResponse>(
+                self.checked(rpc::UseRequest {
+                    context: Some(context),
+                    namespace: namespace.map(nullable),
+                    database: database.map(nullable),
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/Use",
+            )
+            .await?;
+        session
+            .ingress
+            .lock()
+            .expect("session ingress poisoned")
+            .selection = leases;
+        // The protocol reports an empty string for "nothing selected".
+        let opt = |s: String| (!s.is_empty()).then_some(s);
+        Ok((opt(response.namespace), opt(response.database)))
+    }
 
-	async fn signup_inner(
-		&self,
-		context: rpc::RequestContext,
-		credentials: Object,
+    async fn set_inner(
+        &self,
+        context: rpc::RequestContext,
+        key: String,
+        value: Value,
+    ) -> EngineResult<()> {
+        let request = rpc::SetVariableRequest {
+            context: Some(context),
+            name: key,
+            value: Some(to_proto_value(value)?),
+        };
+        self.lifecycle_unary::<_, rpc::SetVariableResponse>(
+            self.checked(request)?,
+            "/surrealdb.protocol.rpc.v1.SurrealDBService/SetVariable",
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn unset_inner(&self, context: rpc::RequestContext, key: String) -> EngineResult<()> {
+        self.lifecycle_unary::<_, rpc::UnsetVariableResponse>(
+            self.checked(rpc::UnsetVariableRequest {
+                context: Some(context),
+                name: key,
+            })?,
+            "/surrealdb.protocol.rpc.v1.SurrealDBService/UnsetVariable",
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn signin_inner(
+        &self,
+        context: rpc::RequestContext,
+        credentials: Object,
         session: &GrpcSession,
-	) -> EngineResult<Token> {
-		let request = rpc::SignupRequest {
-			context: Some(context),
-			credentials: Some(record_credentials(credentials)?),
-		};
-		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::SignupResponse>(self.checked(request)?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Signup").await?;
-        session.ingress.lock().expect("session ingress poisoned").auth = leases;
-		tokens_to_token(response.tokens)
-	}
+    ) -> EngineResult<Token> {
+        let request = rpc::SigninRequest {
+            context: Some(context),
+            access_method: Some(access_method(credentials)?),
+        };
+        let ingress::UnaryResponse { response, leases } = self
+            .lifecycle_unary::<_, rpc::SigninResponse>(
+                self.checked(request)?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/Signin",
+            )
+            .await?;
+        session
+            .ingress
+            .lock()
+            .expect("session ingress poisoned")
+            .auth = leases;
+        tokens_to_token(response.tokens)
+    }
 
-	async fn authenticate_inner(
-		&self,
-		context: rpc::RequestContext,
-		token: Token,
+    async fn signup_inner(
+        &self,
+        context: rpc::RequestContext,
+        credentials: Object,
         session: &GrpcSession,
-	) -> EngineResult<Token> {
-		let access = match &token {
-			Token::Access(access) => access.clone(),
-			Token::WithRefresh {
-				access,
-				..
-			} => access.clone(),
-		};
-		let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::AuthenticateResponse>(self.checked(rpc::AuthenticateRequest {
-				context: Some(context),
-				token: access,
-			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Authenticate").await?;
-        session.ingress.lock().expect("session ingress poisoned").auth = leases;
-		// A server may authenticate the session with a token other than the one
-		// presented, so what it reports wins. Only a server that reports none
-		// leaves the supplied token as the one in effect.
-		match response.tokens {
-			Some(_) => tokens_to_token(response.tokens),
-			None => Ok(token),
-		}
-	}
+    ) -> EngineResult<Token> {
+        let request = rpc::SignupRequest {
+            context: Some(context),
+            credentials: Some(record_credentials(credentials)?),
+        };
+        let ingress::UnaryResponse { response, leases } = self
+            .lifecycle_unary::<_, rpc::SignupResponse>(
+                self.checked(request)?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/Signup",
+            )
+            .await?;
+        session
+            .ingress
+            .lock()
+            .expect("session ingress poisoned")
+            .auth = leases;
+        tokens_to_token(response.tokens)
+    }
 
-	async fn invalidate_inner(&self, context: rpc::RequestContext) -> EngineResult<()> {
-		self.lifecycle_unary::<_, rpc::InvalidateResponse>(self.checked(rpc::InvalidateRequest {
-				context: Some(context),
-			})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Invalidate").await?;
-		Ok(())
-	}
+    async fn authenticate_inner(
+        &self,
+        context: rpc::RequestContext,
+        token: Token,
+        session: &GrpcSession,
+    ) -> EngineResult<Token> {
+        let access = match &token {
+            Token::Access(access) => access.clone(),
+            Token::WithRefresh { access, .. } => access.clone(),
+        };
+        let ingress::UnaryResponse { response, leases } = self
+            .lifecycle_unary::<_, rpc::AuthenticateResponse>(
+                self.checked(rpc::AuthenticateRequest {
+                    context: Some(context),
+                    token: access,
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/Authenticate",
+            )
+            .await?;
+        session
+            .ingress
+            .lock()
+            .expect("session ingress poisoned")
+            .auth = leases;
+        // A server may authenticate the session with a token other than the one
+        // presented, so what it reports wins. Only a server that reports none
+        // leaves the supplied token as the one in effect.
+        match response.tokens {
+            Some(_) => tokens_to_token(response.tokens),
+            None => Ok(token),
+        }
+    }
 
-	/// Open a query's response stream.
-	///
-	/// `max_batch_records` is the client's say in the latency/throughput
-	/// trade-off: zero lets the server choose, which is right when the caller
-	/// waits for the whole result anyway, while a small number gets the first
-	/// rows onto the wire sooner for a caller that consumes them as they come.
-	async fn open_query(
-		&self,
-		context: rpc::RequestContext,
-		query: String,
-		variables: Variables,
-		max_batch_records: u32,
-		max_batch_bytes: u32,
-	) -> EngineResult<tonic::Streaming<rpc::QueryResponse>> {
-		let max_batch_bytes = if max_batch_bytes == 0 { 0 } else {
-			self.max_response_size.map_or(max_batch_bytes, |limit| max_batch_bytes.min(limit.min(u32::MAX as usize) as u32))
-		};
-		validate_query_byte_capability(self.query_batch_bytes, max_batch_bytes)?;
-		let request = rpc::QueryRequest {
-			context: Some(context),
-			query,
-			variables: Some(to_proto_variables(variables)?),
-			// Empty means row-oriented values only, which is all this
-			// engine can decode.
-			accepted_encodings: Vec::new(),
-			max_batch_records,
-			max_batch_bytes,
-		};
-		let mut client = self.client();
-		Ok(client.query(self.checked(request)?).await.map_err(status_to_error)?.into_inner())
-	}
+    async fn invalidate_inner(&self, context: rpc::RequestContext) -> EngineResult<()> {
+        self.lifecycle_unary::<_, rpc::InvalidateResponse>(
+            self.checked(rpc::InvalidateRequest {
+                context: Some(context),
+            })?,
+            "/surrealdb.protocol.rpc.v1.SurrealDBService/Invalidate",
+        )
+        .await?;
+        Ok(())
+    }
 
-	async fn open_admitted_query(
-		&self,
-		context: rpc::RequestContext,
-		query: String,
-		variables: Variables,
-		bytes: u32,
-		admission: Arc<dyn surrealdb_rpc::IngressAdmission>,
-	) -> EngineResult<tonic::Streaming<ingress::Response>> {
-		let bytes = if bytes == 0 { 0 } else {
-			self.max_response_size.map_or(bytes, |limit| bytes.min(limit.min(u32::MAX as usize) as u32))
-		};
-		validate_query_byte_capability(self.query_batch_bytes, bytes)?;
-		let request = self.checked(rpc::QueryRequest {
-			context: Some(context), query, variables: Some(to_proto_variables(variables)?),
-			accepted_encodings: Vec::new(), max_batch_records: 0, max_batch_bytes: bytes,
-		})?;
-		let mut client = tonic::client::Grpc::new(self.channel.clone())
-			.accept_compressed(CompressionEncoding::Zstd)
-			.accept_compressed(CompressionEncoding::Gzip);
-		if let Some(limit) = self.max_response_size { client = client.max_decoding_message_size(limit); }
-		if let Some((limit, _)) = self.max_request_size { client = client.max_encoding_message_size(limit); }
-		client.ready().await.map_err(|error| admitted_display_error("gRPC service unavailable: ", &error, admission.as_ref()))?;
-		let path = tonic::codegen::http::uri::PathAndQuery::from_static("/surrealdb.protocol.rpc.v1.SurrealDBService/Query");
-		let mut request = tonic::Request::new(request);
-        request.extensions_mut().insert(tonic::GrpcMethod::new("surrealdb.protocol.rpc.v1.SurrealDBService", "Query"));
-        client.server_streaming(request, path, ingress::QueryCodec(admission.clone(), (bytes != 0).then_some(bytes as usize)))
-			.await.map_err(|status| connection_status_error(status, admission.as_ref())).map(tonic::Response::into_inner)
-	}
+    /// Open a query's response stream.
+    ///
+    /// `max_batch_records` is the client's say in the latency/throughput
+    /// trade-off: zero lets the server choose, which is right when the caller
+    /// waits for the whole result anyway, while a small number gets the first
+    /// rows onto the wire sooner for a caller that consumes them as they come.
+    async fn open_query(
+        &self,
+        context: rpc::RequestContext,
+        query: String,
+        variables: Variables,
+        max_batch_records: u32,
+        max_batch_bytes: u32,
+    ) -> EngineResult<tonic::Streaming<rpc::QueryResponse>> {
+        let max_batch_bytes = if max_batch_bytes == 0 {
+            0
+        } else {
+            self.max_response_size.map_or(max_batch_bytes, |limit| {
+                max_batch_bytes.min(limit.min(u32::MAX as usize) as u32)
+            })
+        };
+        validate_query_byte_capability(self.query_batch_bytes, max_batch_bytes)?;
+        let request = rpc::QueryRequest {
+            context: Some(context),
+            query,
+            variables: Some(to_proto_variables(variables)?),
+            // Empty means row-oriented values only, which is all this
+            // engine can decode.
+            accepted_encodings: Vec::new(),
+            max_batch_records,
+            max_batch_bytes,
+        };
+        let mut client = self.client();
+        Ok(client
+            .query(self.checked(request)?)
+            .await
+            .map_err(status_to_error)?
+            .into_inner())
+    }
 
-	/// Run a query and assemble one result per statement.
-	///
-	/// Every batch is accumulated before returning, so the batch size only
-	/// affects how the rows are carried, never what the caller sees.
-	async fn query_inner(
-		&self,
-		context: rpc::RequestContext,
-		query: String,
-		variables: Variables,
-	) -> EngineResult<Vec<QueryResult>> {
-		let mut stream = self.open_query(context, query, variables, 0, 0).await?;
+    async fn open_admitted_query(
+        &self,
+        context: rpc::RequestContext,
+        query: String,
+        variables: Variables,
+        bytes: u32,
+        admission: Arc<dyn surrealdb_rpc::IngressAdmission>,
+    ) -> EngineResult<tonic::Streaming<ingress::Response>> {
+        let bytes = if bytes == 0 {
+            0
+        } else {
+            self.max_response_size.map_or(bytes, |limit| {
+                bytes.min(limit.min(u32::MAX as usize) as u32)
+            })
+        };
+        validate_query_byte_capability(self.query_batch_bytes, bytes)?;
+        let request = self.checked(rpc::QueryRequest {
+            context: Some(context),
+            query,
+            variables: Some(to_proto_variables(variables)?),
+            accepted_encodings: Vec::new(),
+            max_batch_records: 0,
+            max_batch_bytes: bytes,
+        })?;
+        let mut client = tonic::client::Grpc::new(self.channel.clone())
+            .accept_compressed(CompressionEncoding::Zstd)
+            .accept_compressed(CompressionEncoding::Gzip);
+        if let Some(limit) = self.max_response_size {
+            client = client.max_decoding_message_size(limit);
+        }
+        if let Some((limit, _)) = self.max_request_size {
+            client = client.max_encoding_message_size(limit);
+        }
+        client.ready().await.map_err(|error| {
+            admitted_display_error("gRPC service unavailable: ", &error, admission.as_ref())
+        })?;
+        let path = tonic::codegen::http::uri::PathAndQuery::from_static(
+            "/surrealdb.protocol.rpc.v1.SurrealDBService/Query",
+        );
+        let mut request = tonic::Request::new(request);
+        request.extensions_mut().insert(tonic::GrpcMethod::new(
+            "surrealdb.protocol.rpc.v1.SurrealDBService",
+            "Query",
+        ));
+        client
+            .server_streaming(
+                request,
+                path,
+                ingress::QueryCodec(admission.clone(), (bytes != 0).then_some(bytes as usize)),
+            )
+            .await
+            .map_err(|status| connection_status_error(status, admission.as_ref()))
+            .map(tonic::Response::into_inner)
+    }
 
-		// `None` marks an index that has produced no frame. `Begin` only sizes
-		// this: its `statement_count` counts statements the query PARSED into,
-		// and a statement skipped by control flow -- a `RETURN` inside a
-		// `BEGIN` block short-circuits the rest -- produces no frames at all.
-		// Treating such an index as an empty result would invent a result for a
-		// statement that never ran.
-		let mut statements: Vec<Option<Statement>> = Vec::new();
-		let mut ended = None;
-		while let Some(response) = stream.message().await.map_err(status_to_error)? {
-			match response.frame {
-				Some(rpc::query_response::Frame::Begin(begin)) => {
-					statements = Vec::new();
-					grow_statements(&mut statements, begin.statement_count as usize)?;
-				}
-				Some(rpc::query_response::Frame::Batch(batch)) => {
-					let index = batch.query_index as usize;
-					// A server may report more statements than `Begin`
-					// announced; grow rather than drop their results.
-					if index >= statements.len() {
-						grow_statements(&mut statements, index + 1)?;
-					}
-					statements[index].get_or_insert_with(Statement::default).push(batch);
-				}
-				Some(rpc::query_response::Frame::End(end)) => {
-					ended = Some(end);
-					drain_query_terminal(&mut stream, None).await?;
-					break;
-				}
-				// A stream-level error is not attributable to one statement,
-				// so it fails the whole query.
-				Some(rpc::query_response::Frame::Error(error)) => {
-					return Err(proto_error(error));
-				}
-				None => {
-					return Err(Error::internal(
-						"Query stream carried an unrecognised frame".to_string(),
-					));
-				}
-			}
-		}
-		// `End` is what marks a query stream complete. A stream that stops
-		// before it must be reported, not answered: the statements collected
-		// so far would otherwise read as the whole result, and a `SELECT`
-		// truncated part-way would look like a table with fewer rows in it.
-		let Some(end) = ended else {
-			return Err(Error::connection(
-				"The query ended before it was complete".to_string(),
-				crate::types::ConnectionError::ConnectionFailed,
-			));
-		};
-		let results = finish_statements(statements);
-		// `End` carries the authoritative count, so a stream that lost frames
-		// without losing its terminator is caught here rather than read as a
-		// query with fewer statements than it had.
-		if results.len() != end.result_count as usize {
-			return Err(Error::connection(
-				format!(
-					"The query reported {} statement results but {} arrived",
-					end.result_count,
-					results.len()
-				),
-				crate::types::ConnectionError::ConnectionFailed,
-			));
-		}
-		Ok(results)
-	}
+    /// Run a query and assemble one result per statement.
+    ///
+    /// Every batch is accumulated before returning, so the batch size only
+    /// affects how the rows are carried, never what the caller sees.
+    async fn query_inner(
+        &self,
+        context: rpc::RequestContext,
+        query: String,
+        variables: Variables,
+    ) -> EngineResult<Vec<QueryResult>> {
+        let mut stream = self.open_query(context, query, variables, 0, 0).await?;
+
+        // `None` marks an index that has produced no frame. `Begin` only sizes
+        // this: its `statement_count` counts statements the query PARSED into,
+        // and a statement skipped by control flow -- a `RETURN` inside a
+        // `BEGIN` block short-circuits the rest -- produces no frames at all.
+        // Treating such an index as an empty result would invent a result for a
+        // statement that never ran.
+        let mut statements: Vec<Option<Statement>> = Vec::new();
+        let mut ended = None;
+        while let Some(response) = stream.message().await.map_err(status_to_error)? {
+            match response.frame {
+                Some(rpc::query_response::Frame::Begin(begin)) => {
+                    statements = Vec::new();
+                    grow_statements(&mut statements, begin.statement_count as usize)?;
+                }
+                Some(rpc::query_response::Frame::Batch(batch)) => {
+                    let index = batch.query_index as usize;
+                    // A server may report more statements than `Begin`
+                    // announced; grow rather than drop their results.
+                    if index >= statements.len() {
+                        grow_statements(&mut statements, index + 1)?;
+                    }
+                    statements[index]
+                        .get_or_insert_with(Statement::default)
+                        .push(batch);
+                }
+                Some(rpc::query_response::Frame::End(end)) => {
+                    ended = Some(end);
+                    drain_query_terminal(&mut stream, None).await?;
+                    break;
+                }
+                // A stream-level error is not attributable to one statement,
+                // so it fails the whole query.
+                Some(rpc::query_response::Frame::Error(error)) => {
+                    return Err(proto_error(error));
+                }
+                None => {
+                    return Err(Error::internal(
+                        "Query stream carried an unrecognised frame".to_string(),
+                    ));
+                }
+            }
+        }
+        // `End` is what marks a query stream complete. A stream that stops
+        // before it must be reported, not answered: the statements collected
+        // so far would otherwise read as the whole result, and a `SELECT`
+        // truncated part-way would look like a table with fewer rows in it.
+        let Some(end) = ended else {
+            return Err(Error::connection(
+                "The query ended before it was complete".to_string(),
+                crate::types::ConnectionError::ConnectionFailed,
+            ));
+        };
+        let results = finish_statements(statements);
+        // `End` carries the authoritative count, so a stream that lost frames
+        // without losing its terminator is caught here rather than read as a
+        // query with fewer statements than it had.
+        if results.len() != end.result_count as usize {
+            return Err(Error::connection(
+                format!(
+                    "The query reported {} statement results but {} arrived",
+                    end.result_count,
+                    results.len()
+                ),
+                crate::types::ConnectionError::ConnectionFailed,
+            ));
+        }
+        Ok(results)
+    }
 }
 
 /// Reports a value that arrived in a shape this build cannot decode.
-
 
 /// The most statements one query stream may report.
 ///
@@ -1048,13 +1274,13 @@ impl GrpcEngine {
 /// New slots are empty rather than default-constructed: an index only becomes a
 /// result once a frame arrives for it.
 fn grow_statements(statements: &mut Vec<Option<Statement>>, len: usize) -> EngineResult<()> {
-	if len > MAX_STATEMENTS {
-		return Err(Error::internal(format!(
-			"The server reported {len} statement results, more than the {MAX_STATEMENTS} a query may have"
-		)));
-	}
-	statements.resize_with(len, || None);
-	Ok(())
+    if len > MAX_STATEMENTS {
+        return Err(Error::internal(format!(
+            "The server reported {len} statement results, more than the {MAX_STATEMENTS} a query may have"
+        )));
+    }
+    statements.resize_with(len, || None);
+    Ok(())
 }
 
 /// Run a query, forwarding each frame's contents as it arrives.
@@ -1065,166 +1291,283 @@ fn grow_statements(statements: &mut Vec<Option<Statement>>, len: usize) -> Engin
 /// arrives, which is where a failure — including one that retracts rows already
 /// forwarded — is reported.
 async fn stream_query(
-	engine: &GrpcEngine,
-	context: rpc::RequestContext,
-	query: String,
-	variables: Variables,
-	max_batch_records: u32,
-	max_batch_bytes: u32,
-	items: QueryDelivery,
+    engine: &GrpcEngine,
+    context: rpc::RequestContext,
+    query: String,
+    variables: Variables,
+    max_batch_records: u32,
+    max_batch_bytes: u32,
+    items: QueryDelivery,
 ) -> EngineResult<()> {
-	let mut stream = engine.open_query(context, query, variables, max_batch_records, max_batch_bytes).await?;
-	let mut ended = false;
-	let mut finished = 0usize;
-	use futures::StreamExt;
-	while let Some(response) = stream.next().await {
-		let response = match response {
-			Ok(response) => response,
-			Err(status) => return drain_query_terminal(&mut stream, Some(status_to_error(status))).await,
-		};
-		let batch = match response.frame {
-			Some(rpc::query_response::Frame::Batch(batch)) => batch,
-			Some(rpc::query_response::Frame::End(end)) => {
-				let failure = (finished != end.result_count as usize).then(||
-					Error::internal("Query stream terminal count differs from End".to_owned()));
-				ended = true;
-				drain_query_terminal(&mut stream, failure).await?;
-				break;
-			}
-			// A stream-level error is not attributable to one statement, so it
-			// fails the whole query.
-			Some(rpc::query_response::Frame::Error(error)) => {
-				return drain_query_terminal(&mut stream, Some(proto_error(error))).await;
-			}
-			// `Begin` only sizes a buffered caller's allocation; a streaming one
-			// has nothing to pre-size.
-			Some(rpc::query_response::Frame::Begin(_)) => continue,
-			None => {
-				return drain_query_terminal(&mut stream, Some(Error::internal(
-					"Query stream carried an unrecognised frame".to_string(),
-				))).await;
-			}
-		};
-		let batch = match batch_items(batch) {
-			Ok(batch) => batch,
-			Err(error) => return drain_query_terminal(&mut stream, Some(error)).await,
-		};
-		for item in batch {
-			if matches!(item, QueryStreamItem::Finished { .. }) { finished += 1; }
-			// A receiver that has gone away wants no more items. Returning
-			// drops the response stream, which is how the server learns to stop.
-			if items.send(item).await.is_err() {
-				return Ok(());
-			}
-		}
-	}
-	// `End` is what marks a query stream complete. A stream that stops before it
-	// must be reported, not answered: the rows forwarded so far would otherwise
-	// read as the whole result, and a `SELECT` truncated part-way would look
-	// like a table with fewer rows in it.
-	if !ended {
-		return Err(Error::connection(
-			"The query ended before it was complete".to_string(),
-			crate::types::ConnectionError::ConnectionFailed,
-		));
-	}
-	Ok(())
+    let mut stream = engine
+        .open_query(
+            context,
+            query,
+            variables,
+            max_batch_records,
+            max_batch_bytes,
+        )
+        .await?;
+    let mut ended = false;
+    let mut finished = 0usize;
+    use futures::StreamExt;
+    while let Some(response) = stream.next().await {
+        let response = match response {
+            Ok(response) => response,
+            Err(status) => {
+                return drain_query_terminal(&mut stream, Some(status_to_error(status))).await;
+            }
+        };
+        let batch = match response.frame {
+            Some(rpc::query_response::Frame::Batch(batch)) => batch,
+            Some(rpc::query_response::Frame::End(end)) => {
+                let failure = (finished != end.result_count as usize).then(|| {
+                    Error::internal("Query stream terminal count differs from End".to_owned())
+                });
+                ended = true;
+                drain_query_terminal(&mut stream, failure).await?;
+                break;
+            }
+            // A stream-level error is not attributable to one statement, so it
+            // fails the whole query.
+            Some(rpc::query_response::Frame::Error(error)) => {
+                return drain_query_terminal(&mut stream, Some(proto_error(error))).await;
+            }
+            // `Begin` only sizes a buffered caller's allocation; a streaming one
+            // has nothing to pre-size.
+            Some(rpc::query_response::Frame::Begin(_)) => continue,
+            None => {
+                return drain_query_terminal(
+                    &mut stream,
+                    Some(Error::internal(
+                        "Query stream carried an unrecognised frame".to_string(),
+                    )),
+                )
+                .await;
+            }
+        };
+        let batch = match batch_items(batch) {
+            Ok(batch) => batch,
+            Err(error) => return drain_query_terminal(&mut stream, Some(error)).await,
+        };
+        for item in batch {
+            if matches!(item, QueryStreamItem::Finished { .. }) {
+                finished += 1;
+            }
+            // A receiver that has gone away wants no more items. Returning
+            // drops the response stream, which is how the server learns to stop.
+            if items.send(item).await.is_err() {
+                return Ok(());
+            }
+        }
+    }
+    // `End` is what marks a query stream complete. A stream that stops before it
+    // must be reported, not answered: the rows forwarded so far would otherwise
+    // read as the whole result, and a `SELECT` truncated part-way would look
+    // like a table with fewer rows in it.
+    if !ended {
+        return Err(Error::connection(
+            "The query ended before it was complete".to_string(),
+            crate::types::ConnectionError::ConnectionFailed,
+        ));
+    }
+    Ok(())
 }
 
 /// The items one batch frame carries.
 async fn stream_admitted_query(
-	engine: &GrpcEngine,
-	context: rpc::RequestContext,
-	query: String,
-	variables: Variables,
-	bytes: u32,
-	admission: Arc<dyn surrealdb_rpc::IngressAdmission>,
-	mut items: AdmittedDelivery<'_>,
+    engine: &GrpcEngine,
+    context: rpc::RequestContext,
+    query: String,
+    variables: Variables,
+    bytes: u32,
+    admission: Arc<dyn surrealdb_rpc::IngressAdmission>,
+    mut items: AdmittedDelivery<'_>,
 ) -> EngineResult<()> {
-	use futures::StreamExt;
-	let terminal_lease = admission.reserve(surrealdb_rpc::IngressStage::ValueConversion,
-		std::mem::size_of::<Error>() + surrealdb_rpc::AdmittedQueryFailure::boxed_error_allocation_size()
-        + Error::resource_allocation_size() + 4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>() + 512)?;
-	let mut stream = engine.open_admitted_query(context, query, variables, bytes, admission.clone()).await?;
-	let mut finished = 0usize;
-	while let Some(response) = stream.next().await {
-		let response = match response {
-			Ok(response) => response,
-			Err(status) => {
-				let mut leases = vec![terminal_lease.clone()];
-				let error = admitted_status_error(status, admission.as_ref(), &mut leases);
-				return drain_admitted_terminal(&mut stream, Some(error), leases, admission.as_ref(), &mut items).await;
-			}
-		};
-		let ingress::Response { frame: response, mut leases } = response;
-		leases.push(terminal_lease.clone());
-		let mut batch = match response.frame {
-			Some(rpc::query_response::Frame::Begin(_)) => continue,
-			Some(rpc::query_response::Frame::End(end)) => {
-				let failure = (finished != end.result_count as usize).then(|| Error::internal("Query stream terminal count differs from End".to_owned()));
-				return drain_admitted_terminal(&mut stream, failure, leases, admission.as_ref(), &mut items).await;
-			}
-			Some(rpc::query_response::Frame::Batch(batch)) => batch,
-			Some(rpc::query_response::Frame::Error(error)) => {
-				let error = ingress::convert_error(error, admission.as_ref(), &mut leases).unwrap_or_else(|error| error);
-				return drain_admitted_terminal(&mut stream, Some(error), leases, admission.as_ref(), &mut items).await;
-			}
-			None => return drain_admitted_terminal(&mut stream, Some(Error::internal("Query stream carried an unrecognised frame".to_owned())), leases, admission.as_ref(), &mut items).await,
-		};
-		let converted = if let Some(error) = batch.error.take() {
-			ingress::convert_error(error, admission.as_ref(), &mut leases).map(|error| vec![QueryStreamItem::Finished {
-				index: batch.query_index as usize, time: batch_duration(batch.stats.as_ref()), query_type: statement_query_type(batch.statement_kind), error: Some(error),
-			}])
-		} else {
-			batch_items_with(batch, &mut |value| ingress::convert_value(value, admission.as_ref(), &mut leases))
-		};
-		let batch = match converted {
-			Ok(batch) => batch,
-			Err(error) => return drain_admitted_terminal(&mut stream, Some(error), leases, admission.as_ref(), &mut items).await,
-		};
-		for item in batch {
-			if matches!(item, QueryStreamItem::Finished { .. }) { finished += 1; }
-			if items.send(surrealdb_rpc::AdmittedQueryStreamEvent::Item(surrealdb_rpc::AdmittedQueryStreamItem::new(item, leases.clone()))).await.is_err() { return Ok(()); }
-		}
-	}
-	let failure = surrealdb_rpc::AdmittedQueryFailure::new(Error::connection("The query ended before it was complete".to_owned(), crate::types::ConnectionError::ConnectionFailed), vec![terminal_lease]);
-	let _ = items.send(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(failure)).await;
-	Ok(())
+    use futures::StreamExt;
+    let terminal_lease = admission.reserve(
+        surrealdb_rpc::IngressStage::ValueConversion,
+        std::mem::size_of::<Error>()
+            + surrealdb_rpc::AdmittedQueryFailure::boxed_error_allocation_size()
+            + Error::resource_allocation_size()
+            + 4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>()
+            + 512,
+    )?;
+    let mut stream = engine
+        .open_admitted_query(context, query, variables, bytes, admission.clone())
+        .await?;
+    let mut finished = 0usize;
+    while let Some(response) = stream.next().await {
+        let response = match response {
+            Ok(response) => response,
+            Err(status) => {
+                let mut leases = vec![terminal_lease.clone()];
+                let error = admitted_status_error(status, admission.as_ref(), &mut leases);
+                return drain_admitted_terminal(
+                    &mut stream,
+                    Some(error),
+                    leases,
+                    admission.as_ref(),
+                    &mut items,
+                )
+                .await;
+            }
+        };
+        let ingress::Response {
+            frame: response,
+            mut leases,
+        } = response;
+        leases.push(terminal_lease.clone());
+        let mut batch = match response.frame {
+            Some(rpc::query_response::Frame::Begin(_)) => continue,
+            Some(rpc::query_response::Frame::End(end)) => {
+                let failure = (finished != end.result_count as usize).then(|| {
+                    Error::internal("Query stream terminal count differs from End".to_owned())
+                });
+                return drain_admitted_terminal(
+                    &mut stream,
+                    failure,
+                    leases,
+                    admission.as_ref(),
+                    &mut items,
+                )
+                .await;
+            }
+            Some(rpc::query_response::Frame::Batch(batch)) => batch,
+            Some(rpc::query_response::Frame::Error(error)) => {
+                let error = ingress::convert_error(error, admission.as_ref(), &mut leases)
+                    .unwrap_or_else(|error| error);
+                return drain_admitted_terminal(
+                    &mut stream,
+                    Some(error),
+                    leases,
+                    admission.as_ref(),
+                    &mut items,
+                )
+                .await;
+            }
+            None => {
+                return drain_admitted_terminal(
+                    &mut stream,
+                    Some(Error::internal(
+                        "Query stream carried an unrecognised frame".to_owned(),
+                    )),
+                    leases,
+                    admission.as_ref(),
+                    &mut items,
+                )
+                .await;
+            }
+        };
+        let converted = if let Some(error) = batch.error.take() {
+            ingress::convert_error(error, admission.as_ref(), &mut leases).map(|error| {
+                vec![QueryStreamItem::Finished {
+                    index: batch.query_index as usize,
+                    time: batch_duration(batch.stats.as_ref()),
+                    query_type: statement_query_type(batch.statement_kind),
+                    error: Some(error),
+                }]
+            })
+        } else {
+            batch_items_with(batch, &mut |value| {
+                ingress::convert_value(value, admission.as_ref(), &mut leases)
+            })
+        };
+        let batch = match converted {
+            Ok(batch) => batch,
+            Err(error) => {
+                return drain_admitted_terminal(
+                    &mut stream,
+                    Some(error),
+                    leases,
+                    admission.as_ref(),
+                    &mut items,
+                )
+                .await;
+            }
+        };
+        for item in batch {
+            if matches!(item, QueryStreamItem::Finished { .. }) {
+                finished += 1;
+            }
+            if items
+                .send(surrealdb_rpc::AdmittedQueryStreamEvent::Item(
+                    surrealdb_rpc::AdmittedQueryStreamItem::new(item, leases.clone()),
+                ))
+                .await
+                .is_err()
+            {
+                return Ok(());
+            }
+        }
+    }
+    let failure = surrealdb_rpc::AdmittedQueryFailure::new(
+        Error::connection(
+            "The query ended before it was complete".to_owned(),
+            crate::types::ConnectionError::ConnectionFailed,
+        ),
+        vec![terminal_lease],
+    );
+    let _ = items
+        .send(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(failure))
+        .await;
+    Ok(())
 }
 
 async fn drain_admitted_terminal(
-	stream: &mut tonic::Streaming<ingress::Response>,
-	mut failure: Option<Error>,
-	mut leases: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
-	admission: &dyn surrealdb_rpc::IngressAdmission,
-	items: &mut AdmittedDelivery<'_>,
+    stream: &mut tonic::Streaming<ingress::Response>,
+    mut failure: Option<Error>,
+    mut leases: Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+    admission: &dyn surrealdb_rpc::IngressAdmission,
+    items: &mut AdmittedDelivery<'_>,
 ) -> EngineResult<()> {
-	use futures::StreamExt;
-	while let Some(item) = stream.next().await {
-		let error = match item {
-			Ok(response) => {
-				leases.extend(response.leases);
-				match response.frame.frame {
-					Some(rpc::query_response::Frame::Error(error)) => ingress::convert_error(error, admission, &mut leases).unwrap_or_else(|error| error),
-					Some(rpc::query_response::Frame::Batch(batch)) if batch.error.is_some() => ingress::convert_error(batch.error.expect("guarded error"), admission, &mut leases).unwrap_or_else(|error| error),
-					_ => Error::internal("Query stream carried a frame after its end".to_owned()),
-				}
-			}
-			Err(status) => admitted_status_error(status, admission, &mut leases),
-		};
-		failure = Some(match failure { Some(primary) => primary.append_cause(error), None => error });
-	}
-	// Leases include all late typed frames until their errors reach the owner.
-	// A locally failed tonic decoder can report None before body EOF: this is
-	// receive-stream termination, not independent proof of remote finality.
-	// Error returns retain independent finalization ownership at the caller.
-	if let Some(error) = failure {
-		let _ = items.send(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(surrealdb_rpc::AdmittedQueryFailure::new(error, leases))).await;
-	}
-	Ok(())
+    use futures::StreamExt;
+    while let Some(item) = stream.next().await {
+        let error = match item {
+            Ok(response) => {
+                leases.extend(response.leases);
+                match response.frame.frame {
+                    Some(rpc::query_response::Frame::Error(error)) => {
+                        ingress::convert_error(error, admission, &mut leases)
+                            .unwrap_or_else(|error| error)
+                    }
+                    Some(rpc::query_response::Frame::Batch(batch)) if batch.error.is_some() => {
+                        ingress::convert_error(
+                            batch.error.expect("guarded error"),
+                            admission,
+                            &mut leases,
+                        )
+                        .unwrap_or_else(|error| error)
+                    }
+                    _ => Error::internal("Query stream carried a frame after its end".to_owned()),
+                }
+            }
+            Err(status) => admitted_status_error(status, admission, &mut leases),
+        };
+        failure = Some(match failure {
+            Some(primary) => primary.append_cause(error),
+            None => error,
+        });
+    }
+    // Leases include all late typed frames until their errors reach the owner.
+    // A locally failed tonic decoder can report None before body EOF: this is
+    // receive-stream termination, not independent proof of remote finality.
+    // Error returns retain independent finalization ownership at the caller.
+    if let Some(error) = failure {
+        let _ = items
+            .send(surrealdb_rpc::AdmittedQueryStreamEvent::Failure(
+                surrealdb_rpc::AdmittedQueryFailure::new(error, leases),
+            ))
+            .await;
+    }
+    Ok(())
 }
 
-fn admitted_display_error(prefix: &str, source: &impl std::fmt::Display, owner: &dyn surrealdb_rpc::IngressAdmission) -> Error {
+fn admitted_display_error(
+    prefix: &str,
+    source: &impl std::fmt::Display,
+    owner: &dyn surrealdb_rpc::IngressAdmission,
+) -> Error {
     struct Count(usize);
     impl std::fmt::Write for Count {
         fn write_str(&mut self, value: &str) -> std::fmt::Result {
@@ -1236,33 +1579,55 @@ fn admitted_display_error(prefix: &str, source: &impl std::fmt::Display, owner: 
     if std::fmt::write(&mut count, format_args!("{prefix}{source}")).is_err() {
         return Error::internal("Transport diagnostic size overflow".to_owned());
     }
-    let bytes = count.0.saturating_mul(2).saturating_add(8)
+    let bytes = count
+        .0
+        .saturating_mul(2)
+        .saturating_add(8)
         .saturating_add(std::mem::size_of::<Error>())
         .saturating_add(Error::resource_allocation_size())
         .saturating_add(4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>())
-        .saturating_add(std::mem::size_of::<Vec<Arc<dyn surrealdb_rpc::IngressReservation>>>())
+        .saturating_add(std::mem::size_of::<
+            Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+        >())
         .saturating_add(2 * std::mem::size_of::<usize>());
     match owner.reserve(surrealdb_rpc::IngressStage::Connection, bytes) {
-        Ok(lease) => ingress::retain_error(Error::internal(format!("{prefix}{source}")), vec![lease]),
+        Ok(lease) => {
+            ingress::retain_error(Error::internal(format!("{prefix}{source}")), vec![lease])
+        }
         Err(error) => error,
     }
 }
-fn connection_status_error(status: tonic::Status, owner: &dyn surrealdb_rpc::IngressAdmission) -> Error {
+fn connection_status_error(
+    status: tonic::Status,
+    owner: &dyn surrealdb_rpc::IngressAdmission,
+) -> Error {
     let mut leases = Vec::new();
     let error = admitted_status_error(status, owner, &mut leases);
     ingress::retain_error(error, leases)
 }
 
-fn admitted_status_error(status: tonic::Status, owner: &dyn surrealdb_rpc::IngressAdmission, leases: &mut Vec<Arc<dyn surrealdb_rpc::IngressReservation>>) -> Error {
-	let bytes = status.message().len().saturating_add(std::mem::size_of::<Error>())
+fn admitted_status_error(
+    status: tonic::Status,
+    owner: &dyn surrealdb_rpc::IngressAdmission,
+    leases: &mut Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+) -> Error {
+    let bytes = status
+        .message()
+        .len()
+        .saturating_add(std::mem::size_of::<Error>())
         .saturating_add(Error::resource_allocation_size())
         .saturating_add(4 * std::mem::size_of::<Arc<dyn surrealdb_rpc::IngressReservation>>())
-        .saturating_add(std::mem::size_of::<Vec<Arc<dyn surrealdb_rpc::IngressReservation>>>())
+        .saturating_add(std::mem::size_of::<
+            Vec<Arc<dyn surrealdb_rpc::IngressReservation>>,
+        >())
         .saturating_add(2 * std::mem::size_of::<usize>());
-	match owner.reserve(surrealdb_rpc::IngressStage::ValueConversion, bytes) {
-		Ok(lease) => { leases.push(lease); status_to_error(status) },
-		Err(error) => error,
-	}
+    match owner.reserve(surrealdb_rpc::IngressStage::ValueConversion, bytes) {
+        Ok(lease) => {
+            leases.push(lease);
+            status_to_error(status)
+        }
+        Err(error) => error,
+    }
 }
 
 /// The items one batch frame carries.
@@ -1271,85 +1636,84 @@ fn admitted_status_error(status: tonic::Status, owner: &dyn surrealdb_rpc::Ingre
 /// whatever rows it carries, in that order — rows first, so a consumer never
 /// sees a statement finish before the rows that belong to it.
 fn batch_items(batch: rpc::QueryBatchFrame) -> EngineResult<Vec<QueryStreamItem>> {
-	batch_items_with(batch, &mut |value| Value::try_from(value).map_err(deserialization_error))
+    batch_items_with(batch, &mut |value| {
+        Value::try_from(value).map_err(deserialization_error)
+    })
 }
 
-fn batch_items_with(batch: rpc::QueryBatchFrame, convert: &mut dyn FnMut(proto::Value) -> EngineResult<Value>) -> EngineResult<Vec<QueryStreamItem>> {
-	let index = batch.query_index as usize;
-	let single = batch.kind == rpc::QueryResponseKind::Single as i32;
-	let terminal = single || batch.kind == rpc::QueryResponseKind::BatchedFinal as i32;
+fn batch_items_with(
+    batch: rpc::QueryBatchFrame,
+    convert: &mut dyn FnMut(proto::Value) -> EngineResult<Value>,
+) -> EngineResult<Vec<QueryStreamItem>> {
+    let index = batch.query_index as usize;
+    let single = batch.kind == rpc::QueryResponseKind::Single as i32;
+    let terminal = single || batch.kind == rpc::QueryResponseKind::BatchedFinal as i32;
 
-	let mut items = Vec::new();
-	if let Some(error) = batch.error {
-		// A statement's own failure is terminal for it, and its payload is
-		// empty: any rows already forwarded are retracted by this.
-		items.push(QueryStreamItem::Finished {
-			index,
-			time: batch_duration(batch.stats.as_ref()),
-			query_type: statement_query_type(batch.statement_kind),
-			error: Some(proto_error(error)),
-		});
-		return Ok(items);
-	}
+    let mut items = Vec::new();
+    if let Some(error) = batch.error {
+        // A statement's own failure is terminal for it, and its payload is
+        // empty: any rows already forwarded are retracted by this.
+        items.push(QueryStreamItem::Finished {
+            index,
+            time: batch_duration(batch.stats.as_ref()),
+            query_type: statement_query_type(batch.statement_kind),
+            error: Some(proto_error(error)),
+        });
+        return Ok(items);
+    }
 
-	let values = match batch.payload {
-		Some(rpc::query_batch_frame::Payload::Values(values)) => values
-			.values
-			.into_iter()
-			.map(convert)
-			.collect::<EngineResult<Vec<Value>>>()?,
-		Some(rpc::query_batch_frame::Payload::Arrow(_)) => {
-			return Err(Error::internal(
-				"Server sent a columnar batch, which was not requested".to_string(),
-			));
-		}
-		None => Vec::new(),
-	};
+    let values = match batch.payload {
+        Some(rpc::query_batch_frame::Payload::Values(values)) => values
+            .values
+            .into_iter()
+            .map(convert)
+            .collect::<EngineResult<Vec<Value>>>()?,
+        Some(rpc::query_batch_frame::Payload::Arrow(_)) => {
+            return Err(Error::internal(
+                "Server sent a columnar batch, which was not requested".to_string(),
+            ));
+        }
+        None => Vec::new(),
+    };
 
-	if single {
-		// One value that is not a list: the statement's result is that value,
-		// not an array containing it.
-		if let Some(value) = values.into_iter().next() {
-			items.push(QueryStreamItem::Value {
-				index,
-				value,
-			});
-		} else {
-			items.push(QueryStreamItem::EmptyValue { index });
-		}
-	} else {
-		items.push(QueryStreamItem::Rows {
-			index,
-			values,
-		});
-	}
+    if single {
+        // One value that is not a list: the statement's result is that value,
+        // not an array containing it.
+        if let Some(value) = values.into_iter().next() {
+            items.push(QueryStreamItem::Value { index, value });
+        } else {
+            items.push(QueryStreamItem::EmptyValue { index });
+        }
+    } else {
+        items.push(QueryStreamItem::Rows { index, values });
+    }
 
-	if terminal {
-		items.push(QueryStreamItem::Finished {
-			index,
-			time: batch_duration(batch.stats.as_ref()),
-			query_type: statement_query_type(batch.statement_kind),
-			error: None,
-		});
-	}
-	Ok(items)
+    if terminal {
+        items.push(QueryStreamItem::Finished {
+            index,
+            time: batch_duration(batch.stats.as_ref()),
+            query_type: statement_query_type(batch.statement_kind),
+            error: None,
+        });
+    }
+    Ok(items)
 }
 
 /// How long a statement took, as its terminal batch reported it.
 fn batch_duration(stats: Option<&rpc::QueryStats>) -> StdDuration {
-	stats
-		.and_then(|stats| stats.execution_duration)
-		.and_then(|duration| StdDuration::try_from(duration).ok())
-		.unwrap_or_default()
+    stats
+        .and_then(|stats| stats.execution_duration)
+        .and_then(|duration| StdDuration::try_from(duration).ok())
+        .unwrap_or_default()
 }
 
 /// What kind of statement a batch frame says produced it.
 fn statement_query_type(kind: i32) -> QueryType {
-	match rpc::QueryStatementKind::try_from(kind) {
-		Ok(rpc::QueryStatementKind::Live) => QueryType::Live,
-		Ok(rpc::QueryStatementKind::Kill) => QueryType::Kill,
-		_ => QueryType::Other,
-	}
+    match rpc::QueryStatementKind::try_from(kind) {
+        Ok(rpc::QueryStatementKind::Live) => QueryType::Live,
+        Ok(rpc::QueryStatementKind::Kill) => QueryType::Kill,
+        _ => QueryType::Other,
+    }
 }
 
 /// Turns the per-index accumulators into one result per statement that ran.
@@ -1360,472 +1724,656 @@ fn statement_query_type(kind: i32) -> QueryType {
 /// line up with the ones the other transports return for the same query, since
 /// a skipped statement contributes nothing there either.
 fn finish_statements(statements: Vec<Option<Statement>>) -> Vec<QueryResult> {
-	statements.into_iter().flatten().map(Statement::finish).collect()
+    statements
+        .into_iter()
+        .flatten()
+        .map(Statement::finish)
+        .collect()
 }
 
 /// Consumes session lifecycle events in order: attach a new session, attach
 /// and replay a cloned one, detach a dropped one.
-async fn session_task(engine: Arc<GrpcEngine>, session_rx: async_channel::Receiver<SessionId>) {
-	while let Ok(event) = session_rx.recv().await {
-		match event {
-			SessionId::Initial(id) => {
-				let established = engine.attach().await.map(GrpcSession::new);
-				engine.publish(id, established);
-			}
-			SessionId::Clone {
-				old,
-				new,
-			} => {
-				// A clone of a session that was never established has nothing to
-				// replay; `establish_clone` then simply attaches a fresh one.
-				let log = match engine.sessions.established(old) {
-					Some(Ok(session)) => session.log(),
-					_ => Vec::new(),
-				};
-				engine.publish(new, engine.establish_clone(log).await);
-			}
-			SessionId::Drop(id) => {
-				// Only a session that was established has anything to release.
-				// Ending it also fails anything still waiting on it, which is
-				// what keeps a request that outlived its handle from waiting on
-				// a session that has just gone away.
-				match engine.sessions.end(id) {
-					Some(Ok(session)) => {
-						if let Err(error) = engine.detach(session.server).await {
-							trace!("failed to detach session {id}: {error}");
-						}
-					}
-					Some(Err(error)) => trace!("session {id} was never attached: {error}"),
-					None => trace!("session {id} was dropped before it was established"),
-				}
-			}
-		}
-	}
+async fn session_task(
+    engine: Arc<GrpcEngine>,
+    session_rx: async_channel::Receiver<SessionId>,
+) -> EngineResult<()> {
+    let mut failure = None;
+    while let Ok(event) = session_rx.recv().await {
+        match event {
+            SessionId::Initial(id) => {
+                let established = engine.attach().await.map(GrpcSession::new);
+                engine.publish(id, established);
+            }
+            SessionId::Clone { old, new } => {
+                // The lifecycle FIFO preserves clones queued before an explicit close.
+                // A closed/failed parent cannot become a fresh unauthenticated session.
+                let established = match engine.sessions.established(old) {
+                    Some(Ok(session)) if !session.closed.load(Ordering::Acquire) => {
+                        engine.establish_clone(session.log()).await
+                    }
+                    Some(_) => Err(Error::internal(
+                        "Cannot clone a closed or failed session".into(),
+                    )),
+                    None => engine.establish_clone(Vec::new()).await,
+                };
+                engine.publish(new, established);
+            }
+            SessionId::Drop(id) => {
+                if let Some(acknowledgment) = engine.take_close(id) {
+                    let result = match engine.sessions.established(id) {
+                        Some(Ok(session)) => {
+                            // Keep the exact registered session on failure. Closing admission
+                            // does not prove previously submitted queries reached terminality.
+                            session.closed.store(true, Ordering::Release);
+                            let result = engine.detach(session.server).await;
+                            if result.is_ok() {
+                                session.detached.store(true, Ordering::Release);
+                                *session.ingress.lock().expect("session ingress poisoned") =
+                                    SessionIngress::default();
+                                *session.replay.lock().expect("session registry poisoned") =
+                                    Vec::new();
+                            }
+                            result
+                        }
+                        _ => Err(Error::internal(
+                            "Explicit session close lost its ready session".into(),
+                        )),
+                    };
+                    if result.is_err() && failure.is_none() {
+                        failure = Some(Error::internal(
+                            "Explicit session detachment was not acknowledged".into(),
+                        ));
+                    }
+                    acknowledgment.complete(result);
+                    // Retain the closed registry slot until actual SDK-handle Drop.
+                    // Post-close requests/clones therefore refuse without resurrecting it.
+                    continue;
+                }
+                match engine.sessions.end(id) {
+                    Some(Ok(session)) if session.closed.load(Ordering::Acquire) => {
+                        // Never replay a failed explicit detach from an ordinary Drop.
+                        if !session.detached.load(Ordering::Acquire) && failure.is_none() {
+                            failure = Some(Error::internal(
+                                "Dropped session retains unconfirmed detachment".into(),
+                            ));
+                        }
+                    }
+                    Some(Ok(session)) => {
+                        if let Err(error) = engine.detach(session.server).await {
+                            trace!("failed to detach session {id}: {error}");
+                            if failure.is_none() {
+                                failure = Some(error);
+                            }
+                        }
+                    }
+                    Some(Err(error)) => trace!("session {id} was never attached: {error}"),
+                    None => trace!("session {id} was dropped before it was established"),
+                }
+            }
+        }
+    }
+    // Join completion is published only after this future and its engine owner are gone.
+    drop(engine);
+    failure.map_or(Ok(()), Err)
 }
 
 impl SurrealEngine for GrpcEngine {
-	fn query(
-		&self,
-		ctx: EngineContext,
-		query: std::borrow::Cow<'static, str>,
-		variables: Variables,
-	) -> EngineFuture<'_, Vec<QueryResult>> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			self.query_inner(context, query.into_owned(), variables).await
-		})
-	}
+    fn session_close_admission(
+        &self,
+        ctx: EngineContext,
+    ) -> EngineFuture<'_, Option<Arc<dyn surrealdb_rpc::IngressReservation>>> {
+        Box::pin(async move {
+            self.ready_session(ctx).await?;
+            match &self.connection_admission {
+                Some(owner) => owner
+                    .reserve(
+                        surrealdb_rpc::IngressStage::Connection,
+                        surrealdb_engine_api::LifecycleCompletion::allocation_bytes(),
+                    )
+                    .map(Some),
+                None => Ok(None),
+            }
+        })
+    }
+    fn register_session_close(
+        &self,
+        ctx: EngineContext,
+        acknowledgment: surrealdb_engine_api::LifecycleAcknowledgment,
+    ) -> EngineResult<()> {
+        let mut head = self
+            .pending_closes
+            .lock()
+            .expect("session close registry poisoned");
+        let mut cursor = head.as_deref();
+        while let Some(node) = cursor {
+            if node.id == ctx.session {
+                return Err(Error::internal("Session close already registered".into()));
+            }
+            cursor = node.next.as_deref();
+        }
+        let charge = match &self.connection_admission {
+            Some(owner) => Some(owner.reserve(
+                surrealdb_rpc::IngressStage::Connection,
+                size_of::<PendingClose>(),
+            )?),
+            None => None,
+        };
+        let next = head.take();
+        *head = Some(Box::new(PendingClose {
+            id: ctx.session,
+            acknowledgment,
+            next,
+            _charge: charge,
+        }));
+        Ok(())
+    }
+    fn connection_completion(&self) -> EngineResult<surrealdb_engine_api::ConnectionCompletion> {
+        self.connection_completion
+            .get()
+            .cloned()
+            .ok_or_else(|| Error::internal("Connection lifecycle owner is unavailable".into()))
+    }
+    fn query(
+        &self,
+        ctx: EngineContext,
+        query: std::borrow::Cow<'static, str>,
+        variables: Variables,
+    ) -> EngineFuture<'_, Vec<QueryResult>> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            self.query_inner(context, query.into_owned(), variables)
+                .await
+        })
+    }
 
     fn query_with_resources(
-        &self, ctx: EngineContext, query: std::borrow::Cow<'static, str>, variables: Variables,
+        &self,
+        ctx: EngineContext,
+        query: std::borrow::Cow<'static, str>,
+        variables: Variables,
     ) -> EngineFuture<'_, surrealdb_rpc::AdmittedQueryResults> {
         Box::pin(async move {
             let Some(owner) = &self.connection_admission else {
-                return self.query(ctx, query, variables).await.map(surrealdb_rpc::AdmittedQueryResults::unadmitted);
+                return self
+                    .query(ctx, query, variables)
+                    .await
+                    .map(surrealdb_rpc::AdmittedQueryResults::unadmitted);
             };
             let context = self.ready(ctx).await?;
             let mut buffer = buffered::BufferedResults::new(owner.clone())?;
-            if let Err(error) = stream_admitted_query(self, context, query.into_owned(), variables, 0, owner.clone(), AdmittedDelivery::Buffered(&mut buffer)).await {
+            if let Err(error) = stream_admitted_query(
+                self,
+                context,
+                query.into_owned(),
+                variables,
+                0,
+                owner.clone(),
+                AdmittedDelivery::Buffered(&mut buffer),
+            )
+            .await
+            {
                 buffer.fail(error);
             }
             buffer.finish()
         })
     }
 
-	/// Unlike the default, this forwards results as the server produces them
-	/// rather than replaying them once the query has finished.
-	fn query_stream(
-		&self,
-		ctx: EngineContext,
-		query: std::borrow::Cow<'static, str>,
-		variables: Variables,
-		items: Sender<QueryStreamItem>,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			// Zero, not a small number: `max_batch_records` is a cap on every
-			// batch, not the size of the first one. Asking for a small cap
-			// would pin the whole stream to it, where the server already
-			// starts each statement small and ramps up to its own maximum --
-			// which is exactly the first-row-then-throughput shape a streaming
-			// caller wants.
-			stream_query(self, context, query.into_owned(), variables, 0, 0, QueryDelivery::Plain(items)).await
-		})
-	}
+    /// Unlike the default, this forwards results as the server produces them
+    /// rather than replaying them once the query has finished.
+    fn query_stream(
+        &self,
+        ctx: EngineContext,
+        query: std::borrow::Cow<'static, str>,
+        variables: Variables,
+        items: Sender<QueryStreamItem>,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            // Zero, not a small number: `max_batch_records` is a cap on every
+            // batch, not the size of the first one. Asking for a small cap
+            // would pin the whole stream to it, where the server already
+            // starts each statement small and ramps up to its own maximum --
+            // which is exactly the first-row-then-throughput shape a streaming
+            // caller wants.
+            stream_query(
+                self,
+                context,
+                query.into_owned(),
+                variables,
+                0,
+                0,
+                QueryDelivery::Plain(items),
+            )
+            .await
+        })
+    }
 
-	fn query_stream_with_options(
-		&self,
-		ctx: EngineContext,
-		query: std::borrow::Cow<'static, str>,
-		variables: Variables,
-		options: surrealdb_rpc::QueryStreamOptions,
-		items: Sender<surrealdb_rpc::AdmittedQueryStreamEvent>,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			// Encoded framing and decoded allocation admission are distinct.
-			// The admitted codec handles supported structural allocations;
-			// compiled regex additionally requires the caller's qualified hook.
-			let bytes = options.max_batch_bytes.map_or(0, std::num::NonZeroU32::get);
-			validate_query_byte_capability(self.query_batch_bytes, bytes)?;
-			let context = self.ready(ctx).await?;
-			if let Some(admission) = options.admission {
-				return stream_admitted_query(self, context, query.into_owned(), variables, bytes, admission, AdmittedDelivery::Stream(items)).await;
-			}
-			stream_query(self, context, query.into_owned(), variables, 0, bytes, QueryDelivery::Admitted(items)).await
-		})
-	}
+    fn query_stream_with_options(
+        &self,
+        ctx: EngineContext,
+        query: std::borrow::Cow<'static, str>,
+        variables: Variables,
+        options: surrealdb_rpc::QueryStreamOptions,
+        items: Sender<surrealdb_rpc::AdmittedQueryStreamEvent>,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            // Encoded framing and decoded allocation admission are distinct.
+            // The admitted codec handles supported structural allocations;
+            // compiled regex additionally requires the caller's qualified hook.
+            let bytes = options.max_batch_bytes.map_or(0, std::num::NonZeroU32::get);
+            validate_query_byte_capability(self.query_batch_bytes, bytes)?;
+            let context = self.ready(ctx).await?;
+            if let Some(admission) = options.admission {
+                return stream_admitted_query(
+                    self,
+                    context,
+                    query.into_owned(),
+                    variables,
+                    bytes,
+                    admission,
+                    AdmittedDelivery::Stream(items),
+                )
+                .await;
+            }
+            stream_query(
+                self,
+                context,
+                query.into_owned(),
+                variables,
+                0,
+                bytes,
+                QueryDelivery::Admitted(items),
+            )
+            .await
+        })
+    }
 
-	fn run(
-		&self,
-		ctx: EngineContext,
-		name: String,
-		version: Option<String>,
-		args: Array,
-	) -> EngineFuture<'_, Value> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let args = args.into_iter().map(to_proto_value).collect::<EngineResult<Vec<_>>>()?;
-			let request = rpc::RunRequest {
-				context: Some(context),
-				name,
-				// The wire spells "no version" as an empty string.
-				version: version.unwrap_or_default(),
-				args,
-			};
-			let response = self
-				.client()
-				.run(self.checked(request)?)
-				.await
-				.map_err(status_to_error)?
-				.into_inner();
-			match response.result {
-				Some(value) => Value::try_from(value).map_err(deserialization_error),
-				None => Ok(Value::None),
-			}
-		})
-	}
+    fn run(
+        &self,
+        ctx: EngineContext,
+        name: String,
+        version: Option<String>,
+        args: Array,
+    ) -> EngineFuture<'_, Value> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let args = args
+                .into_iter()
+                .map(to_proto_value)
+                .collect::<EngineResult<Vec<_>>>()?;
+            let request = rpc::RunRequest {
+                context: Some(context),
+                name,
+                // The wire spells "no version" as an empty string.
+                version: version.unwrap_or_default(),
+                args,
+            };
+            let response = self
+                .client()
+                .run(self.checked(request)?)
+                .await
+                .map_err(status_to_error)?
+                .into_inner();
+            match response.result {
+                Some(value) => Value::try_from(value).map_err(deserialization_error),
+                None => Ok(Value::None),
+            }
+        })
+    }
 
-	fn use_ns_db(
-		&self,
-		ctx: EngineContext,
-		namespace: Option<String>,
-		database: Option<String>,
-	) -> EngineFuture<'_, (Option<String>, Option<String>)> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			let selection =
-				self.use_ns_db_inner(context, namespace.clone(), database.clone(), &session).await?;
-			session.record(Replayable::Use {
-				namespace,
-				database,
-			});
-			Ok(selection)
-		})
-	}
+    fn use_ns_db(
+        &self,
+        ctx: EngineContext,
+        namespace: Option<String>,
+        database: Option<String>,
+    ) -> EngineFuture<'_, (Option<String>, Option<String>)> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            let selection = self
+                .use_ns_db_inner(context, namespace.clone(), database.clone(), &session)
+                .await?;
+            session.record(Replayable::Use {
+                namespace,
+                database,
+            });
+            Ok(selection)
+        })
+    }
 
-	fn set(&self, ctx: EngineContext, key: String, value: Value) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			self.set_inner(context, key.clone(), value.clone()).await?;
-			session.record(Replayable::Set {
-				key,
-				value,
-			});
-			Ok(())
-		})
-	}
+    fn set(&self, ctx: EngineContext, key: String, value: Value) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            self.set_inner(context, key.clone(), value.clone()).await?;
+            session.record(Replayable::Set { key, value });
+            Ok(())
+        })
+    }
 
-	fn unset(&self, ctx: EngineContext, key: String) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			self.unset_inner(context, key.clone()).await?;
-			session.record(Replayable::Unset {
-				key,
-			});
-			Ok(())
-		})
-	}
+    fn unset(&self, ctx: EngineContext, key: String) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            self.unset_inner(context, key.clone()).await?;
+            session.record(Replayable::Unset { key });
+            Ok(())
+        })
+    }
 
-	fn signup(&self, ctx: EngineContext, credentials: Object) -> EngineFuture<'_, Token> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			let token = self.signup_inner(context, credentials.clone(), &session).await?;
-			session.record(Replayable::Signup(credentials));
-			Ok(token)
-		})
-	}
+    fn signup(&self, ctx: EngineContext, credentials: Object) -> EngineFuture<'_, Token> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            let token = self
+                .signup_inner(context, credentials.clone(), &session)
+                .await?;
+            session.record(Replayable::Signup(credentials));
+            Ok(token)
+        })
+    }
 
-	fn signin(&self, ctx: EngineContext, credentials: Object) -> EngineFuture<'_, Token> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			let token = self.signin_inner(context, credentials.clone(), &session).await?;
-			session.record(Replayable::Signin(credentials));
-			Ok(token)
-		})
-	}
+    fn signin(&self, ctx: EngineContext, credentials: Object) -> EngineFuture<'_, Token> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            let token = self
+                .signin_inner(context, credentials.clone(), &session)
+                .await?;
+            session.record(Replayable::Signin(credentials));
+            Ok(token)
+        })
+    }
 
-	fn authenticate(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, Token> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			let token = self.authenticate_inner(context, token, &session).await?;
-			session.record(Replayable::Authenticate(token.clone()));
-			Ok(token)
-		})
-	}
+    fn authenticate(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, Token> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            let token = self.authenticate_inner(context, token, &session).await?;
+            session.record(Replayable::Authenticate(token.clone()));
+            Ok(token)
+        })
+    }
 
-	fn refresh(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, Token> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			let Token::WithRefresh {
-				access,
-				refresh,
-			} = token
-			else {
-				return Err(Error::validation(
-					"This token carries no refresh token".to_string(),
-					None,
-				));
-			};
-			// Both halves travel: the exchange reads the expired access token's
-			// claims to recover the namespace, database and access method the
-			// new pair is minted for.
-			let ingress::UnaryResponse { response, leases } = self.lifecycle_unary::<_, rpc::RefreshTokensResponse>(self.checked(rpc::RefreshTokensRequest {
-					context: Some(context),
-					access,
-					refresh,
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/RefreshTokens").await?;
-        session.ingress.lock().expect("session ingress poisoned").auth = leases;
-			tokens_to_token(response.tokens)
-		})
-	}
+    fn refresh(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, Token> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            let Token::WithRefresh { access, refresh } = token else {
+                return Err(Error::validation(
+                    "This token carries no refresh token".to_string(),
+                    None,
+                ));
+            };
+            // Both halves travel: the exchange reads the expired access token's
+            // claims to recover the namespace, database and access method the
+            // new pair is minted for.
+            let ingress::UnaryResponse { response, leases } = self
+                .lifecycle_unary::<_, rpc::RefreshTokensResponse>(
+                    self.checked(rpc::RefreshTokensRequest {
+                        context: Some(context),
+                        access,
+                        refresh,
+                    })?,
+                    "/surrealdb.protocol.rpc.v1.SurrealDBService/RefreshTokens",
+                )
+                .await?;
+            session
+                .ingress
+                .lock()
+                .expect("session ingress poisoned")
+                .auth = leases;
+            tokens_to_token(response.tokens)
+        })
+    }
 
-	fn revoke(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let (access, refresh) = match token {
-				Token::Access(access) => (access, String::new()),
-				Token::WithRefresh {
-					access,
-					refresh,
-				} => (access, refresh),
-			};
-			self.lifecycle_unary::<_, rpc::RevokeTokensResponse>(self.checked(rpc::RevokeTokensRequest {
-					context: Some(context),
-					access,
-					refresh,
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/RevokeTokens").await?;
-			Ok(())
-		})
-	}
+    fn revoke(&self, ctx: EngineContext, token: Token) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let (access, refresh) = match token {
+                Token::Access(access) => (access, String::new()),
+                Token::WithRefresh { access, refresh } => (access, refresh),
+            };
+            self.lifecycle_unary::<_, rpc::RevokeTokensResponse>(
+                self.checked(rpc::RevokeTokensRequest {
+                    context: Some(context),
+                    access,
+                    refresh,
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/RevokeTokens",
+            )
+            .await?;
+            Ok(())
+        })
+    }
 
-	fn invalidate(&self, ctx: EngineContext) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let (context, session) = self.ready_session(ctx).await?;
-			self.invalidate_inner(context).await?;
-			session.record(Replayable::Invalidate);
-			Ok(())
-		})
-	}
+    fn invalidate(&self, ctx: EngineContext) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let (context, session) = self.ready_session(ctx).await?;
+            self.invalidate_inner(context).await?;
+            session.record(Replayable::Invalidate);
+            Ok(())
+        })
+    }
 
-	fn begin(&self, ctx: EngineContext) -> EngineFuture<'_, Uuid> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let ingress::UnaryResponse { response, leases: _leases } = self.lifecycle_unary::<_, rpc::BeginTransactionResponse>(self.checked(rpc::BeginTransactionRequest {
-					context: Some(context),
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/BeginTransaction").await?;
-			response
-				.transaction
-				.ok_or_else(|| {
-					Error::internal("Server did not return a transaction id".to_string())
-				})?
-				.to_uuid()
-				.map_err(|e| Error::internal(e.to_string()))
-		})
-	}
+    fn begin(&self, ctx: EngineContext) -> EngineFuture<'_, Uuid> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let ingress::UnaryResponse {
+                response,
+                leases: _leases,
+            } = self
+                .lifecycle_unary::<_, rpc::BeginTransactionResponse>(
+                    self.checked(rpc::BeginTransactionRequest {
+                        context: Some(context),
+                    })?,
+                    "/surrealdb.protocol.rpc.v1.SurrealDBService/BeginTransaction",
+                )
+                .await?;
+            response
+                .transaction
+                .ok_or_else(|| {
+                    Error::internal("Server did not return a transaction id".to_string())
+                })?
+                .to_uuid()
+                .map_err(|e| Error::internal(e.to_string()))
+        })
+    }
 
-	fn commit(&self, ctx: EngineContext, txn: Uuid) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			// The transaction to finish is named by the request context, not
-			// by a parameter, so it is threaded in here.
-			let context =
-				self.ready(EngineContext::with_transaction(ctx.session, Some(txn))).await?;
-			self.lifecycle_unary::<_, rpc::CommitTransactionResponse>(self.checked(rpc::CommitTransactionRequest {
-					context: Some(context),
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/CommitTransaction").await?;
-			Ok(())
-		})
-	}
+    fn commit(&self, ctx: EngineContext, txn: Uuid) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            // The transaction to finish is named by the request context, not
+            // by a parameter, so it is threaded in here.
+            let context = self
+                .ready(EngineContext::with_transaction(ctx.session, Some(txn)))
+                .await?;
+            self.lifecycle_unary::<_, rpc::CommitTransactionResponse>(
+                self.checked(rpc::CommitTransactionRequest {
+                    context: Some(context),
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/CommitTransaction",
+            )
+            .await?;
+            Ok(())
+        })
+    }
 
-	fn rollback(&self, ctx: EngineContext, txn: Uuid) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			// The transaction to finish is named by the request context, not
-			// by a parameter, so it is threaded in here.
-			let context =
-				self.ready(EngineContext::with_transaction(ctx.session, Some(txn))).await?;
-			self.lifecycle_unary::<_, rpc::CancelTransactionResponse>(self.checked(rpc::CancelTransactionRequest {
-					context: Some(context),
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/CancelTransaction").await?;
-			Ok(())
-		})
-	}
+    fn rollback(&self, ctx: EngineContext, txn: Uuid) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            // The transaction to finish is named by the request context, not
+            // by a parameter, so it is threaded in here.
+            let context = self
+                .ready(EngineContext::with_transaction(ctx.session, Some(txn)))
+                .await?;
+            self.lifecycle_unary::<_, rpc::CancelTransactionResponse>(
+                self.checked(rpc::CancelTransactionRequest {
+                    context: Some(context),
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/CancelTransaction",
+            )
+            .await?;
+            Ok(())
+        })
+    }
 
-	fn health(&self, ctx: EngineContext) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			self.lifecycle_unary::<_, rpc::HealthResponse>(self.checked(rpc::HealthRequest {
-					context: Some(context),
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Health").await?;
-			Ok(())
-		})
-	}
+    fn health(&self, ctx: EngineContext) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            self.lifecycle_unary::<_, rpc::HealthResponse>(
+                self.checked(rpc::HealthRequest {
+                    context: Some(context),
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/Health",
+            )
+            .await?;
+            Ok(())
+        })
+    }
 
-	fn version(&self, _ctx: EngineContext) -> EngineFuture<'_, String> {
-		Box::pin(async move { Ok(self.server_version.clone()) })
-	}
+    fn version(&self, _ctx: EngineContext) -> EngineFuture<'_, String> {
+        Box::pin(async move { Ok(self.server_version.clone()) })
+    }
 
-	fn kill(&self, ctx: EngineContext, uuid: Uuid) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			self.lifecycle_unary::<_, rpc::KillResponse>(self.checked(rpc::KillRequest {
-					context: Some(context),
-					live_query_id: Some(proto::Uuid::from_uuid(uuid)),
-				})?, "/surrealdb.protocol.rpc.v1.SurrealDBService/Kill").await?;
-			Ok(())
-		})
-	}
+    fn kill(&self, ctx: EngineContext, uuid: Uuid) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            self.lifecycle_unary::<_, rpc::KillResponse>(
+                self.checked(rpc::KillRequest {
+                    context: Some(context),
+                    live_query_id: Some(proto::Uuid::from_uuid(uuid)),
+                })?,
+                "/surrealdb.protocol.rpc.v1.SurrealDBService/Kill",
+            )
+            .await?;
+            Ok(())
+        })
+    }
 
-	fn subscribe_live(
-		&self,
-		ctx: EngineContext,
-		uuid: Uuid,
-		notifications: async_channel::Sender<Result<Notification, Error>>,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			// The live query already exists -- `LIVE SELECT` ran as an
-			// ordinary statement and returned this id -- so this attaches to
-			// it rather than registering a new one. Ending this stream
-			// therefore leaves the live query running, which is what `kill`
-			// is for.
-			let stream = self
-				.client()
-				.subscribe(self.checked(rpc::SubscribeRequest {
-					context: Some(context),
-					resume_from: None,
-					subscribe_to: Some(rpc::subscribe_request::SubscribeTo::LiveQueryId(
-						proto::Uuid::from_uuid(uuid),
-					)),
-				})?)
-				.await
-				.map_err(status_to_error)?
-				.into_inner();
-			tokio::spawn(pump_notifications(stream, notifications, uuid));
-			Ok(())
-		})
-	}
+    fn subscribe_live(
+        &self,
+        ctx: EngineContext,
+        uuid: Uuid,
+        notifications: async_channel::Sender<Result<Notification, Error>>,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            // The live query already exists -- `LIVE SELECT` ran as an
+            // ordinary statement and returned this id -- so this attaches to
+            // it rather than registering a new one. Ending this stream
+            // therefore leaves the live query running, which is what `kill`
+            // is for.
+            let stream = self
+                .client()
+                .subscribe(self.checked(rpc::SubscribeRequest {
+                    context: Some(context),
+                    resume_from: None,
+                    subscribe_to: Some(rpc::subscribe_request::SubscribeTo::LiveQueryId(
+                        proto::Uuid::from_uuid(uuid),
+                    )),
+                })?)
+                .await
+                .map_err(status_to_error)?
+                .into_inner();
+            tokio::spawn(pump_notifications(stream, notifications, uuid));
+            Ok(())
+        })
+    }
 
-	fn export_file(
-		&self,
-		ctx: EngineContext,
-		path: PathBuf,
-		config: Option<DbExportConfig>,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let stream = self.export_surql(context, config).await?;
-			write_export_to_file(stream, path).await
-		})
-	}
+    fn export_file(
+        &self,
+        ctx: EngineContext,
+        path: PathBuf,
+        config: Option<DbExportConfig>,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let stream = self.export_surql(context, config).await?;
+            write_export_to_file(stream, path).await
+        })
+    }
 
-	fn export_bytes(
-		&self,
-		ctx: EngineContext,
-		bytes: async_channel::Sender<Result<Vec<u8>, Error>>,
-		config: Option<DbExportConfig>,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let stream = self.export_surql(context, config).await?;
-			// The caller reads from the channel while the export streams, so
-			// this must not block on draining it here.
-			tokio::spawn(pump_export_to_channel(stream, bytes));
-			Ok(())
-		})
-	}
+    fn export_bytes(
+        &self,
+        ctx: EngineContext,
+        bytes: async_channel::Sender<Result<Vec<u8>, Error>>,
+        config: Option<DbExportConfig>,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let stream = self.export_surql(context, config).await?;
+            // The caller reads from the channel while the export streams, so
+            // this must not block on draining it here.
+            tokio::spawn(pump_export_to_channel(stream, bytes));
+            Ok(())
+        })
+    }
 
-	fn export_ml_file(
-		&self,
-		ctx: EngineContext,
-		path: PathBuf,
-		config: MlExportConfig,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let stream = self.export_ml(context, config).await?;
-			write_export_to_file(stream, path).await
-		})
-	}
+    fn export_ml_file(
+        &self,
+        ctx: EngineContext,
+        path: PathBuf,
+        config: MlExportConfig,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let stream = self.export_ml(context, config).await?;
+            write_export_to_file(stream, path).await
+        })
+    }
 
-	fn export_ml_bytes(
-		&self,
-		ctx: EngineContext,
-		bytes: async_channel::Sender<Result<Vec<u8>, Error>>,
-		config: MlExportConfig,
-	) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let stream = self.export_ml(context, config).await?;
-			tokio::spawn(pump_export_to_channel(stream, bytes));
-			Ok(())
-		})
-	}
+    fn export_ml_bytes(
+        &self,
+        ctx: EngineContext,
+        bytes: async_channel::Sender<Result<Vec<u8>, Error>>,
+        config: MlExportConfig,
+    ) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let stream = self.export_ml(context, config).await?;
+            tokio::spawn(pump_export_to_channel(stream, bytes));
+            Ok(())
+        })
+    }
 
-	fn import_file(&self, ctx: EngineContext, path: PathBuf) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let open = || async {
-				tokio::fs::File::open(&path)
-					.await
-					.map_err(|e| Error::internal(format!("Failed to open {}: {e}", path.display())))
-			};
-			// A codec the handshake named can still be refused in front of the
-			// server -- a proxy may have answered the handshake itself, or
-			// terminated TLS and re-framed without the codec the backend has.
-			// gRPC reports that as `UNIMPLEMENTED` naming what is really
-			// accepted, so reading the capability saves the probe without
-			// removing the need to fall back.
-			if let Some(mut client) = self.compressed_upload_client() {
-				let stream = import_stream(context.clone(), open().await?);
-				match client.import_surql(stream).await {
-					Ok(_) => return Ok(()),
-					Err(status) if rejected_request_encoding(&status) => {}
-					Err(status) => return Err(status_to_error(status)),
-				}
-			}
-			self.client()
-				.import_surql(import_stream(context, open().await?))
-				.await
-				.map_err(status_to_error)?;
-			Ok(())
-		})
-	}
+    fn import_file(&self, ctx: EngineContext, path: PathBuf) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let open = || async {
+                tokio::fs::File::open(&path)
+                    .await
+                    .map_err(|e| Error::internal(format!("Failed to open {}: {e}", path.display())))
+            };
+            // A codec the handshake named can still be refused in front of the
+            // server -- a proxy may have answered the handshake itself, or
+            // terminated TLS and re-framed without the codec the backend has.
+            // gRPC reports that as `UNIMPLEMENTED` naming what is really
+            // accepted, so reading the capability saves the probe without
+            // removing the need to fall back.
+            if let Some(mut client) = self.compressed_upload_client() {
+                let stream = import_stream(context.clone(), open().await?);
+                match client.import_surql(stream).await {
+                    Ok(_) => return Ok(()),
+                    Err(status) if rejected_request_encoding(&status) => {}
+                    Err(status) => return Err(status_to_error(status)),
+                }
+            }
+            self.client()
+                .import_surql(import_stream(context, open().await?))
+                .await
+                .map_err(status_to_error)?;
+            Ok(())
+        })
+    }
 
-	fn import_ml_file(&self, ctx: EngineContext, path: PathBuf) -> EngineFuture<'_, ()> {
-		Box::pin(async move {
-			let context = self.ready(ctx).await?;
-			let file = tokio::fs::File::open(&path)
-				.await
-				.map_err(|e| Error::internal(format!("Failed to open {}: {e}", path.display())))?;
-			// The model's name and version live in its own header, which the
-			// server reads; `Begin` leaves them empty rather than guessing them
-			// from the file's path.
-			self.client()
-				.import_ml_model(ml_import_stream(context, file))
-				.await
-				.map_err(status_to_error)?;
-			Ok(())
-		})
-	}
+    fn import_ml_file(&self, ctx: EngineContext, path: PathBuf) -> EngineFuture<'_, ()> {
+        Box::pin(async move {
+            let context = self.ready(ctx).await?;
+            let file = tokio::fs::File::open(&path)
+                .await
+                .map_err(|e| Error::internal(format!("Failed to open {}: {e}", path.display())))?;
+            // The model's name and version live in its own header, which the
+            // server reads; `Begin` leaves them empty rather than guessing them
+            // from the file's path.
+            self.client()
+                .import_ml_model(ml_import_stream(context, file))
+                .await
+                .map_err(status_to_error)?;
+            Ok(())
+        })
+    }
 }
 
 /// The chunks of an export, which SurrealQL and ML-model exports share the
@@ -1836,47 +2384,47 @@ impl SurrealEngine for GrpcEngine {
 /// the stream to its end has the whole export and one that stops early has an
 /// error explaining why.
 type ExportChunks =
-	std::pin::Pin<Box<dyn futures::Stream<Item = Result<tonic::codegen::Bytes, Error>> + Send>>;
+    std::pin::Pin<Box<dyn futures::Stream<Item = Result<tonic::codegen::Bytes, Error>> + Send>>;
 
 impl GrpcEngine {
-	/// Starts a SurrealQL export, normalising its frames into chunks.
-	async fn export_surql(
-		&self,
-		context: rpc::RequestContext,
-		config: Option<DbExportConfig>,
-	) -> EngineResult<ExportChunks> {
-		let config = config.map(export_config).transpose()?;
-		let stream = self
-			.client()
-			.export_surql(self.checked(rpc::ExportSurqlRequest {
-				context: Some(context),
-				config,
-			})?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
-		Ok(export_chunks(stream))
-	}
+    /// Starts a SurrealQL export, normalising its frames into chunks.
+    async fn export_surql(
+        &self,
+        context: rpc::RequestContext,
+        config: Option<DbExportConfig>,
+    ) -> EngineResult<ExportChunks> {
+        let config = config.map(export_config).transpose()?;
+        let stream = self
+            .client()
+            .export_surql(self.checked(rpc::ExportSurqlRequest {
+                context: Some(context),
+                config,
+            })?)
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+        Ok(export_chunks(stream))
+    }
 
-	/// Starts a machine-learning model export, normalising its frames into
-	/// chunks.
-	async fn export_ml(
-		&self,
-		context: rpc::RequestContext,
-		config: MlExportConfig,
-	) -> EngineResult<ExportChunks> {
-		let stream = self
-			.client()
-			.export_ml_model(self.checked(rpc::ExportMlModelRequest {
-				context: Some(context),
-				name: config.name,
-				version: config.version,
-			})?)
-			.await
-			.map_err(status_to_error)?
-			.into_inner();
-		Ok(export_chunks(stream))
-	}
+    /// Starts a machine-learning model export, normalising its frames into
+    /// chunks.
+    async fn export_ml(
+        &self,
+        context: rpc::RequestContext,
+        config: MlExportConfig,
+    ) -> EngineResult<ExportChunks> {
+        let stream = self
+            .client()
+            .export_ml_model(self.checked(rpc::ExportMlModelRequest {
+                context: Some(context),
+                name: config.name,
+                version: config.version,
+            })?)
+            .await
+            .map_err(status_to_error)?
+            .into_inner();
+        Ok(export_chunks(stream))
+    }
 }
 
 /// One frame of an export stream, with its wrapper message peeled off.
@@ -1885,9 +2433,9 @@ impl GrpcEngine {
 /// different wrappers, so unwrapping them is all that differs between them --
 /// which is what [`ExportResponse`] answers.
 enum ExportFrame {
-	Chunk(tonic::codegen::Bytes),
-	Trailer(rpc::DataTrailer),
-	Error(proto::SurrealError),
+    Chunk(tonic::codegen::Bytes),
+    Trailer(rpc::DataTrailer),
+    Error(proto::SurrealError),
 }
 
 /// A message an export streams, whichever export it is.
@@ -1895,30 +2443,33 @@ enum ExportFrame {
 /// Implemented for each wrapper the protocol defines, so the framing below is
 /// written once rather than per export RPC.
 trait ExportResponse: Send + 'static {
-	/// The frame this message carries, or `None` for one this build does not
-	/// recognise.
-	fn into_frame(self) -> Option<ExportFrame>;
+    /// The frame this message carries, or `None` for one this build does not
+    /// recognise.
+    fn into_frame(self) -> Option<ExportFrame>;
 }
 
 /// Implements [`ExportResponse`] for one export's response message, whose
 /// generated frame enum differs only in its module path.
 macro_rules! export_response {
-	($response:ty, $frame:path) => {
-		impl ExportResponse for $response {
-			fn into_frame(self) -> Option<ExportFrame> {
-				use $frame as Frame;
-				match self.frame? {
-					Frame::Chunk(chunk) => Some(ExportFrame::Chunk(chunk.data)),
-					Frame::Trailer(trailer) => Some(ExportFrame::Trailer(trailer)),
-					Frame::Error(error) => Some(ExportFrame::Error(error)),
-				}
-			}
-		}
-	};
+    ($response:ty, $frame:path) => {
+        impl ExportResponse for $response {
+            fn into_frame(self) -> Option<ExportFrame> {
+                use $frame as Frame;
+                match self.frame? {
+                    Frame::Chunk(chunk) => Some(ExportFrame::Chunk(chunk.data)),
+                    Frame::Trailer(trailer) => Some(ExportFrame::Trailer(trailer)),
+                    Frame::Error(error) => Some(ExportFrame::Error(error)),
+                }
+            }
+        }
+    };
 }
 
 export_response!(rpc::ExportSurqlResponse, rpc::export_surql_response::Frame);
-export_response!(rpc::ExportMlModelResponse, rpc::export_ml_model_response::Frame);
+export_response!(
+    rpc::ExportMlModelResponse,
+    rpc::export_ml_model_response::Frame
+);
 
 /// Normalises an export stream into the chunks it carries, failing the
 /// transfer if it does not complete.
@@ -1934,76 +2485,84 @@ export_response!(rpc::ExportMlModelResponse, rpc::export_ml_model_response::Fram
 /// failure the transport can produce -- a truncated stream -- while HTTP/2's
 /// own framing covers corruption in transit.
 fn export_chunks<T: ExportResponse>(stream: tonic::Streaming<T>) -> ExportChunks {
-	/// How much of the export has arrived, and whether it is over.
-	struct State<T> {
-		stream: tonic::Streaming<T>,
-		streamed: u64,
-		/// Set once the stream has yielded its last item, so a consumer that
-		/// polls on past the end gets nothing rather than a second error.
-		finished: bool,
-	}
+    /// How much of the export has arrived, and whether it is over.
+    struct State<T> {
+        stream: tonic::Streaming<T>,
+        streamed: u64,
+        /// Set once the stream has yielded its last item, so a consumer that
+        /// polls on past the end gets nothing rather than a second error.
+        finished: bool,
+    }
 
-	impl<T> State<T> {
-		/// Ends the stream, reporting `error` as its last item.
-		fn fail(mut self, error: Error) -> Option<(Result<tonic::codegen::Bytes, Error>, Self)> {
-			self.finished = true;
-			Some((Err(error), self))
-		}
+    impl<T> State<T> {
+        /// Ends the stream, reporting `error` as its last item.
+        fn fail(mut self, error: Error) -> Option<(Result<tonic::codegen::Bytes, Error>, Self)> {
+            self.finished = true;
+            Some((Err(error), self))
+        }
 
-		fn truncated(
-			self,
-			message: String,
-		) -> Option<(Result<tonic::codegen::Bytes, Error>, Self)> {
-			self.fail(Error::connection(message, crate::types::ConnectionError::ConnectionFailed))
-		}
-	}
+        fn truncated(
+            self,
+            message: String,
+        ) -> Option<(Result<tonic::codegen::Bytes, Error>, Self)> {
+            self.fail(Error::connection(
+                message,
+                crate::types::ConnectionError::ConnectionFailed,
+            ))
+        }
+    }
 
-	Box::pin(futures::stream::unfold(
-		State {
-			stream,
-			streamed: 0,
-			finished: false,
-		},
-		|mut state| async move {
-			if state.finished {
-				return None;
-			}
-			let frame = match state.stream.message().await {
-				Ok(Some(message)) => message.into_frame(),
-				Ok(None) => {
-					return state.truncated("The export ended before it was complete".to_string());
-				}
-				Err(status) => return state.fail(status_to_error(status)),
-			};
-			match frame {
-				Some(ExportFrame::Chunk(chunk)) => {
-					state.streamed += chunk.len() as u64;
-					Some((Ok(chunk), state))
-				}
-				// The byte count is complete, but the physical transport still
-				// owes its checked terminal status before this transfer succeeds.
-				Some(ExportFrame::Trailer(trailer)) if trailer.bytes == state.streamed => {
-					match drain_after_end(&mut state.stream, |message| match message.into_frame() {
-						Some(ExportFrame::Error(error)) => proto_error(error),
-						_ => Error::internal("Export stream carried a frame after its trailer".to_string()),
-					}).await {
-						Ok(()) => None,
-						Err(error) => state.fail(error),
-					}
-				}
-				Some(ExportFrame::Trailer(trailer)) => {
-					let message = format!(
-						"The export declared {} bytes but {} arrived",
-						trailer.bytes, state.streamed
-					);
-					state.truncated(message)
-				}
-				Some(ExportFrame::Error(error)) => state.fail(proto_error(error)),
-				None => state
-					.fail(Error::internal("The export carried an unrecognised frame".to_string())),
-			}
-		},
-	))
+    Box::pin(futures::stream::unfold(
+        State {
+            stream,
+            streamed: 0,
+            finished: false,
+        },
+        |mut state| async move {
+            if state.finished {
+                return None;
+            }
+            let frame = match state.stream.message().await {
+                Ok(Some(message)) => message.into_frame(),
+                Ok(None) => {
+                    return state.truncated("The export ended before it was complete".to_string());
+                }
+                Err(status) => return state.fail(status_to_error(status)),
+            };
+            match frame {
+                Some(ExportFrame::Chunk(chunk)) => {
+                    state.streamed += chunk.len() as u64;
+                    Some((Ok(chunk), state))
+                }
+                // The byte count is complete, but the physical transport still
+                // owes its checked terminal status before this transfer succeeds.
+                Some(ExportFrame::Trailer(trailer)) if trailer.bytes == state.streamed => {
+                    match drain_after_end(&mut state.stream, |message| match message.into_frame() {
+                        Some(ExportFrame::Error(error)) => proto_error(error),
+                        _ => Error::internal(
+                            "Export stream carried a frame after its trailer".to_string(),
+                        ),
+                    })
+                    .await
+                    {
+                        Ok(()) => None,
+                        Err(error) => state.fail(error),
+                    }
+                }
+                Some(ExportFrame::Trailer(trailer)) => {
+                    let message = format!(
+                        "The export declared {} bytes but {} arrived",
+                        trailer.bytes, state.streamed
+                    );
+                    state.truncated(message)
+                }
+                Some(ExportFrame::Error(error)) => state.fail(proto_error(error)),
+                None => state.fail(Error::internal(
+                    "The export carried an unrecognised frame".to_string(),
+                )),
+            }
+        },
+    ))
 }
 
 /// A message an import streams, whichever import it is.
@@ -2012,54 +2571,56 @@ fn export_chunks<T: ExportResponse>(stream: tonic::Streaming<T>) -> ExportChunks
 /// written once rather than per import RPC. `Begin` is supplied by the caller
 /// because only it knows what that import's opening frame carries.
 trait ImportRequest: Send + 'static {
-	fn chunk(data: tonic::codegen::Bytes) -> Self;
-	fn trailer(trailer: rpc::DataTrailer) -> Self;
+    fn chunk(data: tonic::codegen::Bytes) -> Self;
+    fn trailer(trailer: rpc::DataTrailer) -> Self;
 }
 
 impl ImportRequest for rpc::ImportSurqlRequest {
-	fn chunk(data: tonic::codegen::Bytes) -> Self {
-		Self {
-			frame: Some(rpc::import_surql_request::Frame::Chunk(rpc::DataChunk {
-				data,
-			})),
-		}
-	}
+    fn chunk(data: tonic::codegen::Bytes) -> Self {
+        Self {
+            frame: Some(rpc::import_surql_request::Frame::Chunk(rpc::DataChunk {
+                data,
+            })),
+        }
+    }
 
-	fn trailer(trailer: rpc::DataTrailer) -> Self {
-		Self {
-			frame: Some(rpc::import_surql_request::Frame::Trailer(trailer)),
-		}
-	}
+    fn trailer(trailer: rpc::DataTrailer) -> Self {
+        Self {
+            frame: Some(rpc::import_surql_request::Frame::Trailer(trailer)),
+        }
+    }
 }
 
 impl ImportRequest for rpc::ImportMlModelRequest {
-	fn chunk(data: tonic::codegen::Bytes) -> Self {
-		Self {
-			frame: Some(rpc::import_ml_model_request::Frame::Chunk(rpc::DataChunk {
-				data,
-			})),
-		}
-	}
+    fn chunk(data: tonic::codegen::Bytes) -> Self {
+        Self {
+            frame: Some(rpc::import_ml_model_request::Frame::Chunk(rpc::DataChunk {
+                data,
+            })),
+        }
+    }
 
-	fn trailer(trailer: rpc::DataTrailer) -> Self {
-		Self {
-			frame: Some(rpc::import_ml_model_request::Frame::Trailer(trailer)),
-		}
-	}
+    fn trailer(trailer: rpc::DataTrailer) -> Self {
+        Self {
+            frame: Some(rpc::import_ml_model_request::Frame::Trailer(trailer)),
+        }
+    }
 }
 
 /// Frames a SurrealQL import: the opening frame carrying the context, then the
 /// file's chunks, then a trailer stating what was sent.
 fn import_stream(
-	context: rpc::RequestContext,
-	file: tokio::fs::File,
+    context: rpc::RequestContext,
+    file: tokio::fs::File,
 ) -> impl futures::Stream<Item = rpc::ImportSurqlRequest> + Send + 'static {
-	let begin = rpc::ImportSurqlRequest {
-		frame: Some(rpc::import_surql_request::Frame::Begin(rpc::ImportSurqlBegin {
-			context: Some(context),
-		})),
-	};
-	frame_import(begin, file)
+    let begin = rpc::ImportSurqlRequest {
+        frame: Some(rpc::import_surql_request::Frame::Begin(
+            rpc::ImportSurqlBegin {
+                context: Some(context),
+            },
+        )),
+    };
+    frame_import(begin, file)
 }
 
 /// Frames a SurrealML import.
@@ -2068,328 +2629,340 @@ fn import_stream(
 /// under come from its own header, which the server reads, so guessing them
 /// from the file's path here would only invite a disagreement.
 fn ml_import_stream(
-	context: rpc::RequestContext,
-	file: tokio::fs::File,
+    context: rpc::RequestContext,
+    file: tokio::fs::File,
 ) -> impl futures::Stream<Item = rpc::ImportMlModelRequest> + Send + 'static {
-	let begin = rpc::ImportMlModelRequest {
-		frame: Some(rpc::import_ml_model_request::Frame::Begin(rpc::ImportMlModelBegin {
-			context: Some(context),
-			name: String::new(),
-			version: String::new(),
-		})),
-	};
-	frame_import(begin, file)
+    let begin = rpc::ImportMlModelRequest {
+        frame: Some(rpc::import_ml_model_request::Frame::Begin(
+            rpc::ImportMlModelBegin {
+                context: Some(context),
+                name: String::new(),
+                version: String::new(),
+            },
+        )),
+    };
+    frame_import(begin, file)
 }
 
 /// Streams `begin`, then the file in chunks, then the trailer that completes it.
 fn frame_import<T: ImportRequest>(
-	begin: T,
-	file: tokio::fs::File,
+    begin: T,
+    file: tokio::fs::File,
 ) -> impl futures::Stream<Item = T> + Send + 'static {
-	use tokio::io::AsyncReadExt;
+    use tokio::io::AsyncReadExt;
 
-	enum Stage<T> {
-		Begin(T, tokio::fs::File),
-		Chunks(tokio::fs::File, u64),
-		Done,
-	}
+    enum Stage<T> {
+        Begin(T, tokio::fs::File),
+        Chunks(tokio::fs::File, u64),
+        Done,
+    }
 
-	futures::stream::unfold(Stage::Begin(begin, file), |stage| async move {
-		match stage {
-			Stage::Begin(begin, file) => Some((begin, Stage::Chunks(file, 0))),
-			Stage::Chunks(mut file, sent) => {
-				// `read_buf` fills the spare capacity and sets the length, so
-				// the buffer is never zeroed only to be overwritten by the
-				// read, and needs no truncating afterwards.
-				let mut buffer = Vec::with_capacity(surrealdb_protocol::DEFAULT_FILE_CHUNK_SIZE);
-				match file.read_buf(&mut buffer).await {
-					Ok(0) => Some((
-						T::trailer(rpc::DataTrailer {
-							bytes: sent,
-							// The trailer's checksum is optional, and hashing
-							// would mean a second pass over the file.
-							blake3: String::new(),
-						}),
-						Stage::Done,
-					)),
-					Ok(read) => {
-						Some((T::chunk(buffer.into()), Stage::Chunks(file, sent + read as u64)))
-					}
-					// The stream cannot report an error, so it stops early;
-					// the server sees a truncated import and rejects it
-					// rather than committing a partial file.
-					Err(_) => None,
-				}
-			}
-			Stage::Done => None,
-		}
-	})
+    futures::stream::unfold(Stage::Begin(begin, file), |stage| async move {
+        match stage {
+            Stage::Begin(begin, file) => Some((begin, Stage::Chunks(file, 0))),
+            Stage::Chunks(mut file, sent) => {
+                // `read_buf` fills the spare capacity and sets the length, so
+                // the buffer is never zeroed only to be overwritten by the
+                // read, and needs no truncating afterwards.
+                let mut buffer = Vec::with_capacity(surrealdb_protocol::DEFAULT_FILE_CHUNK_SIZE);
+                match file.read_buf(&mut buffer).await {
+                    Ok(0) => Some((
+                        T::trailer(rpc::DataTrailer {
+                            bytes: sent,
+                            // The trailer's checksum is optional, and hashing
+                            // would mean a second pass over the file.
+                            blake3: String::new(),
+                        }),
+                        Stage::Done,
+                    )),
+                    Ok(read) => Some((
+                        T::chunk(buffer.into()),
+                        Stage::Chunks(file, sent + read as u64),
+                    )),
+                    // The stream cannot report an error, so it stops early;
+                    // the server sees a truncated import and rejects it
+                    // rather than committing a partial file.
+                    Err(_) => None,
+                }
+            }
+            Stage::Done => None,
+        }
+    })
 }
 
 /// Writes an export stream to a file, replacing anything already there.
 async fn write_export_to_file(mut stream: ExportChunks, path: PathBuf) -> EngineResult<()> {
-	use futures::StreamExt;
-	use tokio::io::AsyncWriteExt;
+    use futures::StreamExt;
+    use tokio::io::AsyncWriteExt;
 
-	let mut file = tokio::fs::File::create(&path)
-		.await
-		.map_err(|e| Error::internal(format!("Failed to create {}: {e}", path.display())))?;
-	while let Some(chunk) = stream.next().await {
-		let chunk = chunk?;
-		file.write_all(&chunk)
-			.await
-			.map_err(|e| Error::internal(format!("Failed to write {}: {e}", path.display())))?;
-	}
-	file.flush()
-		.await
-		.map_err(|e| Error::internal(format!("Failed to flush {}: {e}", path.display())))?;
-	Ok(())
+    let mut file = tokio::fs::File::create(&path)
+        .await
+        .map_err(|e| Error::internal(format!("Failed to create {}: {e}", path.display())))?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| Error::internal(format!("Failed to write {}: {e}", path.display())))?;
+    }
+    file.flush()
+        .await
+        .map_err(|e| Error::internal(format!("Failed to flush {}: {e}", path.display())))?;
+    Ok(())
 }
 
 /// Forwards an export stream to the channel the caller reads from, passing on
 /// a failure so the reader sees it rather than a silently short export.
 async fn pump_export_to_channel(
-	mut stream: ExportChunks,
-	bytes: async_channel::Sender<Result<Vec<u8>, Error>>,
+    mut stream: ExportChunks,
+    bytes: async_channel::Sender<Result<Vec<u8>, Error>>,
 ) {
-	use futures::StreamExt;
+    use futures::StreamExt;
 
-	while let Some(chunk) = stream.next().await {
-		let chunk = match chunk {
-			Ok(chunk) => chunk,
-			Err(error) => {
-				bytes.send(Err(error)).await.ok();
-				return;
-			}
-		};
-		// The engine interface hands the caller owned bytes, so this is the
-		// one place an export chunk has to be copied.
-		if bytes.send(Ok(chunk.to_vec())).await.is_err() {
-			// The reader is gone; stop pulling the export.
-			return;
-		}
-	}
-	bytes.close();
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                bytes.send(Err(error)).await.ok();
+                return;
+            }
+        };
+        // The engine interface hands the caller owned bytes, so this is the
+        // one place an export chunk has to be copied.
+        if bytes.send(Ok(chunk.to_vec())).await.is_err() {
+            // The reader is gone; stop pulling the export.
+            return;
+        }
+    }
+    bytes.close();
 }
 
 /// Forwards a subscription's notifications to the channel the caller holds.
 async fn pump_notifications(
-	mut stream: tonic::Streaming<rpc::SubscribeResponse>,
-	notifications: async_channel::Sender<Result<Notification, Error>>,
-	live_query_id: Uuid,
+    mut stream: tonic::Streaming<rpc::SubscribeResponse>,
+    notifications: async_channel::Sender<Result<Notification, Error>>,
+    live_query_id: Uuid,
 ) {
-	loop {
-		let message = match stream.message().await {
-			Ok(Some(message)) => message,
-			Ok(None) => break,
-			Err(status) => {
-				notifications.send(Err(status_to_error(status))).await.ok();
-				break;
-			}
-		};
-		match message.frame {
-			// `Begin` only names the subscription, which the caller already
-			// knows by its live query id.
-			Some(rpc::subscribe_response::Frame::Begin(_)) => {}
-			Some(rpc::subscribe_response::Frame::Notification(notification)) => {
-				match convert_notification(notification, live_query_id) {
-					Ok(notification) => {
-						if notifications.send(Ok(notification)).await.is_err() {
-							return;
-						}
-					}
-					Err(error) => {
-						notifications.send(Err(error)).await.ok();
-						return;
-					}
-				}
-			}
-			Some(rpc::subscribe_response::Frame::End(_)) => {
-				if let Err(error) = drain_after_end(&mut stream, |response| match response.frame {
-					Some(rpc::subscribe_response::Frame::Error(error)) => proto_error(error),
-					_ => Error::internal("Subscription stream carried a frame after its end".to_string()),
-				}).await {
-					notifications.send(Err(error)).await.ok();
-				}
-				break;
-			}
-			Some(rpc::subscribe_response::Frame::Error(error)) => {
-				notifications.send(Err(proto_error(error))).await.ok();
-				break;
-			}
-			None => break,
-		}
-	}
-	notifications.close();
+    loop {
+        let message = match stream.message().await {
+            Ok(Some(message)) => message,
+            Ok(None) => break,
+            Err(status) => {
+                notifications.send(Err(status_to_error(status))).await.ok();
+                break;
+            }
+        };
+        match message.frame {
+            // `Begin` only names the subscription, which the caller already
+            // knows by its live query id.
+            Some(rpc::subscribe_response::Frame::Begin(_)) => {}
+            Some(rpc::subscribe_response::Frame::Notification(notification)) => {
+                match convert_notification(notification, live_query_id) {
+                    Ok(notification) => {
+                        if notifications.send(Ok(notification)).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        notifications.send(Err(error)).await.ok();
+                        return;
+                    }
+                }
+            }
+            Some(rpc::subscribe_response::Frame::End(_)) => {
+                if let Err(error) = drain_after_end(&mut stream, |response| match response.frame {
+                    Some(rpc::subscribe_response::Frame::Error(error)) => proto_error(error),
+                    _ => Error::internal(
+                        "Subscription stream carried a frame after its end".to_string(),
+                    ),
+                })
+                .await
+                {
+                    notifications.send(Err(error)).await.ok();
+                }
+                break;
+            }
+            Some(rpc::subscribe_response::Frame::Error(error)) => {
+                notifications.send(Err(proto_error(error))).await.ok();
+                break;
+            }
+            None => break,
+        }
+    }
+    notifications.close();
 }
 
 fn convert_notification(
-	notification: rpc::Notification,
-	live_query_id: Uuid,
+    notification: rpc::Notification,
+    live_query_id: Uuid,
 ) -> EngineResult<Notification> {
-	let action = match notification.action() {
-		rpc::Action::Created => Action::Create,
-		rpc::Action::Updated => Action::Update,
-		rpc::Action::Deleted => Action::Delete,
-		rpc::Action::Unspecified => {
-			return Err(Error::internal("Notification carried an unrecognised action".to_string()));
-		}
-	};
-	let record = match notification.record_id {
-		Some(record_id) => Value::RecordId(
-			record_id.try_into().map_err(|e: anyhow::Error| deserialization_error(e))?,
-		),
-		None => Value::None,
-	};
-	let result = match notification.value {
-		Some(value) => Value::try_from(value).map_err(deserialization_error)?,
-		None => Value::None,
-	};
-	// The server echoes the live query id; fall back to the one subscribed
-	// with if it is absent, since the caller matches on it.
-	let id = notification.live_query_id.and_then(|id| id.to_uuid().ok()).unwrap_or(live_query_id);
-	Ok(Notification::new(id.into(), None, action, record, result))
+    let action = match notification.action() {
+        rpc::Action::Created => Action::Create,
+        rpc::Action::Updated => Action::Update,
+        rpc::Action::Deleted => Action::Delete,
+        rpc::Action::Unspecified => {
+            return Err(Error::internal(
+                "Notification carried an unrecognised action".to_string(),
+            ));
+        }
+    };
+    let record = match notification.record_id {
+        Some(record_id) => Value::RecordId(
+            record_id
+                .try_into()
+                .map_err(|e: anyhow::Error| deserialization_error(e))?,
+        ),
+        None => Value::None,
+    };
+    let result = match notification.value {
+        Some(value) => Value::try_from(value).map_err(deserialization_error)?,
+        None => Value::None,
+    };
+    // The server echoes the live query id; fall back to the one subscribed
+    // with if it is absent, since the caller matches on it.
+    let id = notification
+        .live_query_id
+        .and_then(|id| id.to_uuid().ok())
+        .unwrap_or(live_query_id);
+    Ok(Notification::new(id.into(), None, action, record, result))
 }
 
 /// Maps the SDK's export configuration onto the wire's.
 fn export_config(config: DbExportConfig) -> EngineResult<rpc::ExportConfig> {
-	use surrealdb_rpc::export::TableConfig;
+    use surrealdb_rpc::export::TableConfig;
 
-	let tables = match config.tables {
-		TableConfig::All => rpc::export_config::Tables::from(true),
-		TableConfig::None => rpc::export_config::Tables::from(false),
-		TableConfig::Some(tables) => rpc::export_config::Tables {
-			selection: Some(rpc::export_config::tables::Selection::Selected(
-				rpc::export_config::SelectedTables {
-					tables,
-				},
-			)),
-		},
-		// The wire format can name the tables to include but not the ones to
-		// leave out. Exporting everything instead would be the opposite of
-		// what the caller asked for, so this fails.
-		TableConfig::Exclude(excluded) => rpc::export_config::Tables {
-			selection: Some(rpc::export_config::tables::Selection::Excluded(
-				rpc::export_config::ExcludedTables {
-					tables: excluded.exclude,
-				},
-			)),
-		},
-	};
-	Ok(rpc::ExportConfig {
-		users: config.users,
-		accesses: config.accesses,
-		params: config.params,
-		functions: config.functions,
-		analyzers: config.analyzers,
-		tables: Some(tables),
-		versions: config.versions,
-		records: config.records,
-		sequences: config.sequences,
-		apis: config.apis,
-		buckets: config.buckets,
-		modules: config.modules,
-		configs: config.configs,
-	})
+    let tables = match config.tables {
+        TableConfig::All => rpc::export_config::Tables::from(true),
+        TableConfig::None => rpc::export_config::Tables::from(false),
+        TableConfig::Some(tables) => rpc::export_config::Tables {
+            selection: Some(rpc::export_config::tables::Selection::Selected(
+                rpc::export_config::SelectedTables { tables },
+            )),
+        },
+        // The wire format can name the tables to include but not the ones to
+        // leave out. Exporting everything instead would be the opposite of
+        // what the caller asked for, so this fails.
+        TableConfig::Exclude(excluded) => rpc::export_config::Tables {
+            selection: Some(rpc::export_config::tables::Selection::Excluded(
+                rpc::export_config::ExcludedTables {
+                    tables: excluded.exclude,
+                },
+            )),
+        },
+    };
+    Ok(rpc::ExportConfig {
+        users: config.users,
+        accesses: config.accesses,
+        params: config.params,
+        functions: config.functions,
+        analyzers: config.analyzers,
+        tables: Some(tables),
+        versions: config.versions,
+        records: config.records,
+        sequences: config.sequences,
+        apis: config.apis,
+        buckets: config.buckets,
+        modules: config.modules,
+        configs: config.configs,
+    })
 }
 
 /// One statement's batches, accumulated into a single [`QueryResult`].
 #[derive(Default)]
 struct Statement {
-	values: Vec<Value>,
-	/// A `SINGLE` statement yields one value rather than a list.
-	single: bool,
-	stats: Option<rpc::QueryStats>,
-	statement_kind: i32,
-	error: Option<Error>,
+    values: Vec<Value>,
+    /// A `SINGLE` statement yields one value rather than a list.
+    single: bool,
+    stats: Option<rpc::QueryStats>,
+    statement_kind: i32,
+    error: Option<Error>,
 }
 
 impl Statement {
-	fn push(&mut self, batch: rpc::QueryBatchFrame) {
-		self.statement_kind = batch.statement_kind;
-		if batch.kind == rpc::QueryResponseKind::Single as i32 {
-			self.single = true;
-		}
-		if batch.stats.is_some() {
-			self.stats = batch.stats;
-		}
-		if let Some(error) = batch.error {
-			self.error = Some(proto_error(error));
-			return;
-		}
-		match batch.payload {
-			Some(rpc::query_batch_frame::Payload::Values(values)) => {
-				// The batch carries its whole payload, so the accumulator is
-				// sized once rather than grown a row at a time.
-				self.values.reserve(values.values.len());
-				for value in values.values {
-					match Value::try_from(value) {
-						Ok(value) => self.values.push(value),
-						Err(e) => {
-							self.error = Some(deserialization_error(e));
-							return;
-						}
-					}
-				}
-			}
-			Some(rpc::query_batch_frame::Payload::Arrow(_)) => {
-				self.error = Some(Error::internal(
-					"Server sent a columnar batch, which was not requested".to_string(),
-				));
-			}
-			None => {}
-		}
-	}
+    fn push(&mut self, batch: rpc::QueryBatchFrame) {
+        self.statement_kind = batch.statement_kind;
+        if batch.kind == rpc::QueryResponseKind::Single as i32 {
+            self.single = true;
+        }
+        if batch.stats.is_some() {
+            self.stats = batch.stats;
+        }
+        if let Some(error) = batch.error {
+            self.error = Some(proto_error(error));
+            return;
+        }
+        match batch.payload {
+            Some(rpc::query_batch_frame::Payload::Values(values)) => {
+                // The batch carries its whole payload, so the accumulator is
+                // sized once rather than grown a row at a time.
+                self.values.reserve(values.values.len());
+                for value in values.values {
+                    match Value::try_from(value) {
+                        Ok(value) => self.values.push(value),
+                        Err(e) => {
+                            self.error = Some(deserialization_error(e));
+                            return;
+                        }
+                    }
+                }
+            }
+            Some(rpc::query_batch_frame::Payload::Arrow(_)) => {
+                self.error = Some(Error::internal(
+                    "Server sent a columnar batch, which was not requested".to_string(),
+                ));
+            }
+            None => {}
+        }
+    }
 
-	fn finish(self) -> QueryResult {
-		let time = self
-			.stats
-			.and_then(|stats| stats.execution_duration)
-			.and_then(|duration| StdDuration::try_from(duration).ok())
-			.unwrap_or_default();
-		let query_type = if self.statement_kind == rpc::QueryStatementKind::Live as i32 {
-			QueryType::Live
-		} else if self.statement_kind == rpc::QueryStatementKind::Kill as i32 {
-			QueryType::Kill
-		} else {
-			QueryType::Other
-		};
-		// A statement's own failure is carried in its result, so the rest of
-		// the query's results still reach the caller.
-		let result = match self.error {
-			Some(error) => Err(error),
-			None if self.single => Ok(self.values.into_iter().next().unwrap_or(Value::None)),
-			None => Ok(Value::Array(Array::from(self.values))),
-		};
-		QueryResult {
-			time,
-			result,
-			query_type,
-		}
-	}
+    fn finish(self) -> QueryResult {
+        let time = self
+            .stats
+            .and_then(|stats| stats.execution_duration)
+            .and_then(|duration| StdDuration::try_from(duration).ok())
+            .unwrap_or_default();
+        let query_type = if self.statement_kind == rpc::QueryStatementKind::Live as i32 {
+            QueryType::Live
+        } else if self.statement_kind == rpc::QueryStatementKind::Kill as i32 {
+            QueryType::Kill
+        } else {
+            QueryType::Other
+        };
+        // A statement's own failure is carried in its result, so the rest of
+        // the query's results still reach the caller.
+        let result = match self.error {
+            Some(error) => Err(error),
+            None if self.single => Ok(self.values.into_iter().next().unwrap_or(Value::None)),
+            None => Ok(Value::Array(Array::from(self.values))),
+        };
+        QueryResult {
+            time,
+            result,
+            query_type,
+        }
+    }
 }
 
 fn nullable(value: String) -> rpc::NullableString {
-	rpc::NullableString {
-		value: Some(rpc::nullable_string::Value::Some(value)),
-	}
+    rpc::NullableString {
+        value: Some(rpc::nullable_string::Value::Some(value)),
+    }
 }
 
 fn to_proto_variables(variables: Variables) -> EngineResult<proto::Variables> {
-	to_variables(Object::from(variables).into_inner())
+    to_variables(Object::from(variables).into_inner())
 }
 
 fn tokens_to_token(tokens: Option<rpc::Tokens>) -> EngineResult<Token> {
-	let tokens =
-		tokens.ok_or_else(|| Error::internal("Server did not return any tokens".to_string()))?;
-	Ok(if tokens.refresh.is_empty() {
-		Token::Access(tokens.access)
-	} else {
-		Token::WithRefresh {
-			access: tokens.access,
-			refresh: tokens.refresh,
-		}
-	})
+    let tokens =
+        tokens.ok_or_else(|| Error::internal("Server did not return any tokens".to_string()))?;
+    Ok(if tokens.refresh.is_empty() {
+        Token::Access(tokens.access)
+    } else {
+        Token::WithRefresh {
+            access: tokens.access,
+            refresh: tokens.refresh,
+        }
+    })
 }
 
 /// Classifies credentials by the fields they carry, matching how
@@ -2397,69 +2970,69 @@ fn tokens_to_token(tokens: Option<rpc::Tokens>) -> EngineResult<Token> {
 /// [`Database`](crate::opt::auth::Database) and
 /// [`Record`](crate::opt::auth::Record) each render themselves.
 fn access_method(credentials: Object) -> EngineResult<rpc::AccessMethod> {
-	let mut fields = credentials.into_inner();
-	// `ac` is tested first because that is what the database itself dispatches
-	// on: signin routes to an access method whenever `ac` is present, and only
-	// falls back to `user`/`pass` when it is not. Probing for `user` first
-	// would misread record credentials whose SIGNIN clause takes a `user`
-	// parameter -- a common shape -- as system-user credentials, and those
-	// carry no variables, so every other parameter would be dropped.
-	let method = if let Some(access) = take_string(&mut fields, "ac")? {
-		let namespace = take_string(&mut fields, "ns")?.unwrap_or_default();
-		let database = take_string(&mut fields, "db")?.unwrap_or_default();
-		match take_string(&mut fields, "key")? {
-			// A bearer grant is an access method plus the key redeeming it.
-			Some(key) => rpc::access_method::Method::Bearer(rpc::BearerCredentials {
-				namespace,
-				database,
-				access,
-				key,
-			}),
-			// Anything else naming an access method is record access, and
-			// whatever is left is the variables its SIGNIN clause receives.
-			None => rpc::access_method::Method::Record(rpc::RecordCredentials {
-				namespace,
-				database,
-				access,
-				variables: Some(to_variables(fields)?),
-			}),
-		}
-	} else if fields.contains_key("user") {
-		rpc::access_method::Method::User(rpc::UserCredentials {
-			namespace: take_string(&mut fields, "ns")?.unwrap_or_default(),
-			database: take_string(&mut fields, "db")?.unwrap_or_default(),
-			username: take_string(&mut fields, "user")?.unwrap_or_default(),
-			password: take_string(&mut fields, "pass")?.unwrap_or_default(),
-			// System-user credentials name no access method: `ac` is what
-			// selects the branch above.
-			access: String::new(),
-		})
-	} else {
-		return Err(Error::validation(
-			"Unrecognised credentials: expected a `user`, `ac`, or `key` field".to_string(),
-			None,
-		));
-	};
-	Ok(rpc::AccessMethod {
-		method: Some(method),
-	})
+    let mut fields = credentials.into_inner();
+    // `ac` is tested first because that is what the database itself dispatches
+    // on: signin routes to an access method whenever `ac` is present, and only
+    // falls back to `user`/`pass` when it is not. Probing for `user` first
+    // would misread record credentials whose SIGNIN clause takes a `user`
+    // parameter -- a common shape -- as system-user credentials, and those
+    // carry no variables, so every other parameter would be dropped.
+    let method = if let Some(access) = take_string(&mut fields, "ac")? {
+        let namespace = take_string(&mut fields, "ns")?.unwrap_or_default();
+        let database = take_string(&mut fields, "db")?.unwrap_or_default();
+        match take_string(&mut fields, "key")? {
+            // A bearer grant is an access method plus the key redeeming it.
+            Some(key) => rpc::access_method::Method::Bearer(rpc::BearerCredentials {
+                namespace,
+                database,
+                access,
+                key,
+            }),
+            // Anything else naming an access method is record access, and
+            // whatever is left is the variables its SIGNIN clause receives.
+            None => rpc::access_method::Method::Record(rpc::RecordCredentials {
+                namespace,
+                database,
+                access,
+                variables: Some(to_variables(fields)?),
+            }),
+        }
+    } else if fields.contains_key("user") {
+        rpc::access_method::Method::User(rpc::UserCredentials {
+            namespace: take_string(&mut fields, "ns")?.unwrap_or_default(),
+            database: take_string(&mut fields, "db")?.unwrap_or_default(),
+            username: take_string(&mut fields, "user")?.unwrap_or_default(),
+            password: take_string(&mut fields, "pass")?.unwrap_or_default(),
+            // System-user credentials name no access method: `ac` is what
+            // selects the branch above.
+            access: String::new(),
+        })
+    } else {
+        return Err(Error::validation(
+            "Unrecognised credentials: expected a `user`, `ac`, or `key` field".to_string(),
+            None,
+        ));
+    };
+    Ok(rpc::AccessMethod {
+        method: Some(method),
+    })
 }
 
 /// Signup always registers a record user, so its credentials are always
 /// record-access credentials.
 fn record_credentials(credentials: Object) -> EngineResult<rpc::RecordCredentials> {
-	let mut fields = credentials.into_inner();
-	let namespace = take_string(&mut fields, "ns")?.unwrap_or_default();
-	let database = take_string(&mut fields, "db")?.unwrap_or_default();
-	let access = take_string(&mut fields, "ac")?.ok_or_else(|| {
-		Error::validation("Missing `ac` field in signup credentials".to_string(), None)
-	})?;
-	Ok(rpc::RecordCredentials {
-		namespace,
-		database,
-		access,
-		variables: Some(to_variables(fields)?),
-	})
+    let mut fields = credentials.into_inner();
+    let namespace = take_string(&mut fields, "ns")?.unwrap_or_default();
+    let database = take_string(&mut fields, "db")?.unwrap_or_default();
+    let access = take_string(&mut fields, "ac")?.ok_or_else(|| {
+        Error::validation("Missing `ac` field in signup credentials".to_string(), None)
+    })?;
+    Ok(rpc::RecordCredentials {
+        namespace,
+        database,
+        access,
+        variables: Some(to_variables(fields)?),
+    })
 }
 
 /// Removes a credential field that the wire carries as a bare string.
@@ -2469,16 +3042,17 @@ fn record_credentials(credentials: Object) -> EngineResult<rpc::RecordCredential
 /// not a string is rejected rather than defaulted: sending an empty password
 /// for a mistyped one would report the mistake as bad credentials.
 fn take_string(
-	fields: &mut std::collections::BTreeMap<String, Value>,
-	key: &str,
+    fields: &mut std::collections::BTreeMap<String, Value>,
+    key: &str,
 ) -> EngineResult<Option<String>> {
-	match fields.remove(key) {
-		None => Ok(None),
-		Some(Value::String(value)) => Ok(Some(value)),
-		Some(_) => {
-			Err(Error::validation(format!("The `{key}` credential field must be a string"), None))
-		}
-	}
+    match fields.remove(key) {
+        None => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(_) => Err(Error::validation(
+            format!("The `{key}` credential field must be a string"),
+            None,
+        )),
+    }
 }
 
 /// Binds a set of named values as the wire's variables.
@@ -2487,13 +3061,13 @@ fn take_string(
 /// that impl is what puts the keys in the ascending order the schema wants, so
 /// there is nothing to do here but convert each value.
 fn to_variables(
-	fields: std::collections::BTreeMap<String, Value>,
+    fields: std::collections::BTreeMap<String, Value>,
 ) -> EngineResult<proto::Variables> {
-	fields
-		.into_iter()
-		.map(|(key, value)| Ok((key, to_proto_value(value)?)))
-		.collect::<EngineResult<Vec<_>>>()
-		.map(|pairs| pairs.into_iter().collect())
+    fields
+        .into_iter()
+        .map(|(key, value)| Ok((key, to_proto_value(value)?)))
+        .collect::<EngineResult<Vec<_>>>()
+        .map(|pairs| pairs.into_iter().collect())
 }
 
 /// Converts a value for the wire, reporting one it cannot carry.
@@ -2501,27 +3075,30 @@ fn to_variables(
 /// The only value that fails is a duration past the signed seconds the wire
 /// counts in, which no real duration reaches.
 fn to_proto_value(value: Value) -> EngineResult<proto::Value> {
-	proto::Value::try_from(value).map_err(|e| {
-		Error::serialization(e.to_string(), crate::types::SerializationError::Serialization)
-	})
+    proto::Value::try_from(value).map_err(|e| {
+        Error::serialization(
+            e.to_string(),
+            crate::types::SerializationError::Serialization,
+        )
+    })
 }
 
 /// Maps a transport failure, which carries no structured error, from its
 /// gRPC status code.
 #[allow(clippy::needless_pass_by_value)] // By value so it reads as `.map_err(status_to_error)`; every caller owns its `Status`.
 fn status_to_error(status: tonic::Status) -> Error {
-	use tonic::Code;
-	let message = status.message().to_string();
-	match status.code() {
-		Code::InvalidArgument | Code::OutOfRange => Error::validation(message, None),
-		Code::Unimplemented => Error::configuration(message, None),
-		Code::DeadlineExceeded | Code::Aborted => Error::query(message, None),
-		Code::PermissionDenied | Code::Unauthenticated => Error::not_allowed(message, None),
-		Code::NotFound => Error::not_found(message, None),
-		Code::AlreadyExists => Error::already_exists(message, None),
-		Code::Unavailable | Code::Cancelled | Code::Unknown => Error::connection(message, None),
-		_ => Error::internal(message),
-	}
+    use tonic::Code;
+    let message = status.message().to_string();
+    match status.code() {
+        Code::InvalidArgument | Code::OutOfRange => Error::validation(message, None),
+        Code::Unimplemented => Error::configuration(message, None),
+        Code::DeadlineExceeded | Code::Aborted => Error::query(message, None),
+        Code::PermissionDenied | Code::Unauthenticated => Error::not_allowed(message, None),
+        Code::NotFound => Error::not_found(message, None),
+        Code::AlreadyExists => Error::already_exists(message, None),
+        Code::Unavailable | Code::Cancelled | Code::Unknown => Error::connection(message, None),
+        _ => Error::internal(message),
+    }
 }
 
 /// The largest response this client will decode.
@@ -2530,34 +3107,34 @@ fn status_to_error(status: tonic::Status) -> Error {
 /// here, and a server can emit a message larger than it advertises, so a caller
 /// raising it is asking for something reachable.
 fn max_response_size(configured: Option<usize>, advertised: Option<usize>) -> Option<usize> {
-	configured.or(advertised)
+    configured.or(advertised)
 }
 
 /// Which side's configuration produced the limit in force, so that a refusal
 /// can name the setting that would actually move it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LimitSource {
-	/// The server's advertised figure binds; raising the client alone would
-	/// change nothing.
-	Server,
-	/// The caller's own configuration binds; the server already allows more.
-	Client,
-	/// Both agree on the figure, so both have to move.
-	Both,
+    /// The server's advertised figure binds; raising the client alone would
+    /// change nothing.
+    Server,
+    /// The caller's own configuration binds; the server already allows more.
+    Client,
+    /// Both agree on the figure, so both have to move.
+    Both,
 }
 
 impl LimitSource {
-	/// What to change to send a larger request.
-	fn remedy(self) -> &'static str {
-		match self {
-			Self::Server => "Raise SURREAL_GRPC_MAX_MESSAGE_SIZE on the server",
-			Self::Client => "Raise max_message_size on this connection's GrpcConfig",
-			Self::Both => {
-				"Raise SURREAL_GRPC_MAX_MESSAGE_SIZE on the server and max_message_size on \
+    /// What to change to send a larger request.
+    fn remedy(self) -> &'static str {
+        match self {
+            Self::Server => "Raise SURREAL_GRPC_MAX_MESSAGE_SIZE on the server",
+            Self::Client => "Raise max_message_size on this connection's GrpcConfig",
+            Self::Both => {
+                "Raise SURREAL_GRPC_MAX_MESSAGE_SIZE on the server and max_message_size on \
 				 this connection's GrpcConfig"
-			}
-		}
-	}
+            }
+        }
+    }
 }
 
 /// The largest request this client will send, and which side set it.
@@ -2568,19 +3145,19 @@ impl LimitSource {
 /// stream error -- the failure the preflight exists to replace. A caller asking
 /// for less than the server allows still gets less.
 fn max_request_size(
-	configured: Option<usize>,
-	advertised: Option<usize>,
+    configured: Option<usize>,
+    advertised: Option<usize>,
 ) -> Option<(usize, LimitSource)> {
-	match (configured, advertised) {
-		(Some(configured), Some(advertised)) => Some(match configured.cmp(&advertised) {
-			std::cmp::Ordering::Less => (configured, LimitSource::Client),
-			std::cmp::Ordering::Greater => (advertised, LimitSource::Server),
-			std::cmp::Ordering::Equal => (configured, LimitSource::Both),
-		}),
-		(Some(configured), None) => Some((configured, LimitSource::Client)),
-		(None, Some(advertised)) => Some((advertised, LimitSource::Server)),
-		(None, None) => None,
-	}
+    match (configured, advertised) {
+        (Some(configured), Some(advertised)) => Some(match configured.cmp(&advertised) {
+            std::cmp::Ordering::Less => (configured, LimitSource::Client),
+            std::cmp::Ordering::Greater => (advertised, LimitSource::Server),
+            std::cmp::Ordering::Equal => (configured, LimitSource::Both),
+        }),
+        (Some(configured), None) => Some((configured, LimitSource::Client)),
+        (None, Some(advertised)) => Some((advertised, LimitSource::Server)),
+        (None, None) => None,
+    }
 }
 
 /// Refuses a request that cannot be encoded within the negotiated message size,
@@ -2596,24 +3173,24 @@ fn max_request_size(
 /// `None` means neither peer named a limit, which leaves tonic's send side
 /// unbounded and nothing to check against.
 fn check_message_size<M: Message>(
-	limit: Option<(usize, LimitSource)>,
-	request: &M,
+    limit: Option<(usize, LimitSource)>,
+    request: &M,
 ) -> EngineResult<()> {
-	let Some((limit, source)) = limit else {
-		return Ok(());
-	};
-	let size = request.encoded_len();
-	if size <= limit {
-		return Ok(());
-	}
-	Err(Error::validation(
-		format!(
-			"The request encodes to {size} bytes, above this connection's gRPC message limit of \
+    let Some((limit, source)) = limit else {
+        return Ok(());
+    };
+    let size = request.encoded_len();
+    if size <= limit {
+        return Ok(());
+    }
+    Err(Error::validation(
+        format!(
+            "The request encodes to {size} bytes, above this connection's gRPC message limit of \
 			 {limit} bytes. {}, or split the work into smaller statements.",
-			source.remedy()
-		),
-		ValidationError::InvalidRequest,
-	))
+            source.remedy()
+        ),
+        ValidationError::InvalidRequest,
+    ))
 }
 
 /// The server's spelling of an error kind, which is the tag its typed details
@@ -2625,7 +3202,6 @@ fn check_message_size<M: Message>(
 /// `kind_or_internal` has already degraded it -- and is spelled with `Internal`
 /// because that is the behaviour both ends assign it.
 
-
 /// Rebuilds the value a typed detail deserializes from.
 ///
 /// Each level of a detail serializes as `{ kind, details }`, and the wire
@@ -2634,19 +3210,22 @@ fn check_message_size<M: Message>(
 /// into a single object is what lets the shared taxonomy parse it, however deep
 /// the nesting goes.
 fn proto_details(details: proto::ErrorDetails) -> Option<Value> {
-	if details.kind.is_empty() {
-		return None;
-	}
-	let mut object = Object::new();
-	object.insert("kind".to_string(), Value::String(details.kind));
-	// A payload this build cannot decode is left out rather than failing the
-	// whole reason. A reason that needs its payload -- `TimedOut` and its
-	// duration -- then falls back to the bare kind when the taxonomy parses
-	// this, and one that does not, such as `TransactionConflict`, is unaffected.
-	if let Some(content) = details.content.and_then(|content| Value::try_from(content).ok()) {
-		object.insert("details".to_string(), content);
-	}
-	Some(Value::Object(object))
+    if details.kind.is_empty() {
+        return None;
+    }
+    let mut object = Object::new();
+    object.insert("kind".to_string(), Value::String(details.kind));
+    // A payload this build cannot decode is left out rather than failing the
+    // whole reason. A reason that needs its payload -- `TimedOut` and its
+    // duration -- then falls back to the bare kind when the taxonomy parses
+    // this, and one that does not, such as `TransactionConflict`, is unaffected.
+    if let Some(content) = details
+        .content
+        .and_then(|content| Value::try_from(content).ok())
+    {
+        object.insert("details".to_string(), content);
+    }
+    Some(Value::Object(object))
 }
 
 /// Maps a structured error carried on the wire, preserving its kind, message,
@@ -2657,667 +3236,822 @@ fn proto_details(details: proto::ErrorDetails) -> Option<Value> {
 /// transport. Leaving it out would push callers back onto the message, which
 /// the protocol states is not part of the contract and will be reworded.
 fn proto_error(error: proto::SurrealError) -> Error {
-	let kind = error.kind_or_internal();
-	let cause = error.cause.map(|cause| proto_error(*cause));
-	let details = error.details.and_then(proto_details);
-	// `SurrealError.retry` is not rebuilt into anything. It says the operation
-	// may be retried and deliberately says nothing about why, so there is no
-	// reason to derive from it -- and `Error` has nowhere to hold retryability
-	// apart from the reason, since a field for it would change the shape every
-	// transport serialises this type in. A conflict still reaches callers as
-	// `QueryError::TransactionConflict`, which this server pairs with the hint,
-	// so a retry loop has the typed reason to branch on either way. A peer that
-	// sends a hint with some other reason, or with none, has its retryability
-	// dropped here rather than turned into a reason it did not state.
-	let mapped = Error::from_wire(error.message, Some(kind_str(kind)), details);
-	match cause {
-		Some(cause) => mapped.with_cause(cause),
-		None => mapped,
-	}
+    let kind = error.kind_or_internal();
+    let cause = error.cause.map(|cause| proto_error(*cause));
+    let details = error.details.and_then(proto_details);
+    // `SurrealError.retry` is not rebuilt into anything. It says the operation
+    // may be retried and deliberately says nothing about why, so there is no
+    // reason to derive from it -- and `Error` has nowhere to hold retryability
+    // apart from the reason, since a field for it would change the shape every
+    // transport serialises this type in. A conflict still reaches callers as
+    // `QueryError::TransactionConflict`, which this server pairs with the hint,
+    // so a retry loop has the typed reason to branch on either way. A peer that
+    // sends a hint with some other reason, or with none, has its retryability
+    // dropped here rather than turned into a reason it did not state.
+    let mapped = Error::from_wire(error.message, Some(kind_str(kind)), details);
+    match cause {
+        Some(cause) => mapped.with_cause(cause),
+        None => mapped,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use crate::types::{AuthError, NotAllowedError, Number, QueryError, SurrealValue};
+    use super::*;
+    use crate::types::{AuthError, NotAllowedError, Number, QueryError, SurrealValue};
 
-	#[tokio::test]
-	async fn application_end_waits_for_checked_transport_eof() {
-		let (sender, mut stream) = futures::channel::mpsc::unbounded::<Result<rpc::QueryResponse, tonic::Status>>();
-		let mut drain = Box::pin(drain_after_end(&mut stream, late_query_frame));
-		assert!(futures::poll!(&mut drain).is_pending(), "application End does not end the transport");
-		drop(sender);
-		drain.await.expect("checked transport EOF");
-	}
+    #[tokio::test]
+    async fn application_end_waits_for_checked_transport_eof() {
+        let (sender, mut stream) =
+            futures::channel::mpsc::unbounded::<Result<rpc::QueryResponse, tonic::Status>>();
+        let mut drain = Box::pin(drain_after_end(&mut stream, late_query_frame));
+        assert!(
+            futures::poll!(&mut drain).is_pending(),
+            "application End does not end the transport"
+        );
+        drop(sender);
+        drain.await.expect("checked transport EOF");
+    }
 
-	#[tokio::test]
-	async fn application_end_preserves_late_transport_status() {
-		let mut stream = futures::stream::iter([Err::<rpc::QueryResponse, _>(tonic::Status::unavailable("late transport failure"))]);
-		let error = drain_after_end(&mut stream, late_query_frame).await.unwrap_err();
-		assert!(error.is_connection());
-		assert_eq!(error.message(), "late transport failure");
-	}
+    #[tokio::test]
+    async fn application_end_preserves_late_transport_status() {
+        let mut stream = futures::stream::iter([Err::<rpc::QueryResponse, _>(
+            tonic::Status::unavailable("late transport failure"),
+        )]);
+        let error = drain_after_end(&mut stream, late_query_frame)
+            .await
+            .unwrap_err();
+        assert!(error.is_connection());
+        assert_eq!(error.message(), "late transport failure");
+    }
 
-	#[tokio::test]
-	async fn query_end_rejects_late_payload_and_duplicate_terminal() {
-		for frame in [
-			rpc::query_response::Frame::Batch(batch(vec![Value::Number(1.into())], rpc::QueryResponseKind::BatchedFinal)),
-			rpc::query_response::Frame::End(Default::default()),
-		] {
-			let mut stream = futures::stream::iter([Ok(rpc::QueryResponse { frame: Some(frame) })]);
-			let error = drain_after_end(&mut stream, late_query_frame).await.unwrap_err();
-			assert!(error.is_internal());
-			assert_eq!(error.message(), "Query stream carried a frame after its end");
-		}
-	}
+    #[tokio::test]
+    async fn query_end_rejects_late_payload_and_duplicate_terminal() {
+        for frame in [
+            rpc::query_response::Frame::Batch(batch(
+                vec![Value::Number(1.into())],
+                rpc::QueryResponseKind::BatchedFinal,
+            )),
+            rpc::query_response::Frame::End(Default::default()),
+        ] {
+            let mut stream = futures::stream::iter([Ok(rpc::QueryResponse { frame: Some(frame) })]);
+            let error = drain_after_end(&mut stream, late_query_frame)
+                .await
+                .unwrap_err();
+            assert!(error.is_internal());
+            assert_eq!(
+                error.message(),
+                "Query stream carried a frame after its end"
+            );
+        }
+    }
 
-	#[tokio::test]
-	async fn query_end_keeps_late_wire_error() {
-		let response = rpc::QueryResponse {
-			frame: Some(rpc::query_response::Frame::Error(proto::SurrealError {
-				kind: proto::ErrorKind::NotFound as i32,
-				message: "late wire failure".to_string(),
-				..Default::default()
-			})),
-		};
-		let mut stream = futures::stream::iter([Ok(response)]);
-		let error = drain_after_end(&mut stream, late_query_frame).await.unwrap_err();
-		assert!(error.is_not_found());
-		assert_eq!(error.message(), "late wire failure");
-	}
+    #[tokio::test]
+    async fn query_end_keeps_late_wire_error() {
+        let response = rpc::QueryResponse {
+            frame: Some(rpc::query_response::Frame::Error(proto::SurrealError {
+                kind: proto::ErrorKind::NotFound as i32,
+                message: "late wire failure".to_string(),
+                ..Default::default()
+            })),
+        };
+        let mut stream = futures::stream::iter([Ok(response)]);
+        let error = drain_after_end(&mut stream, late_query_frame)
+            .await
+            .unwrap_err();
+        assert!(error.is_not_found());
+        assert_eq!(error.message(), "late wire failure");
+    }
 
-	fn object(pairs: &[(&str, &str)]) -> Object {
-		let mut object = Object::new();
-		for (key, value) in pairs {
-			object.insert((*key).to_string(), Value::String((*value).to_string()));
-		}
-		object
-	}
+    fn object(pairs: &[(&str, &str)]) -> Object {
+        let mut object = Object::new();
+        for (key, value) in pairs {
+            object.insert((*key).to_string(), Value::String((*value).to_string()));
+        }
+        object
+    }
 
-	/// Root/namespace/database credentials all render `user`/`pass`, so they
-	/// are one access method with the scope fields left empty.
-	#[test]
-	fn user_credentials_are_classified_by_their_user_field() {
-		let method = access_method(object(&[("user", "root"), ("pass", "secret")]))
-			.expect("root credentials should classify");
-		let Some(rpc::access_method::Method::User(user)) = method.method else {
-			panic!("expected user credentials");
-		};
-		assert_eq!(user.username, "root");
-		assert_eq!(user.password, "secret");
-		assert_eq!(user.namespace, "");
-		assert_eq!(user.database, "");
-	}
+    /// Root/namespace/database credentials all render `user`/`pass`, so they
+    /// are one access method with the scope fields left empty.
+    #[test]
+    fn user_credentials_are_classified_by_their_user_field() {
+        let method = access_method(object(&[("user", "root"), ("pass", "secret")]))
+            .expect("root credentials should classify");
+        let Some(rpc::access_method::Method::User(user)) = method.method else {
+            panic!("expected user credentials");
+        };
+        assert_eq!(user.username, "root");
+        assert_eq!(user.password, "secret");
+        assert_eq!(user.namespace, "");
+        assert_eq!(user.database, "");
+    }
 
-	#[test]
-	fn database_user_credentials_carry_their_scope() {
-		let method = access_method(object(&[
-			("ns", "test-ns"),
-			("db", "test-db"),
-			("user", "alice"),
-			("pass", "secret"),
-		]))
-		.expect("database credentials should classify");
-		let Some(rpc::access_method::Method::User(user)) = method.method else {
-			panic!("expected user credentials");
-		};
-		assert_eq!((user.namespace.as_str(), user.database.as_str()), ("test-ns", "test-db"));
-	}
+    #[test]
+    fn database_user_credentials_carry_their_scope() {
+        let method = access_method(object(&[
+            ("ns", "test-ns"),
+            ("db", "test-db"),
+            ("user", "alice"),
+            ("pass", "secret"),
+        ]))
+        .expect("database credentials should classify");
+        let Some(rpc::access_method::Method::User(user)) = method.method else {
+            panic!("expected user credentials");
+        };
+        assert_eq!(
+            (user.namespace.as_str(), user.database.as_str()),
+            ("test-ns", "test-db")
+        );
+    }
 
-	/// Everything left after the access fields is a variable for the access
-	/// method's SIGNIN clause.
-	#[test]
-	fn record_credentials_pass_their_extra_fields_as_variables() {
-		let method =
-			access_method(object(&[("ns", "n"), ("db", "d"), ("ac", "user"), ("email", "a@b.c")]))
-				.expect("record credentials should classify");
-		let Some(rpc::access_method::Method::Record(record)) = method.method else {
-			panic!("expected record credentials");
-		};
-		assert_eq!(record.access, "user");
-		let variables = record.variables.expect("variables should be set").variables;
-		assert_eq!(variables.len(), 1);
-		assert_eq!(variables[0].key, "email");
-	}
+    /// Everything left after the access fields is a variable for the access
+    /// method's SIGNIN clause.
+    #[test]
+    fn record_credentials_pass_their_extra_fields_as_variables() {
+        let method = access_method(object(&[
+            ("ns", "n"),
+            ("db", "d"),
+            ("ac", "user"),
+            ("email", "a@b.c"),
+        ]))
+        .expect("record credentials should classify");
+        let Some(rpc::access_method::Method::Record(record)) = method.method else {
+            panic!("expected record credentials");
+        };
+        assert_eq!(record.access, "user");
+        let variables = record.variables.expect("variables should be set").variables;
+        assert_eq!(variables.len(), 1);
+        assert_eq!(variables[0].key, "email");
+    }
 
-	#[test]
-	fn bearer_credentials_are_classified_by_their_key_field() {
-		let method = access_method(object(&[("ac", "api"), ("key", "secret-key")]))
-			.expect("bearer credentials should classify");
-		assert!(matches!(method.method, Some(rpc::access_method::Method::Bearer(_))));
-	}
+    #[test]
+    fn bearer_credentials_are_classified_by_their_key_field() {
+        let method = access_method(object(&[("ac", "api"), ("key", "secret-key")]))
+            .expect("bearer credentials should classify");
+        assert!(matches!(
+            method.method,
+            Some(rpc::access_method::Method::Bearer(_))
+        ));
+    }
 
-	/// An access method is what the database dispatches signin on, so it wins
-	/// over a `user` field -- which a record access method's own SIGNIN clause
-	/// is free to take as a parameter.
-	#[test]
-	fn record_credentials_keep_their_user_parameter() {
-		let method = access_method(object(&[
-			("ns", "n"),
-			("db", "d"),
-			("ac", "account"),
-			("user", "tobie"),
-			("tenant", "acme"),
-		]))
-		.expect("record credentials should classify");
-		let Some(rpc::access_method::Method::Record(record)) = method.method else {
-			panic!("expected record credentials");
-		};
-		assert_eq!(record.access, "account");
-		let variables = record.variables.expect("variables should be set").variables;
-		let keys: Vec<&str> = variables.iter().map(|kv| kv.key.as_str()).collect();
-		assert_eq!(keys, ["tenant", "user"]);
-	}
+    /// An access method is what the database dispatches signin on, so it wins
+    /// over a `user` field -- which a record access method's own SIGNIN clause
+    /// is free to take as a parameter.
+    #[test]
+    fn record_credentials_keep_their_user_parameter() {
+        let method = access_method(object(&[
+            ("ns", "n"),
+            ("db", "d"),
+            ("ac", "account"),
+            ("user", "tobie"),
+            ("tenant", "acme"),
+        ]))
+        .expect("record credentials should classify");
+        let Some(rpc::access_method::Method::Record(record)) = method.method else {
+            panic!("expected record credentials");
+        };
+        assert_eq!(record.access, "account");
+        let variables = record.variables.expect("variables should be set").variables;
+        let keys: Vec<&str> = variables.iter().map(|kv| kv.key.as_str()).collect();
+        assert_eq!(keys, ["tenant", "user"]);
+    }
 
-	/// A credential field that is not a string is refused rather than sent as
-	/// an empty one, which would report a mistyped password as a bad password.
-	#[test]
-	fn non_string_credential_fields_are_rejected() {
-		let mut credentials = Object::new();
-		credentials.insert("user".to_string(), Value::String("root".to_string()));
-		credentials.insert("pass".to_string(), Value::Number(Number::Int(1234)));
-		let error =
-			access_method(credentials).expect_err("a non-string password should be rejected");
-		assert!(error.is_validation(), "expected a validation error, got {error:?}");
-	}
+    /// A credential field that is not a string is refused rather than sent as
+    /// an empty one, which would report a mistyped password as a bad password.
+    #[test]
+    fn non_string_credential_fields_are_rejected() {
+        let mut credentials = Object::new();
+        credentials.insert("user".to_string(), Value::String("root".to_string()));
+        credentials.insert("pass".to_string(), Value::Number(Number::Int(1234)));
+        let error =
+            access_method(credentials).expect_err("a non-string password should be rejected");
+        assert!(
+            error.is_validation(),
+            "expected a validation error, got {error:?}"
+        );
+    }
 
-	/// Re-selecting the same database, or rebinding the same variable, leaves
-	/// the log describing the state the session reached rather than every step
-	/// it took to get there.
-	#[test]
-	fn the_replay_log_coalesces_repeated_operations() {
-		let entry = GrpcSession::new(Uuid::nil());
-		for _ in 0..10 {
-			entry.record(Replayable::Use {
-				namespace: Some("ns".to_string()),
-				database: Some("db".to_string()),
-			});
-			entry.record(Replayable::Set {
-				key: "tenant".to_string(),
-				value: Value::String("acme".to_string()),
-			});
-		}
-		let log = entry.log();
-		assert_eq!(log.len(), 2, "expected one `Use` and one `Set`, got {log:?}");
-		assert!(matches!(log[0], Replayable::Use { .. }));
-		assert!(matches!(&log[1], Replayable::Set { key, .. } if key == "tenant"));
-	}
+    /// Re-selecting the same database, or rebinding the same variable, leaves
+    /// the log describing the state the session reached rather than every step
+    /// it took to get there.
+    #[test]
+    fn the_replay_log_coalesces_repeated_operations() {
+        let entry = GrpcSession::new(Uuid::nil());
+        for _ in 0..10 {
+            entry.record(Replayable::Use {
+                namespace: Some("ns".to_string()),
+                database: Some("db".to_string()),
+            });
+            entry.record(Replayable::Set {
+                key: "tenant".to_string(),
+                value: Value::String("acme".to_string()),
+            });
+        }
+        let log = entry.log();
+        assert_eq!(
+            log.len(),
+            2,
+            "expected one `Use` and one `Set`, got {log:?}"
+        );
+        assert!(matches!(log[0], Replayable::Use { .. }));
+        assert!(matches!(&log[1], Replayable::Set { key, .. } if key == "tenant"));
+    }
 
-	/// Coalescing stops at an operation that re-establishes the session, so a
-	/// clone reaches the same state in the same order the original did.
-	#[test]
-	fn the_replay_log_does_not_coalesce_across_a_sign_in() {
-		let entry = GrpcSession::new(Uuid::nil());
-		let use_ns_db = || Replayable::Use {
-			namespace: Some("ns".to_string()),
-			database: Some("db".to_string()),
-		};
-		entry.record(use_ns_db());
-		entry.record(Replayable::Signin(Object::new()));
-		entry.record(use_ns_db());
-		let log = entry.log();
-		assert_eq!(log.len(), 3, "the `Use` before the sign-in must survive, got {log:?}");
-	}
+    /// Coalescing stops at an operation that re-establishes the session, so a
+    /// clone reaches the same state in the same order the original did.
+    #[test]
+    fn the_replay_log_does_not_coalesce_across_a_sign_in() {
+        let entry = GrpcSession::new(Uuid::nil());
+        let use_ns_db = || Replayable::Use {
+            namespace: Some("ns".to_string()),
+            database: Some("db".to_string()),
+        };
+        entry.record(use_ns_db());
+        entry.record(Replayable::Signin(Object::new()));
+        entry.record(use_ns_db());
+        let log = entry.log();
+        assert_eq!(
+            log.len(),
+            3,
+            "the `Use` before the sign-in must survive, got {log:?}"
+        );
+    }
 
-	#[test]
-	fn unrecognised_credentials_are_rejected() {
-		let error = access_method(object(&[("nonsense", "value")]))
-			.expect_err("unrecognised credentials should be rejected");
-		assert!(error.is_validation(), "expected a validation error, got {error:?}");
-	}
+    #[test]
+    fn unrecognised_credentials_are_rejected() {
+        let error = access_method(object(&[("nonsense", "value")]))
+            .expect_err("unrecognised credentials should be rejected");
+        assert!(
+            error.is_validation(),
+            "expected a validation error, got {error:?}"
+        );
+    }
 
-	#[test]
-	fn signup_requires_an_access_method() {
-		let error = record_credentials(object(&[("ns", "n"), ("db", "d")]))
-			.expect_err("signup without `ac` should be rejected");
-		assert!(error.is_validation(), "expected a validation error, got {error:?}");
-	}
+    #[test]
+    fn signup_requires_an_access_method() {
+        let error = record_credentials(object(&[("ns", "n"), ("db", "d")]))
+            .expect_err("signup without `ac` should be rejected");
+        assert!(
+            error.is_validation(),
+            "expected a validation error, got {error:?}"
+        );
+    }
 
-	/// The wire error's kind selects the SDK error's kind, and its cause chain
-	/// is preserved rather than flattened into the message.
-	#[test]
-	fn wire_errors_keep_their_kind_and_cause() {
-		let inner = proto::SurrealError {
-			kind: proto::ErrorKind::NotFound as i32,
-			message: "no such table".to_string(),
-			..Default::default()
-		};
-		let outer = proto::SurrealError {
-			kind: proto::ErrorKind::Query as i32,
-			message: "query failed".to_string(),
-			cause: Some(Box::new(inner)),
-			..Default::default()
-		};
-		let error = proto_error(outer);
-		assert!(error.is_query(), "expected a query error, got {error:?}");
-		assert_eq!(error.message(), "query failed");
-		let cause = error.cause().expect("the cause should be preserved");
-		assert!(cause.is_not_found(), "expected a not-found cause, got {cause:?}");
-	}
+    /// The wire error's kind selects the SDK error's kind, and its cause chain
+    /// is preserved rather than flattened into the message.
+    #[test]
+    fn wire_errors_keep_their_kind_and_cause() {
+        let inner = proto::SurrealError {
+            kind: proto::ErrorKind::NotFound as i32,
+            message: "no such table".to_string(),
+            ..Default::default()
+        };
+        let outer = proto::SurrealError {
+            kind: proto::ErrorKind::Query as i32,
+            message: "query failed".to_string(),
+            cause: Some(Box::new(inner)),
+            ..Default::default()
+        };
+        let error = proto_error(outer);
+        assert!(error.is_query(), "expected a query error, got {error:?}");
+        assert_eq!(error.message(), "query failed");
+        let cause = error.cause().expect("the cause should be preserved");
+        assert!(
+            cause.is_not_found(),
+            "expected a not-found cause, got {cause:?}"
+        );
+    }
 
-	/// A kind this build does not know about must behave as `Internal` rather
-	/// than as "no error kind".
-	#[test]
-	fn unknown_wire_error_kinds_degrade_to_internal() {
-		let error = proto_error(proto::SurrealError {
-			kind: 9999,
-			message: "from the future".to_string(),
-			..Default::default()
-		});
-		assert!(error.is_internal(), "expected an internal error, got {error:?}");
-	}
+    /// A kind this build does not know about must behave as `Internal` rather
+    /// than as "no error kind".
+    #[test]
+    fn unknown_wire_error_kinds_degrade_to_internal() {
+        let error = proto_error(proto::SurrealError {
+            kind: 9999,
+            message: "from the future".to_string(),
+            ..Default::default()
+        });
+        assert!(
+            error.is_internal(),
+            "expected an internal error, got {error:?}"
+        );
+    }
 
-	/// The reason is what a caller classifies a failure by: the protocol states
-	/// the message is not part of the contract and will be reworded, so an
-	/// error that arrives carrying only a kind leaves a retry loop nothing but
-	/// substring matching.
-	#[test]
-	fn wire_errors_rebuild_their_typed_reason() {
-		let conflict = proto_error(
-			proto::SurrealError::new(proto::ErrorKind::Query, "conflict")
-				.with_details("TransactionConflict", None),
-		);
-		assert_eq!(conflict.query_details(), Some(&QueryError::TransactionConflict));
+    /// The reason is what a caller classifies a failure by: the protocol states
+    /// the message is not part of the contract and will be reworded, so an
+    /// error that arrives carrying only a kind leaves a retry loop nothing but
+    /// substring matching.
+    #[test]
+    fn wire_errors_rebuild_their_typed_reason() {
+        let conflict = proto_error(
+            proto::SurrealError::new(proto::ErrorKind::Query, "conflict")
+                .with_details("TransactionConflict", None),
+        );
+        assert_eq!(
+            conflict.query_details(),
+            Some(&QueryError::TransactionConflict)
+        );
 
-		// A reason that nests rebuilds all the way down, not just its first
-		// level.
-		let expired = proto_error(
-			proto::SurrealError::new(proto::ErrorKind::NotAllowed, "expired").with_details(
-				"Auth",
-				proto::Value::try_from(AuthError::TokenExpired.into_value()).ok(),
-			),
-		);
-		assert_eq!(
-			expired.not_allowed_details(),
-			Some(&NotAllowedError::Auth(AuthError::TokenExpired))
-		);
+        // A reason that nests rebuilds all the way down, not just its first
+        // level.
+        let expired = proto_error(
+            proto::SurrealError::new(proto::ErrorKind::NotAllowed, "expired").with_details(
+                "Auth",
+                proto::Value::try_from(AuthError::TokenExpired.into_value()).ok(),
+            ),
+        );
+        assert_eq!(
+            expired.not_allowed_details(),
+            Some(&NotAllowedError::Auth(AuthError::TokenExpired))
+        );
 
-		// A payload the reason carries survives with it. The wire splits the
-		// reason from its payload, so build both halves the way the server
-		// does: the tag becomes `ErrorDetails.kind` and what nests under it
-		// becomes the content.
-		let detail = QueryError::TimedOut {
-			duration: StdDuration::from_secs(5),
-		};
-		let Value::Object(mut serialized) = detail.clone().into_value() else {
-			panic!("a detail serializes as a tagged object");
-		};
-		let content = serialized.remove("details").expect("TimedOut carries a duration");
-		let timed_out = proto_error(
-			proto::SurrealError::new(proto::ErrorKind::Query, "too slow")
-				.with_details("TimedOut", proto::Value::try_from(content).ok()),
-		);
-		assert_eq!(timed_out.query_details(), Some(&detail));
-	}
+        // A payload the reason carries survives with it. The wire splits the
+        // reason from its payload, so build both halves the way the server
+        // does: the tag becomes `ErrorDetails.kind` and what nests under it
+        // becomes the content.
+        let detail = QueryError::TimedOut {
+            duration: StdDuration::from_secs(5),
+        };
+        let Value::Object(mut serialized) = detail.clone().into_value() else {
+            panic!("a detail serializes as a tagged object");
+        };
+        let content = serialized
+            .remove("details")
+            .expect("TimedOut carries a duration");
+        let timed_out = proto_error(
+            proto::SurrealError::new(proto::ErrorKind::Query, "too slow")
+                .with_details("TimedOut", proto::Value::try_from(content).ok()),
+        );
+        assert_eq!(timed_out.query_details(), Some(&detail));
+    }
 
-	/// The hint says an operation may be retried and nothing about why, so it
-	/// is not evidence of any particular reason. Deriving one from it would put
-	/// a reason on the error that the peer never stated -- and would mislabel a
-	/// retryable timeout as a conflict.
-	#[test]
-	fn a_retry_hint_does_not_invent_a_reason() {
-		let bare = proto_error(
-			proto::SurrealError::new(proto::ErrorKind::Query, "wording that will change")
-				.with_retry(None),
-		);
-		assert_eq!(bare.query_details(), None, "no reason was stated, so none is reported");
+    /// The hint says an operation may be retried and nothing about why, so it
+    /// is not evidence of any particular reason. Deriving one from it would put
+    /// a reason on the error that the peer never stated -- and would mislabel a
+    /// retryable timeout as a conflict.
+    #[test]
+    fn a_retry_hint_does_not_invent_a_reason() {
+        let bare = proto_error(
+            proto::SurrealError::new(proto::ErrorKind::Query, "wording that will change")
+                .with_retry(None),
+        );
+        assert_eq!(
+            bare.query_details(),
+            None,
+            "no reason was stated, so none is reported"
+        );
 
-		// A reason the peer did state is untouched by the hint beside it.
-		let timed_out = proto_error(
-			proto::SurrealError::new(proto::ErrorKind::Query, "too slow")
-				.with_details("TimedOut", None)
-				.with_retry(None),
-		);
-		assert!(timed_out.is_query(), "expected a query error, got {timed_out:?}");
+        // A reason the peer did state is untouched by the hint beside it.
+        let timed_out = proto_error(
+            proto::SurrealError::new(proto::ErrorKind::Query, "too slow")
+                .with_details("TimedOut", None)
+                .with_retry(None),
+        );
+        assert!(
+            timed_out.is_query(),
+            "expected a query error, got {timed_out:?}"
+        );
 
-		// The conflict this server pairs the hint with still arrives as one,
-		// because the reason travels alongside rather than being derived.
-		let conflict = proto_error(
-			proto::SurrealError::new(proto::ErrorKind::Query, "conflict")
-				.with_details("TransactionConflict", None)
-				.with_retry(None),
-		);
-		assert_eq!(conflict.query_details(), Some(&QueryError::TransactionConflict));
-	}
+        // The conflict this server pairs the hint with still arrives as one,
+        // because the reason travels alongside rather than being derived.
+        let conflict = proto_error(
+            proto::SurrealError::new(proto::ErrorKind::Query, "conflict")
+                .with_details("TransactionConflict", None)
+                .with_retry(None),
+        );
+        assert_eq!(
+            conflict.query_details(),
+            Some(&QueryError::TransactionConflict)
+        );
+    }
 
-	/// The two directions do not reconcile the same way. What this client
-	/// accepts is the caller's business; what it sends is the server's, since
-	/// no setting here makes the far end take more than it said it would.
-	#[test]
-	fn the_two_message_limits_reconcile_independently() {
-		// A caller raising the limit gets it for responses, but a request is
-		// still bounded by what the server accepts -- and the server is the
-		// side a refusal has to name.
-		assert_eq!(max_response_size(Some(128), Some(4)), Some(128));
-		assert_eq!(max_request_size(Some(128), Some(4)), Some((4, LimitSource::Server)));
+    /// The two directions do not reconcile the same way. What this client
+    /// accepts is the caller's business; what it sends is the server's, since
+    /// no setting here makes the far end take more than it said it would.
+    #[test]
+    fn the_two_message_limits_reconcile_independently() {
+        // A caller raising the limit gets it for responses, but a request is
+        // still bounded by what the server accepts -- and the server is the
+        // side a refusal has to name.
+        assert_eq!(max_response_size(Some(128), Some(4)), Some(128));
+        assert_eq!(
+            max_request_size(Some(128), Some(4)),
+            Some((4, LimitSource::Server))
+        );
 
-		// A caller lowering it gets the lower figure in both directions, and
-		// is the side that has to move.
-		assert_eq!(max_response_size(Some(2), Some(4)), Some(2));
-		assert_eq!(max_request_size(Some(2), Some(4)), Some((2, LimitSource::Client)));
+        // A caller lowering it gets the lower figure in both directions, and
+        // is the side that has to move.
+        assert_eq!(max_response_size(Some(2), Some(4)), Some(2));
+        assert_eq!(
+            max_request_size(Some(2), Some(4)),
+            Some((2, LimitSource::Client))
+        );
 
-		// Agreeing on a figure means both have to move to send more.
-		assert_eq!(max_request_size(Some(4), Some(4)), Some((4, LimitSource::Both)));
+        // Agreeing on a figure means both have to move to send more.
+        assert_eq!(
+            max_request_size(Some(4), Some(4)),
+            Some((4, LimitSource::Both))
+        );
 
-		// With only one side speaking, that side governs both.
-		assert_eq!(
-			(max_response_size(None, Some(4)), max_request_size(None, Some(4))),
-			(Some(4), Some((4, LimitSource::Server)))
-		);
-		assert_eq!(
-			(max_response_size(Some(8), None), max_request_size(Some(8), None)),
-			(Some(8), Some((8, LimitSource::Client)))
-		);
+        // With only one side speaking, that side governs both.
+        assert_eq!(
+            (
+                max_response_size(None, Some(4)),
+                max_request_size(None, Some(4))
+            ),
+            (Some(4), Some((4, LimitSource::Server)))
+        );
+        assert_eq!(
+            (
+                max_response_size(Some(8), None),
+                max_request_size(Some(8), None)
+            ),
+            (Some(8), Some((8, LimitSource::Client)))
+        );
 
-		// And with neither, tonic's own defaults stand.
-		assert_eq!((max_response_size(None, None), max_request_size(None, None)), (None, None));
-	}
+        // And with neither, tonic's own defaults stand.
+        assert_eq!(
+            (max_response_size(None, None), max_request_size(None, None)),
+            (None, None)
+        );
+    }
 
-	/// A request past the negotiated limit has to be refused with the limit in
-	/// hand. tonic would otherwise fail it while writing the body, which
-	/// reaches the caller as a bare HTTP/2 stream error naming no size at all.
-	#[test]
-	fn an_oversized_request_is_refused_before_it_is_sent() {
-		let request = rpc::QueryRequest {
-			context: None,
-			query: "x".repeat(1024),
-			variables: None,
-			accepted_encodings: Vec::new(),
-			max_batch_records: 0,
-			max_batch_bytes: 0,
-		};
-		let error = check_message_size(Some((64, LimitSource::Server)), &request)
-			.expect_err("above the limit");
-		let message = error.message();
-		assert!(message.contains("64 bytes"), "the limit should be named: {message}");
-		assert!(
-			message.contains(&request.encoded_len().to_string()),
-			"the size should be named: {message}"
-		);
+    /// A request past the negotiated limit has to be refused with the limit in
+    /// hand. tonic would otherwise fail it while writing the body, which
+    /// reaches the caller as a bare HTTP/2 stream error naming no size at all.
+    #[test]
+    fn an_oversized_request_is_refused_before_it_is_sent() {
+        let request = rpc::QueryRequest {
+            context: None,
+            query: "x".repeat(1024),
+            variables: None,
+            accepted_encodings: Vec::new(),
+            max_batch_records: 0,
+            max_batch_bytes: 0,
+        };
+        let error = check_message_size(Some((64, LimitSource::Server)), &request)
+            .expect_err("above the limit");
+        let message = error.message();
+        assert!(
+            message.contains("64 bytes"),
+            "the limit should be named: {message}"
+        );
+        assert!(
+            message.contains(&request.encoded_len().to_string()),
+            "the size should be named: {message}"
+        );
 
-		check_message_size(Some((1 << 20, LimitSource::Server)), &request)
-			.expect("within the limit");
-		// Nothing to check against when neither peer named a limit.
-		check_message_size(None, &request).expect("unbounded");
-	}
+        check_message_size(Some((1 << 20, LimitSource::Server)), &request)
+            .expect("within the limit");
+        // Nothing to check against when neither peer named a limit.
+        check_message_size(None, &request).expect("unbounded");
+    }
 
-	fn batch(values: Vec<Value>, kind: rpc::QueryResponseKind) -> rpc::QueryBatchFrame {
-		rpc::QueryBatchFrame {
-			query_index: 0,
-			batch_index: 0,
-			kind: kind as i32,
-			statement_kind: rpc::QueryStatementKind::Other as i32,
-			stats: None,
-			error: None,
-			payload: Some(rpc::query_batch_frame::Payload::Values(rpc::ValueBatch {
-				values: values
-					.into_iter()
-					.map(|v| proto::Value::try_from(v).expect("encodable"))
-					.collect(),
-			})),
-		}
-	}
+    fn batch(values: Vec<Value>, kind: rpc::QueryResponseKind) -> rpc::QueryBatchFrame {
+        rpc::QueryBatchFrame {
+            query_index: 0,
+            batch_index: 0,
+            kind: kind as i32,
+            statement_kind: rpc::QueryStatementKind::Other as i32,
+            stats: None,
+            error: None,
+            payload: Some(rpc::query_batch_frame::Payload::Values(rpc::ValueBatch {
+                values: values
+                    .into_iter()
+                    .map(|v| proto::Value::try_from(v).expect("encodable"))
+                    .collect(),
+            })),
+        }
+    }
 
-	/// A `SINGLE` statement yields its one value; anything else yields a list,
-	/// even when only one value arrived.
-	#[test]
-	fn single_statements_are_not_wrapped_in_an_array() {
-		let mut statement = Statement::default();
-		statement.push(batch(vec![Value::Number(1.into())], rpc::QueryResponseKind::Single));
-		assert_eq!(statement.finish().result.unwrap(), Value::Number(1.into()));
+    /// A `SINGLE` statement yields its one value; anything else yields a list,
+    /// even when only one value arrived.
+    #[test]
+    fn single_statements_are_not_wrapped_in_an_array() {
+        let mut statement = Statement::default();
+        statement.push(batch(
+            vec![Value::Number(1.into())],
+            rpc::QueryResponseKind::Single,
+        ));
+        assert_eq!(statement.finish().result.unwrap(), Value::Number(1.into()));
 
-		let mut statement = Statement::default();
-		statement.push(batch(vec![Value::Number(1.into())], rpc::QueryResponseKind::BatchedFinal));
-		assert_eq!(
-			statement.finish().result.unwrap(),
-			Value::Array(Array::from(vec![Value::Number(1.into())]))
-		);
-	}
+        let mut statement = Statement::default();
+        statement.push(batch(
+            vec![Value::Number(1.into())],
+            rpc::QueryResponseKind::BatchedFinal,
+        ));
+        assert_eq!(
+            statement.finish().result.unwrap(),
+            Value::Array(Array::from(vec![Value::Number(1.into())]))
+        );
+    }
 
-	#[test]
-	fn batches_accumulate_across_frames() {
-		let mut statement = Statement::default();
-		statement.push(batch(vec![Value::Number(1.into())], rpc::QueryResponseKind::Batched));
-		statement.push(batch(vec![Value::Number(2.into())], rpc::QueryResponseKind::BatchedFinal));
-		assert_eq!(
-			statement.finish().result.unwrap(),
-			Value::Array(Array::from(vec![Value::Number(1.into()), Value::Number(2.into())]))
-		);
-	}
+    #[test]
+    fn batches_accumulate_across_frames() {
+        let mut statement = Statement::default();
+        statement.push(batch(
+            vec![Value::Number(1.into())],
+            rpc::QueryResponseKind::Batched,
+        ));
+        statement.push(batch(
+            vec![Value::Number(2.into())],
+            rpc::QueryResponseKind::BatchedFinal,
+        ));
+        assert_eq!(
+            statement.finish().result.unwrap(),
+            Value::Array(Array::from(vec![
+                Value::Number(1.into()),
+                Value::Number(2.into())
+            ]))
+        );
+    }
 
-	/// `Begin.statement_count` counts the statements a query parsed into, which
-	/// is an upper bound on the ones that produce results: a statement skipped
-	/// by control flow emits no frames. Those indexes must be dropped, not
-	/// finished, or a skipped statement reports an empty array as its result.
-	#[test]
-	fn indexes_that_never_emitted_are_not_results() {
-		let mut ran = Statement::default();
-		ran.push(batch(vec![Value::Number(1.into())], rpc::QueryResponseKind::BatchedFinal));
+    /// `Begin.statement_count` counts the statements a query parsed into, which
+    /// is an upper bound on the ones that produce results: a statement skipped
+    /// by control flow emits no frames. Those indexes must be dropped, not
+    /// finished, or a skipped statement reports an empty array as its result.
+    #[test]
+    fn indexes_that_never_emitted_are_not_results() {
+        let mut ran = Statement::default();
+        ran.push(batch(
+            vec![Value::Number(1.into())],
+            rpc::QueryResponseKind::BatchedFinal,
+        ));
 
-		// Sized from `statement_count`, but only the middle statement ran.
-		let mut statements: Vec<Option<Statement>> = Vec::new();
-		grow_statements(&mut statements, 3).expect("three statements is a legal count");
-		statements[1] = Some(ran);
+        // Sized from `statement_count`, but only the middle statement ran.
+        let mut statements: Vec<Option<Statement>> = Vec::new();
+        grow_statements(&mut statements, 3).expect("three statements is a legal count");
+        statements[1] = Some(ran);
 
-		let results = finish_statements(statements);
-		assert_eq!(results.len(), 1, "only the statement that emitted is a result");
-		assert_eq!(
-			results[0].result.as_ref().unwrap(),
-			&Value::Array(Array::from(vec![Value::Number(1.into())]))
-		);
-	}
+        let results = finish_statements(statements);
+        assert_eq!(
+            results.len(),
+            1,
+            "only the statement that emitted is a result"
+        );
+        assert_eq!(
+            results[0].result.as_ref().unwrap(),
+            &Value::Array(Array::from(vec![Value::Number(1.into())]))
+        );
+    }
 
-	/// A count no query could produce is refused before it sizes an allocation,
-	/// since both `statement_count` and the per-batch index arrive from the peer.
-	#[test]
-	fn an_absurd_statement_count_is_refused() {
-		let mut statements: Vec<Option<Statement>> = Vec::new();
-		assert!(grow_statements(&mut statements, MAX_STATEMENTS + 1).is_err());
-		assert!(statements.is_empty(), "nothing is allocated for a refused count");
-	}
+    /// A count no query could produce is refused before it sizes an allocation,
+    /// since both `statement_count` and the per-batch index arrive from the peer.
+    #[test]
+    fn an_absurd_statement_count_is_refused() {
+        let mut statements: Vec<Option<Statement>> = Vec::new();
+        assert!(grow_statements(&mut statements, MAX_STATEMENTS + 1).is_err());
+        assert!(
+            statements.is_empty(),
+            "nothing is allocated for a refused count"
+        );
+    }
 
-	/// A statement's own failure travels in its result, so the other
-	/// Excluding tables is carried on the wire rather than refused: the
-	/// protocol names the tables to leave out, so the caller gets what it
-	/// asked for instead of an error naming a limitation that is gone.
-	#[test]
-	fn excluding_tables_from_an_export_is_carried() {
-		use rpc::export_config::tables::Selection;
-		use surrealdb_rpc::export::{ExcludedTables, TableConfig};
+    /// A statement's own failure travels in its result, so the other
+    /// Excluding tables is carried on the wire rather than refused: the
+    /// protocol names the tables to leave out, so the caller gets what it
+    /// asked for instead of an error naming a limitation that is gone.
+    #[test]
+    fn excluding_tables_from_an_export_is_carried() {
+        use rpc::export_config::tables::Selection;
+        use surrealdb_rpc::export::{ExcludedTables, TableConfig};
 
-		let config = DbExportConfig {
-			tables: TableConfig::Exclude(ExcludedTables {
-				exclude: vec!["secrets".to_string()],
-			}),
-			..Default::default()
-		};
-		let wire = export_config(config).expect("excluding tables should be carried");
-		let Some(Selection::Excluded(excluded)) = wire.tables.and_then(|t| t.selection) else {
-			panic!("expected an excluded selection");
-		};
-		assert_eq!(excluded.tables, ["secrets"]);
-	}
+        let config = DbExportConfig {
+            tables: TableConfig::Exclude(ExcludedTables {
+                exclude: vec!["secrets".to_string()],
+            }),
+            ..Default::default()
+        };
+        let wire = export_config(config).expect("excluding tables should be carried");
+        let Some(Selection::Excluded(excluded)) = wire.tables.and_then(|t| t.selection) else {
+            panic!("expected an excluded selection");
+        };
+        assert_eq!(excluded.tables, ["secrets"]);
+    }
 
-	#[test]
-	fn export_table_selection_maps_onto_the_wire() {
-		use rpc::export_config::tables::Selection;
-		use surrealdb_rpc::export::TableConfig;
+    #[test]
+    fn export_table_selection_maps_onto_the_wire() {
+        use rpc::export_config::tables::Selection;
+        use surrealdb_rpc::export::TableConfig;
 
-		let selection = |tables| {
-			export_config(DbExportConfig {
-				tables,
-				..Default::default()
-			})
-			.expect("selection should convert")
-			.tables
-			.expect("tables should be set")
-			.selection
-			.expect("a selection should be set")
-		};
-		assert!(matches!(selection(TableConfig::All), Selection::All(_)));
-		assert!(matches!(selection(TableConfig::None), Selection::None(_)));
-		let Selection::Selected(selected) =
-			selection(TableConfig::Some(vec!["person".to_string()]))
-		else {
-			panic!("expected a selected-tables selection");
-		};
-		assert_eq!(selected.tables, vec!["person".to_string()]);
-	}
+        let selection = |tables| {
+            export_config(DbExportConfig {
+                tables,
+                ..Default::default()
+            })
+            .expect("selection should convert")
+            .tables
+            .expect("tables should be set")
+            .selection
+            .expect("a selection should be set")
+        };
+        assert!(matches!(selection(TableConfig::All), Selection::All(_)));
+        assert!(matches!(selection(TableConfig::None), Selection::None(_)));
+        let Selection::Selected(selected) =
+            selection(TableConfig::Some(vec!["person".to_string()]))
+        else {
+            panic!("expected a selected-tables selection");
+        };
+        assert_eq!(selected.tables, vec!["person".to_string()]);
+    }
 
-	/// A server that reports no capability names predates them being
-	/// populated, so features are assumed rather than silently switched off.
-	#[test]
-	fn a_silent_server_is_assumed_to_support_everything() {
-		let features = extra_features(&rpc::ServerCapabilities::default());
-		assert!(features.contains(&ExtraFeatures::Backup));
-		assert!(features.contains(&ExtraFeatures::LiveQueries));
-	}
+    /// A server that reports no capability names predates them being
+    /// populated, so features are assumed rather than silently switched off.
+    #[test]
+    fn a_silent_server_is_assumed_to_support_everything() {
+        let features = extra_features(&rpc::ServerCapabilities::default());
+        assert!(features.contains(&ExtraFeatures::Backup));
+        assert!(features.contains(&ExtraFeatures::LiveQueries));
+    }
 
-	#[test]
-	fn live_queries_are_gated_on_the_reported_capability() {
-		let without = extra_features(&rpc::ServerCapabilities {
-			capabilities: vec!["TRANSACTIONS".to_string()],
-			..Default::default()
-		});
-		assert!(!without.contains(&ExtraFeatures::LiveQueries));
+    #[test]
+    fn live_queries_are_gated_on_the_reported_capability() {
+        let without = extra_features(&rpc::ServerCapabilities {
+            capabilities: vec!["TRANSACTIONS".to_string()],
+            ..Default::default()
+        });
+        assert!(!without.contains(&ExtraFeatures::LiveQueries));
 
-		let with = extra_features(&rpc::ServerCapabilities {
-			capabilities: vec!["LIVE_QUERIES".to_string()],
-			..Default::default()
-		});
-		assert!(with.contains(&ExtraFeatures::LiveQueries));
-	}
+        let with = extra_features(&rpc::ServerCapabilities {
+            capabilities: vec!["LIVE_QUERIES".to_string()],
+            ..Default::default()
+        });
+        assert!(with.contains(&ExtraFeatures::LiveQueries));
+    }
 
-	#[test]
-	fn a_denied_export_method_withdraws_the_backup_feature() {
-		let features = extra_features(&rpc::ServerCapabilities {
-			capabilities: vec!["LIVE_QUERIES".to_string()],
-			denied_methods: vec![
-				"surrealdb.protocol.rpc.v1.SurrealDBService/ExportSurql".to_string(),
-			],
-			..Default::default()
-		});
-		assert!(!features.contains(&ExtraFeatures::Backup));
-	}
+    #[test]
+    fn a_denied_export_method_withdraws_the_backup_feature() {
+        let features = extra_features(&rpc::ServerCapabilities {
+            capabilities: vec!["LIVE_QUERIES".to_string()],
+            denied_methods: vec![
+                "surrealdb.protocol.rpc.v1.SurrealDBService/ExportSurql".to_string(),
+            ],
+            ..Default::default()
+        });
+        assert!(!features.contains(&ExtraFeatures::Backup));
+    }
 
-	/// The record id and value a notification carries are decoded, and an
-	/// action this build does not recognise is an error rather than a guess.
-	#[test]
-	fn notifications_decode_their_record_and_value() {
-		let id = Uuid::from_u128(7);
-		let notification = convert_notification(
-			rpc::Notification {
-				live_query_id: Some(proto::Uuid::from_uuid(id)),
-				action: rpc::Action::Updated as i32,
-				record_id: None,
-				value: Some(
-					proto::Value::try_from(Value::String("hello".to_string())).expect("encodable"),
-				),
-				cursor: None,
-			},
-			id,
-		)
-		.expect("the notification should convert");
-		assert_eq!(notification.id, id.into());
-		assert_eq!(notification.action, Action::Update);
-		assert_eq!(notification.result, Value::String("hello".to_string()));
-	}
+    /// The record id and value a notification carries are decoded, and an
+    /// action this build does not recognise is an error rather than a guess.
+    #[test]
+    fn notifications_decode_their_record_and_value() {
+        let id = Uuid::from_u128(7);
+        let notification = convert_notification(
+            rpc::Notification {
+                live_query_id: Some(proto::Uuid::from_uuid(id)),
+                action: rpc::Action::Updated as i32,
+                record_id: None,
+                value: Some(
+                    proto::Value::try_from(Value::String("hello".to_string())).expect("encodable"),
+                ),
+                cursor: None,
+            },
+            id,
+        )
+        .expect("the notification should convert");
+        assert_eq!(notification.id, id.into());
+        assert_eq!(notification.action, Action::Update);
+        assert_eq!(notification.result, Value::String("hello".to_string()));
+    }
 
-	#[test]
-	fn notifications_with_an_unrecognised_action_are_rejected() {
-		let error = convert_notification(
-			rpc::Notification {
-				live_query_id: None,
-				action: rpc::Action::Unspecified as i32,
-				record_id: None,
-				value: None,
-				cursor: None,
-			},
-			Uuid::from_u128(1),
-		)
-		.expect_err("an unspecified action should be rejected");
-		assert!(error.is_internal(), "expected an internal error, got {error:?}");
-	}
+    #[test]
+    fn notifications_with_an_unrecognised_action_are_rejected() {
+        let error = convert_notification(
+            rpc::Notification {
+                live_query_id: None,
+                action: rpc::Action::Unspecified as i32,
+                record_id: None,
+                value: None,
+                cursor: None,
+            },
+            Uuid::from_u128(1),
+        )
+        .expect_err("an unspecified action should be rejected");
+        assert!(
+            error.is_internal(),
+            "expected an internal error, got {error:?}"
+        );
+    }
 }
 
 #[cfg(test)]
 mod request_compression_tests {
-	use super::rejected_request_encoding;
+    use super::rejected_request_encoding;
 
-	/// Exactly the status tonic's server builds when it is handed a request in
-	/// an encoding it does not accept: `UNIMPLEMENTED` naming what it does
-	/// accept. Recognising it is what lets the handshake retry uncompressed
-	/// instead of failing the connection.
-	#[test]
-	fn an_unsupported_encoding_is_recognised() {
-		let mut status =
-			tonic::Status::unimplemented("Content is compressed with `zstd` which isn't supported");
-		status.metadata_mut().insert("grpc-accept-encoding", "identity".parse().unwrap());
-		assert!(rejected_request_encoding(&status));
-	}
+    /// Exactly the status tonic's server builds when it is handed a request in
+    /// an encoding it does not accept: `UNIMPLEMENTED` naming what it does
+    /// accept. Recognising it is what lets the handshake retry uncompressed
+    /// instead of failing the connection.
+    #[test]
+    fn an_unsupported_encoding_is_recognised() {
+        let mut status =
+            tonic::Status::unimplemented("Content is compressed with `zstd` which isn't supported");
+        status
+            .metadata_mut()
+            .insert("grpc-accept-encoding", "identity".parse().unwrap());
+        assert!(rejected_request_encoding(&status));
+    }
 
-	/// A server that does accept the encoding but has the method switched off
-	/// also answers `UNIMPLEMENTED` -- `ExportDirectory` is one, and an
-	/// operator's denied-method list produces more. Retrying those uncompressed
-	/// would not help, so only the encoding header may trigger the fallback.
-	#[test]
-	fn a_genuinely_unimplemented_method_is_not() {
-		let status = tonic::Status::unimplemented("Directory export is not served");
-		assert!(!rejected_request_encoding(&status));
-	}
+    /// A server that does accept the encoding but has the method switched off
+    /// also answers `UNIMPLEMENTED` -- `ExportDirectory` is one, and an
+    /// operator's denied-method list produces more. Retrying those uncompressed
+    /// would not help, so only the encoding header may trigger the fallback.
+    #[test]
+    fn a_genuinely_unimplemented_method_is_not() {
+        let status = tonic::Status::unimplemented("Directory export is not served");
+        assert!(!rejected_request_encoding(&status));
+    }
 
-	/// Nor may any other failure be read as an encoding problem: retrying
-	/// uncompressed would mask it and report the wrong cause.
-	#[test]
-	fn other_failures_are_not() {
-		for status in [
-			tonic::Status::unavailable("connection refused"),
-			tonic::Status::unauthenticated("bad credentials"),
-			tonic::Status::internal("boom"),
-		] {
-			assert!(!rejected_request_encoding(&status), "{status:?}");
-		}
-	}
+    /// Nor may any other failure be read as an encoding problem: retrying
+    /// uncompressed would mask it and report the wrong cause.
+    #[test]
+    fn other_failures_are_not() {
+        for status in [
+            tonic::Status::unavailable("connection refused"),
+            tonic::Status::unauthenticated("bad credentials"),
+            tonic::Status::internal("boom"),
+        ] {
+            assert!(!rejected_request_encoding(&status), "{status:?}");
+        }
+    }
 }
 
 #[cfg(test)]
 mod exact_batch_shape_tests {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn absent_single_and_empty_batched_keep_distinct_buffered_shapes() {
-		for kind in [rpc::QueryResponseKind::Single, rpc::QueryResponseKind::BatchedFinal] {
-			for payload in [None, Some(rpc::query_batch_frame::Payload::Values(Default::default()))] {
-				let items = batch_items(rpc::QueryBatchFrame {
-					kind: kind as i32, payload, ..Default::default()
-				}).unwrap();
-				assert_eq!(items.len(), 2);
-				match (&items[0], kind) {
-					(QueryStreamItem::EmptyValue { index: 0 }, rpc::QueryResponseKind::Single) => {}
-					(QueryStreamItem::Rows { index: 0, values }, rpc::QueryResponseKind::BatchedFinal) if values.is_empty() => {}
-					other => panic!("lost result shape: {other:?}"),
-				}
-				assert!(matches!(items[1], QueryStreamItem::Finished { index: 0, error: None, .. }));
-			}
-		}
-	}
+    #[test]
+    fn absent_single_and_empty_batched_keep_distinct_buffered_shapes() {
+        for kind in [
+            rpc::QueryResponseKind::Single,
+            rpc::QueryResponseKind::BatchedFinal,
+        ] {
+            for payload in [
+                None,
+                Some(rpc::query_batch_frame::Payload::Values(Default::default())),
+            ] {
+                let items = batch_items(rpc::QueryBatchFrame {
+                    kind: kind as i32,
+                    payload,
+                    ..Default::default()
+                })
+                .unwrap();
+                assert_eq!(items.len(), 2);
+                match (&items[0], kind) {
+                    (QueryStreamItem::EmptyValue { index: 0 }, rpc::QueryResponseKind::Single) => {}
+                    (
+                        QueryStreamItem::Rows { index: 0, values },
+                        rpc::QueryResponseKind::BatchedFinal,
+                    ) if values.is_empty() => {}
+                    other => panic!("lost result shape: {other:?}"),
+                }
+                assert!(matches!(
+                    items[1],
+                    QueryStreamItem::Finished {
+                        index: 0,
+                        error: None,
+                        ..
+                    }
+                ));
+            }
+        }
+    }
 
-	#[tokio::test]
-	async fn rejected_query_keeps_all_late_causes_and_waits_for_physical_eof() {
-		let (sender, mut receiver) = futures::channel::mpsc::unbounded();
-		let primary = Error::internal("malformed End count".into());
-		sender.unbounded_send(Ok(rpc::QueryResponse {
-			frame: Some(rpc::query_response::Frame::Error(proto::SurrealError {
-				message: "late protocol failure".into(), ..Default::default()
-			})),
-		})).unwrap();
-		let mut drain = Box::pin(drain_query_terminal(&mut receiver, Some(primary)));
-		assert!(futures::poll!(drain.as_mut()).is_pending());
-		sender.unbounded_send(Err(tonic::Status::unavailable("late transport failure"))).unwrap();
-		drop(sender);
-		let error = drain.await.unwrap_err();
-		assert!(error.message().contains("malformed End count"));
-		assert!(error.cause().unwrap().message().contains("late protocol failure"));
-		assert!(error.cause().unwrap().cause().unwrap().message().contains("late transport failure"));
-	}
+    #[tokio::test]
+    async fn rejected_query_keeps_all_late_causes_and_waits_for_physical_eof() {
+        let (sender, mut receiver) = futures::channel::mpsc::unbounded();
+        let primary = Error::internal("malformed End count".into());
+        sender
+            .unbounded_send(Ok(rpc::QueryResponse {
+                frame: Some(rpc::query_response::Frame::Error(proto::SurrealError {
+                    message: "late protocol failure".into(),
+                    ..Default::default()
+                })),
+            }))
+            .unwrap();
+        let mut drain = Box::pin(drain_query_terminal(&mut receiver, Some(primary)));
+        assert!(futures::poll!(drain.as_mut()).is_pending());
+        sender
+            .unbounded_send(Err(tonic::Status::unavailable("late transport failure")))
+            .unwrap();
+        drop(sender);
+        let error = drain.await.unwrap_err();
+        assert!(error.message().contains("malformed End count"));
+        assert!(
+            error
+                .cause()
+                .unwrap()
+                .message()
+                .contains("late protocol failure")
+        );
+        assert!(
+            error
+                .cause()
+                .unwrap()
+                .cause()
+                .unwrap()
+                .message()
+                .contains("late transport failure")
+        );
+    }
 }

@@ -330,8 +330,12 @@ Recovery scopes belong to actual source finalization or explicit maintenance/dir
 They retain sessions, reservations and exact reconciliation/reference-release actions through checked
 terminals. Persist pending request metadata before issue, then known Committed/reference-release
 metadata before releasing its last native outcome witness. Missing recipients refuse before issue;
-pending recovery prevents session/signal/source completion. Authenticated resumption never replays
-payload SQL or rewrites original Unknowns. Admitted ingress includes pre-buffer/decode/conversion
+pending recovery prevents session/signal/source completion. Session close acknowledges the exact
+ordered SDK detach after those prerequisites; authentication invalidation alone is insufficient.
+The connection task has a separate join observation that retains no client/router/engine owner and
+is awaited only after all actual handles drop. Sibling sessions continue independently. Neither
+detach nor connection termination establishes submitted query finality. Authenticated resumption
+never replays payload SQL or rewrites original Unknowns. Admitted ingress includes pre-buffer/decode/conversion
 ownership and lease-bearing queue/delivery; framing alone establishes no memory-admission guarantee.
 The [efficiency coordinator](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
 owns implementation and focused evidence; existing targets and historical receipts remain separately scoped.

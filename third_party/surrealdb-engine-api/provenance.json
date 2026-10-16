@@ -12,7 +12,15 @@
   "local_overrides": {
     "src/lib.rs": {
       "source_sha256": "ddd7769c07dd94e72fa3c902db2270f1c6556d625a3a98d5fc9ebfc6282d535d",
-      "patched_sha256": "1e270c1e693542bdd215f886cd6fc54477dcc179fab2e13adbfe5e5873c527d4"
+      "patched_sha256": "3c6f445fd138782b0b776e76dda0404c70fccb545d4b0620ebdb27ad384477bd"
+    },
+    "Cargo.toml": {
+      "source_sha256": "e36b87ffe425ad97a46dfc9fbdb051a83a1a24f3dc87ba1e65e6764e7da0706a",
+      "patched_sha256": "66fe26944e16158fb25ead5e4484e2f7bbe3534fec2dcfe5f2fd53b2bef3136b"
+    },
+    "src/lifecycle.rs": {
+      "source_sha256": null,
+      "patched_sha256": "ae628e3741303d73f71f45dfbdb07ac52fb9858ed2f8bd966ac17df8a0c51378"
     }
   }
 }

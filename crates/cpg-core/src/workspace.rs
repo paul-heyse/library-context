@@ -3496,6 +3496,12 @@ mod tests {
                 &workspace.admission_memo,
                 &workspace.execution.admission_memo
             ));
+            let connection = native
+                .recovery_scope()
+                .unwrap()
+                .client()
+                .connection_completion()
+                .unwrap();
             let mut finality = workspace.drain_owned_report().await;
             finality.merge(native.abandon_finality_report().await);
             let signal = workspace.complete_signal(&finality).await;
@@ -3503,6 +3509,8 @@ mod tests {
             lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
             drop(workspace);
             drop(native);
+            connection.wait().await.unwrap();
+            drop(connection);
             assert_eq!(
                 budget.reserved(),
                 0,

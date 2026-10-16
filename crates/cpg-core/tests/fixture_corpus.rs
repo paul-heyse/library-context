@@ -363,12 +363,21 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
                 .unwrap();
                 workspace.validate().await.unwrap();
                 contents.push(workspace.identity().unwrap());
+                let connection = workspace
+                    .native()
+                    .recovery_scope()
+                    .unwrap()
+                    .client()
+                    .connection_completion()
+                    .unwrap();
                 let mut finality = workspace.drain_owned_report().await;
                 finality.merge(workspace.native().abandon_finality_report().await);
                 let signal = workspace.complete_signal(&finality).await;
                 finality.step("batching control signal", signal);
                 lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
                 drop(workspace);
+                connection.wait().await.unwrap();
+                drop(connection);
                 assert_eq!(resources.reserved(), 0);
             }
             assert_eq!(contents[0], contents[1], "{case} {}", profile.name());

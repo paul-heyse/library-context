@@ -255,6 +255,7 @@ impl Dump {
             config.database.as_str(),
         )
         .await?;
+        let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
         let result = async {
             let mut known = BTreeSet::new();
             let mut response = client
@@ -301,8 +302,8 @@ impl Dump {
         .await;
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step(
-            "restore definition comparison session invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            "restore definition comparison session close",
+            session.close().await,
         );
         lctx_model::domain::completion::complete(result, completion)
     }

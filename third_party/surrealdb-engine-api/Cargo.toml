@@ -55,7 +55,7 @@ version = "3.3.0"
 
 [dependencies.tokio]
 version = "1.52.1"
-features = ["sync"]
+features = ["sync", "rt"]
 default-features = false
 
 [dependencies.uuid]

@@ -1,16 +1,16 @@
 # Status
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog efficiency remaining scope through CE99 executing, 2026-10-16.** The
-[coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
-owns decisions, exact receipts and limits. Source through `61df50aa` plus integrated native-scope/shared-budget repairs; executors finished Base,
-Summary/analytics and development changes; root owns integration, approved project main+validation regeneration and acceptance.
-Lightweight source context is selected by default; full mode is explicit. Operator/external targets and
-unexpected scopes remain protected. Required peers are built; owned regeneration rehearsal passed, default target unchanged.
-CN06/CN07/CC00–CC03 source through `13c4dfcf` is Interface-checked; prior6 Catalog/3 capture controls and
-full compile/strict Clippy/Ruff/Pyrefly/dependency/ADR checks passed. Outstanding runtime exits are not_run.
-CE00/CD00/CN00–CN05 prior focused-Tested through `29a1a689`; four old campaigns disposed. **Next:** current CLI/native
-preparation (repair compile/strict Clippy passed), fresh rehearsal and native controls, CE80, CE90 selected acceptance,
-then CE99 handback. MCP runtime/embedding inference/real-library qualification and old-plan edits stay excluded.
+**Catalog efficiency through CE99 executing, 2026-10-16.**
+[Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns decisions/receipts.
+Source through `5c117a35` plus reviewed lifecycle/consumer repairs and fallback-guard leak fix.
+Full compile/strict Clippy passed `100051…972c4a`. Prior native rerun `090519…6eeee4`:5 passed,4 failed; three retain3,851
+bytes after finality, one bypassed fixture admission. SDK invalidation leaves detach unjoined.
+Exact-session close and post-owner-drop SDK task join are implemented, runtime pending. ENOSPC
+interrupted the draft; only that abandoned task-owned draft was restored/removed, no truncated source.
+Operator repaired storage;110GiB available on resumption. SDK worker active; no worktree.
+Rehearsal regeneration passed `090429…d27ee3`; default target remains unchanged. **Next:** free
+implement lifecycle fix, qualify fixtures, rebuild/native rerun, CE80/CE90/CE99.
+MCP/embedding/real-library and old-plan edits remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.

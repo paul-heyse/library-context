@@ -184,15 +184,48 @@ not reasons to introduce runtime serialization.
 
 ## 6. Sole disposition and current checkpoint
 
-**Remaining-scope execution active, 2026-10-16.** Baseline `86e1931c` (production through
-`353277a9`). Operator approved execution through CE99, lightweight invocation source context
-by default with explicit full mode, and explicit regeneration of exact project installation
-`58abe9ea-2088-4109-95ab-8440a3749c51` / `library_context` main+validation after authenticated
-drainage. External operator scopes/client registrations and unexpected scopes remain protected.
-Three executors finished CA00, CA01/CA02, and CD01–CD03/selected-complete verification; root owns
-regeneration, decisions, integration, native target/controls and CE80–CE99. Storage blocker is
-cleared. Native/model source must settle before target generation/acceptance; no old runtime
-result or prior pass is promoted. CE99 remains handback only; old plans are not edited.
+**Remaining scope executing after storage repair, 2026-10-16.** Production through `0fac2df8`; fixture-only
+ownership corrections are source-reviewed and committed; runtime remains unverified. Operator approved all remaining
+scope through CE99, lightweight source context, and exact default installation
+`58abe9ea-2088-4109-95ab-8440a3749c51` main+validation regeneration after authenticated drainage.
+Default remains unchanged; owned rehearsal E1 remains installed. Original failures/Unknown stay.
+
+Source write failed with ENOSPC; operator repair now leaves110GiB available. The partial SDK lifecycle
+draft was removed and only its task-owned tracked files restored to `0fac2df8`; no truncated source
+remains. No caches or foreign work were removed. Implementation has resumed: deliver
+acknowledged exact-session close through synchronous registration plus existing ordered Drop, with
+one retained outcome, siblings and earlier clones preserved, no blind uncertain Detach replay.
+Add a non-retaining cancel-safe join observation for the SDK session-lifecycle task; retain charges
+through final token/error borrowers and await only after actual client owners drop. Invalidation
+alone is insufficient. Existing query/pin/source finality remains independent. This fits ADR-0173;
+SDK implementation/provenance are source-reviewed; compile/Clippy and runtime acceptance remain open. Root owns
+integration/default regeneration/CE80–CE99; old plans, embedding/MCP/real-library stay excluded.
+
+**Resumed lifecycle delivery:** fixture corrections committed`5c117a35`; source-only independent
+review found no material issue. SDK close now registers synchronously and queues the existing
+ordered Drop exactly once, retains typed shared results/grants and rejects post-close reuse.
+Public SessionId and other engines' receiver APIs stay unchanged. A cancel-safe registered join
+observes only the SDK lifecycle task after all actual handles drop. Guards, reader fallback,
+publication/backup/inspection/restore/maintenance consumers migrate together; backup cancellation
+and remote uncertainty remain independent. Three zero-release controls and an actual parent/sibling
+control reveal release/order behavior. Independent source review accepts these seams; runtime is
+not yet passed. First hygiene`20261016T094815.584Z-da9842` passed compile but failed strict Clippy on one
+fixture err().expect(); corrected to expect_err. Engine-api
+provenance compares exact published archive to all changed/added files; no version or server wire
+change. The existing required server generations are unaffected.
+
+A subsequent root check independently confirmed a second lifecycle defect: compiler abandonment
+creates a fallback SessionFinalizationGuard even when the factory owns closure. Successful factory
+closure then drops the untouched fallback guard, which forgets another exact client Arc; repeated
+failed/interrupted finalization can retain more redundant handles. This would prevent the new
+connection join from completing. The correction constructs a fallback only without a factory and
+keeps session_closed gating independent. Reader setup already records its factory acknowledgement;
+no second equivalent guard leak was found in inspected adjacent seams. Relationship to the original
+3,851-byte observation is plausible, not measured. Full compile before this small correction passed
+within`20261016T094815.584Z-da9842`. Both source corrections are applied; independent bounded
+reread accepts the factory/fallback split. Final full workspace/all-target compile and strict
+keep-going Clippy`20261016T100051.191Z-972c4a` passed0 without warnings/errors, cleanup confirmed.
+Current CLI build, guard-free refresh, fresh rehearsal and native acceptance remain open.
 
 **Current execution evidence, 2026-10-16:** target-owned default required-peer build
 `20261016T062249.650Z-3b9d62` passed/cleanup confirmed; rehearsal-owned peer build
@@ -208,8 +241,7 @@ supplementary nextest was cancelled before testing (exit130), then replaced by t
 An actual Cargo fine-grained lock-upgrade cycle was released by cancelling the redundant owned
 model tests-compile (exit130, interrupted); no cache/configuration/resource cap changed.
 
-Independent source review found two corrected issues (successor resume must join host clients and
-whole native executor before retry; unavailable full observations cannot report definite change).
+Earlier source review corrections are implemented (successor resume drainage and unavailable full comparisons).
 CA00 now uses owned spillable capture with single-root metadata and unique-per-root rich payload
 demand, then adaptive pure local assembly/computation and failure-atomic expression adoption.
 No native replay or32-disjoint-closure retention is introduced. Independent review required retained
@@ -288,6 +320,29 @@ an unread RAII field. Those fixture/field corrections are applied. Full workspac
 compile and strict keep-going Clippy rerun`20261016T085740.209Z-762e44` passed0, cleanup confirmed,
 without warnings/errors. Current CLI/native preparation, fresh rehearsal generation and the same
 native controls remain prerequisites to default cutover; they are not yet passed.
+
+Current CLI build`20261016T085841.069Z-fe41b5` and guard-free native refresh
+`20261016T090413.885Z-69bc3d` passed0 with confirmed cleanup. Rehearsal regeneration
+`20261016T090429.248Z-d27ee3` passed0/cleanup confirmed, both exact project scopes checked/open,
+bootstrap absent, generation`e291b781a35a28826977e380f2ab9c6e9e7739b639c4f41313ee0327fda9ed76`,
+journal`581fb7ca16c5f90aa57c94916abdf019fd2ae909e77bf8a55e130f204a403619`. Separate authenticated
+discard acknowledgement settles the old attachment obligation without changing its original Unknown.
+Original5 plus4 constructor/refusal/pool/batching controls completed in
+`20261016T090519.921Z-6eeee4` / nextest`e2989eeb-e5df-4d14-bf25-0db8f245feb1`:5 passed,4 failed,
+exit100/host cleanup confirmed. Composition rebase, payload conflict, private capture, empty-reference
+and ignored row-refusal controls passed. Constructor, compute-pool and batching controls reached
+finality but each retained3,851 charged bytes at its zero-release assertion; real ownership is under
+investigation, with no relaxed assertion. The retained-root fixture bypasses receiver mutation
+admission and constructs unrelated factory pools; production attachment already uses the actual
+operation lease. Bounded fixture correction is underway. These are current failures, not acceptance.
+
+Two independent integrated source reviews at frozen`0fac2df8395dac4915bc5de284e7be94b6fbe8e6`
+found no material defects in their inspected scopes: native grouped equality/cuts/recovery/ingress/
+selectors/postings/regeneration, and consumer composition/reference/Catalog/Base/Summary/analytics/
+development integration. They executed no builds, tests, services or queries. Their acceptance is
+source-only; actual RocksDB interleavings, physical query plans, scoring/cold reconstruction, default
+CE80 and selected CE90 remain independent exits. Admitted Arrow/unsupported regex refuse; H2/TLS
+workspace remains outside the stated ingress allocation contract.
 
 
 This section alone owns current execution disposition for this review's scope. The approved

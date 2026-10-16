@@ -4790,7 +4790,9 @@ impl NativeCompilerStore {
         // Serialize acknowledgements, including callers repeating abandonment after
         // its original operation failed. Never query an already invalidated session.
         let mut source = self.admission.source_finalization.lock().await;
-        let session = (!source.session_closed)
+        // A factory already retains the exact close obligation. A second fallback
+        // guard would forget a redundant client handle when the factory closes it.
+        let session = (!source.session_closed && self.admission.factory_lease.is_none())
             .then(|| reader::SessionFinalizationGuard::new(self.client.clone()));
         let mut completion = if source.attempt_closed {
             self.acknowledged_finality()
@@ -4822,11 +4824,17 @@ impl NativeCompilerStore {
             && completion.local == d::completion::LocalState::Terminal
             && completion.remote == d::completion::RemoteState::Confirmed
             && completion.failures.is_empty()
-            && let Some(session) = session
+            && !source.session_closed
         {
             let closed = match &self.admission.factory_lease {
                 Some(lease) => lease.close_session().await,
-                None => session.close().await,
+                None => {
+                    session
+                        .as_ref()
+                        .expect("standalone source session owner")
+                        .close()
+                        .await
+                }
             };
             if closed.is_ok() {
                 source.session_closed = true;

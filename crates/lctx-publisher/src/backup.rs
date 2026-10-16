@@ -10,7 +10,7 @@ use lctx_native::{NativeReader, RuntimeConfig};
 use std::path::Path;
 
 /// Write only the exact recoverable closure through one transaction-bound native snapshot.
-/// Staged bytes become visible only after checked EOF, explicit cancel and session invalidation.
+/// Staged bytes become visible only after checked EOF, explicit cancel and acknowledged session close.
 pub async fn backup(
     config: &RuntimeConfig,
     handle: &SnapshotHandle,
@@ -76,6 +76,7 @@ async fn backup_owned(
     };
     let mut transaction = None;
     let mut exporter = None;
+    let mut exporter_guard = None;
     let mut sources = None;
     let result = async {
         cancel.check()?;
@@ -84,15 +85,17 @@ async fn backup_owned(
         let metadata = recovery_metadata(config, handle)?;
         // One dedicated exporter session, with one external transaction across all metadata,
         // closure and content reads. There is no independent export or per-page snapshot.
-        exporter = Some(
-            lctx_native::reader::connect(
-                &config.endpoint,
-                &config.writer_credentials(),
-                config.namespace.as_str(),
-                config.database.as_str(),
-            )
-            .await?,
-        );
+        let exporting = lctx_native::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            config.namespace.as_str(),
+            config.database.as_str(),
+        )
+        .await?;
+        exporter_guard = Some(lctx_native::reader::SessionFinalizationGuard::new(
+            exporting.clone(),
+        ));
+        exporter = Some(exporting);
         cancel.check()?;
         let version = exporter
             .as_ref()
@@ -102,9 +105,18 @@ async fn backup_owned(
             .map_err(ModelError::codec)?
             .to_string();
         cancel.check()?;
+        // Move the exact SDK session into begin; cloning Surreal would create
+        // another session and leave this close obligation behind.
+        exporter_guard
+            .take()
+            .expect("owned exporter close guard")
+            .transfer();
         let session = match std::sync::Arc::try_unwrap(exporter.take().expect("owned exporter")) {
             Ok(session) => session,
             Err(session) => {
+                exporter_guard = Some(lctx_native::reader::SessionFinalizationGuard::new(
+                    session.clone(),
+                ));
                 exporter = Some(session);
                 return Err(ModelError::Conflict("backup export session ownership"));
             }
@@ -113,12 +125,15 @@ async fn backup_owned(
             Ok(snapshot) => std::sync::Arc::new(snapshot),
             Err((error, session)) => {
                 let mut completion = Completion::default();
-                let invalidated = session.invalidate().await.map_err(ModelError::codec);
-                if invalidated.is_err() {
+                let session = lctx_native::reader::SessionFinalizationGuard::new(
+                    std::sync::Arc::new(session),
+                );
+                let closed = session.close().await;
+                if closed.is_err() {
                     viewer.retain_unknown();
                     completion.remote = RemoteState::Unknown;
                 }
-                completion.step("backup failed-begin session invalidation", invalidated);
+                completion.step("backup failed-begin session close", closed);
                 return complete(Err(ModelError::codec(error)), completion);
             }
         };
@@ -173,33 +188,38 @@ async fn backup_owned(
     }
     .await;
     let mut completion = Completion::default();
-    if let Some(session) = exporter {
-        let invalidated = session.invalidate().await.map_err(ModelError::codec);
-        if invalidated.is_err() {
+    if exporter.is_some() {
+        let session = exporter_guard.take().expect("owned exporter close guard");
+        let closed = session.close().await;
+        if closed.is_err() {
             viewer.retain_unknown();
             completion.remote = RemoteState::Unknown;
         }
-        completion.step(
-            "backup pre-begin exporter session invalidation",
-            invalidated,
-        );
+        completion.step("backup pre-begin exporter session close", closed);
     }
     if let Some(transaction) = transaction {
         let cancelled = transaction.cancel_ref().await.map_err(ModelError::codec);
+        let mut retain = cancelled.is_err();
         if cancelled.is_err() {
             viewer.retain_unknown();
             completion.remote = RemoteState::Unknown;
         }
         completion.step("backup snapshot explicit cancellation", cancelled);
-        let invalidated = transaction
-            .invalidate_session()
+        let closed = transaction
+            .close_session()
             .await
-            .map_err(ModelError::codec);
-        if invalidated.is_err() {
+            .map_err(|error| ModelError::Cause(Box::new(error)));
+        if closed.is_err() {
+            retain = true;
             viewer.retain_unknown();
             completion.remote = RemoteState::Unknown;
         }
-        completion.step("backup snapshot session invalidation", invalidated);
+        completion.step("backup snapshot session close", closed);
+        if retain {
+            // Retain this transaction's exact original SDK session after an
+            // uncertain cancel/close; no replacement client can settle it.
+            std::mem::forget(transaction);
+        }
     }
     completion.step(
         "backup retained manifest pin release",

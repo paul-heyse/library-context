@@ -14,78 +14,87 @@ use crate::{Connection, Surreal};
 #[derive(Debug)]
 #[must_use = "transactions must be committed or cancelled to complete them"]
 pub struct Transaction<C: Connection> {
-	pub(crate) id: Uuid,
-	pub(crate) client: Surreal<C>,
+    pub(crate) id: Uuid,
+    pub(crate) client: Surreal<C>,
 }
 
 impl<C> Transaction<C>
 where
-	C: Connection,
+    C: Connection,
 {
-	/// Commits this transaction, persisting the changes, and returns a
-	/// [`Commit`] future that yields the original [`Surreal`] client on
-	/// success.
-	pub fn commit(self) -> Commit<C> {
-		Commit::from_transaction(self)
-	}
+    /// Commits this transaction, persisting the changes, and returns a
+    /// [`Commit`] future that yields the original [`Surreal`] client on
+    /// success.
+    pub fn commit(self) -> Commit<C> {
+        Commit::from_transaction(self)
+    }
 
-	/// Rolls this transaction back and returns a [`Cancel`] future that yields
-	/// the original [`Surreal`] client on success, without persisting the
-	/// changes from this transaction.
-	pub fn cancel(self) -> Cancel<C> {
-		Cancel::from_transaction(self)
-	}
+    /// Rolls this transaction back and returns a [`Cancel`] future that yields
+    /// the original [`Surreal`] client on success, without persisting the
+    /// changes from this transaction.
+    pub fn cancel(self) -> Cancel<C> {
+        Cancel::from_transaction(self)
+    }
 
-	/// Cancel while retaining this exact session for explicit finalization, including when
-	/// acknowledgement is uncertain. Unlike cloning `Surreal`, this never creates a session.
-	pub async fn cancel_ref(&self) -> crate::Result<()> {
-		use crate::OnceLockExt;
-		let router = self.client.inner.router.extract()?;
-		router.engine.rollback(crate::conn::ctx(self.client.session_id), self.id).await
-	}
+    /// Cancel while retaining this exact session for explicit finalization, including when
+    /// acknowledgement is uncertain. Unlike cloning `Surreal`, this never creates a session.
+    pub async fn cancel_ref(&self) -> crate::Result<()> {
+        use crate::OnceLockExt;
+        let router = self.client.inner.router.extract()?;
+        router
+            .engine
+            .rollback(crate::conn::ctx(self.client.session_id), self.id)
+            .await
+    }
 
-	/// Invalidate the session that owns this transaction after all reads and cancellation
-	/// have reached their terminal outcome. This does not acknowledge a failed cancellation.
-	pub async fn invalidate_session(&self) -> crate::Result<()> {
-		self.client.invalidate().await
-	}
+    /// Invalidate the session that owns this transaction after all reads and cancellation
+    /// have reached their terminal outcome. This does not acknowledge a failed cancellation.
+    pub async fn invalidate_session(&self) -> crate::Result<()> {
+        self.client.invalidate().await
+    }
 
-	/// See [Surreal::query]
-	pub fn query<'client>(&'client self, query: impl Into<Cow<'client, str>>) -> Query<'client, C> {
-		self.client.query(query).with_transaction(self.id)
-	}
+    /// Acknowledge detachment of this exact session after transaction/query terminality.
+    /// Successful acknowledgment confirms detachment; failure retains the close obligation.
+    pub async fn close_session(&self) -> std::result::Result<(), crate::LifecycleError> {
+        self.client.close_session().await
+    }
 
-	/// See [Surreal::select]
-	pub fn select<O>(&'_ self, resource: impl IntoResource<O>) -> Select<'_, C, O> {
-		self.client.select(resource).with_transaction(self.id)
-	}
+    /// See [Surreal::query]
+    pub fn query<'client>(&'client self, query: impl Into<Cow<'client, str>>) -> Query<'client, C> {
+        self.client.query(query).with_transaction(self.id)
+    }
 
-	/// See [Surreal::create]
-	pub fn create<R>(&'_ self, resource: impl CreateResource<R>) -> Create<'_, C, R> {
-		self.client.create(resource).with_transaction(self.id)
-	}
+    /// See [Surreal::select]
+    pub fn select<O>(&'_ self, resource: impl IntoResource<O>) -> Select<'_, C, O> {
+        self.client.select(resource).with_transaction(self.id)
+    }
 
-	/// See [Surreal::insert]
-	pub fn insert<O>(&'_ self, resource: impl IntoResource<O>) -> Insert<'_, C, O> {
-		self.client.insert(resource).with_transaction(self.id)
-	}
+    /// See [Surreal::create]
+    pub fn create<R>(&'_ self, resource: impl CreateResource<R>) -> Create<'_, C, R> {
+        self.client.create(resource).with_transaction(self.id)
+    }
 
-	/// See [Surreal::upsert]
-	pub fn upsert<O>(&'_ self, resource: impl IntoResource<O>) -> Upsert<'_, C, O> {
-		self.client.upsert(resource).with_transaction(self.id)
-	}
+    /// See [Surreal::insert]
+    pub fn insert<O>(&'_ self, resource: impl IntoResource<O>) -> Insert<'_, C, O> {
+        self.client.insert(resource).with_transaction(self.id)
+    }
 
-	/// See [Surreal::update]
-	pub fn update<O>(&'_ self, resource: impl IntoResource<O>) -> Update<'_, C, O> {
-		self.client.update(resource).with_transaction(self.id)
-	}
+    /// See [Surreal::upsert]
+    pub fn upsert<O>(&'_ self, resource: impl IntoResource<O>) -> Upsert<'_, C, O> {
+        self.client.upsert(resource).with_transaction(self.id)
+    }
 
-	/// See [Surreal::delete]
-	pub fn delete<O>(&'_ self, resource: impl IntoResource<O>) -> Delete<'_, C, O> {
-		self.client.delete(resource).with_transaction(self.id)
-	}
+    /// See [Surreal::update]
+    pub fn update<O>(&'_ self, resource: impl IntoResource<O>) -> Update<'_, C, O> {
+        self.client.update(resource).with_transaction(self.id)
+    }
+
+    /// See [Surreal::delete]
+    pub fn delete<O>(&'_ self, resource: impl IntoResource<O>) -> Delete<'_, C, O> {
+        self.client.delete(resource).with_transaction(self.id)
+    }
 }
 
 pub(super) trait WithTransaction {
-	fn with_transaction(self, id: Uuid) -> Self;
+    fn with_transaction(self, id: Uuid) -> Self;
 }
