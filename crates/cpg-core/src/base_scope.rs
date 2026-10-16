@@ -27,6 +27,22 @@ use lctx_model::domain::{
 };
 use std::{any::TypeId, sync::Arc};
 use tracing::Instrument;
+#[path = "base_scope/capture.rs"]
+mod capture;
+use capture::CapturedBase;
+pub(super) fn local_retryable(error: &ModelError) -> bool {
+    capture::local_resource(error)
+}
+type CapturedMemberships = charged::ChargedSet<(usize, (usize, [u8; 16]))>;
+fn membership_keys(
+    members: &CapturedMemberships,
+    partition: usize,
+    table: usize,
+) -> impl Iterator<Item = [u8; 16]> + '_ {
+    members
+        .range((partition, (table, [0; 16]))..=(partition, (table, [255; 16])))
+        .map(|(_, (_, key))| *key)
+}
 type AdmittedSourceRoots = (
     std::collections::BTreeSet<Id<SourceArtifact>>,
     Box<dyn resources::Reservation>,
@@ -135,6 +151,119 @@ pub(super) struct BaseScopes {
     field_call: usize,
     field_global: usize,
     _charge: charged::StateCharge,
+}
+macro_rules! evaluation_selection{($($field:ident:$ty:ty,)*)=>{
+    struct EvaluationSelection<'a>{$($field:lctx_compiler_store::scoped_batch::SelectedRows<'a,$ty>,)*}
+    impl<'a> EvaluationSelection<'a>{fn new(scopes:&BaseScopes,members:&CapturedMemberships,partition:usize,data:&'a EvaluationData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{$($field:lctx_compiler_store::scoped_batch::SelectedRows::from_keys(membership_keys(members,partition,scopes.index(TypeId::of::<$ty>())?),&data.$field,budget)?,)*})}
+    fn view(&self,data:&'a EvaluationData)->Result<execution::evaluation::EvaluationDataView<'_>,ModelError>{{let mut view=data.view();$(view.$field=self.$field.view()?;)*Ok(view)}}}
+};}
+lctx_model::execution_evaluation_inputs!(evaluation_selection);
+macro_rules! entry_selection{($($field:ident:$ty:ty,)*)=>{
+    struct EntrySelection<'a>{$($field:lctx_compiler_store::scoped_batch::SelectedRows<'a,$ty>,)*}
+    impl<'a> EntrySelection<'a>{fn new(scopes:&BaseScopes,members:&CapturedMemberships,partition:usize,data:&'a EntryData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{Ok(Self{$($field:lctx_compiler_store::scoped_batch::SelectedRows::from_keys(membership_keys(members,partition,scopes.index(TypeId::of::<$ty>())?),&data.$field,budget)?,)*})}
+    fn view(&self)->Result<conditions::entry::EntryDataView<'_>,ModelError>{Ok(conditions::entry::EntryDataView{$($field:self.$field.view()?,)*})}}
+};}
+lctx_model::entry_value_inputs!(entry_selection);
+/// One charged typed union backs exact nominal partitions. Rows already index canonical IDs,
+/// so Base retains no second Arrow backing/position index merely to recover those same IDs.
+pub(super) struct BaseWindow<'a> {
+    scopes: &'a BaseScopes,
+    memberships: CapturedMemberships,
+    pub(super) data: Box<BaseData>,
+    pub(super) keys: &'a [[u8; 16]],
+    _charge: charged::StateCharge,
+}
+pub(super) struct BasePartition<'a> {
+    evaluation: EvaluationSelection<'a>,
+    entry: EntrySelection<'a>,
+    witnesses: lctx_compiler_store::scoped_batch::SelectedRows<'a, EntryValueWitness>,
+    sources: lctx_compiler_store::scoped_batch::SelectedRows<'a, EntryAccessSource>,
+    opaque: charged::ChargedVec<Id<value::Literal>>,
+    _charge: charged::StateCharge,
+    data: &'a EvaluationData,
+}
+impl BaseWindow<'_> {
+    pub(super) fn partition(
+        &self,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+    ) -> Result<BasePartition<'_>, ModelError> {
+        if partition >= self.keys.len() {
+            return Err(ModelError::Schema("Base cohort partition"));
+        }
+        let evaluation = EvaluationSelection::new(
+            self.scopes,
+            &self.memberships,
+            partition,
+            &self.data.data,
+            budget,
+        )?;
+        let entry = EntrySelection::new(
+            self.scopes,
+            &self.memberships,
+            partition,
+            &self.data.entry,
+            budget,
+        )?;
+        let witnesses = lctx_compiler_store::scoped_batch::SelectedRows::from_keys(
+            membership_keys(
+                &self.memberships,
+                partition,
+                self.scopes.index(TypeId::of::<EntryValueWitness>())?,
+            ),
+            &self.data.witnesses,
+            budget,
+        )?;
+        let sources = lctx_compiler_store::scoped_batch::SelectedRows::from_keys(
+            membership_keys(
+                &self.memberships,
+                partition,
+                self.scopes.index(TypeId::of::<EntryAccessSource>())?,
+            ),
+            &self.data.sources,
+            budget,
+        )?;
+        let mut charge = charged::StateCharge::new(budget, "Base-opaque-partition");
+        let mut opaque = charged::ChargedVec::default();
+        for key in membership_keys(
+            &self.memberships,
+            partition,
+            self.scopes.index(TypeId::of::<value::Literal>())?,
+        ) {
+            opaque.push(&mut charge, nominal(&key)?)?;
+        }
+        Ok(BasePartition {
+            evaluation,
+            entry,
+            witnesses,
+            sources,
+            opaque,
+            _charge: charge,
+            data: &self.data.data,
+        })
+    }
+}
+impl BasePartition<'_> {
+    pub(super) fn evaluation(
+        &self,
+    ) -> Result<execution::evaluation::EvaluationDataView<'_>, ModelError> {
+        self.evaluation
+            .view(self.data)?
+            .with_opaque_selection(&self.opaque)
+    }
+    pub(super) fn entry(&self) -> Result<conditions::entry::EntryDataView<'_>, ModelError> {
+        self.entry.view()
+    }
+    pub(super) fn witnesses(
+        &self,
+    ) -> Result<normalized::RowsView<'_, EntryValueWitness>, ModelError> {
+        self.witnesses.view()
+    }
+    pub(super) fn sources(
+        &self,
+    ) -> Result<normalized::RowsView<'_, EntryAccessSource>, ModelError> {
+        self.sources.view()
+    }
 }
 type DataReader = for<'a> fn(
     &'a CompletedInputs,
@@ -815,6 +944,34 @@ impl BaseScopes {
         )
         .await
     }
+    pub(super) fn admit_expression_window(
+        &self,
+        remaining: usize,
+        budget: &resources::ResourceBudget,
+    ) -> Result<(usize, charged::StateCharge), ModelError> {
+        let mut width = remaining.min(32);
+        loop {
+            let mut charge = charged::StateCharge::new(budget, "Base-cohort-admission");
+            match charge.grow(
+                width * (size_of::<crate::consumed_rows::PreparedRoot>() + size_of::<[u8; 16]>())
+                    + 4096,
+            ) {
+                Ok(()) => return Ok((width, charge)),
+                Err(ModelError::Resource { .. }) if width > 1 => width = (width / 2).max(1),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    pub(super) async fn capture_expressions<'a>(
+        &'a self,
+        keys: Vec<[u8; 16]>,
+        charge: charged::StateCharge,
+        context: Id<attribution::AnalysisContext>,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<CapturedBase<'a>, ModelError> {
+        CapturedBase::prepare(self, keys, charge, context, budget, cancellation).await
+    }
     pub(super) fn data<'a>(
         &'a self,
         access: &'a CompletedInputs,
@@ -873,11 +1030,11 @@ async fn project_literals(
     );
     let mut stream = crate::sql::query(session, &query)
         .await
-        .map_err(ModelError::codec)?
+        .map_err(crate::sql::model_error)?
         .execute_stream()
         .await
-        .map_err(ModelError::codec)?;
-    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+        .map_err(crate::sql::model_error)?;
+    while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
         let _transfer = budget.reserve(
             "Base-literal-kind-transfer",
             lctx_model::domain::logical_batch_bytes(&batch)?,
@@ -1762,6 +1919,393 @@ mod controls {
         drop(oracle);
         drop(oracle_owner);
         drop(full);
+        drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn expression_cohort_shares_union_and_syntax_with_exact_ordered_duplicate_partitions() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(32 << 20).unwrap();
+        let (prepared, expression, inv) = fixture(&session, &budget, false, true).await;
+        let retained = budget.reserved();
+        let keys = [
+            [254; 16],
+            *expression.id().bytes(),
+            *expression.id().bytes(),
+        ];
+        let (width, charge) = prepared
+            .admit_expression_window(keys.len(), &budget)
+            .unwrap();
+        assert_eq!(width, 3);
+        let captured = prepared
+            .capture_expressions(
+                keys.to_vec(),
+                charge,
+                inv.context,
+                &budget,
+                &crate::workspace::Cancellation::default(),
+            )
+            .await
+            .unwrap();
+        let window = captured
+            .cohort(0, 32, &budget, &crate::workspace::Cancellation::default())
+            .await
+            .unwrap();
+        assert_eq!(window.keys.len(), 3);
+        assert_eq!(
+            captured.captured_rows::<Occurrence>().await.unwrap(),
+            window.data.data.occurrences.len()
+        );
+        assert!(
+            window
+                .partition(0, &budget)
+                .unwrap()
+                .evaluation()
+                .unwrap()
+                .occurrences
+                .is_empty()
+        );
+        let one = window.partition(1, &budget).unwrap();
+        let two = window.partition(2, &budget).unwrap();
+        let a = one.evaluation().unwrap();
+        let b = two.evaluation().unwrap();
+        assert!(std::ptr::eq(
+            a.occurrences.get(expression.id()).unwrap(),
+            b.occurrences.get(expression.id()).unwrap()
+        ));
+        assert_eq!(a.literals.len(), 0);
+        let syntax = execution::evaluation::PreparedSyntax::new(
+            window.data.data.view(),
+            inv.context,
+            &budget,
+        )
+        .unwrap();
+        let (reads, metadata) = prepared.metadata(&session, &inv, &budget).await.unwrap();
+        let actual = local_semantics::ProducedLocal::empty(&budget);
+        let definition = execution::configuration::base_evaluation().1;
+        let mut outputs = Vec::new();
+        for partition in [&one, &two] {
+            let data = partition.evaluation().unwrap();
+            let execution = execution::evaluation::PreparedExecution::shared(
+                data,
+                inv.input,
+                inv.context,
+                &budget,
+                &metadata,
+                &syntax,
+            )
+            .unwrap();
+            let (records, owner) = execution::production::evaluate_expression_partition(
+                partition.entry().unwrap(),
+                partition.witnesses().unwrap(),
+                partition.sources().unwrap(),
+                &inv,
+                &definition,
+                stages::Profile::Behavioral,
+                &budget,
+                expression.id(),
+                &actual,
+                &execution,
+            )
+            .unwrap();
+            assert_eq!(records.run.evaluated, 1);
+            assert_eq!(records.run.refused, 0);
+            outputs.push(records);
+            drop(owner);
+        }
+        assert!(outputs[0].evaluations.same(&outputs[1].evaluations));
+        assert!(outputs[0].members.same(&outputs[1].members));
+        assert!(outputs[0].operands.same(&outputs[1].operands));
+        let without_opaque = a.with_opaque_selection(&[]).unwrap();
+        let execution = execution::evaluation::PreparedExecution::shared(
+            without_opaque,
+            inv.input,
+            inv.context,
+            &budget,
+            &metadata,
+            &syntax,
+        )
+        .unwrap();
+        let (refused, owner) = execution::production::evaluate_expression_partition(
+            one.entry().unwrap(),
+            one.witnesses().unwrap(),
+            one.sources().unwrap(),
+            &inv,
+            &definition,
+            stages::Profile::Behavioral,
+            &budget,
+            expression.id(),
+            &actual,
+            &execution,
+        )
+        .unwrap();
+        assert_eq!(refused.run.refused, 1);
+        assert_eq!(
+            refused.boundaries.iter().next().unwrap().reason,
+            obligation::ObligationKind::MissingEvidence
+        );
+        drop(owner);
+        drop(refused);
+        drop(execution);
+        drop(outputs);
+        drop(actual);
+        drop(metadata);
+        drop(reads);
+        drop(syntax);
+        drop(two);
+        drop(one);
+        drop(window);
+        drop(captured);
+        assert_eq!(budget.reserved(), retained);
+        drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn expression_cohort_cancellation_precedes_native_acquisition_and_releases_admission() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        empty(&session);
+        let prepared = prepare(&session, &budget).await;
+        let retained = budget.reserved();
+        let cancellation = crate::workspace::Cancellation::default();
+        cancellation.cancel();
+        let (_, charge) = prepared.admit_expression_window(32, &budget).unwrap();
+        assert!(
+            prepared
+                .capture_expressions(vec![[1; 16]], charge, id(2), &budget, &cancellation)
+                .await
+                .is_err()
+        );
+        assert_eq!(budget.reserved(), retained);
+        let (_, one) = prepared.admit_expression_window(1, &budget).unwrap();
+        let required = budget.reserved() - retained;
+        drop(one);
+        let pressure = budget
+            .reserve(
+                "Base-key-window-pressure",
+                budget.limit() - retained - required,
+            )
+            .unwrap();
+        let (width, charge) = prepared.admit_expression_window(32, &budget).unwrap();
+        assert_eq!(width, 1);
+        drop(charge);
+        drop(pressure);
+        assert_eq!(budget.reserved(), retained);
+        let pressure = budget
+            .reserve("Base-singleton-refusal", budget.limit() - retained)
+            .unwrap();
+        assert!(matches!(
+            prepared.admit_expression_window(1, &budget),
+            Err(ModelError::Resource { .. })
+        ));
+        drop(pressure);
+        drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn disjoint_rich_roots_capture_under_singleton_pressure_and_adapt_before_answers() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        empty(&session);
+        let artifact = SourceArtifact::from_bytes(id(1), "disjoint.py".into(), b"None").unwrap();
+        let scope = CoverageScope::Artifact {
+            artifact: artifact.id(),
+        };
+        let q = AssertionQualification {
+            context: id(2),
+            scope: scope.id(),
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            condition: conditions::Diagram::always().id(),
+            modality: attribution::Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let expressions = (0..32)
+            .map(|n| Occurrence {
+                source: artifact.id(),
+                start: 0,
+                end: 4,
+                syntax_kind: SyntaxKind::ExprNoneLiteral,
+                role: OccurrenceRole::Syntax,
+                structural_path: vec![n; 32768],
+            })
+            .collect::<Vec<_>>();
+        let placements = expressions
+            .iter()
+            .enumerate()
+            .map(|(n, row)| SyntaxPlacement {
+                qualification: q.id(),
+                occurrence: row.id(),
+                parent: None,
+                field: SyntaxField::Body,
+                ordinal: n as i64,
+            })
+            .collect::<Vec<_>>();
+        let supports = placements
+            .iter()
+            .map(|row| SyntaxPlacementSupport {
+                assertion: row.id(),
+                run: id(3),
+                surface: id(4),
+                evidence: id(5),
+                origin: attribution::Origin::AnalyzerAssertion,
+                mode: attribution::ExtractionMode::NativeTraversal,
+                fidelity: attribution::Fidelity::NativeStructural,
+            })
+            .collect::<Vec<_>>();
+        let owners = expressions
+            .iter()
+            .map(|row| OccurrenceOwnership {
+                occurrence: row.id(),
+                owner: row.id(),
+                entity: id(6),
+            })
+            .collect::<Vec<_>>();
+        register(&session, std::slice::from_ref(&artifact));
+        register(
+            &session,
+            &[input::ArtifactUse {
+                artifact: artifact.id(),
+                input: artifact.input,
+                role: input::SourceRole::Release,
+            }],
+        );
+        register(&session, &[scope]);
+        register(&session, std::slice::from_ref(&q));
+        register(&session, &expressions);
+        register(&session, &placements);
+        register(&session, &supports);
+        register(&session, &owners);
+        let mut native = NativeInventory::new(&budget);
+        native
+            .visit(
+                AssertionQualification::NAME,
+                &AssertionQualification::encode(std::slice::from_ref(&q)).unwrap(),
+            )
+            .unwrap();
+        native
+            .visit(
+                SyntaxPlacement::NAME,
+                &SyntaxPlacement::encode(&placements).unwrap(),
+            )
+            .unwrap();
+        native
+            .visit(
+                SyntaxPlacementSupport::NAME,
+                &SyntaxPlacementSupport::encode(&supports).unwrap(),
+            )
+            .unwrap();
+        let rows = native.collect().unwrap();
+        register(&session, &rows.premises.iter().cloned().collect::<Vec<_>>());
+        register(
+            &session,
+            &rows.qualifications.iter().cloned().collect::<Vec<_>>(),
+        );
+        drop(rows);
+        drop(native);
+        let keys = expressions
+            .iter()
+            .map(|row| *row.id().bytes())
+            .collect::<Vec<_>>();
+        drop(expressions);
+        drop(placements);
+        drop(supports);
+        drop(owners);
+        let prepared = prepare(&session, &budget).await;
+        let retained = budget.reserved();
+        let pressure = budget
+            .reserve(
+                "disjoint-singleton-workspace",
+                budget.limit() - retained - (3 << 20),
+            )
+            .unwrap();
+        let (_, charge) = prepared
+            .admit_expression_window(keys.len(), &budget)
+            .unwrap();
+        let captured = prepared
+            .capture_expressions(
+                keys,
+                charge,
+                q.context,
+                &budget,
+                &crate::workspace::Cancellation::default(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            captured
+                .assemble(0, 32, &budget, &crate::workspace::Cancellation::default())
+                .await,
+            Err(ModelError::Resource { .. })
+        ));
+        let definition = execution::configuration::base_evaluation().1;
+        let inv = publication::AnalysisInvocation::new(
+            artifact.input,
+            q.context,
+            definition.id(),
+            None,
+            [],
+        )
+        .0;
+        let metadata = PreparedEvaluationMetadata::new(inv.input, inv.context, &budget);
+        let actual = local_semantics::ProducedLocal::empty(&budget);
+        let mut consumed = 0;
+        while consumed < captured.keys.len() {
+            let window = captured
+                .cohort(
+                    consumed,
+                    32,
+                    &budget,
+                    &crate::workspace::Cancellation::default(),
+                )
+                .await
+                .unwrap();
+            assert!(window.keys.len() < 32);
+            let syntax = execution::evaluation::PreparedSyntax::new(
+                window.data.data.view(),
+                inv.context,
+                &budget,
+            )
+            .unwrap();
+            for (partition, key) in window.keys.iter().enumerate() {
+                let selected = window.partition(partition, &budget).unwrap();
+                let execution = execution::evaluation::PreparedExecution::shared(
+                    selected.evaluation().unwrap(),
+                    inv.input,
+                    inv.context,
+                    &budget,
+                    &metadata,
+                    &syntax,
+                )
+                .unwrap();
+                let (records, owner) = execution::production::evaluate_expression_partition(
+                    selected.entry().unwrap(),
+                    selected.witnesses().unwrap(),
+                    selected.sources().unwrap(),
+                    &inv,
+                    &definition,
+                    stages::Profile::Behavioral,
+                    &budget,
+                    nominal(key).unwrap(),
+                    &actual,
+                    &execution,
+                )
+                .unwrap();
+                assert_eq!(records.run.evaluated, 1);
+                assert_eq!(records.run.refused, 0);
+                assert_eq!(
+                    records.evaluations.iter().next().unwrap().boolean_value,
+                    Some(false)
+                );
+                drop(owner);
+                consumed += 1;
+            }
+        }
+        assert_eq!(consumed, 32);
+        drop(actual);
+        drop(metadata);
+        drop(captured);
+        drop(pressure);
+        assert_eq!(budget.reserved(), retained);
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }

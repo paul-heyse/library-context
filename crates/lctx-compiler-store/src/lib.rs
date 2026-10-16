@@ -23,6 +23,7 @@ mod artifact_manifest;
 pub mod consumed_rows;
 mod dispatcher_completion;
 pub mod facts;
+pub mod invocation_ipc;
 pub mod native_bridge;
 pub mod native_calls;
 mod native_canonical;

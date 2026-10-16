@@ -78,7 +78,10 @@ macro_rules! entry_value_inputs {
 }
 macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
     pub struct EntryData {$(pub $field:Rows<$ty>,)*}
+    #[derive(Clone,Copy)]
+    pub struct EntryDataView<'a>{$(pub $field:normalized::RowsView<'a,$ty>,)*}
     impl EntryData {
+        pub fn view(&self)->EntryDataView<'_>{EntryDataView{$($field:self.$field.view(),)*}}
         pub fn new(budget:&resources::ResourceBudget)->Self {Self{$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
         pub fn validation_inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}

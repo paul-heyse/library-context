@@ -6,7 +6,7 @@ use crate::domain::{
     assertion::*,
     attribution::*,
     lexical::SyntaxField,
-    normalized::{Rows, entities::*},
+    normalized::{Rows, RowsView, entities::*},
     obligation::ObligationKind,
     resources::ResourceBudget,
     source::*,
@@ -18,7 +18,14 @@ use std::collections::BTreeSet;
 
 macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
     pub struct EvaluationData {$(pub $field:Rows<$ty>,)* opaque_literals:charged::ChargedSet<Id<Literal>>,literal_charge:charged::StateCharge}
+    #[derive(Clone, Copy)]
+    pub struct EvaluationDataView<'a> {$(pub $field:RowsView<'a,$ty>,)* opaque_literals:&'a charged::ChargedSet<Id<Literal>>,opaque_selection:Option<&'a [Id<Literal>]>}
+    impl<'a> EvaluationDataView<'a>{fn shares_backing(self,other:Self)->bool{true $(&&self.$field.shares_backing(other.$field))* &&std::ptr::eq(self.opaque_literals,other.opaque_literals)}
+pub fn with_opaque_selection(mut self,ids:&'a[Id<Literal>])->Result<Self,ModelError>{if ids.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Schema("opaque literal partition order"));}self.opaque_selection=Some(ids);Ok(self)}
+    fn opaque_literal(self,id:Id<Literal>)->bool{self.opaque_literals.contains(&id)&&self.opaque_selection.is_none_or(|ids|ids.binary_search(&id).is_ok())}
+}
     impl EvaluationData {
+        pub fn view(&self)->EvaluationDataView<'_>{EvaluationDataView{$($field:self.$field.view(),)*opaque_literals:&self.opaque_literals,opaque_selection:None}}
         pub fn new(budget:&ResourceBudget)->Self {Self{$($field:Rows::new(budget),)*opaque_literals:Default::default(),literal_charge:charged::StateCharge::new(budget,"execution-literal-kinds")}}
         pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)}
         /// Primitive projection of an admitted String/Bytes row for a kernel that consumes
@@ -297,24 +304,32 @@ impl CheckedEvaluation {
 pub const EXPRESSION_DEPTH_LIMIT: usize = 64;
 pub const EXPRESSION_WORK_LIMIT: usize = 1024;
 const UNSUPPORTED: ObligationKind = ObligationKind::UnsupportedControlFlow;
-struct PreparedSyntax {
-    placements: charged::ChargedMap<Id<Occurrence>, Id<SyntaxPlacement>>,
+/// Charged immutable correspondence over one hydrated cohort. Buckets retain all competing
+/// rows; only a PreparedExecution's selected view may validate or consume those candidates.
+pub struct PreparedSyntax<'a> {
+    data: EvaluationDataView<'a>,
+    context: Id<AnalysisContext>,
+    budget: ResourceBudget,
+    placements: charged::ChargedMap<Id<Occurrence>, Vec<Id<SyntaxPlacement>>>,
     children: charged::ChargedMap<Id<Occurrence>, Vec<Id<SyntaxPlacement>>>,
     details: charged::ChargedMap<Id<Occurrence>, Vec<Id<SyntaxDetailObservation>>>,
     native: charged::ChargedMap<derivation::RowRef, Vec<Id<NativeQualification>>>,
-    ownership: charged::ChargedMap<Id<Occurrence>, Vec<Id<EntityRef>>>,
+    ownership: charged::ChargedMap<Id<Occurrence>, Vec<Id<OccurrenceOwnership>>>,
     declarations: charged::ChargedMap<Id<Occurrence>, Vec<Id<syntax::DeclarationObservation>>>,
-    lazy_owners: charged::ChargedSet<Id<EntityRef>>,
+    lazy_owners: charged::ChargedMap<Id<EntityRef>, Vec<Id<Occurrence>>>,
     builtin_classes: charged::ChargedMap<String, Vec<Id<calls::ProviderSymbol>>>,
     _charge: charged::StateCharge,
 }
-impl PreparedSyntax {
-    fn new(
-        data: &EvaluationData,
+impl<'a> PreparedSyntax<'a> {
+    pub fn new(
+        data: EvaluationDataView<'a>,
         context: Id<AnalysisContext>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         let mut index = Self {
+            data,
+            context,
+            budget: budget.clone(),
             placements: Default::default(),
             children: Default::default(),
             details: Default::default(),
@@ -338,15 +353,9 @@ impl PreparedSyntax {
             {
                 continue;
             }
-            if index
+            index
                 .placements
-                .insert(&mut index._charge, row.occurrence, row.id())?
-                .is_some_and(|old| old != row.id())
-            {
-                return Err(ModelError::Invalid(
-                    "execution syntax has ambiguous placement".into(),
-                ));
-            }
+                .push(&mut index._charge, row.occurrence, row.id())?;
             if let Some(parent) = row.parent {
                 index.children.push(&mut index._charge, parent, row.id())?;
             }
@@ -363,10 +372,9 @@ impl PreparedSyntax {
             }
         }
         for row in data.native.iter() {
-            let premise = data
-                .premises
-                .get(row.premise)
-                .ok_or_else(|| ModelError::Invalid("execution native pair missing".into()))?;
+            let Some(premise) = data.premises.get(row.premise) else {
+                continue;
+            };
             index.native.push(
                 &mut index._charge,
                 premise.assertion_and_support().0,
@@ -376,7 +384,7 @@ impl PreparedSyntax {
         for row in data.owners.iter() {
             index
                 .ownership
-                .push(&mut index._charge, row.occurrence, row.entity)?;
+                .push(&mut index._charge, row.occurrence, row.id())?;
         }
         for row in data.declarations.iter() {
             if data
@@ -396,16 +404,57 @@ impl PreparedSyntax {
             )
         }) {
             for owner in index.ownership.get(&row.id()).into_iter().flatten() {
-                index.lazy_owners.insert(&mut index._charge, *owner)?;
+                if let Some(owner) = data.owners.get(*owner) {
+                    index
+                        .lazy_owners
+                        .push(&mut index._charge, owner.entity, row.id())?;
+                }
             }
         }
         Ok(index)
     }
 }
+pub(crate) fn validate_syntax(
+    data: EvaluationDataView<'_>,
+    context: Id<AnalysisContext>,
+    index: &PreparedSyntax<'_>,
+) -> Result<(), ModelError> {
+    for row in data.placements.iter().filter(|row| {
+        data.qualifications
+            .get(row.qualification)
+            .is_some_and(|q| q.context == context)
+    }) {
+        if index
+            .placements
+            .get(&row.occurrence)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| data.placements.get(*key))
+            .filter(|other| {
+                data.qualifications
+                    .get(other.qualification)
+                    .is_some_and(|q| q.context == context)
+            })
+            .any(|other| other.id() != row.id())
+        {
+            return Err(ModelError::Invalid(
+                "execution syntax has ambiguous placement".into(),
+            ));
+        }
+    }
+    if data
+        .native
+        .iter()
+        .any(|row| data.premises.get(row.premise).is_none())
+    {
+        return Err(ModelError::Invalid("execution native pair missing".into()));
+    }
+    Ok(())
+}
 pub(crate) struct Evaluator<'a> {
-    index: &'a PreparedSyntax,
+    index: &'a PreparedSyntax<'a>,
     metadata: Option<&'a PreparedEvaluationMetadata>,
-    data: &'a EvaluationData,
+    data: EvaluationDataView<'a>,
     request: ExpressionRequest,
     remaining: usize,
     available_entries: &'a [&'a conditions::entry::DerivedEntryValue],
@@ -417,10 +466,28 @@ pub(crate) struct Evaluator<'a> {
     work_reason: ObligationKind,
     status: analysis::policy::EvidenceStatus,
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ObligationKind> {
+fn need<'a, R: Record>(rows: &RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ObligationKind> {
     rows.get(id).ok_or(ObligationKind::MissingEvidence)
 }
 impl Evaluator<'_> {
+    fn placement(&self, id: Id<Occurrence>) -> Result<Id<SyntaxPlacement>, ObligationKind> {
+        self.index
+            .placements
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|key| {
+                self.data.placements.get(*key).is_some_and(|row| {
+                    self.data
+                        .qualifications
+                        .get(row.qualification)
+                        .is_some_and(|q| q.context == self.request.context)
+                })
+            })
+            .ok_or(ObligationKind::MissingEvidence)
+    }
+
     pub(crate) fn tick(&mut self, n: usize) -> Result<(), ObligationKind> {
         self.remaining = self.remaining.checked_sub(n).ok_or(self.work_reason)?;
         Ok(())
@@ -431,15 +498,14 @@ impl Evaluator<'_> {
             .index
             .ownership
             .get(&id)
-            .is_some_and(|owners| owners.contains(&self.request.owner))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| self.data.owners.get(*id))
+            .any(|owner| owner.entity == self.request.owner)
         {
             return Err(boundary(ObligationKind::ScopeBoundary));
         }
-        let placement_id = *self
-            .index
-            .placements
-            .get(&id)
-            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        let placement_id = self.placement(id).map_err(boundary)?;
         let placement = need(&self.data.placements, placement_id).map_err(boundary)?;
         self.support(placement, placement.qualification, id)
     }
@@ -450,14 +516,7 @@ impl Evaluator<'_> {
         &self,
         id: Id<Occurrence>,
     ) -> Result<Id<AssertionQualification>, ObligationKind> {
-        let placement = need(
-            &self.data.placements,
-            *self
-                .index
-                .placements
-                .get(&id)
-                .ok_or(ObligationKind::MissingEvidence)?,
-        )?;
+        let placement = need(&self.data.placements, self.placement(id)?)?;
         Ok(placement.qualification)
     }
     /// A source callable's declaration is lexically owned by its enclosing scope. The
@@ -477,13 +536,54 @@ impl Evaluator<'_> {
             .declarations
             .get(&id)
             .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
-        self.tick(declarations.len()).map_err(boundary)?;
-        if declarations.len() != 1 {
+        let count = declarations
+            .iter()
+            .filter(|id| {
+                self.data.declarations.get(**id).is_some_and(|row| {
+                    self.data
+                        .qualifications
+                        .get(row.qualification)
+                        .is_some_and(|q| q.context == self.request.context)
+                })
+            })
+            .count();
+        self.tick(count).map_err(boundary)?;
+        if count != 1 {
             return Err(boundary(ObligationKind::MissingEvidence));
         }
-        let declaration = need(&self.data.declarations, declarations[0]).map_err(boundary)?;
+        let declaration = need(
+            &self.data.declarations,
+            *declarations
+                .iter()
+                .find(|id| {
+                    self.data.declarations.get(**id).is_some_and(|row| {
+                        self.data
+                            .qualifications
+                            .get(row.qualification)
+                            .is_some_and(|q| q.context == self.request.context)
+                    })
+                })
+                .expect("selected declaration"),
+        )
+        .map_err(boundary)?;
         if declaration.kind != syntax::DeclarationKind::Function
-            || self.index.lazy_owners.contains(&self.request.owner)
+            || self
+                .index
+                .lazy_owners
+                .get(&self.request.owner)
+                .into_iter()
+                .flatten()
+                .any(|id| {
+                    self.data.occurrences.get(*id).is_some()
+                        && self
+                            .index
+                            .ownership
+                            .get(id)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|id| self.data.owners.get(*id))
+                            .any(|owner| owner.entity == self.request.owner)
+                })
             || self
                 .metadata
                 .is_some_and(|metadata| metadata.lazy.contains(&self.request.owner))
@@ -491,11 +591,7 @@ impl Evaluator<'_> {
             return Err(boundary(ObligationKind::ScopeBoundary));
         }
         self.support(declaration, declaration.qualification, id)?;
-        let placement_id = *self
-            .index
-            .placements
-            .get(&id)
-            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        let placement_id = self.placement(id).map_err(boundary)?;
         let placement = need(&self.data.placements, placement_id).map_err(boundary)?;
         self.support(placement, placement.qualification, id)
     }
@@ -547,7 +643,10 @@ impl Evaluator<'_> {
             self.index
                 .native
                 .get(&derivation::RowRef::of(row.id()))
-                .map_or(0, Vec::len),
+                .into_iter()
+                .flatten()
+                .filter(|id| self.data.native.get(**id).is_some())
+                .count(),
         )
         .map_err(boundary)?;
         for native_id in self
@@ -556,6 +655,7 @@ impl Evaluator<'_> {
             .get(&derivation::RowRef::of(row.id()))
             .into_iter()
             .flatten()
+            .filter(|id| self.data.native.get(**id).is_some())
         {
             let native = need(&self.data.native, *native_id).map_err(boundary)?;
             if native.qualification != q
@@ -586,11 +686,40 @@ impl Evaluator<'_> {
         &mut self,
         parent: Id<Occurrence>,
     ) -> Result<Vec<SyntaxPlacement>, EvaluationError> {
+        let data = self.data;
+        let context = self.request.context;
         let parent_row = need(&self.data.occurrences, parent).map_err(boundary)?;
         let mut children = Vec::new();
-        self.tick(self.index.children.get(&parent).map_or(0, Vec::len))
-            .map_err(boundary)?;
-        for placement_id in self.index.children.get(&parent).into_iter().flatten() {
+        self.tick(
+            self.index
+                .children
+                .get(&parent)
+                .into_iter()
+                .flatten()
+                .filter(|id| {
+                    self.data.placements.get(**id).is_some_and(|row| {
+                        data.qualifications
+                            .get(row.qualification)
+                            .is_some_and(|q| q.context == self.request.context)
+                    })
+                })
+                .count(),
+        )
+        .map_err(boundary)?;
+        for placement_id in self
+            .index
+            .children
+            .get(&parent)
+            .into_iter()
+            .flatten()
+            .filter(|id| {
+                data.placements.get(**id).is_some_and(|row| {
+                    data.qualifications
+                        .get(row.qualification)
+                        .is_some_and(|q| q.context == context)
+                })
+            })
+        {
             let placement = need(&self.data.placements, *placement_id).map_err(boundary)?;
             let q = need(&self.data.qualifications, placement.qualification).map_err(boundary)?;
             if q.context != self.request.context {
@@ -668,9 +797,38 @@ impl Evaluator<'_> {
         occurrence: Id<Occurrence>,
     ) -> Result<Option<SyntaxDetail>, EvaluationError> {
         let mut found = None;
-        self.tick(self.index.details.get(&occurrence).map_or(0, Vec::len))
-            .map_err(boundary)?;
-        for row_id in self.index.details.get(&occurrence).into_iter().flatten() {
+        let data = self.data;
+        let context = self.request.context;
+        self.tick(
+            self.index
+                .details
+                .get(&occurrence)
+                .into_iter()
+                .flatten()
+                .filter(|id| {
+                    self.data.details.get(**id).is_some_and(|row| {
+                        data.qualifications
+                            .get(row.qualification)
+                            .is_some_and(|q| q.context == self.request.context)
+                    })
+                })
+                .count(),
+        )
+        .map_err(boundary)?;
+        for row_id in self
+            .index
+            .details
+            .get(&occurrence)
+            .into_iter()
+            .flatten()
+            .filter(|id| {
+                data.details.get(**id).is_some_and(|row| {
+                    data.qualifications
+                        .get(row.qualification)
+                        .is_some_and(|q| q.context == context)
+                })
+            })
+        {
             let row = need(&self.data.details, *row_id).map_err(boundary)?;
             if row.ordinal != 0 || found.is_some() {
                 return Err(boundary(UNSUPPORTED));
@@ -694,10 +852,14 @@ impl Evaluator<'_> {
             .builtin_classes
             .get(&name.to_owned())
             .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
-        if symbols.len() != 1 {
+        let mut symbols=symbols.iter().filter(|id|self.data.symbols.get(**id).is_some_and(|symbol|matches!(self.data.provider_modules.get(symbol.module),Some(calls::ProviderModule::Bundled{name,bundle:calls::ModuleBundle::Typeshed,..})if name=="builtins")));
+        let first = *symbols
+            .next()
+            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        if symbols.next().is_some() {
             return Err(boundary(ObligationKind::AmbiguousBinding));
         }
-        Ok(symbols[0])
+        Ok(first)
     }
     pub(crate) fn class_matches(
         &mut self,
@@ -779,15 +941,14 @@ impl Evaluator<'_> {
             .index
             .ownership
             .get(&id)
-            .is_some_and(|owners| owners.contains(&self.request.owner))
+            .into_iter()
+            .flatten()
+            .filter_map(|id| self.data.owners.get(*id))
+            .any(|owner| owner.entity == self.request.owner)
         {
             return Err(boundary(ObligationKind::ScopeBoundary));
         }
-        let placement_id = *self
-            .index
-            .placements
-            .get(&id)
-            .ok_or_else(|| boundary(ObligationKind::MissingEvidence))?;
+        let placement_id = self.placement(id).map_err(boundary)?;
         let placement = need(&self.data.placements, placement_id).map_err(boundary)?;
         self.support(placement, placement.qualification, id)?;
         let children = self.children(id)?;
@@ -816,9 +977,7 @@ impl Evaluator<'_> {
                     }
                     return Err(boundary(UNSUPPORTED));
                 };
-                if self.data.literals.get(literal).is_none()
-                    && self.data.opaque_literals.contains(&literal)
-                {
+                if self.data.literals.get(literal).is_none() && self.data.opaque_literal(literal) {
                     Value::Literal
                 } else {
                     match need(&self.data.literals, literal).map_err(boundary)? {
@@ -848,8 +1007,9 @@ impl Evaluator<'_> {
                         expression: id,
                         ..self.request
                     };
-                    let proof = super::builtin_read::CheckedBuiltinRead::derive(
+                    let proof = super::builtin_read::CheckedBuiltinRead::derive_view(
                         self.data,
+                        self.index,
                         request,
                         self.charge.budget().ok_or_else(|| {
                             EvaluationError::Model(ModelError::Invalid(
@@ -880,7 +1040,14 @@ impl Evaluator<'_> {
                     {
                         return Ok(Value::Retained);
                     }
-                    if !self.index.builtin_classes.contains_key(&name.to_owned()) {
+                    if !self
+                        .index
+                        .builtin_classes
+                        .get(&name.to_owned())
+                        .into_iter()
+                        .flatten()
+                        .any(|id| self.data.symbols.get(*id).is_some())
+                    {
                         return Ok(Value::Retained);
                     }
                     let symbol = self.builtin_class(name)?;
@@ -1104,6 +1271,23 @@ pub(crate) fn with_completion_syntax<T>(
     prepared.with_completion_syntax(request, visit)
 }
 
+pub(crate) fn with_completion_view<T>(
+    data: EvaluationDataView<'_>,
+    index: &PreparedSyntax<'_>,
+    request: ExpressionRequest,
+    budget: &ResourceBudget,
+    visit: impl FnOnce(&mut Evaluator<'_>) -> Result<T, EvaluationError>,
+) -> Result<Result<T, ObligationKind>, ModelError> {
+    let prepared = PreparedExecution {
+        data,
+        input: request.input,
+        context: request.context,
+        index: SyntaxOwner::Borrowed(index),
+        metadata: None,
+        budget: budget.clone(),
+    };
+    prepared.with_completion_syntax(request, visit)
+}
 /// Source name reads require the exact shared, privately derived entry proof. Merely naming a
 /// parameter or observing a value transfer does not establish availability or harmless disposal.
 /// Reuse the admitted syntax index for one captured frame. Result tokens retain their own
@@ -1134,11 +1318,24 @@ impl PreparedEvaluationMetadata {
         Ok(())
     }
 }
+enum SyntaxOwner<'a> {
+    Owned(PreparedSyntax<'a>),
+    Borrowed(&'a PreparedSyntax<'a>),
+}
+impl<'a> std::ops::Deref for SyntaxOwner<'a> {
+    type Target = PreparedSyntax<'a>;
+    fn deref(&self) -> &PreparedSyntax<'a> {
+        match self {
+            Self::Owned(value) => value,
+            Self::Borrowed(value) => value,
+        }
+    }
+}
 pub struct PreparedExecution<'a> {
-    data: &'a EvaluationData,
+    data: EvaluationDataView<'a>,
     input: Id<input::InputRevision>,
     context: Id<AnalysisContext>,
-    index: PreparedSyntax,
+    index: SyntaxOwner<'a>,
     metadata: Option<&'a PreparedEvaluationMetadata>,
     budget: ResourceBudget,
 }
@@ -1149,11 +1346,13 @@ impl<'a> PreparedExecution<'a> {
         context: Id<AnalysisContext>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
+        let index = PreparedSyntax::new(data.view(), context, budget)?;
+        validate_syntax(data.view(), context, &index)?;
         Ok(Self {
-            data,
+            data: data.view(),
             input,
             context,
-            index: PreparedSyntax::new(data, context, budget)?,
+            index: SyntaxOwner::Owned(index),
             metadata: None,
             budget: budget.clone(),
         })
@@ -1172,8 +1371,38 @@ impl<'a> PreparedExecution<'a> {
         prepared.metadata = Some(metadata);
         Ok(prepared)
     }
-    pub(crate) fn data(&self) -> &EvaluationData {
+    pub(crate) fn data(&self) -> EvaluationDataView<'a> {
         self.data
+    }
+    /// Borrow correspondence without widening this root's row membership or entry authority.
+    pub fn shared(
+        data: EvaluationDataView<'a>,
+        input: Id<input::InputRevision>,
+        context: Id<AnalysisContext>,
+        budget: &ResourceBudget,
+        metadata: &'a PreparedEvaluationMetadata,
+        index: &'a PreparedSyntax<'a>,
+    ) -> Result<Self, ModelError> {
+        if (metadata.input, metadata.context) != (input, context) {
+            return Err(ModelError::Conflict("execution metadata frame changed"));
+        }
+        if index.context != context
+            || !index.budget.shares_pool(budget)
+            || !index.data.shares_backing(data)
+        {
+            return Err(ModelError::Conflict(
+                "execution syntax inventory owner changed",
+            ));
+        }
+        validate_syntax(data, context, index)?;
+        Ok(Self {
+            data,
+            input,
+            context,
+            index: SyntaxOwner::Borrowed(index),
+            metadata: Some(metadata),
+            budget: budget.clone(),
+        })
     }
     pub(crate) fn budget(&self) -> &ResourceBudget {
         &self.budget
@@ -1247,10 +1476,8 @@ fn evaluate_prepared(
             let placement = data
                 .placements
                 .get(
-                    *prepared
-                        .index
-                        .placements
-                        .get(&request.expression)
+                    evaluator
+                        .placement(request.expression)
                         .expect("evaluated placement"),
                 )
                 .expect("indexed placement");
@@ -1533,6 +1760,140 @@ mod prepared_completion_tests {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
 
+    #[test]
+    fn cohort_inventory_does_not_supply_unselected_premises_or_expose_foreign_malformed_rows() {
+        use crate::domain::analysis::native::NativeInventory;
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let artifact = SourceArtifact::from_bytes(id(1), "roots.py".into(), b"None").unwrap();
+        let scope = CoverageScope::Artifact {
+            artifact: artifact.id(),
+        };
+        let q = AssertionQualification {
+            context: id(2),
+            scope: scope.id(),
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            condition: conditions::Diagram::always().id(),
+            modality: Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let expression = Occurrence {
+            source: artifact.id(),
+            start: 0,
+            end: 4,
+            syntax_kind: SyntaxKind::ExprNoneLiteral,
+            role: OccurrenceRole::Syntax,
+            structural_path: vec![0],
+        };
+        let placement = SyntaxPlacement {
+            qualification: q.id(),
+            occurrence: expression.id(),
+            parent: None,
+            field: SyntaxField::Body,
+            ordinal: 0,
+        };
+        let support = SyntaxPlacementSupport {
+            assertion: placement.id(),
+            run: id(3),
+            surface: id(4),
+            evidence: id(5),
+            origin: Origin::AnalyzerAssertion,
+            mode: ExtractionMode::NativeTraversal,
+            fidelity: Fidelity::NativeStructural,
+        };
+        let mut inventory = NativeInventory::new(&budget);
+        inventory
+            .visit(
+                AssertionQualification::NAME,
+                &AssertionQualification::encode(std::slice::from_ref(&q)).unwrap(),
+            )
+            .unwrap();
+        inventory
+            .visit(
+                SyntaxPlacement::NAME,
+                &SyntaxPlacement::encode(std::slice::from_ref(&placement)).unwrap(),
+            )
+            .unwrap();
+        inventory
+            .visit(
+                SyntaxPlacementSupport::NAME,
+                &SyntaxPlacementSupport::encode(&[support]).unwrap(),
+            )
+            .unwrap();
+        let native = inventory.collect().unwrap();
+        drop(inventory);
+        let mut data = EvaluationData::new(&budget);
+        data.artifacts.insert(artifact).unwrap();
+        data.scopes.insert(scope).unwrap();
+        data.qualifications.insert(q).unwrap();
+        data.occurrences.insert(expression.clone()).unwrap();
+        data.placements.insert(placement).unwrap();
+        data.owners
+            .insert(OccurrenceOwnership {
+                occurrence: expression.id(),
+                owner: expression.id(),
+                entity: id(6),
+            })
+            .unwrap();
+        data.native = native.qualifications;
+        data.premises = native.premises;
+        let good_ids = data.native.iter().map(Record::id).collect::<Vec<_>>();
+        let mut malformed = data.native.iter().next().unwrap().clone();
+        malformed.premise = id(99);
+        let malformed_id = data.native.insert(malformed).unwrap();
+        let syntax = PreparedSyntax::new(data.view(), id(2), &budget).unwrap();
+        let metadata = PreparedEvaluationMetadata::new(id(1), id(2), &budget);
+        let request = ExpressionRequest {
+            input: id(1),
+            context: id(2),
+            owner: id(6),
+            expression: expression.id(),
+        };
+        let mut selected = data.view();
+        selected.native = RowsView::selected(&data.native, &good_ids).unwrap();
+        let good =
+            PreparedExecution::shared(selected, id(1), id(2), &budget, &metadata, &syntax).unwrap();
+        for _ in 0..2 {
+            let proof = good.evaluate(request, &[]).unwrap().unwrap();
+            assert_eq!(proof.truth(), Some(false));
+            assert_eq!(proof.evaluated_operands(), &[expression.id()]);
+        }
+        let mut missing = selected;
+        missing.placements = RowsView::selected(&data.placements, &[]).unwrap();
+        let missing =
+            PreparedExecution::shared(missing, id(1), id(2), &budget, &metadata, &syntax).unwrap();
+        assert_eq!(
+            missing.evaluate(request, &[]).unwrap().err(),
+            Some(ObligationKind::MissingEvidence)
+        );
+        let malformed_ids = [malformed_id];
+        let mut bad = selected;
+        bad.native = RowsView::selected(&data.native, &malformed_ids).unwrap();
+        assert!(PreparedExecution::shared(bad, id(1), id(2), &budget, &metadata, &syntax).is_err());
+        assert_eq!(
+            good.evaluate(
+                ExpressionRequest {
+                    context: id(88),
+                    ..request
+                },
+                &[]
+            )
+            .unwrap()
+            .err(),
+            Some(ObligationKind::IncompatibleContexts)
+        );
+        let foreign = EvaluationData::new(&budget);
+        assert!(
+            PreparedExecution::shared(foreign.view(), id(1), id(2), &budget, &metadata, &syntax)
+                .is_err()
+        );
+        drop(missing);
+        drop(good);
+        drop(metadata);
+        drop(syntax);
+        drop(foreign);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
+    }
     #[test]
     fn prepared_completion_keeps_request_limits_independent() {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();

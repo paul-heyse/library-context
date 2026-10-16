@@ -1,6 +1,6 @@
 //! The retained lexical builtin-name operation proves normal lookup under its captured
 //! structural context. It proves neither mutable state stability nor parameter entry identity.
-use super::evaluation::{EvaluationData, ExpressionRequest};
+use super::evaluation::{EvaluationData, EvaluationDataView, ExpressionRequest, PreparedSyntax};
 use crate::domain::{
     analysis::{self, native::NativeAssertionPremise, policy::EvidenceStatus},
     lexical::*,
@@ -41,10 +41,20 @@ impl CheckedBuiltinRead {
         request: ExpressionRequest,
         budget: &ResourceBudget,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        let index = PreparedSyntax::new(data.view(), request.context, budget)?;
+        super::evaluation::validate_syntax(data.view(), request.context, &index)?;
+        Self::derive_view(data.view(), &index, request, budget)
+    }
+    pub(crate) fn derive_view(
+        data: EvaluationDataView<'_>,
+        index: &PreparedSyntax<'_>,
+        request: ExpressionRequest,
+        budget: &ResourceBudget,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
         use super::evaluation::boundary;
         let mut charge = charged::StateCharge::new(budget, "lexical_builtin_read");
         charge.grow(size_of::<Self>() * 2)?;
-        super::evaluation::with_completion_syntax(data, request, budget, |syntax| {
+        super::evaluation::with_completion_view(data, index, request, budget, |syntax| {
             syntax.observe(request.expression)?;
             let occurrence = data
                 .occurrences

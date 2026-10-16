@@ -374,14 +374,45 @@ pub(super) fn append_native_evidence_rows(
     rows: &mut Rows<analysis::native::NativeAssertionPremise>,
     status: &mut analysis::policy::EvidenceStatus,
 ) -> Result<(), RuntimeEvidenceError> {
-    exact_qualification(qualifications, q, context)?;
+    append_native_evidence_views(
+        qualifications.view(),
+        native.view(),
+        premises.view(),
+        index,
+        reference,
+        q,
+        context,
+        rows,
+        status,
+    )
+}
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Independent evidence ports and output ownership remain explicit."
+)]
+pub(super) fn append_native_evidence_views(
+    qualifications: normalized::RowsView<'_, AssertionQualification>,
+    native: normalized::RowsView<'_, analysis::native::NativeQualification>,
+    premises: normalized::RowsView<'_, analysis::native::NativeAssertionPremise>,
+    index: Option<
+        &charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>,
+    >,
+    reference: derivation::RowRef,
+    q: Id<AssertionQualification>,
+    context: Id<AnalysisContext>,
+    rows: &mut Rows<analysis::native::NativeAssertionPremise>,
+    status: &mut analysis::policy::EvidenceStatus,
+) -> Result<(), RuntimeEvidenceError> {
+    exact_qualification_view(qualifications, q, context)?;
     let mut found = false;
     let mut append =
         |native: &analysis::native::NativeQualification| -> Result<(), RuntimeEvidenceError> {
             if native.qualification != q {
                 return Ok(());
             }
-            let premise = need(premises, native.premise)?;
+            let premise = premises
+                .get(native.premise)
+                .ok_or(ObligationKind::MissingEvidence)?;
             if premise.assertion_and_support().0 != reference {
                 return Ok(());
             }
@@ -402,7 +433,9 @@ pub(super) fn append_native_evidence_rows(
         };
     if let Some(index) = index {
         for id in index.get(&reference).into_iter().flatten() {
-            append(need(native, *id)?)?;
+            if let Some(row) = native.get(*id) {
+                append(row)?;
+            }
         }
     } else {
         for native in native.iter() {
@@ -535,7 +568,14 @@ pub(super) fn exact_qualification(
     id: Id<AssertionQualification>,
     context: Id<AnalysisContext>,
 ) -> Result<(), ObligationKind> {
-    let q = need(data, id)?;
+    exact_qualification_view(data.view(), id, context)
+}
+pub(super) fn exact_qualification_view(
+    data: normalized::RowsView<'_, AssertionQualification>,
+    id: Id<AssertionQualification>,
+    context: Id<AnalysisContext>,
+) -> Result<(), ObligationKind> {
+    let q = data.get(id).ok_or(ObligationKind::MissingEvidence)?;
     if q.context != context {
         return Err(ObligationKind::IncompatibleContexts);
     }

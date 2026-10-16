@@ -153,6 +153,16 @@ silently reported as complete.
 
 ## Transfer summaries
 
+**Implemented / functional verification in progress, 2026-10-16:** one charged borrowed ordered
+invocation inventory supplies headers, declarations, parameters, links, arguments, guards and
+residual event/seed correspondence. Immutable signature ingredients are shared lazily; caller
+bindings, ports, admission and proofs remain per attempt. Competing rows and original error gates
+remain visible. Correspondence releases after its final SCC/pair consumer. The
+[efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns current controls and enclosing acceptance; this changes private preparation, not Summary meaning.
+
+> Decision: ADR-0176
+
 **Implemented / source-accepted, 2026-10-14; pure port/worklist controls passed, native composition open.** Summary prepares immutable
 call-attempt/signature correspondence lazily under the actual borrowed source and private binding
 owners. Parameters, links, arguments and bound ports remain charged through their final consumed

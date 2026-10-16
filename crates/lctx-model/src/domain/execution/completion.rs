@@ -90,7 +90,7 @@ struct Kernel<'a, 'b, 'c> {
     headers: Vec<Id<super::source_call_records::SourceCallHeader>>,
     definitions: Vec<Id<super::definition::DefinitionEvaluation>>,
     contexts: Vec<Id<super::context_execution::ContextExecution>>,
-    data: &'a EvaluationData,
+    data: super::evaluation::EvaluationDataView<'a>,
     request: CompletionRequest,
     evaluations: &'a [&'a CheckedEvaluation],
     available_definitions: &'a [super::definition::CheckedDefinition],

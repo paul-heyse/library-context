@@ -8,8 +8,8 @@ Lightweight source context is selected by default; full mode is explicit. Operat
 unexpected scopes remain protected. Storage is available; both required-peer target-owned builds passed with confirmed cleanup.
 CN06/CN07/CC00–CC03 source through `13c4dfcf` is Interface-checked; prior6 Catalog/3 capture controls and
 full compile/strict Clippy/Ruff/Pyrefly/dependency/ADR checks passed. Outstanding runtime exits are not_run.
-CE00/CD00/CN00–CN05 prior focused-Tested through `29a1a689`; four old campaigns disposed. **Next:** finish
-functional packages, freeze current source, focused native controls, CE80 regeneration, CE90 selected acceptance,
+CE00/CD00/CN00–CN05 prior focused-Tested through `29a1a689`; four old campaigns disposed. **Next:** frozen-source
+full compile/Clippy, focused native controls, CE80 regeneration, CE90 selected acceptance,
 then CE99 handback. MCP runtime/embedding inference/real-library qualification and old-plan edits stay excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)

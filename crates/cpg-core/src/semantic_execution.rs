@@ -439,47 +439,137 @@ pub async fn evaluate_base(
                     "Base-expression-root-transfer",
                     batch.get_array_memory_size(),
                 )?;
-                for row in 0..batch.num_rows() {
+                let mut start = 0;
+                while start < batch.num_rows() {
                     runtime.cancellation().check()?;
-                    let key = crate::scoped_admission::column(&batch, "id", row)?
-                        .ok_or(ModelError::Schema("Base expression root ID"))?;
-                    let scope = scopes
-                        .scope(base_scope::Kernel::Expression, key, budget)
-                        .await?;
-                    let selected = scopes.data(&access, &scope, budget, true).await?;
-                    let (records, owner) = production::evaluate_expression_scoped(
-                        &selected.data,
-                        &selected.entry,
-                        &selected.witnesses,
-                        &selected.sources,
-                        &invocation,
-                        definition,
-                        profile,
-                        budget,
-                        execution_scope::nominal(&key)?,
-                        actual,
-                        &metadata,
-                    )?;
-                    produced
-                        .as_mut()
-                        .expect("actual Base frame owner")
-                        .append(owner)?;
-                    let add = |left: i64, right: i64| {
-                        left.checked_add(right).ok_or_else(|| {
-                            ModelError::Invalid("Base expression count overflow".into())
+                    let (width, charge) =
+                        scopes.admit_expression_window(batch.num_rows() - start, budget)?;
+                    let keys = (start..start + width)
+                        .map(|row| {
+                            crate::scoped_admission::column(&batch, "id", row)?
+                                .ok_or(ModelError::Schema("Base expression root ID"))
                         })
-                    };
-                    run.evaluated = add(run.evaluated, records.run.evaluated)?;
-                    run.refused = add(run.refused, records.run.refused)?;
-                    if records.run.refused != 0 {
-                        outcome.status = analysis::AnalysisStatus::Partial;
-                        outcome.reason = Some(obligation::ObligationKind::UnsupportedControlFlow);
+                        .collect::<Result<Vec<_>, ModelError>>()?;
+                    // No acquisition failure is retried: the admitted window owns submitted reads.
+                    let captured = scopes
+                        .capture_expressions(
+                            keys,
+                            charge,
+                            invocation.context,
+                            budget,
+                            &runtime.cancellation(),
+                        )
+                        .await?;
+                    let mut local_start = 0;
+                    let mut local_width = width;
+                    'cohorts: while local_start < width {
+                        let window = captured
+                            .cohort(local_start, local_width, budget, &runtime.cancellation())
+                            .await?;
+                        let syntax = match execution::evaluation::PreparedSyntax::new(
+                            window.data.data.view(),
+                            invocation.context,
+                            budget,
+                        ) {
+                            Ok(syntax) => syntax,
+                            Err(ModelError::Resource { .. }) if window.keys.len() > 1 => {
+                                local_width = (window.keys.len() / 2).max(1);
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        for (partition, key) in window.keys.iter().enumerate() {
+                            runtime.cancellation().check()?;
+                            let computation = (|| {
+                                let selected = window.partition(partition, budget)?;
+                                let data = selected.evaluation()?;
+                                let prepared = execution::evaluation::PreparedExecution::shared(
+                                    data,
+                                    invocation.input,
+                                    invocation.context,
+                                    budget,
+                                    &metadata,
+                                    &syntax,
+                                )?;
+                                let (records, owner) = production::evaluate_expression_partition(
+                                    selected.entry()?,
+                                    selected.witnesses()?,
+                                    selected.sources()?,
+                                    &invocation,
+                                    definition,
+                                    profile,
+                                    budget,
+                                    execution_scope::nominal(key)?,
+                                    actual,
+                                    &prepared,
+                                )?;
+                                if window.keys.len() > 1 {
+                                    let bound =
+                                        crate::normalize::kernel_products::row_emission_bound(
+                                            &records.evaluations,
+                                        )
+                                        .saturating_add(
+                                            crate::normalize::kernel_products::row_emission_bound(
+                                                &records.sources,
+                                            ),
+                                        )
+                                        .saturating_add(
+                                            crate::normalize::kernel_products::row_emission_bound(
+                                                &records.members,
+                                            ),
+                                        )
+                                        .saturating_add(
+                                            crate::normalize::kernel_products::row_emission_bound(
+                                                &records.operands,
+                                            ),
+                                        )
+                                        .saturating_add(
+                                            crate::normalize::kernel_products::row_emission_bound(
+                                                &records.boundaries,
+                                            ),
+                                        );
+                                    // Optional cohort backing yields to the established output headroom
+                                    // policy. This probe makes no concurrency or native finality promise.
+                                    let _headroom =
+                                        budget.reserve("Base-cohort-output-headroom", bound)?;
+                                }
+                                produced
+                                    .as_mut()
+                                    .expect("actual Base frame owner")
+                                    .append_expression(owner)?;
+                                Ok::<_, ModelError>(records)
+                            })();
+                            let records = match computation {
+                                Ok(records) => records,
+                                Err(error)
+                                    if window.keys.len() > 1
+                                        && base_scope::local_retryable(&error) =>
+                                {
+                                    local_width = ((window.keys.len() - partition) / 2).max(1);
+                                    continue 'cohorts;
+                                }
+                                Err(error) => return Err(error),
+                            };
+                            let add = |left: i64, right: i64| {
+                                left.checked_add(right).ok_or_else(|| {
+                                    ModelError::Invalid("Base expression count overflow".into())
+                                })
+                            };
+                            run.evaluated = add(run.evaluated, records.run.evaluated)?;
+                            run.refused = add(run.refused, records.run.refused)?;
+                            if records.run.refused != 0 {
+                                outcome.status = analysis::AnalysisStatus::Partial;
+                                outcome.reason =
+                                    Some(obligation::ObligationKind::UnsupportedControlFlow);
+                            }
+                            emit_evaluation(&records, &output).await?;
+                            drop(records);
+                            local_start += 1;
+                            tokio::task::yield_now().await;
+                        }
+                        local_width = width - local_start;
                     }
-                    emit_evaluation(&records, &output).await?;
-                    drop(records);
-                    drop(selected);
-                    drop(scope);
-                    tokio::task::yield_now().await;
+                    start += width;
                 }
             }
             scopes

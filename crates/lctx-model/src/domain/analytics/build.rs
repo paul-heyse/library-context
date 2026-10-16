@@ -528,6 +528,18 @@ fn produce_with_layer_work(
         .transpose()?;
     let mut out = Output::new(b);
     out.frames.insert(f.clone())?;
+    let scope_count = d
+        .structural
+        .scope
+        .iter()
+        .filter(|r| r.frame == sf.id())
+        .count();
+    let _universe = b.reserve(
+        "analytic-universe-membership",
+        scope_count
+            .checked_mul(128)
+            .ok_or_else(|| invalid("analytic universe allowance overflow"))?,
+    )?;
     let mut scope = BTreeSet::new();
     for row in d.structural.scope.iter().filter(|r| r.frame == sf.id()) {
         scope.insert(row.entity);
@@ -841,7 +853,6 @@ fn produce_with_layer_work(
                 .checked_mul(1024)
                 .ok_or_else(|| invalid("layer pair allocation overflow"))?,
         )?;
-        let vertices = scope.iter().copied().collect::<Vec<_>>();
         let layer_count =
             2 + usize::from(s.type_layer) + usize::from(s.mention_layer) + usize::from(s.knn_layer);
         let mut touched = BTreeSet::new();
@@ -860,18 +871,9 @@ fn produce_with_layer_work(
                     .checked_add(1)
                     .ok_or_else(|| invalid("layer count overflow"))?;
             }
-            let counts = counts
-                .into_iter()
-                .map(|((a, c), n)| (a, c, n))
-                .collect::<Vec<_>>();
-            let weights = communities::normalize(&vertices, &counts, b)?;
+            let weights = communities::normalize_ordered(&scope, &counts, b)?;
             for pair in weights.pairs() {
-                let count = counts
-                    .binary_search_by_key(&(pair.left, pair.right), |&(left, right, _)| {
-                        (left, right)
-                    })
-                    .map(|index| counts[index].2)
-                    .unwrap();
+                let count = counts[&(pair.left, pair.right)];
                 out.layer_pairs.insert(LayerPair {
                     frame: f.id(),
                     layer,

@@ -73,7 +73,8 @@ fn layers_retain_checked_parallel_counts_hub_scaling_and_reservation() {
             },
         ]
     );
-    let retained = vertices.len() * 256 + rows.len() * 512;
+    // Two canonical edges remain after reversed observations are combined.
+    let retained = vertices.len() * 256 + 2 * 512;
     assert_eq!(budget.reserved(), retained);
     let b = communities::normalize(
         &vertices,
@@ -170,5 +171,78 @@ fn empty_and_degenerate_community_domains_do_not_invent_completed_members() {
     assert!(p.profiles().iter().all(|p| p.degenerate));
     drop(p);
     drop(empty);
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
+fn retained_dual_bitset_context_agrees_with_finite_set_oracle_and_keeps_partiality() {
+    use analytics::concepts::Context;
+    use std::collections::BTreeSet;
+    let budget = ResourceBudget::fixed(8 << 20).unwrap();
+    let objects = [0u8, 1, 2];
+    let attributes = [0u8, 1, 2];
+    let contexts = [
+        vec![],
+        objects
+            .into_iter()
+            .flat_map(|o| attributes.into_iter().map(move |a| (o, a)))
+            .collect(),
+        vec![(0, 0), (1, 1), (2, 2)],
+        vec![(0, 0), (0, 1), (1, 0), (2, 2)],
+        vec![(0, 0), (0, 0), (1, 0), (1, 1)],
+    ];
+    for incidence in contexts {
+        let context = Context::new(&objects, &attributes, &incidence, &budget).unwrap();
+        let lattice = context.analyse(0, 256).unwrap();
+        assert!(!lattice.budget_reached());
+        // Independent finite set definition: A' contains exactly all objects possessing A;
+        // A'' intersects those objects' attributes, including the vacuous full intersection.
+        let mut expected = BTreeSet::new();
+        for mask in 0..8 {
+            let intent = attributes
+                .into_iter()
+                .filter(|a| mask & (1 << a) != 0)
+                .collect::<Vec<_>>();
+            let extent = objects
+                .into_iter()
+                .filter(|o| intent.iter().all(|a| incidence.contains(&(*o, *a))))
+                .collect::<Vec<_>>();
+            let closure = attributes
+                .into_iter()
+                .filter(|a| extent.iter().all(|o| incidence.contains(&(*o, *a))))
+                .collect::<Vec<_>>();
+            if intent == closure {
+                expected.insert((extent, intent));
+            }
+        }
+        let actual = lattice
+            .concepts()
+            .iter()
+            .map(|c| (c.extent.clone(), c.intent.clone()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected);
+        for implication in lattice.implications() {
+            for object in objects {
+                if implication
+                    .premise
+                    .iter()
+                    .all(|a| incidence.contains(&(object, *a)))
+                {
+                    assert!(
+                        implication
+                            .conclusion
+                            .iter()
+                            .all(|a| incidence.contains(&(object, *a)))
+                    );
+                }
+            }
+        }
+    }
+    let context = Context::new(&objects, &attributes, &[(0, 0), (1, 1), (2, 2)], &budget).unwrap();
+    let partial = context.analyse(0, 1).unwrap();
+    assert!(partial.budget_reached());
+    assert_eq!(partial.examined(), 1);
+    drop(partial);
+    drop(context);
     assert_eq!(budget.reserved(), 0);
 }

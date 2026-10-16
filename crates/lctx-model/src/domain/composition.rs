@@ -720,32 +720,32 @@ pub fn compose_call(
 
 // Only the prepared owner constructs its callee frame. The borrowed admission is checked at the
 // same lazy port gate as ordinary composition, so cached ports cannot be applied to another call.
+pub(crate) struct PreparedSignature<'a> {
+    pub(crate) symbol: source::properties::SymbolProperties,
+    pub(crate) declaration: &'a SymbolDeclaration,
+    pub(crate) parameters: Vec<SignatureParameter>,
+    pub(crate) links: Vec<ParameterDeclaration>,
+    pub(crate) _reservation: Box<dyn Reservation>,
+}
+
 pub(crate) struct PreparedCallee<'a> {
     binding: CallBindingFrame<'a>,
-    symbol: source::properties::SymbolProperties,
-    declaration: &'a SymbolDeclaration,
-    parameters: Vec<SignatureParameter>,
-    links: Vec<ParameterDeclaration>,
+    signature: Arc<PreparedSignature<'a>>,
     ports: PreparedPorts<'a>,
-    _reservation: Box<dyn Reservation>,
 }
 impl<'a> PreparedCallee<'a> {
     pub(crate) fn new(
         binding: CallBindingFrame<'a>,
-        symbol: source::properties::SymbolProperties,
-        declaration: &'a SymbolDeclaration,
-        parameters: Vec<SignatureParameter>,
-        links: Vec<ParameterDeclaration>,
-        reservation: Box<dyn Reservation>,
+        signature: Arc<PreparedSignature<'a>>,
+        guard_candidates: &'a [&'a CallBinding],
     ) -> Self {
         Self {
             binding,
-            symbol,
-            declaration,
-            parameters,
-            links,
-            ports: PreparedPorts::default(),
-            _reservation: reservation,
+            signature,
+            ports: PreparedPorts {
+                guard_candidates: Some(guard_candidates),
+                ..Default::default()
+            },
         }
     }
     pub(crate) fn compose(
@@ -762,10 +762,10 @@ impl<'a> PreparedCallee<'a> {
     ) -> Result<CompositionResults, ModelError> {
         let (witnesses, catalog) = evidence;
         let frame = CalleeFrame {
-            symbol: &self.symbol,
-            declaration: self.declaration,
-            parameters: &self.parameters,
-            links: &self.links,
+            symbol: &self.signature.symbol,
+            declaration: self.signature.declaration,
+            parameters: &self.signature.parameters,
+            links: &self.signature.links,
             witnesses: Some(witnesses),
         };
         self.ports.binding = Some(self.binding);
@@ -782,6 +782,7 @@ impl<'a> PreparedCallee<'a> {
 }
 #[derive(Default)]
 struct PreparedPorts<'a> {
+    guard_candidates: Option<&'a [&'a CallBinding]>,
     binding: Option<CallBindingFrame<'a>>,
     rows: Option<Result<Ports, ObligationKind>>,
     guard_rows: Vec<CallBinding>,
@@ -809,12 +810,17 @@ impl PreparedPorts<'_> {
         }
         if self.rows.is_none() {
             let bound = binding.checked.bound();
-            let guard_count = binding
-                .output
-                .bindings
-                .iter()
-                .filter(|r| r.attempt == binding.attempt.id())
-                .count();
+            let guard_count = self.guard_candidates.map_or_else(
+                || {
+                    binding
+                        .output
+                        .bindings
+                        .iter()
+                        .filter(|r| r.attempt == binding.attempt.id())
+                        .count()
+                },
+                <[_]>::len,
+            );
             let bytes = bound
                 .heap_bytes()
                 .checked_mul(2)
@@ -834,14 +840,19 @@ impl PreparedPorts<'_> {
             let rows = Ports::build(bound, callee)?;
             if let Ok(ports) = &rows {
                 self.guard_rows = Vec::with_capacity(guard_count);
-                self.guard_rows.extend(
-                    binding
-                        .output
-                        .bindings
-                        .iter()
-                        .filter(|r| r.attempt == binding.attempt.id())
-                        .cloned(),
-                );
+                if let Some(rows) = self.guard_candidates {
+                    self.guard_rows
+                        .extend(rows.iter().map(|row| (*row).clone()));
+                } else {
+                    self.guard_rows.extend(
+                        binding
+                            .output
+                            .bindings
+                            .iter()
+                            .filter(|r| r.attempt == binding.attempt.id())
+                            .cloned(),
+                    );
+                }
                 let retained = ports
                     .retained_bytes()
                     .checked_add(
@@ -2650,5 +2661,94 @@ mod prepared_port_controls {
                 .to_string()
                 .contains("in order")
         );
+    }
+}
+
+#[cfg(test)]
+mod shared_signature_controls {
+    use super::*;
+    fn id<T>(n: u8) -> Id<T> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    #[test]
+    fn shared_signature_ingredients_do_not_share_caller_ports() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let symbol = ProviderSymbol {
+            provider: id(1),
+            context: id(2),
+            module: id(3),
+            native_key: "callee".into(),
+            name: "callee".into(),
+            kind: calls::SymbolKind::Function,
+        };
+        let declaration = SymbolDeclaration {
+            qualification: id(4),
+            symbol: symbol.id(),
+            declaration: id(5),
+        };
+        let parameter = SignatureParameter {
+            signature: id(6),
+            ordinal: 0,
+            shape: id(7),
+        };
+        let link = ParameterDeclaration {
+            qualification: id(4),
+            parameter: parameter.id(),
+            declaration: id(8),
+        };
+        let signature = Arc::new(PreparedSignature {
+            symbol: source::properties::SymbolProperties::from_row(&symbol),
+            declaration: &declaration,
+            parameters: vec![parameter],
+            links: vec![link],
+            _reservation: budget.reserve("shared-signature-control", 1024).unwrap(),
+        });
+        let other = Arc::clone(&signature);
+        let frame = CalleeFrame {
+            symbol: &signature.symbol,
+            declaration: signature.declaration,
+            parameters: &signature.parameters,
+            links: &signature.links,
+            witnesses: None,
+        };
+        let second = CalleeFrame {
+            symbol: &other.symbol,
+            declaration: other.declaration,
+            parameters: &other.parameters,
+            links: &other.links,
+            witnesses: None,
+        };
+        let binding = |occurrence| calls::Binding {
+            formal: signature.parameters[0].id(),
+            source: BindingSource::Actual { occurrence },
+            kind: calls::BindingKind::Positional,
+            projection: BindingProjection::Whole,
+        };
+        let first_ports = Ports::build_rows(id(6), &[binding(id(10))], &frame)
+            .unwrap()
+            .unwrap();
+        let second_ports = Ports::build_rows(id(6), &[binding(id(11))], &second)
+            .unwrap()
+            .unwrap();
+        let root = PlaceRoot::Entry { declaration: id(8) };
+        let Some(Port::Entry(first)) = first_ports.port(&root).unwrap() else {
+            panic!("first port absent")
+        };
+        let Some(Port::Entry(second)) = second_ports.port(&root).unwrap() else {
+            panic!("second port absent")
+        };
+        assert_eq!(
+            first[0].source,
+            BindingSource::Actual { occurrence: id(10) }
+        );
+        assert_eq!(
+            second[0].source,
+            BindingSource::Actual { occurrence: id(11) }
+        );
+        assert!(!std::ptr::eq(first, second));
+        assert!(Arc::ptr_eq(&signature, &other));
+        drop(signature);
+        drop(other);
+        assert_eq!(budget.reserved(), 0);
     }
 }

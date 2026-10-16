@@ -98,7 +98,7 @@ impl ProductWindow {
 /// native 32x logical lowering allowance and per-column native metadata, conservatively
 /// over the entire result rather than only the next transfer batch. The probe is released
 /// before the existing writer takes its actual reservations; emission is never retried.
-fn row_emission_bound<R: Record>(rows: &Rows<R>) -> usize {
+pub(crate) fn row_emission_bound<R: Record>(rows: &Rows<R>) -> usize {
     let fields = R::fields().len();
     rows.iter().fold(65536usize, |total, row| {
         total

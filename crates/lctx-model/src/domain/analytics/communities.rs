@@ -5,7 +5,7 @@ use crate::domain::{
     *,
 };
 use leiden_rs::{GraphDataBuilder, Leiden, LeidenConfig, QualityType};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 fn invalid(m: impl Into<String>) -> ModelError {
     ModelError::Invalid(m.into())
 }
@@ -206,37 +206,51 @@ pub fn normalize(
     counts: &[(Id<EntityRef>, Id<EntityRef>, u64)],
     budget: &ResourceBudget,
 ) -> Result<Weights, ModelError> {
-    let reservation = budget.reserve(
-        "analytic-layer-normalization",
+    // Arbitrary callers may supply duplicates, reversed pairs and an unordered universe.
+    // Admit their canonicalization before allocation, then use the same ordered kernel as the
+    // producer, whose contribution aggregation already earned this representation.
+    let _canonical = budget.reserve(
+        "analytic-layer-canonical-input",
         vertices
             .len()
-            .checked_mul(256)
-            .and_then(|n| n.checked_add(counts.len().checked_mul(512)?))
-            .ok_or_else(|| invalid("layer size overflow"))?,
+            .checked_mul(128)
+            .and_then(|n| n.checked_add(counts.len().checked_mul(256)?))
+            .ok_or_else(|| invalid("layer canonical input overflow"))?,
     )?;
-    let _membership_reservation = budget.reserve(
-        "analytic-layer-vertex-membership",
-        vertices
-            .len()
-            .checked_mul(std::mem::size_of::<Id<EntityRef>>())
-            .ok_or_else(|| invalid("layer membership size overflow"))?,
-    )?;
-    let mut membership = vertices.to_vec();
-    membership.sort_unstable();
-    let mut strength = BTreeMap::<Id<EntityRef>, u64>::new();
+    let membership = vertices.iter().copied().collect::<BTreeSet<_>>();
     let mut pairs = BTreeMap::<(Id<EntityRef>, Id<EntityRef>), u64>::new();
     for &(a, b, c) in counts {
-        if c == 0
-            || a == b
-            || membership.binary_search(&a).is_err()
-            || membership.binary_search(&b).is_err()
-        {
+        if c == 0 || a == b || !membership.contains(&a) || !membership.contains(&b) {
             return Err(invalid("invalid community count"));
         }
         let value = pairs.entry((a.min(b), a.max(b))).or_default();
         *value = value
             .checked_add(c)
             .ok_or_else(|| invalid("community count overflow"))?;
+    }
+    normalize_ordered(&membership, &pairs, budget)
+}
+
+/// Invocation-local producer path: borrow its already admitted universe and canonical counts.
+/// No second count map or per-layer copy/sort of the same universe is needed.
+pub(super) fn normalize_ordered(
+    membership: &BTreeSet<Id<EntityRef>>,
+    pairs: &BTreeMap<(Id<EntityRef>, Id<EntityRef>), u64>,
+    budget: &ResourceBudget,
+) -> Result<Weights, ModelError> {
+    let reservation = budget.reserve(
+        "analytic-layer-normalization",
+        membership
+            .len()
+            .checked_mul(256)
+            .and_then(|n| n.checked_add(pairs.len().checked_mul(512)?))
+            .ok_or_else(|| invalid("layer size overflow"))?,
+    )?;
+    let mut strength = BTreeMap::<Id<EntityRef>, u64>::new();
+    for (&(a, b), &c) in pairs {
+        if c == 0 || a >= b || !membership.contains(&a) || !membership.contains(&b) {
+            return Err(invalid("invalid ordered community count"));
+        }
         for v in [a, b] {
             let value = strength.entry(v).or_default();
             *value = value
@@ -257,8 +271,8 @@ pub fn normalize(
         .clamp(1, positive.len())
         - 1] as f64;
     let raw = pairs
-        .into_iter()
-        .map(|((a, b), c)| {
+        .iter()
+        .map(|(&(a, b), &c)| {
             (
                 a,
                 b,
@@ -283,4 +297,61 @@ pub fn normalize(
         pairs,
         _reservation: reservation,
     })
+}
+
+#[cfg(test)]
+mod ordered_count_controls {
+    use super::*;
+    fn id(n: u8) -> Id<EntityRef> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    #[test]
+    fn borrowed_universe_and_canonical_counts_preserve_known_weights_and_release() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let universe = [id(1), id(2), id(3), id(4)].into_iter().collect();
+        let counts = [((id(1), id(2)), 5), ((id(2), id(3)), 1)]
+            .into_iter()
+            .collect();
+        let weights = normalize_ordered(&universe, &counts, &budget).unwrap();
+        // Strengths 5,6,1 have threshold 6. Isolate 4 does not introduce strength or an edge.
+        assert_eq!(
+            weights.pairs(),
+            [
+                Pair {
+                    left: id(1),
+                    right: id(2),
+                    weight: FiniteF64::new(5.0 / 6.0).unwrap()
+                },
+                Pair {
+                    left: id(2),
+                    right: id(3),
+                    weight: FiniteF64::new(1.0 / 6.0).unwrap()
+                },
+            ]
+        );
+        assert!(
+            normalize_ordered(
+                &universe,
+                &[((id(2), id(1)), 1)].into_iter().collect(),
+                &budget
+            )
+            .is_err()
+        );
+        assert!(
+            normalize_ordered(
+                &universe,
+                &[((id(1), id(5)), 1)].into_iter().collect(),
+                &budget
+            )
+            .is_err()
+        );
+        assert!(
+            normalize_ordered(&universe, &BTreeMap::new(), &budget)
+                .unwrap()
+                .pairs()
+                .is_empty()
+        );
+        drop(weights);
+        assert_eq!(budget.reserved(), 0);
+    }
 }

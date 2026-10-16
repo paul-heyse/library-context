@@ -1,14 +1,9 @@
 //! Receiving-invocation preparation. Local IPC is data, never validity or owner authority.
 use super::{AdmissionRuntime, ValidationSession};
 use arrow_schema::SchemaRef;
-use datafusion::{
-    arrow::ipc::writer::FileWriter, execution::options::ArrowReadOptions, prelude::SessionContext,
-};
-use futures::TryStreamExt;
-use lctx_model::domain::{
-    ContentHash, ModelError, Relation, charged::StateCharge, logical_batch_bytes,
-};
-use std::{collections::BTreeMap, fs::File};
+use datafusion::prelude::SessionContext;
+use lctx_model::domain::{ContentHash, ModelError, Relation, charged::StateCharge};
+use std::collections::BTreeMap;
 
 struct PreparedInput {
     schema: SchemaRef,
@@ -25,13 +20,10 @@ pub(super) struct PreparedReferenceTargets<'a> {
     runtime: &'a AdmissionRuntime,
     original: &'a SessionContext,
     _owner: Option<&'a ValidationSession>,
-    local: Option<SessionContext>,
+    local: Option<crate::invocation_ipc::InvocationIpc>,
     inputs: BTreeMap<ContentHash, PreparedInput>,
     families: BTreeMap<Vec<ContentHash>, PreparedFamily>,
     charge: StateCharge,
-    // The private context drops its file providers before the directory is removed.
-    directory: Option<tempfile::TempDir>,
-    next_file: usize,
 }
 impl<'a> PreparedReferenceTargets<'a> {
     pub(super) fn new(
@@ -47,23 +39,22 @@ impl<'a> PreparedReferenceTargets<'a> {
             inputs: BTreeMap::new(),
             families: BTreeMap::new(),
             charge: StateCharge::new(runtime.budget(), "receiving reference preparation metadata"),
-            directory: None,
-            next_file: 0,
         }
     }
     pub(super) fn session(&self) -> &SessionContext {
         self.local
             .as_ref()
             .expect("reference input has been prepared")
+            .session()
     }
     fn initialize(&mut self) -> Result<(), ModelError> {
         if self.local.is_none() {
-            self.charge
-                .grow(std::mem::size_of::<Self>().saturating_add(16384))?;
-            self.local = Some(SessionContext::new_with_config_rt(
-                self.runtime.context.copied_config(),
-                self.runtime.context.runtime_env(),
-            ));
+            self.local = Some(crate::invocation_ipc::InvocationIpc::new(
+                &self.runtime.context,
+                self.runtime.budget(),
+                &self.runtime.cancellation,
+                self.runtime._directory.as_ref().map(|parent| parent.path()),
+            )?);
         }
         Ok(())
     }
@@ -182,85 +173,10 @@ impl<'a> PreparedReferenceTargets<'a> {
         name: &str,
         expected: Option<&SchemaRef>,
     ) -> Result<(), ModelError> {
-        self.runtime.cancellation.check()?;
-        let mut stream = frame
-            .execute_stream()
+        self.local
+            .as_mut()
+            .expect("reference input has been prepared")
+            .materialize(frame, name, expected)
             .await
-            .map_err(crate::sql::model_error)?;
-        let schema = stream.schema();
-        if expected.is_some_and(|expected| expected.as_ref() != schema.as_ref()) {
-            return Err(ModelError::Schema(
-                "reference input complete Arrow schema differs",
-            ));
-        }
-        if self.directory.is_none() {
-            self.charge.grow(4096)?;
-            self.directory = Some(
-                match &self.runtime._directory {
-                    Some(parent) => tempfile::tempdir_in(parent.path()),
-                    None => tempfile::tempdir(),
-                }
-                .map_err(ModelError::codec)?,
-            );
-        }
-        let path = self
-            .directory
-            .as_ref()
-            .expect("reference directory prepared")
-            .path()
-            .join(format!("{}.arrow", self.next_file));
-        self.next_file += 1;
-        let mut footer_charge =
-            StateCharge::new(self.runtime.budget(), "receiving reference IPC footer");
-        footer_charge.grow(
-            4096usize.saturating_add(
-                schema
-                    .fields()
-                    .iter()
-                    .map(|field| field.size())
-                    .sum::<usize>()
-                    .saturating_mul(3),
-            ),
-        )?;
-        let mut writer = FileWriter::try_new(
-            File::create(&path).map_err(ModelError::codec)?,
-            schema.as_ref(),
-        )
-        .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
-            self.runtime.cancellation.check()?;
-            // Source stream ownership remains live. Admission covers IPC's simultaneous
-            // serialized buffers and the writer's growing block/footer descriptors.
-            let _transfer = self.runtime.budget().reserve(
-                "receiving reference IPC transfer",
-                logical_batch_bytes(&batch)?
-                    .saturating_mul(3)
-                    .saturating_add(4096),
-            )?;
-            footer_charge.grow(256)?;
-            writer.write(&batch).map_err(ModelError::codec)?;
-            tokio::task::yield_now().await;
-        }
-        self.runtime.cancellation.check()?;
-        writer.finish().map_err(ModelError::codec)?;
-        drop(writer);
-        drop(stream);
-        // Retain metadata admission for the listing provider/footer until this entire
-        // receiving invocation ends; local query batches use the shared memory pool.
-        self.charge.grow(
-            footer_charge
-                .reserved()
-                .saturating_mul(2)
-                .saturating_add(4096),
-        )?;
-        self.session()
-            .register_arrow(
-                name,
-                path.to_string_lossy(),
-                ArrowReadOptions::default().schema(schema.as_ref()),
-            )
-            .await
-            .map_err(crate::sql::model_error)?;
-        Ok(())
     }
 }

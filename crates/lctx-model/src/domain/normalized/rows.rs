@@ -22,6 +22,9 @@ impl<R: Record> Clone for RowsView<'_, R> {
     }
 }
 impl<'a, R: Record> RowsView<'a, R> {
+    pub fn shares_backing(&self, other: Self) -> bool {
+        std::ptr::eq(self.rows, other.rows)
+    }
     /// Select an exact canonical set. Duplicate, unordered and absent IDs are refused, so
     /// cardinality and iteration never silently shrink or depend on physical hydration order.
     pub fn selected(rows: &'a Rows<R>, ids: &'a [Id<R>]) -> Result<Self, ModelError> {

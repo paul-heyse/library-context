@@ -577,6 +577,17 @@ including finalizer replacement order and profile-bound NotRequested results (**
 2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
 explicit heap-state prerequisite. The detailed plan owns these receipts; scoped assembled acceptance passed, 2026-10-01.
 
+**Implemented / focused verification in progress, 2026-10-16:** Base captures bounded compatible
+expression groups into invocation-owned schema-checked spillable IPC. Membership discovery and
+unique rich source demand remain at singleton grain; only pure local typed/syntax assembly and
+unconsumed computation adapt on resource refusal. Shared syntax borrows the immutable captured
+view. Every root lookup retains its exact membership; work, proofs and outcomes remain separate.
+Expression adoption is failure-atomic and native emission remains terminal. IPC supplies no
+completed authority. The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns current acceptance and its native/persistence limits.
+
+> Decision: ADR-0176
+
 **Symbolic source associations (Implemented / Tested within the recorded scope,
 2026-10-01).** The normalized callable-metadata stage owns source class/store/reader
 associations for both profiles. `normalized::symbolic_fields` admits the bounded standard-record

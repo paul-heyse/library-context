@@ -1,4 +1,4 @@
-SurrealDB: Comprehensive Technical Reference & Tooling Directory
+# SurrealDB: Comprehensive Technical Reference & Tooling Directory
 Updated October 15, 2026 | Target audience: Advanced LLM programming agents
 SurrealDB's documentation now covers considerably more than its core database and SurrealQL. Its ecosystem includes embedded storage engines, graph and vector indexing, schema migration tooling, Rust and Python SDKs, observability, data integration, WASM extensions, first-party MCP servers, and AI-agent memory infrastructure.
 The resources below are organized by functional domain, with an explanation of what each contributes. All URLs are provided in full, as plain text inside code formatting, so they can be copied directly into Markdown or agent instructions.

@@ -109,6 +109,31 @@ impl ProducedEvaluations {
         }
         Ok(())
     }
+    /// Adopt one freshly evaluated expression only after its frame is already installed.
+    /// The sole value insertion admits before mutation, so local Resource leaves self intact.
+    pub fn append_expression(&mut self, other: Self) -> Result<(), ModelError> {
+        if !self
+            .charge
+            .budget()
+            .expect("bound owner")
+            .shares_pool(other.charge.budget().expect("bound owner"))
+            || other.values.len() > 1
+            || other.frames.len() != 1
+            || other
+                .frames
+                .iter()
+                .any(|frame| self.frames.get(frame.id()) != Some(frame))
+        {
+            return Err(ModelError::Conflict("produced expression adoption owner"));
+        }
+        for (id, value) in other.values.iter() {
+            if self.values.contains_key(id) {
+                return Err(ModelError::Conflict("produced evaluation duplicated"));
+            }
+            self.values.insert(&mut self.charge, *id, value.clone())?;
+        }
+        Ok(())
+    }
     fn actual(
         &self,
         row: &ExpressionEvaluation,
@@ -342,6 +367,44 @@ pub fn evaluate_expression_scoped(
         Some(metadata),
     )
 }
+/// Evaluate one borrowed root partition against its cohort's immutable syntax inventory.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Borrowed root membership and actual predecessor/configuration owners remain explicit."
+)]
+pub fn evaluate_expression_partition(
+    entry: conditions::entry::EntryDataView<'_>,
+    stored_entries: normalized::RowsView<'_, EntryValueWitness>,
+    entry_sources: normalized::RowsView<'_, EntryAccessSource>,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    expression: Id<Occurrence>,
+    actual_local: &local_semantics::ProducedLocal,
+    prepared: &PreparedExecution<'_>,
+) -> Result<(EvaluationRecords, ProducedEvaluations), ModelError> {
+    let data = prepared.data();
+    if data.occurrences.get(expression).is_none() {
+        return Err(ModelError::Conflict("selected expression is absent"));
+    }
+    evaluate_selected_view(
+        data,
+        entry,
+        stored_entries,
+        entry_sources,
+        None,
+        invocation,
+        definition,
+        profile,
+        budget,
+        Some(expression),
+        false,
+        Some(actual_local),
+        None,
+        Some(prepared),
+    )
+}
 /// One selected expression and its complete dependency closure. Read observations and complete
 /// negatives belong to independent read/universe kernels; this expression kernel emits neither.
 #[allow(
@@ -395,6 +458,55 @@ fn evaluate_selected_produced(
     actual_local: Option<&local_semantics::ProducedLocal>,
     metadata: Option<&super::evaluation::PreparedEvaluationMetadata>,
 ) -> Result<(EvaluationRecords, ProducedEvaluations), ModelError> {
+    evaluate_selected_view(
+        data.view(),
+        entry.view(),
+        stored_entries.view(),
+        entry_sources.view(),
+        Some(ReplayInputs {
+            data,
+            entry,
+            witnesses: stored_entries,
+            sources: entry_sources,
+        }),
+        invocation,
+        definition,
+        profile,
+        budget,
+        selected,
+        emit_reads,
+        actual_local,
+        metadata,
+        None,
+    )
+}
+#[derive(Clone, Copy)]
+struct ReplayInputs<'a> {
+    data: &'a EvaluationData,
+    entry: &'a EntryData,
+    witnesses: &'a Rows<EntryValueWitness>,
+    sources: &'a Rows<EntryAccessSource>,
+}
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Exact borrowed partition, predecessor, configuration and owned replay inputs remain separate."
+)]
+fn evaluate_selected_view(
+    data: super::evaluation::EvaluationDataView<'_>,
+    entry: conditions::entry::EntryDataView<'_>,
+    stored_entries: normalized::RowsView<'_, EntryValueWitness>,
+    entry_sources: normalized::RowsView<'_, EntryAccessSource>,
+    original: Option<ReplayInputs<'_>>,
+    invocation: &publication::AnalysisInvocation,
+    definition: &analysis::AnalysisDefinition,
+    profile: stages::Profile,
+    budget: &ResourceBudget,
+    selected: Option<Id<Occurrence>>,
+    emit_reads: bool,
+    actual_local: Option<&local_semantics::ProducedLocal>,
+    metadata: Option<&super::evaluation::PreparedEvaluationMetadata>,
+    shared: Option<&PreparedExecution<'_>>,
+) -> Result<(EvaluationRecords, ProducedEvaluations), ModelError> {
     if *definition != super::configuration::base_evaluation().1
         || invocation.definition != definition.id()
         || invocation.subject.is_some()
@@ -429,33 +541,55 @@ fn evaluate_selected_produced(
     let uses = data.uses.iter().cloned().collect::<Vec<_>>();
     let roots = admission::analysis_roots(&artifacts, &uses)?;
     if emit_reads {
+        let ReplayInputs {
+            data: owned_data,
+            entry: owned_entry,
+            witnesses: owned_witnesses,
+            sources: owned_sources,
+        } = original.ok_or(ModelError::Conflict(
+            "read production needs owned replay inputs",
+        ))?;
         records.reads = if let Some(actual) = actual_local {
             super::read_channels::produce_with_local(
-                data,
-                entry,
+                owned_data,
+                owned_entry,
                 invocation,
                 &roots,
                 budget,
                 super::read_channels::ReadEntries {
-                    witnesses: stored_entries,
-                    sources: entry_sources,
+                    witnesses: owned_witnesses,
+                    sources: owned_sources,
                     actual,
                 },
             )?
         } else {
-            super::read_channels::produce(data, entry, invocation, &roots, budget)?
+            super::read_channels::produce(owned_data, owned_entry, invocation, &roots, budget)?
         };
     }
-    let prepared = match metadata {
-        Some(metadata) => PreparedExecution::with_metadata(
-            data,
-            invocation.input,
-            invocation.context,
-            budget,
-            metadata,
-        )?,
-        None => PreparedExecution::new(data, invocation.input, invocation.context, budget)?,
+    let owned_prepared = if shared.is_none() {
+        let owned_data = original
+            .ok_or(ModelError::Conflict(
+                "borrowed execution requires its prepared inventory",
+            ))?
+            .data;
+        Some(match metadata {
+            Some(metadata) => PreparedExecution::with_metadata(
+                owned_data,
+                invocation.input,
+                invocation.context,
+                budget,
+                metadata,
+            )?,
+            None => {
+                PreparedExecution::new(owned_data, invocation.input, invocation.context, budget)?
+            }
+        })
+    } else {
+        None
     };
+    let prepared = shared
+        .or(owned_prepared.as_ref())
+        .expect("execution preparation");
     let mut entry_proofs = Vec::new();
     let mut charge = charged::StateCharge::new(budget, "base_entry_inventory");
     for witness in stored_entries
@@ -478,9 +612,15 @@ fn evaluate_selected_produced(
         let checked = match actual_local {
             Some(actual) => actual.entry(witness, source, budget)?,
             None => std::sync::Arc::new(
-                EntryValueWitness::derive_for(entry, witness.request(), source, budget)?.map_err(
-                    |_| ModelError::Invalid("base stored Use entry replay refused".into()),
-                )?,
+                EntryValueWitness::derive_for(
+                    original
+                        .ok_or(ModelError::Conflict("entry replay needs owned inputs"))?
+                        .entry,
+                    witness.request(),
+                    source,
+                    budget,
+                )?
+                .map_err(|_| ModelError::Invalid("base stored Use entry replay refused".into()))?,
             ),
         };
         if checked.witness() != witness {
@@ -1083,6 +1223,38 @@ mod actual_value_controls {
         visit!(members:EvaluationMember);
         visit!(operands:EvaluationOperand);
         (values, earlier, invocation, row)
+    }
+    #[test]
+    fn expression_adoption_resource_refusal_keeps_installed_frame_and_prior_values() {
+        let budget = ResourceBudget::fixed(2 << 20).unwrap();
+        let (incoming, earlier, frame, _) = produced(&budget);
+        let mut owner = ProducedEvaluations::new(&budget);
+        owner.frames.insert(frame.clone()).unwrap();
+        let pressure = budget
+            .reserve(
+                "expression-adoption-pressure",
+                budget.limit() - budget.reserved(),
+            )
+            .unwrap();
+        assert!(matches!(
+            owner.append_expression(incoming),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(owner.frames.len(), 1);
+        assert_eq!(owner.frames.get(frame.id()), Some(&frame));
+        assert!(owner.values.is_empty());
+        drop(pressure);
+        drop(earlier);
+        let (incoming, earlier, _, row) = produced(&budget);
+        owner.append_expression(incoming).unwrap();
+        assert_eq!(owner.values.len(), 1);
+        assert_eq!(
+            owner.get(&row, &frame, &earlier).unwrap().truth(),
+            Some(false)
+        );
+        drop(earlier);
+        drop(owner);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn primitive_actual_receipt_hydrates_exact_members_and_refuses_changed_or_missing_evidence() {

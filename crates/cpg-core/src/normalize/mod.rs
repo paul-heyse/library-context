@@ -15,7 +15,7 @@ use std::sync::Arc;
 mod admission;
 pub(crate) mod call_scope;
 mod callable_scope;
-mod kernel_products;
+pub(crate) mod kernel_products;
 mod projection_admission;
 mod receiver_scope;
 mod reuse;

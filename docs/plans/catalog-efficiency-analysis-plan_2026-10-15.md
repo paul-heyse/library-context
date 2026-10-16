@@ -1,9 +1,36 @@
 # Catalog efficiency: Base, Summary and analytic preparation
 
-**Proposed, 2026-10-15.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md).
+**Implemented / focused-Tested, enclosing acceptance open, 2026-10-16.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md).
 It develops F05/F06 and I05 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
 Coordinator §6 owns disposition. These changes serve explicit Behavioral support and named
 analytics; they do not make Behavioral execution an ordinary Catalog prerequisite.
+
+**Current decisions:** CA01 builds one charged borrowed ordered invocation inventory, lazily
+shares immutable signature ingredients and keeps caller-bound ports/admission/proofs separate.
+It retains competing rows and original first-use gates, and releases correspondence after the
+final pair consumer. CA02 retains exact expanded pairs/evidence and dual FixedBitSet FCA: published
+PairContribution/LayerPair/CombinedPair/concept/lattice consumers and weighted graph kernels require
+those products. A private admitted ordered-count/universe path removes redundant vector/map/sort
+preparation; the public checked normalizer remains an adapter to the same kernel. PageRank isolates,
+community touched universe, Leiden policy, deterministic ordering and exhausted-layer semantics stay.
+Reopen representation choices for a changed named product or qualified kernel/evidence alternative,
+not a timeout alone. Independent finite-set closure controls cover sparse/dense/nested/duplicate
+incidence; actual pass receipts remain with coordinator §6.
+
+CA00 review exposed that key-only admission cannot bound32 disjoint rich closures. The selected
+refinement captures native preparation once into owned spillable IPC and adapts only pure local
+typed/syntax assembly and unconsumed root computation/adoption, preserving submitted failure/Unknown
+finality and singleton feasibility. Membership discovery and unique rich source reads stay at
+singleton grain. Adopt results failure-atomically before native emission; retry only the unconsumed
+suffix, never emitted roots. Original capture/schema/EOF failures remain terminal. Capturing selected
+roots before local consumption can expose a later selected root's source failure before an earlier
+root is emitted; it does not hydrate unrelated companions. Shared payload acquisition benefits
+overlap, without claiming fewer native reads for every disjoint workload. Three focused controls
+passed in run`a60d51fb-ca02-4a99-9e29-5059f41c9684`, including32 disjoint rich roots under singleton-fit
+pressure. Current model adoption/isolation controls passed3 in
+run`439eeb31-9cd3-4e44-bb6a-b297f3c12b9b`; native persistence and enclosing acceptance remain with coordinator §6.
+No catch-and-requery of failed native acquisition is authorized. [ADR-0176](../adr/0176-bounded-behavioral-preparation.md)
+records the bounded preparation decisions and retained analytic representation.
 
 ## 1. Responsibility and foundations
 

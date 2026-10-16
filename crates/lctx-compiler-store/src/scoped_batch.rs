@@ -104,9 +104,17 @@ impl<'a, R: Record> SelectedRows<'a, R> {
                 "batched row selection nominal binding",
             ));
         }
+        Self::from_keys(batch.keys(partition, table)?, rows, budget)
+    }
+    /// Borrow exact canonical nominal keys read from an owner-held local membership run.
+    pub fn from_keys(
+        keys: impl Iterator<Item = [u8; 16]>,
+        rows: &'a Rows<R>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         let mut charge = StateCharge::new(budget, "batched-typed-row-selection");
         let mut ids = ChargedVec::default();
-        for key in batch.keys(partition, table)? {
+        for key in keys {
             // Nominal decoding uses the fixed-width Serde visitor without a JSON allocation.
             let id = Id::<R>::deserialize(serde::de::value::SeqDeserializer::<
                 _,

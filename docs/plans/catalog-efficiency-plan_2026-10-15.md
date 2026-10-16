@@ -210,12 +210,23 @@ model tests-compile (exit130, interrupted); no cache/configuration/resource cap 
 
 Independent source review found two corrected issues (successor resume must join host clients and
 whole native executor before retry; unavailable full observations cannot report definite change).
-CA00 key-only cohort admission remains under correction: selected owned spillable capture uses
-single-root metadata and unique-per-root rich payload demand, then adaptive pure local assembly
-without native replay or32-disjoint-closure retention. Independent review also required retained
-borrow immutability for PreparedSyntax and the admitted CC03 runtime; both are source-corrected.
-Source capture and pre-emission resource-pressure controls remain pending. Its closure
-and native/persistence evidence remain open. ADR-0175 supersedes development discovery/observation
+CA00 now uses owned spillable capture with single-root metadata and unique-per-root rich payload
+demand, then adaptive pure local assembly/computation and failure-atomic expression adoption.
+No native replay or32-disjoint-closure retention is introduced. Independent review required retained
+borrow immutability for PreparedSyntax and the admitted CC03 runtime; both are corrected. The first
+capture control failed on missing private DataFusion catalog initialization; corrected rerun
+`a60d51fb-ca02-4a99-9e29-5059f41c9684` passed3, including32 disjoint rich roots under singleton-fit
+pressure. Current model isolation/request-limit/adoption-atomicity run
+`439eeb31-9cd3-4e44-bb6a-b297f3c12b9b` passed3. Final bounded independent source reread found no
+remaining material issue in inspected capture/retry/adoption and development seams; it ran no
+tests and does not establish native acceptance. Both vendor diffs are formatter-only. ADR-0176
+records behavioral preparation and retained analytic products. Full Ruff/Pyrefly
+passed in managed run`20261016T074008.829Z-52fdb8`, cleanup confirmed. Whole root turn-end passed.
+Full workspace compile`20261016T074448.896Z-ac4ce8` is running. Docs check
+`20261016T074449.177Z-dc2147` passed464 pages/zero link errors. The supplied technical reference's
+existing title was marked as H1 without changing its content; the earlier docs run also caught
+the then-unrefreshed ADR index and section metadata, both corrected before this pass.
+Native/persistence evidence remains open. ADR-0175 supersedes development discovery/observation
 clauses while carrying authenticated ownership/readiness/capture forward. CE80/default cutover,
 CE90 current-target acceptance and CE99 handback remain **not_run**. Original failed/Unknowns stay.
 

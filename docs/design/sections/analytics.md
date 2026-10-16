@@ -178,6 +178,15 @@ owns implementation and verification boundaries. No schema change or measured pe
 
 > Decision: ADR-0020, ADR-0106, ADR-0169
 
+**Implemented / focused verification in progress, 2026-10-16:** private admitted ordered pair
+counts and their touched universe feed the same community kernel without redundant vector/map/
+sort copies. Public checked normalization remains an adapter. PairContribution, LayerPair,
+CombinedPair, concept/lattice evidence, dual FixedBitSet FCA, PageRank isolates and the declared
+Leiden recipe remain exact. The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns current controls and enclosing acceptance; no pair elision or new algorithm is implied.
+
+> Decision: ADR-0176
+
 <a id="section-9-5"></a>
 
 ### §9.5 Centrality

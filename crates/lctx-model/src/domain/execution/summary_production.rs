@@ -31,6 +31,7 @@ use crate::domain::{
 };
 use crate::{Domain, DomainCode, DomainSum};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 fn invalid(s: impl Into<String>) -> ModelError {
     ModelError::Invalid(s.into())
 }
@@ -912,6 +913,7 @@ struct CallInfo {
 impl HeapSize for CallInfo {}
 fn call_infos(
     data: &SummaryData,
+    discovery: &Discovery<'_>,
     verified: &VerifiedBindings,
     invocation: &owner::AnalysisInvocation,
     out: &mut SummaryRecords,
@@ -938,7 +940,12 @@ fn call_infos(
         {
             continue;
         }
-        let mut headers = data.headers.iter().filter(|h| h.attempt == attempt.id());
+        let mut headers = discovery
+            .headers
+            .get(&attempt.id())
+            .into_iter()
+            .flatten()
+            .copied();
         let header = headers.next();
         if headers.next().is_some() {
             return Err(invalid("Summary source header ambiguous"));
@@ -986,14 +993,23 @@ fn call_infos(
 struct CallPreparation<'a> {
     data: &'a SummaryData,
     verified: &'a VerifiedBindings,
+    discovery: &'a Discovery<'a>,
+    signatures: SignaturePreparation<'a>,
     calls: BTreeMap<Id<CallBindingAttempt>, PreparedAttempt<'a>>,
     charge: StateCharge,
 }
 impl<'a> CallPreparation<'a> {
-    fn new(data: &'a SummaryData, verified: &'a VerifiedBindings, budget: &ResourceBudget) -> Self {
+    fn new(
+        data: &'a SummaryData,
+        verified: &'a VerifiedBindings,
+        discovery: &'a Discovery<'a>,
+        budget: &ResourceBudget,
+    ) -> Self {
         Self {
             data,
             verified,
+            discovery,
+            signatures: SignaturePreparation::new(data, discovery, budget),
             calls: BTreeMap::new(),
             charge: StateCharge::new(budget, "summary-prepared-call-slots"),
         }
@@ -1007,7 +1023,14 @@ impl<'a> CallPreparation<'a> {
             self.charge.grow(
                 size_of::<Id<CallBindingAttempt>>() + size_of::<PreparedAttempt<'a>>() + 128,
             )?;
-            let prepared = PreparedAttempt::new(self.data, self.verified, call, budget)?;
+            let prepared = PreparedAttempt::new(
+                self.data,
+                self.verified,
+                self.discovery,
+                call,
+                &mut self.signatures,
+                budget,
+            )?;
             entry.insert(prepared);
         }
         let prepared = self.calls.get_mut(&call.attempt).expect("prepared above");
@@ -1018,6 +1041,157 @@ impl<'a> CallPreparation<'a> {
         }
         Ok(prepared)
     }
+}
+// Signature ingredients are immutable and shared, while every PreparedAttempt still owns its
+// exact caller admission, ports, guards and arguments. An unused signature is never realized.
+struct SignaturePreparation<'a> {
+    data: &'a SummaryData,
+    discovery: &'a Discovery<'a>,
+    signatures: BTreeMap<Id<Signature>, Arc<PreparedSignature<'a>>>,
+    charge: StateCharge,
+}
+impl<'a> SignaturePreparation<'a> {
+    fn new(data: &'a SummaryData, discovery: &'a Discovery<'a>, budget: &ResourceBudget) -> Self {
+        Self {
+            data,
+            discovery,
+            signatures: BTreeMap::new(),
+            charge: StateCharge::new(budget, "summary-shared-signatures"),
+        }
+    }
+    fn require_header(&self, id: Id<Signature>) -> Result<(), ModelError> {
+        if !self.signatures.contains_key(&id) {
+            signature_header(self.data, self.discovery, id)?;
+        }
+        Ok(())
+    }
+    fn get(
+        &mut self,
+        id: Id<Signature>,
+        budget: &ResourceBudget,
+    ) -> Result<Arc<PreparedSignature<'a>>, ModelError> {
+        if let Some(signature) = self.signatures.get(&id) {
+            return Ok(Arc::clone(signature));
+        }
+        self.charge
+            .grow(size_of::<Id<Signature>>() + size_of::<Arc<PreparedSignature<'a>>>() + 128)?;
+        let signature = Arc::new(prepare_signature(self.data, self.discovery, id, budget)?);
+        self.signatures.insert(id, Arc::clone(&signature));
+        Ok(signature)
+    }
+}
+fn signature_header<'a>(
+    data: &'a SummaryData,
+    discovery: &Discovery<'a>,
+    signature_id: Id<Signature>,
+) -> Result<
+    (
+        &'a Signature,
+        source::properties::SymbolProperties,
+        &'a declarations::SymbolDeclaration,
+    ),
+    ModelError,
+> {
+    let signature = need(&data.bindings.signatures, signature_id)?;
+    let symbol = data
+        .symbol(signature.symbol)
+        .ok_or_else(|| invalid("Summary callee symbol absent"))?;
+    let mut declarations = discovery
+        .symbol_declarations
+        .get(&symbol.id())
+        .into_iter()
+        .flatten()
+        .copied();
+    let declaration = declarations
+        .next()
+        .ok_or_else(|| invalid("Summary callee source declaration absent"))?;
+    if declarations.next().is_some() {
+        return Err(invalid("Summary callee declaration ambiguous"));
+    }
+    Ok((signature, symbol, declaration))
+}
+fn prepare_signature<'a>(
+    data: &'a SummaryData,
+    discovery: &Discovery<'a>,
+    signature_id: Id<Signature>,
+    budget: &ResourceBudget,
+) -> Result<PreparedSignature<'a>, ModelError> {
+    let (signature, symbol, declaration) = signature_header(data, discovery, signature_id)?;
+    // Reserve the selected frame before cloning its rows. Unrelated signatures and calls do not
+    // inflate each cache entry; all vectors and the temporary membership set stay charged.
+    let parameter_count = discovery
+        .parameters
+        .get(&signature.id())
+        .map_or(0, Vec::len);
+    let parameter_bytes = parameter_count
+        .checked_mul(size_of::<SignatureParameter>() + 128)
+        .ok_or_else(|| invalid("Summary prepared signature allowance overflow"))?;
+    let parameter_charge = budget.reserve("summary-prepared-signature", parameter_bytes)?;
+    let mut parameters = Vec::with_capacity(parameter_count);
+    parameters.extend(
+        discovery
+            .parameters
+            .get(&signature.id())
+            .into_iter()
+            .flatten()
+            .map(|p| (*p).clone()),
+    );
+    parameters.sort_by_key(|p| p.ordinal);
+    let parameter_ids = parameters.iter().map(Record::id).collect::<BTreeSet<_>>();
+    let link_count = parameter_ids
+        .iter()
+        .map(|id| discovery.links.get(id).map_or(0, Vec::len))
+        .sum::<usize>();
+    let mut signature_charge = parameter_charge;
+    signature_charge.try_resize(
+        parameter_bytes
+            .checked_add(
+                link_count
+                    .checked_mul(
+                        size_of::<declarations::ParameterDeclaration>()
+                            + size_of::<(usize, &declarations::ParameterDeclaration)>(),
+                    )
+                    .ok_or_else(|| invalid("Summary prepared links allowance overflow"))?,
+            )
+            .ok_or_else(|| invalid("Summary prepared links allowance overflow"))?,
+    )?;
+    let mut links = Vec::with_capacity(link_count);
+    let mut selected_links = Vec::with_capacity(link_count);
+    selected_links.extend(
+        parameter_ids
+            .iter()
+            .flat_map(|id| discovery.links.get(id).into_iter().flatten())
+            .copied(),
+    );
+    // Source ordinals are unique. In-place sorting preserves their exact order without
+    // admitting another stable-sort buffer or geometric collection capacity.
+    selected_links.sort_unstable_by_key(|(ordinal, _)| *ordinal);
+    links.extend(selected_links.into_iter().map(|(_, row)| row.clone()));
+    drop(parameter_ids);
+    // The membership set is gone; only the selected row vectors remain retained.
+    signature_charge.try_resize(
+        parameters
+            .capacity()
+            .checked_mul(size_of::<SignatureParameter>())
+            .and_then(|n| {
+                n.checked_add(
+                    links
+                        .capacity()
+                        .checked_mul(size_of::<declarations::ParameterDeclaration>())?,
+                )
+            })
+            .and_then(|n| {
+                n.checked_add(size_of::<PreparedSignature<'a>>() + 2 * size_of::<usize>())
+            })
+            .ok_or_else(|| invalid("Summary retained signature allowance overflow"))?,
+    )?;
+    Ok(PreparedSignature {
+        symbol,
+        declaration,
+        parameters,
+        links,
+        _reservation: signature_charge,
+    })
 }
 struct PreparedAttempt<'a> {
     info: CallInfo,
@@ -1036,7 +1210,9 @@ impl<'a> PreparedAttempt<'a> {
     fn new(
         data: &'a SummaryData,
         verified: &'a VerifiedBindings,
+        discovery: &'a Discovery<'a>,
         call: &CallInfo,
+        signatures: &mut SignaturePreparation<'a>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         let attempt = need(&data.binding_output.attempts, call.attempt)?;
@@ -1044,110 +1220,35 @@ impl<'a> PreparedAttempt<'a> {
         let bound = verified
             .bound(call.attempt)
             .ok_or_else(|| invalid("Summary bound call absent"))?;
-        let signature = need(&data.bindings.signatures, bound.bound().signature())?;
-        let symbol = data
-            .symbol(signature.symbol)
-            .ok_or_else(|| invalid("Summary callee symbol absent"))?;
-        let mut declarations = data
-            .entry
-            .symbol_declarations
-            .iter()
-            .filter(|d| d.symbol == symbol.id());
-        let declaration = declarations
-            .next()
-            .ok_or_else(|| invalid("Summary callee source declaration absent"))?;
-        if declarations.next().is_some() {
-            return Err(invalid("Summary callee declaration ambiguous"));
-        }
+        let signature_id = bound.bound().signature();
+        signatures.require_header(signature_id)?;
         let admission = verified
             .composition(call.attempt)
             .ok_or_else(|| invalid("Summary composition admission absent"))?;
-        let mut callers = data
-            .entry
-            .symbol_declarations
-            .iter()
-            .filter(|d| d.declaration == admission.owner_declaration());
+        let mut callers = discovery
+            .declaration_symbols
+            .get(&admission.owner_declaration())
+            .into_iter()
+            .flatten()
+            .copied();
         let caller_declaration = callers
             .next()
             .ok_or_else(|| invalid("Summary caller declaration absent"))?;
         if callers.next().is_some() {
             return Err(invalid("Summary caller declaration ambiguous"));
         }
-        // Reserve the selected frame before cloning its rows. Unrelated signatures and calls do not
-        // inflate each cache entry; all vectors and the temporary membership set stay charged.
-        let parameter_count = data
-            .bindings
-            .parameters
-            .iter()
-            .filter(|p| p.signature == signature.id())
-            .count();
-        let parameter_bytes = parameter_count
-            .checked_mul(size_of::<SignatureParameter>() + 128)
-            .ok_or_else(|| invalid("Summary prepared signature allowance overflow"))?;
-        let parameter_charge = budget.reserve("summary-prepared-signature", parameter_bytes)?;
-        let mut parameters = Vec::with_capacity(parameter_count);
-        parameters.extend(
-            data.bindings
-                .parameters
-                .iter()
-                .filter(|p| p.signature == signature.id())
-                .cloned(),
-        );
-        parameters.sort_by_key(|p| p.ordinal);
-        let parameter_ids = parameters.iter().map(Record::id).collect::<BTreeSet<_>>();
-        let link_count = data
-            .entry
-            .declarations
-            .iter()
-            .filter(|p| parameter_ids.contains(&p.parameter))
-            .count();
-        let mut signature_charge = parameter_charge;
-        signature_charge.try_resize(
-            parameter_bytes
-                .checked_add(
-                    link_count
-                        .checked_mul(size_of::<declarations::ParameterDeclaration>())
-                        .ok_or_else(|| invalid("Summary prepared links allowance overflow"))?,
-                )
-                .ok_or_else(|| invalid("Summary prepared links allowance overflow"))?,
-        )?;
-        let mut links = Vec::with_capacity(link_count);
-        links.extend(
-            data.entry
-                .declarations
-                .iter()
-                .filter(|p| parameter_ids.contains(&p.parameter))
-                .cloned(),
-        );
-        drop(parameter_ids);
-        // The membership set is gone; only the selected row vectors remain retained.
-        signature_charge.try_resize(
-            parameters
-                .capacity()
-                .checked_mul(size_of::<SignatureParameter>())
-                .and_then(|n| {
-                    n.checked_add(
-                        links
-                            .capacity()
-                            .checked_mul(size_of::<declarations::ParameterDeclaration>())?,
-                    )
-                })
-                .ok_or_else(|| invalid("Summary retained signature allowance overflow"))?,
-        )?;
+        // Preserve first-use refusal order: resolve both declarations before allocating the
+        // selected signature. Later attempts reuse only these immutable ingredients.
+        let signature = signatures.get(signature_id, budget)?;
         let syntax = attempt
             .syntax
             .ok_or_else(|| invalid("Summary call syntax absent"))?;
-        let argument_count = data
-            .bindings
+        let argument_count = discovery.arguments.get(&syntax).map_or(0, Vec::len);
+        let argument_bytes = discovery
             .arguments
-            .iter()
-            .filter(|a| a.call == syntax)
-            .count();
-        let argument_bytes = data
-            .bindings
-            .arguments
-            .iter()
-            .filter(|a| a.call == syntax)
+            .get(&syntax)
+            .into_iter()
+            .flatten()
             .try_fold(
                 argument_count
                     .checked_mul(size_of::<CallArgument>())
@@ -1158,16 +1259,26 @@ impl<'a> PreparedAttempt<'a> {
                         .ok_or_else(|| invalid("Summary prepared arguments allowance overflow"))
                 },
             )?;
-        let arguments_charge = budget.reserve("summary-prepared-arguments", argument_bytes)?;
+        let sort_bytes = argument_count
+            .checked_mul(size_of::<CallArgument>())
+            .ok_or_else(|| invalid("Summary prepared arguments sort allowance overflow"))?;
+        let mut arguments_charge = budget.reserve(
+            "summary-prepared-arguments",
+            argument_bytes
+                .checked_add(sort_bytes)
+                .ok_or_else(|| invalid("Summary prepared arguments allowance overflow"))?,
+        )?;
         let mut arguments = Vec::with_capacity(argument_count);
         arguments.extend(
-            data.bindings
+            discovery
                 .arguments
-                .iter()
-                .filter(|a| a.call == syntax)
-                .cloned(),
+                .get(&syntax)
+                .into_iter()
+                .flatten()
+                .map(|a| (*a).clone()),
         );
         arguments.sort_by_key(|a| a.ordinal);
+        arguments_charge.try_resize(argument_bytes)?;
         let site = data
             .occurrence(target.site)
             .ok_or_else(|| invalid("Summary call occurrence absent"))?;
@@ -1192,11 +1303,11 @@ impl<'a> PreparedAttempt<'a> {
             arguments,
             callee: PreparedCallee::new(
                 binding,
-                symbol,
-                declaration,
-                parameters,
-                links,
-                signature_charge,
+                signature,
+                discovery
+                    .guard_bindings
+                    .get(&call.attempt)
+                    .map_or(&[], Vec::as_slice),
             ),
             _arguments_charge: arguments_charge,
         })
@@ -1287,6 +1398,18 @@ impl Progress {
 // Immutable invocation-local correspondence. Every bucket retains canonical source-row order
 // and all alternatives; only the worklist decides semantic/Pareto redundancy.
 struct Discovery<'a> {
+    seeds: BTreeMap<Id<SummaryOrigin>, usize>,
+    headers: BTreeMap<Id<CallBindingAttempt>, Vec<&'a SourceCallHeader>>,
+    symbol_declarations: BTreeMap<Id<ProviderSymbol>, Vec<&'a declarations::SymbolDeclaration>>,
+    declaration_symbols: BTreeMap<Id<source::Occurrence>, Vec<&'a declarations::SymbolDeclaration>>,
+    parameters: BTreeMap<Id<Signature>, Vec<&'a SignatureParameter>>,
+    links: BTreeMap<Id<SignatureParameter>, Vec<(usize, &'a declarations::ParameterDeclaration)>>,
+    arguments: BTreeMap<Id<CallSyntax>, Vec<&'a CallArgument>>,
+    guard_bindings: BTreeMap<Id<CallBindingAttempt>, Vec<&'a CallBinding>>,
+    events: BTreeMap<
+        (Id<source::Occurrence>, Id<attribution::AnalysisContext>),
+        Vec<&'a normalized::events::NormalizedCallEvent>,
+    >,
     entry_conditions: PreparedConditions<'a>,
     vocabulary_conditions: PreparedConditions<'a>,
     local_supports: BTreeMap<
@@ -1315,17 +1438,31 @@ struct Discovery<'a> {
     _reservation: Box<dyn Reservation>,
 }
 impl<'a> Discovery<'a> {
+    // Terminal closure still needs condition lowering; pair correspondence has no later consumer.
+    fn into_vocabulary_conditions(self) -> PreparedConditions<'a> {
+        self.vocabulary_conditions
+    }
     fn new(
         data: &'a SummaryData,
         calls: &[CallInfo],
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        let mut count = calls
+        let mut count = data
+            .binding_output
+            .attempts
             .len()
             .checked_mul(3)
             .ok_or_else(|| invalid("Summary discovery overflow"))?;
         macro_rules! count {($($rows:expr),*) => {$(count = count.checked_add($rows.len()).ok_or_else(|| invalid("Summary discovery overflow"))?;)*};}
         count!(
+            data.headers,
+            data.entry.symbol_declarations,
+            data.entry.symbol_declarations,
+            data.bindings.parameters,
+            data.entry.declarations,
+            data.bindings.arguments,
+            data.binding_output.bindings,
+            data.bindings.event_events,
             data.entry.definition_observations,
             data.entry.reaching,
             data.entry.values,
@@ -1370,7 +1507,30 @@ impl<'a> Discovery<'a> {
             callees.entry(call.callee).or_default().push(index);
             attempts.insert(call.attempt, index);
         }
+        let mut links = BTreeMap::<_, Vec<_>>::new();
+        for (ordinal, row) in data.entry.declarations.iter().enumerate() {
+            links.entry(row.parameter).or_default().push((ordinal, row));
+        }
         Ok(Self {
+            seeds: BTreeMap::new(),
+            headers: index!(data.headers, |r: &SourceCallHeader| r.attempt),
+            symbol_declarations: index!(
+                data.entry.symbol_declarations,
+                |r: &declarations::SymbolDeclaration| r.symbol
+            ),
+            declaration_symbols: index!(
+                data.entry.symbol_declarations,
+                |r: &declarations::SymbolDeclaration| r.declaration
+            ),
+            parameters: index!(data.bindings.parameters, |r: &SignatureParameter| r
+                .signature),
+            links,
+            arguments: index!(data.bindings.arguments, |r: &CallArgument| r.call),
+            guard_bindings: index!(data.binding_output.bindings, |r: &CallBinding| r.attempt),
+            events: index!(
+                data.bindings.event_events,
+                |r: &normalized::events::NormalizedCallEvent| (r.site, r.context)
+            ),
             entry_conditions: PreparedConditions::new(data.entry.condition_nodes.iter(), budget)?,
             vocabulary_conditions: PreparedConditions::new(data.vocabulary.nodes.values(), budget)?,
             local_supports: index!(
@@ -1630,6 +1790,7 @@ impl EnqueueContext<'_> {
 }
 
 struct ResidualContext<'a> {
+    discovery: &'a Discovery<'a>,
     data: &'a SummaryData,
     invocation: &'a owner::AnalysisInvocation,
     component: ContentHash,
@@ -1644,6 +1805,7 @@ fn residual(
     out: &mut SummaryRecords,
 ) -> Result<(), ModelError> {
     let ResidualContext {
+        discovery,
         data,
         invocation,
         component,
@@ -1675,11 +1837,11 @@ fn residual(
                 .descriptor()
                 .call_site
                 .ok_or_else(|| invalid("alias boundary original call absent"))?;
-            let event = data
-                .bindings
-                .event_events
-                .iter()
-                .find(|e| e.site == site && e.context == invocation.context)
+            let event = discovery
+                .events
+                .get(&(site, invocation.context))
+                .and_then(|rows| rows.first())
+                .copied()
                 .ok_or_else(|| invalid("alias boundary event absent"))?;
             (
                 branch.origin,
@@ -1692,11 +1854,12 @@ fn residual(
         WorkItem::Path(proof, _, _, step) => {
             let branch = &progress.branches[&proof];
             let step = need(&data.path.call_steps, step)?;
-            let mut events = data
-                .bindings
-                .event_events
-                .iter()
-                .filter(|e| e.site == step.call && e.context == invocation.context);
+            let mut events = discovery
+                .events
+                .get(&(step.call, invocation.context))
+                .into_iter()
+                .flatten()
+                .copied();
             let event = events
                 .next()
                 .ok_or_else(|| invalid("summary path boundary event absent"))?;
@@ -1712,9 +1875,10 @@ fn residual(
             )
         }
     };
-    let seed = seeds
-        .iter()
-        .find(|b| b.origin == origin)
+    let seed = discovery
+        .seeds
+        .get(&origin)
+        .and_then(|index| seeds.get(*index))
         .ok_or_else(|| invalid("summary origin seed absent"))?;
     let q = AssertionQualification {
         approximation: Approximation::Over,
@@ -1768,6 +1932,7 @@ fn enqueue(
     out: &mut SummaryRecords,
 ) -> Result<(), ModelError> {
     let EnqueueContext {
+        discovery,
         data,
         component_id,
         invocation,
@@ -1782,6 +1947,7 @@ fn enqueue(
         if let Err(reason) = queue.insert(item)? {
             residual(
                 ResidualContext {
+                    discovery,
                     data,
                     invocation,
                     component: component_id,
@@ -2205,19 +2371,29 @@ fn produce_with_application(
         computed_schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
         &computed_schedule
     };
-    let (calls, _calls) = call_infos(data, verified, invocation, &mut out, budget)?;
-    let discovery = Discovery::new(data, &calls, budget)?;
+    let mut discovery = Discovery::new(data, &[], budget)?;
+    let (calls, _calls) = call_infos(data, &discovery, verified, invocation, &mut out, budget)?;
+    for (index, call) in calls.iter().enumerate() {
+        discovery.callers.entry(call.owner).or_default().push(index);
+        discovery
+            .callees
+            .entry(call.callee)
+            .or_default()
+            .push(index);
+        discovery.attempts.insert(call.attempt, index);
+    }
     let (seeds, _seeds) = data.seeds(invocation, &mut out, &discovery, budget)?;
     let _seed_index = budget.reserve("summary-seed-index", seeds.len().saturating_mul(256))?;
     let mut seeds_by_owner = BTreeMap::<_, Vec<_>>::new();
     for (index, seed) in seeds.iter().enumerate() {
+        discovery.seeds.entry(seed.origin).or_insert(index);
         seeds_by_owner
             .entry(seed.descriptor().owner)
             .or_default()
             .push(index);
     }
     let (guards, _guards) = data.guards(budget, actual)?;
-    let mut call_preparation = CallPreparation::new(data, verified, budget);
+    let mut call_preparation = CallPreparation::new(data, verified, &discovery, budget);
     let mut vocabulary = data.vocabulary.copy(budget)?;
     for root in out.vocabulary.roots.values() {
         vocabulary
@@ -2343,6 +2519,7 @@ fn produce_with_application(
                     for item in queue.pending() {
                         residual(
                             ResidualContext {
+                                discovery: &discovery,
                                 data,
                                 invocation,
                                 component: component_id,
@@ -2413,6 +2590,7 @@ fn produce_with_application(
                                 ))?;
                                 residual(
                                     ResidualContext {
+                                        discovery: &discovery,
                                         data,
                                         invocation,
                                         component: component_id,
@@ -2435,6 +2613,7 @@ fn produce_with_application(
                                         ))?;
                                         residual(
                                             ResidualContext {
+                                                discovery: &discovery,
                                                 data,
                                                 invocation,
                                                 component: component_id,
@@ -2492,6 +2671,7 @@ fn produce_with_application(
                                     ))?;
                                     residual(
                                         ResidualContext {
+                                            discovery: &discovery,
                                             data,
                                             invocation,
                                             component: component_id,
@@ -2645,6 +2825,7 @@ fn produce_with_application(
                     match result {
                         Err(reason) => residual(
                             ResidualContext {
+                                discovery: &discovery,
                                 data,
                                 invocation,
                                 component: component_id,
@@ -2661,6 +2842,7 @@ fn produce_with_application(
                                 Err(reason) => {
                                     residual(
                                         ResidualContext {
+                                            discovery: &discovery,
                                             data,
                                             invocation,
                                             component: component_id,
@@ -2693,6 +2875,7 @@ fn produce_with_application(
                             if let summary_worklist::Admission::Refused(reason) = admission {
                                 residual(
                                     ResidualContext {
+                                        discovery: &discovery,
                                         data,
                                         invocation,
                                         component: component_id,
@@ -2782,6 +2965,7 @@ fn produce_with_application(
     // No remaining pair can borrow prepared calls. Later publication and closure questions
     // consume published outcomes and private binding authority, not parameter/port allocations.
     drop(call_preparation);
+    let vocabulary_conditions = discovery.into_vocabulary_conditions();
     run.components = out.components.len() as i64;
     run.proofs =
         (out.witnesses.len() + out.path_witnesses.len() + out.capture_witnesses.len()) as i64;
@@ -2801,7 +2985,7 @@ fn produce_with_application(
         invocation,
         definition,
         &mut out,
-        &discovery.vocabulary_conditions,
+        &vocabulary_conditions,
         budget,
     )?;
     out.consequences(
@@ -3291,5 +3475,185 @@ mod actual_input_property_controls {
         drop(ordinary);
         drop(actual);
         assert_eq!(budget.reserved(), 0);
+    }
+}
+
+#[cfg(test)]
+mod correspondence_controls {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    fn signature(data: &mut SummaryData, n: u8) -> (Signature, declarations::SymbolDeclaration) {
+        let symbol = ProviderSymbol {
+            provider: id(1),
+            context: id(2),
+            module: id(3),
+            native_key: format!("callee-{n}"),
+            name: format!("callee-{n}"),
+            kind: SymbolKind::Function,
+        };
+        data.bindings.symbols.insert(symbol.clone()).unwrap();
+        let signature = Signature {
+            role: SignatureRole::Source,
+            native: None,
+            qualification: id(4),
+            scope: id(5),
+            symbol: symbol.id(),
+            variant: 0,
+            form: SignatureForm::List,
+            parameters: ContentHash::of(&[n]),
+        };
+        data.bindings.signatures.insert(signature.clone()).unwrap();
+        let declaration = declarations::SymbolDeclaration {
+            qualification: id(4),
+            symbol: symbol.id(),
+            declaration: id(n),
+        };
+        data.entry
+            .symbol_declarations
+            .insert(declaration.clone())
+            .unwrap();
+        (signature, declaration)
+    }
+    #[test]
+    fn signature_preparation_is_lazy_shared_ordered_and_borrow_scoped() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let mut data = SummaryData::new(&budget);
+        let (selected, declaration) = signature(&mut data, 10);
+        let unused = Signature {
+            symbol: id(99),
+            parameters: ContentHash::of(b"unused"),
+            ..selected.clone()
+        };
+        data.bindings.signatures.insert(unused.clone()).unwrap();
+        // Source inventory order is nominal, not parameter ordinal order.
+        let parameters = [1, 0].map(|ordinal| SignatureParameter {
+            signature: selected.id(),
+            ordinal,
+            shape: id(20 + ordinal as u8),
+        });
+        for row in &parameters {
+            data.bindings.parameters.insert(row.clone()).unwrap();
+        }
+        for (n, parameter) in parameters.iter().enumerate() {
+            data.entry
+                .declarations
+                .insert(declarations::ParameterDeclaration {
+                    qualification: id(4),
+                    parameter: parameter.id(),
+                    declaration: id(30 + n as u8),
+                })
+                .unwrap();
+        }
+        let retained = budget.reserved();
+        {
+            let discovery = Discovery::new(&data, &[], &budget).unwrap();
+            let expected_links = data.entry.declarations.iter().cloned().collect::<Vec<_>>();
+            let mut preparation = SignaturePreparation::new(&data, &discovery, &budget);
+            let first = preparation.get(selected.id(), &budget).unwrap();
+            let once = budget.reserved();
+            let second = preparation.get(selected.id(), &budget).unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+            assert_eq!(budget.reserved(), once);
+            assert_eq!(
+                first
+                    .parameters
+                    .iter()
+                    .map(|p| p.ordinal)
+                    .collect::<Vec<_>>(),
+                [0, 1]
+            );
+            assert_eq!(first.links, expected_links);
+            assert_eq!(first.declaration, &declaration);
+            // Missing rich data is exposed only if that signature is consumed.
+            assert!(
+                preparation
+                    .get(unused.id(), &budget)
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("callee symbol absent")
+            );
+        }
+        assert_eq!(budget.reserved(), retained);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn correspondence_keeps_competing_headers_declarations_and_contextual_events() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let mut data = SummaryData::new(&budget);
+        let (selected, declaration) = signature(&mut data, 10);
+        data.entry
+            .symbol_declarations
+            .insert(declarations::SymbolDeclaration {
+                qualification: id(6),
+                ..declaration
+            })
+            .unwrap();
+        for n in [2, 1] {
+            data.headers
+                .insert(SourceCallHeader {
+                    invocation: id(n),
+                    event: id(8),
+                    attempt: id(9),
+                    owner: id(10),
+                    callee: id(11),
+                    declaration: id(12),
+                    qualification: id(4),
+                    status: analysis::policy::EvidenceStatus::StructurallyObserved,
+                    premises: ContentHash::of(&[n]),
+                })
+                .unwrap();
+            data.bindings
+                .event_events
+                .insert(normalized::events::NormalizedCallEvent {
+                    site: id(20),
+                    origin: id(n),
+                    context: id(21),
+                    owner: id(22),
+                })
+                .unwrap();
+        }
+        data.bindings
+            .event_events
+            .insert(normalized::events::NormalizedCallEvent {
+                site: id(20),
+                origin: id(3),
+                context: id(23),
+                owner: id(22),
+            })
+            .unwrap();
+        let retained = budget.reserved();
+        {
+            let discovery = Discovery::new(&data, &[], &budget).unwrap();
+            assert_eq!(
+                discovery.headers[&id(9)]
+                    .iter()
+                    .map(|r| r.id())
+                    .collect::<Vec<_>>(),
+                data.headers.iter().map(Record::id).collect::<Vec<_>>()
+            );
+            assert_eq!(discovery.symbol_declarations[&selected.symbol].len(), 2);
+            let events = &discovery.events[&(id(20), id(21))];
+            let expected = data
+                .bindings
+                .event_events
+                .iter()
+                .filter(|r| r.context == id(21))
+                .map(Record::id)
+                .collect::<Vec<_>>();
+            assert_eq!(events.iter().map(|r| r.id()).collect::<Vec<_>>(), expected);
+            assert_eq!(discovery.events[&(id(20), id(23))].len(), 1);
+            assert!(
+                prepare_signature(&data, &discovery, selected.id(), &budget)
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("declaration ambiguous")
+            );
+        }
+        assert_eq!(budget.reserved(), retained);
     }
 }

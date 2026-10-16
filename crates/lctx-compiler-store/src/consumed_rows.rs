@@ -1144,6 +1144,9 @@ impl PreparedEdges {
         }
         Ok(())
     }
+    pub fn session(&self) -> &SessionContext {
+        &self.0.session
+    }
     /// Execute compatible explicit owner roots together. Physical absence is an outcome,
     /// while a virtual root is activated only by this explicit request. Supporting references
     /// reached during discovery never acquire root ownership. Input order defines partitions;
@@ -1319,6 +1322,65 @@ impl PreparedEdges {
         })
     }
 
+    /// One bounded ordered point-demand owner over the same immutable provider binding.
+    pub fn point_input(
+        &self,
+        table: usize,
+        keys: Vec<[u8; 16]>,
+        budget: &ResourceBudget,
+    ) -> Result<PointInput, ModelError> {
+        if keys.len() > crate::compiler_provider::REFERENCE_KEYS
+            || keys.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ModelError::Schema("bounded point-input keys"));
+        }
+        let relation = &self
+            .0
+            .tables
+            .get(table)
+            .ok_or(ModelError::Schema("point-input namespace"))?
+            .relation;
+        let mut charge = charged::StateCharge::new(budget, "semantic point-input owner");
+        charge.grow(keys.len() * 160 + 4096)?;
+        let keys = std::sync::Arc::new(keys);
+        let charge = std::sync::Arc::new(charge);
+        let selected = crate::compiler_provider::select_table(
+            &self.0.providers[table],
+            keys.clone(),
+            charge.clone(),
+        )?;
+        let native = selected.is_some();
+        let provider = selected.unwrap_or_else(|| self.0.providers[table].clone());
+        if provider.schema().as_ref() != relation.schema().as_ref() {
+            return Err(ModelError::Schema("point-input source schema"));
+        }
+        let alias = scope_alias("point_input");
+        self.0
+            .session
+            .register_table(alias.clone(), provider)
+            .map_err(ModelError::codec)?;
+        let sql = if native {
+            format!("SELECT * FROM {}", identifier(&alias))
+        } else if keys.is_empty() {
+            format!("SELECT * FROM {} WHERE FALSE", identifier(&alias))
+        } else {
+            format!(
+                "SELECT * FROM {} WHERE id IN ({})",
+                identifier(&alias),
+                keys.iter()
+                    .map(|key| format!("X'{}'", hex::encode(key)))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        Ok(PointInput {
+            session: self.0.session.clone(),
+            alias,
+            sql,
+            _keys: keys,
+            _charge: charge,
+        })
+    }
     /// Compute compact keys for one explicitly selected grain. An unsupported root remains
     /// selected, and visited complete nominal keys terminate cycles before another edge read.
     pub async fn grain(
@@ -1878,6 +1940,27 @@ impl PreparedRootBatch {
             .memberships
             .range((partition, (table as i64, [0; 16]))..=(partition, (table as i64, [255; 16])))
             .map(|(_, (_, key))| *key))
+    }
+}
+
+pub struct PointInput {
+    session: SessionContext,
+    alias: String,
+    sql: String,
+    _keys: std::sync::Arc<Vec<[u8; 16]>>,
+    _charge: std::sync::Arc<charged::StateCharge>,
+}
+impl PointInput {
+    pub fn session(&self) -> &SessionContext {
+        &self.session
+    }
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+}
+impl Drop for PointInput {
+    fn drop(&mut self) {
+        let _ = self.session.deregister_table(&self.alias);
     }
 }
 

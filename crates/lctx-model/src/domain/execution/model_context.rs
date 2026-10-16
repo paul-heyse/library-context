@@ -6,13 +6,16 @@ use crate::domain::{
     attribution::{AnalysisContext, ObligationKind},
     calls::ProviderSymbol,
     models::{Catalog, CompiledContextProtocol, ContextExit},
-    normalized::Rows,
+    normalized::{Rows, RowsView},
     resources::ResourceBudget,
     symbols::{AncestryRelation, ClassAncestryObservation, Linearization},
     *,
 };
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ObligationKind> {
-    rows.get(id).ok_or(ObligationKind::MissingEvidence)
+fn need<'a, R: Record>(
+    rows: impl Into<RowsView<'a, R>>,
+    id: Id<R>,
+) -> Result<&'a R, ObligationKind> {
+    rows.into().get(id).ok_or(ObligationKind::MissingEvidence)
 }
 fn one<'a, T: 'a>(mut rows: impl Iterator<Item = &'a T>) -> Result<&'a T, ObligationKind> {
     let row = rows.next().ok_or(ObligationKind::MissingEvidence)?;
@@ -27,21 +30,21 @@ pub(crate) struct ClassEvidence<'a> {
     native_index: Option<
         &'a charged::ChargedMap<derivation::RowRef, Vec<Id<analysis::native::NativeQualification>>>,
     >,
-    symbol_supports: Option<&'a Rows<symbols::SymbolSupport>>,
-    symbols: &'a Rows<ProviderSymbol>,
-    ancestry: &'a Rows<ClassAncestryObservation>,
-    ancestry_supports: &'a Rows<symbols::ClassAncestrySupport>,
-    qualifications: &'a Rows<assertion::AssertionQualification>,
-    runs: &'a Rows<attribution::ProviderRun>,
-    sequences: &'a Rows<symbols::SymbolSequence>,
-    sequence_members: &'a Rows<symbols::SymbolSequenceMember>,
-    symbol_observations: &'a Rows<symbols::SymbolObservation>,
-    native: &'a Rows<analysis::native::NativeQualification>,
-    premises: &'a Rows<analysis::native::NativeAssertionPremise>,
+    symbol_supports: Option<RowsView<'a, symbols::SymbolSupport>>,
+    symbols: RowsView<'a, ProviderSymbol>,
+    ancestry: RowsView<'a, ClassAncestryObservation>,
+    ancestry_supports: RowsView<'a, symbols::ClassAncestrySupport>,
+    qualifications: RowsView<'a, assertion::AssertionQualification>,
+    runs: RowsView<'a, attribution::ProviderRun>,
+    sequences: RowsView<'a, symbols::SymbolSequence>,
+    sequence_members: RowsView<'a, symbols::SymbolSequenceMember>,
+    symbol_observations: RowsView<'a, symbols::SymbolObservation>,
+    native: RowsView<'a, analysis::native::NativeQualification>,
+    premises: RowsView<'a, analysis::native::NativeAssertionPremise>,
 }
 impl<'a> ClassEvidence<'a> {
     pub(crate) fn evaluation(
-        data: &'a super::evaluation::EvaluationData,
+        data: super::evaluation::EvaluationDataView<'a>,
         input: Id<input::InputRevision>,
         native_index: &'a charged::ChargedMap<
             derivation::RowRef,
@@ -51,17 +54,17 @@ impl<'a> ClassEvidence<'a> {
         Self {
             input: Some(input),
             native_index: Some(native_index),
-            symbol_supports: Some(&data.symbol_supports),
-            symbols: &data.symbols,
-            ancestry: &data.ancestry,
-            ancestry_supports: &data.ancestry_supports,
-            qualifications: &data.qualifications,
-            runs: &data.runs,
-            sequences: &data.sequences,
-            sequence_members: &data.sequence_members,
-            symbol_observations: &data.symbol_observations,
-            native: &data.native,
-            premises: &data.premises,
+            symbol_supports: Some(data.symbol_supports),
+            symbols: data.symbols,
+            ancestry: data.ancestry,
+            ancestry_supports: data.ancestry_supports,
+            qualifications: data.qualifications,
+            runs: data.runs,
+            sequences: data.sequences,
+            sequence_members: data.sequence_members,
+            symbol_observations: data.symbol_observations,
+            native: data.native,
+            premises: data.premises,
         }
     }
     fn application(data: &'a ModelApplicationData) -> Self {
@@ -70,16 +73,16 @@ impl<'a> ClassEvidence<'a> {
             input: None,
             native_index: None,
             symbol_supports: None,
-            symbols: &b.symbols,
-            ancestry: &b.ancestry,
-            ancestry_supports: &b.ancestry_supports,
-            qualifications: &b.qualifications,
-            runs: &b.runs,
-            sequences: &b.sequences,
-            sequence_members: &b.sequence_members,
-            symbol_observations: &b.symbol_observations,
-            native: &data.native,
-            premises: &data.premises,
+            symbols: b.symbols.view(),
+            ancestry: b.ancestry.view(),
+            ancestry_supports: b.ancestry_supports.view(),
+            qualifications: b.qualifications.view(),
+            runs: b.runs.view(),
+            sequences: b.sequences.view(),
+            sequence_members: b.sequence_members.view(),
+            symbol_observations: b.symbol_observations.view(),
+            native: data.native.view(),
+            premises: data.premises.view(),
         }
     }
 }
@@ -147,7 +150,7 @@ impl<'a> CheckedExactClass<'a> {
                 .ancestry
                 .iter()
                 .filter(|a| a.class == symbol.id() && a.relation == AncestryRelation::Mro))?;
-            super::model_application::exact_qualification(
+            super::model_application::exact_qualification_view(
                 b.qualifications,
                 mro.qualification,
                 context,
@@ -228,7 +231,7 @@ impl<'a> CheckedExactClass<'a> {
                 let mut premises = Rows::new(budget);
                 let mut status = analysis::policy::EvidenceStatus::StructurallyObserved;
                 let evidence = (|| -> Result<(), RuntimeEvidenceError> {
-                    super::model_application::append_native_evidence_rows(
+                    super::model_application::append_native_evidence_views(
                         data.qualifications,
                         data.native,
                         data.premises,
@@ -247,7 +250,7 @@ impl<'a> CheckedExactClass<'a> {
                                     .get(o.qualification)
                                     .is_some_and(|q| q.context == context)
                         }))?;
-                        super::model_application::append_native_evidence_rows(
+                        super::model_application::append_native_evidence_views(
                             data.qualifications,
                             data.native,
                             data.premises,
