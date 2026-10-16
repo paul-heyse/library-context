@@ -232,6 +232,10 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
     LET $prepared=$all.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
     LET $original_prepared=$originals.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
     FOR $entry IN $original_prepared { LET $prior=$entry.existing; LET $row=$entry.row; IF $prior!=NONE AND ($prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is_bool($prior.completed)=false OR array::len(object::keys($prior))!=5) { THROW 'original blob declaration collision'; }; };
+    // Admission is required even for equal rows. Filtering writes must not turn
+    // an unrelated attempt's existing incidence into an authorized success.
+    LET $declared_targets=array::distinct(array::concat(array::flatten(array::concat($all,$originals).map(|$row| fn::native_incidence_targets($row))),$blobs));
+    FOR $target IN $declared_targets { fn::native_check_admitted($target,$context); };
     // Equal rows and already-owned equal holds do not change incidence. A new
     // owner's hold still changes both endpoints and excludes retirement.
     LET $changed=array::concat($prepared,$original_prepared).filter(|$entry| $entry.existing=NONE).map(|$entry| $entry.row);
@@ -242,9 +246,9 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
         // First creation already advanced its physical incarnation above. New
         // incidence on an existing immutable endpoint advances the guard once;
         // existing equal holds/rows are absent from this changed target set.
-        IF array::len($changed.filter(|$row| $row.id=$target))=0 AND ($context=NONE OR $target!=$context.attempt) {
+        IF $context=NONE OR $target!=$context.attempt {
             LET $entries=$deferred.filter(|$entry| $entry.record=$target);
-            IF array::len($entries)>0 { LET $guard_id=$entries[0].guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807 { THROW 'native changed incidence guard invalid'; }; UPDATE $guard_id SET revision+=1 RETURN NONE; };
+            IF array::len($entries)>0 AND ($entries[0].phase='active' OR array::len($changed.filter(|$row| $row.id=$target))=0) { LET $guard_id=$entries[0].guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807 { THROW 'native changed incidence guard invalid'; }; UPDATE $guard_id SET revision+=1 RETURN NONE; };
         };
     };
     LET $attempts=array::distinct($rows.filter(|$row| record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging']).map(|$row| $row.attempt));
@@ -324,8 +328,13 @@ DEFINE FUNCTION fn::native_attempt_participate($context: object) {
     UPDATE $id SET revision+=1 RETURN NONE;
     RETURN NONE;
 };
+DEFINE FUNCTION fn::native_check_admitted($record: option<record>, $context: option<object>) {
+    IF $record!=NONE AND $context!=NONE AND record::table($record)='native_attempt' AND $record!=$context.attempt { THROW 'native unrelated attempt incidence'; };
+    RETURN NONE;
+};
 DEFINE FUNCTION fn::native_touch_admitted($record: option<record>, $context: option<object>) {
-    IF $record!=NONE { IF $context!=NONE AND record::table($record)='native_attempt' { IF $record!=$context.attempt { THROW 'native unrelated attempt incidence'; }; } ELSE { fn::native_touch($record); }; };
+    fn::native_check_admitted($record,$context);
+    IF $record!=NONE AND ($context=NONE OR record::table($record)!='native_attempt') { fn::native_touch($record); };
     RETURN NONE;
 };
 DEFINE FUNCTION fn::native_incidence_admitted($row: object, $context: option<object>) {

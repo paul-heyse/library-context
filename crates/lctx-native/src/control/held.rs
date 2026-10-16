@@ -714,6 +714,7 @@ pub fn completed_admission_plan(
     )?
     .ok_or(ModelError::Schema("semantic admission durable holds"))?;
     merge_plan_bindings(&mut variables, holds)?;
+    let install_sql = join_immutable_holds(&row_sql, &hold_sql);
     frozen::bind_fence(&data.fence(), &mut variables);
     variables.insert("completion", data.record()?);
     variables.insert(
@@ -726,7 +727,7 @@ pub fn completed_admission_plan(
     variables.insert("completion_logical", data.completed_state.hex());
     variables.insert("admission", admission.record()?);
     let sql = format!(
-        "{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR ($__owner.admitted AND $__owner.completed_admission!=$admission) {{ THROW 'semantic admission physical completion changed'; }}; {row_sql}; {hold_sql}; fn::native_attempt_cut($__attempt,$__generation,$__era,$__epoch,'admission'); UPDATE $__attempt SET admitted=true,completed_identity=$completion_identity,completed_state=$completion_logical,completed_admission=$admission RETURN NONE",
+        "{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR ($__owner.admitted AND $__owner.completed_admission!=$admission) {{ THROW 'semantic admission physical completion changed'; }}; {install_sql}; fn::native_attempt_cut($__attempt,$__generation,$__era,$__epoch,'admission'); UPDATE $__attempt SET admitted=true,completed_identity=$completion_identity,completed_state=$completion_logical,completed_admission=$admission RETURN NONE",
         frozen::FENCE_GUARD
     );
     Ok((sql, variables, charge))

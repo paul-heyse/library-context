@@ -100,7 +100,7 @@ impl<'a> WitnessWriter<'a> {
             _ => return Err(ModelError::Conflict("compound witness exact attempt owner")),
         };
         if let Some((_, plan, bindings)) = hold_plan(Some(attempt), edges)? {
-            sql.push_str(&plan);
+            sql = join_immutable_holds(&sql, &plan);
             merge_plan_bindings(&mut variables, bindings)?;
         }
         Ok((sql, variables))

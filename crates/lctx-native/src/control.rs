@@ -476,6 +476,18 @@ fn merge_plan_bindings(bindings: &mut Variables, additional: Variables) -> Resul
     }
     Ok(())
 }
+/// One immutable window classifies rows and holds together, so their shared
+/// endpoint predicates change once. Non-row callers keep their hold-only plan.
+fn join_immutable_holds(sql: &str, holds: &str) -> String {
+    const ROWS: &str = "fn::native_immutable_install($rows,[],$__attempt_context,$__deferred_guards,($original_blobs ?? []));";
+    const HOLDS: &str = "fn::native_immutable_install([],$holds,$__attempt_context,$__deferred_guards,($original_blobs ?? []));";
+    const BOTH: &str = "fn::native_immutable_install($rows,$holds,$__attempt_context,$__deferred_guards,($original_blobs ?? []));";
+    if holds == HOLDS && sql.contains(ROWS) {
+        sql.replacen(ROWS, BOTH, 1)
+    } else {
+        format!("{sql}; {holds}")
+    }
+}
 fn guard_records<'a>(
     records: impl Iterator<Item = &'a RecordId>,
 ) -> Result<Vec<Value>, ModelError> {

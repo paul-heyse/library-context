@@ -663,6 +663,7 @@ impl PendingValidation {
         let (_, holds, bindings) =
             hold_plan(None, references)?.ok_or(ModelError::Schema("native premise owner plan"))?;
         merge_plan_bindings(&mut variables, bindings)?;
+        let install = join_immutable_holds(&insert, &holds);
         let mut expected = Vec::new();
         for cap in &self.caps {
             let mut row = Object::new();
@@ -685,7 +686,7 @@ impl PendingValidation {
             self.key.physical[0].retained()?.0.validity_epoch,
         );
         let sql = format!(
-            "IF $__generation!=$premise_generation OR $__installation.validity_epoch!=$premise_validity {{ THROW 'native premise installation changed'; }}; FOR $input IN $premise_inputs {{ LET $guard_id=$input.guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$input.incarnation OR (SELECT * FROM ONLY $input.record)!=$input.bytes {{ THROW 'native premise protected input changed'; }}; }}; {insert}; {holds}"
+            "IF $__generation!=$premise_generation OR $__installation.validity_epoch!=$premise_validity {{ THROW 'native premise installation changed'; }}; FOR $input IN $premise_inputs {{ LET $guard_id=$input.guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$input.incarnation OR (SELECT * FROM ONLY $input.record)!=$input.bytes {{ THROW 'native premise protected input changed'; }}; }}; {install}"
         );
         with_recovery_scope(
             self.reader.recovery_scope()?,

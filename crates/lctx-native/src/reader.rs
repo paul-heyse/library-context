@@ -3099,7 +3099,7 @@ impl NativeReader<()> {
             let current:Vec<Value>=reader.query_native("SELECT VALUE id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$validity_epoch",variables).await?;
             if current.len()!=1{return Err(ModelError::Conflict("completed reader validity epoch changed"));}
             charge.try_resize(charge.size().saturating_add(references.capacity().saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>())))?;
-            Ok(Arc::new(ExactViewSelection{references,_installed:vec![],_charge:charge}))
+            Ok(Arc::new(ExactViewSelection{references,_installed:vec![],receiving:None,_charge:charge}))
         }.await;
         if let Err(error) = &result {
             setup.permits_cleanup(error);

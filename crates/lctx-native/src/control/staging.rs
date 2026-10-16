@@ -68,6 +68,7 @@ impl DerivedStaging {
         )?
         .ok_or(ModelError::Schema("publication staging root holds"))?;
         merge_plan_bindings(&mut variables, holds)?;
+        let install_sql = join_immutable_holds(&row_sql, &hold_sql);
         variables.insert("staging_completion", data.record()?);
         variables.insert(
             "staging_completion_guard",
@@ -88,7 +89,7 @@ impl DerivedStaging {
         variables.insert("staging_validity_epoch", data.validity_epoch);
         variables.insert("staging_attempt_epoch", data.attempt_epoch);
         let sql = format!(
-            "{FROZEN_COMPLETION_GUARD} LET $completion_guard=SELECT * FROM ONLY $staging_completion_guard FOR UPDATE; LET $completion_row=SELECT * FROM ONLY $staging_completion FOR UPDATE; IF $completion_guard.phase!='active' OR $completion_guard.incarnation!=$staging_completion_incarnation OR $completion_row!=$staging_completion_bytes {{ THROW 'publication staging completion changed'; }}; {row_sql}; {hold_sql}"
+            "{FROZEN_COMPLETION_GUARD} LET $completion_guard=SELECT * FROM ONLY $staging_completion_guard FOR UPDATE; LET $completion_row=SELECT * FROM ONLY $staging_completion FOR UPDATE; IF $completion_guard.phase!='active' OR $completion_guard.incarnation!=$staging_completion_incarnation OR $completion_row!=$staging_completion_bytes {{ THROW 'publication staging completion changed'; }}; {install_sql}"
         );
         let bytes = immutable_window::plan_bytes(&sql, &variables)?;
         if bytes > 262144 {
@@ -400,11 +401,12 @@ impl DerivedStaging {
         let (_, hold_sql, holds) = hold_plan(Some(data.attempt), vec![(id, self.root.clone())])?
             .ok_or(ModelError::Schema("publication marker root hold"))?;
         merge_plan_bindings(&mut bindings, holds)?;
+        let install_sql = join_immutable_holds(&row_sql, &hold_sql);
         bindings.insert("staging_audit_revision", audit_revision);
         bindings.insert("staging_inventory_rows", inventory.0);
         bindings.insert("staging_inventory_digest", inventory.1.hex());
         let sql = format!(
-            "LET $staging_predicate=type::record('native_predicate',[$staging_root]); IF (SELECT VALUE revision FROM ONLY $staging_predicate)!=$staging_audit_revision+1 {{ THROW 'publication derived audit changed'; }}; {row_sql}; {hold_sql}; UPDATE $staging_root SET state='published',derived_children=$staging_inventory_rows,derived_inventory=$staging_inventory_digest RETURN NONE;"
+            "LET $staging_predicate=type::record('native_predicate',[$staging_root]); IF (SELECT VALUE revision FROM ONLY $staging_predicate)!=$staging_audit_revision+1 {{ THROW 'publication derived audit changed'; }}; {install_sql}; UPDATE $staging_root SET state='published',derived_children=$staging_inventory_rows,derived_inventory=$staging_inventory_digest RETURN NONE;"
         );
         match self.effect(loader.client(), &sql, bindings, budget).await {
             Ok(()) => Ok(PublishedMarker {
