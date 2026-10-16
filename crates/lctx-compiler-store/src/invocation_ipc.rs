@@ -3,13 +3,13 @@ use crate::admission::Cancellation;
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
 use datafusion::{
-    arrow::ipc::writer::FileWriter, execution::options::ArrowReadOptions, prelude::SessionContext,
+    arrow::ipc::{writer::{FileWriter, StreamWriter}, reader::StreamReader}, execution::options::ArrowReadOptions, prelude::SessionContext,
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
     ModelError, charged::StateCharge, logical_batch_bytes, resources::ResourceBudget,
 };
-use std::{fs::File, sync::Arc};
+use std::{fs::File, io::{Read, Seek, SeekFrom}, sync::Arc};
 
 pub struct InvocationIpc {
     session: SessionContext,
@@ -37,6 +37,69 @@ pub struct SealedIpc {
     _charge: StateCharge,
     reader_allowance: usize,
     directory: Arc<tempfile::TempDir>,
+}
+/// Native frontier streams have no per-batch file footer. Their one active reader
+/// admits only the largest bounded transfer window, independent of total fanout.
+pub(crate) struct IpcStreamCapture {
+    writer: StreamWriter<File>, path: std::path::PathBuf, schema: SchemaRef,
+    budget: ResourceBudget, cancellation: Cancellation, charge: StateCharge,
+    directory: Arc<tempfile::TempDir>, batch_allowance: usize,
+}
+pub(crate) struct SealedStream {
+    path: std::path::PathBuf, schema: SchemaRef, budget: ResourceBudget,
+    cancellation: Cancellation, _charge: StateCharge,
+    _directory: Arc<tempfile::TempDir>, bytes: u64, batch_allowance: usize,
+}
+pub(crate) struct IpcStreamRead {
+    reader: StreamReader<File>, owner: Arc<SealedStream>,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+impl IpcStreamCapture {
+    pub(crate) fn push(&mut self, batch: &RecordBatch) -> Result<(), ModelError> {
+        self.cancellation.check()?;
+        if batch.schema() != self.schema || batch.num_rows() > lctx_model::domain::resources::TRANSFER_ROWS {
+            return Err(ModelError::Schema("native IPC stream transfer shape"));
+        }
+        let bytes = logical_batch_bytes(batch)?.saturating_mul(3).saturating_add(4096);
+        let _transfer = self.budget.reserve("native IPC stream transfer", bytes)?;
+        self.batch_allowance = self.batch_allowance.max(bytes);
+        self.writer.write(batch).map_err(ModelError::codec)
+    }
+    pub(crate) fn seal(mut self) -> Result<Arc<SealedStream>, ModelError> {
+        self.cancellation.check()?;
+        self.writer.finish().map_err(ModelError::codec)?;
+        drop(self.writer);
+        let bytes = std::fs::metadata(&self.path).map_err(ModelError::codec)?.len();
+        Ok(Arc::new(SealedStream { path: self.path, schema: self.schema, budget: self.budget,
+            cancellation: self.cancellation, _charge: self.charge, _directory: self.directory,
+            bytes, batch_allowance: self.batch_allowance }))
+    }
+}
+impl SealedStream {
+    pub(crate) fn open(self: &Arc<Self>) -> Result<IpcStreamRead, ModelError> {
+        self.cancellation.check()?;
+        let charge = self.budget.reserve("native IPC stream reader", self.batch_allowance
+            + 4096 + self.schema.fields().iter().map(|f| f.size()).sum::<usize>() * 3)?;
+        let mut file = File::open(&self.path).map_err(ModelError::codec)?;
+        // StreamReader also accepts physical EOF. Our private sealed carrier instead
+        // requires its exact written length and explicit Arrow continuation/EOS marker.
+        if file.metadata().map_err(ModelError::codec)?.len() != self.bytes || self.bytes < 8 {
+            return Err(ModelError::Schema("native IPC stream sealed length"));
+        }
+        file.seek(SeekFrom::End(-8)).map_err(ModelError::codec)?;
+        let mut eos = [0;8]; file.read_exact(&mut eos).map_err(ModelError::codec)?;
+        if eos != [255,255,255,255,0,0,0,0] { return Err(ModelError::Schema("native IPC stream sealed EOS")); }
+        file.seek(SeekFrom::Start(0)).map_err(ModelError::codec)?;
+        let reader = StreamReader::try_new(file, None).map_err(ModelError::codec)?;
+        if reader.schema() != self.schema { return Err(ModelError::Schema("native IPC stream schema")); }
+        Ok(IpcStreamRead { reader, owner: self.clone(), _charge: charge })
+    }
+}
+impl IpcStreamRead {
+    pub(crate) fn next(&mut self) -> Result<Option<RecordBatch>, ModelError> {
+        self.owner.cancellation.check()?;
+        self.reader.next().transpose().map_err(ModelError::codec)
+    }
 }
 /// Read-only table registrations over existing sealed input files. This owner cannot create
 /// files or allocate writer IDs, and can be retained by a single physical read stream.
@@ -132,6 +195,20 @@ impl InvocationIpc {
             charge,
             _directory: self.directory.clone(),
         })
+    }
+    pub(crate) fn begin_stream(&mut self, schema: SchemaRef) -> Result<IpcStreamCapture, ModelError> {
+        self.cancellation.check()?;
+        if schema.fields().iter().any(|field| !matches!(field.data_type(), arrow_schema::DataType::FixedSizeBinary(16) | arrow_schema::DataType::Int64)) {
+            return Err(ModelError::Schema("native IPC stream nominal schema"));
+        }
+        let mut charge = StateCharge::new(&self.budget, "native IPC stream metadata");
+        charge.grow(4096 + schema.fields().iter().map(|f| f.size()).sum::<usize>() * 3)?;
+        let path = self.directory.path().join(format!("{}.stream.arrow", self.next_file));
+        self.next_file += 1;
+        let writer = StreamWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema).map_err(ModelError::codec)?;
+        Ok(IpcStreamCapture { writer, path, schema, budget: self.budget.clone(),
+            cancellation: self.cancellation.clone(), charge, directory: self.directory.clone(),
+            batch_allowance: 4096 })
     }
     /// No file/footer is needed after an exact selected source reaches EOF without rows.
     pub fn empty(&mut self, name: &str, schema: SchemaRef) -> Result<(), ModelError> {

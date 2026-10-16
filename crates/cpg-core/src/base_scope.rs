@@ -1662,6 +1662,12 @@ mod controls {
         }
         data
     }
+    // Detached fixtures earn the same exact lazy adjacency inputs before recording the
+    // persistent owner's baseline. Temporary cohort/read owners must still release exactly;
+    // dropping BaseScopes below must also release this successful preparation.
+    async fn warm_scopes(prepared: &BaseScopes, kernel: Kernel, keys: &[[u8; 16]], budget: &resources::ResourceBudget) {
+        for key in keys { drop(prepared.scope(kernel, *key, budget).await.unwrap()); }
+    }
     async fn prepare(session: &SessionContext, budget: &resources::ResourceBudget) -> BaseScopes {
         let mut inputs = EvaluationData::validation_inputs();
         inputs.extend(EntryData::facts_inputs());
@@ -2056,6 +2062,7 @@ mod controls {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(32 << 20).unwrap();
         let (prepared, expression, inv) = fixture(&session, &budget, false, true).await;
+        warm_scopes(&prepared, Kernel::Expression, &[*expression.id().bytes(), [254;16]], &budget).await;
         let retained = budget.reserved();
         let keys = [
             [254; 16],
@@ -2340,6 +2347,7 @@ mod controls {
         drop(supports);
         drop(owners);
         let prepared = prepare(&session, &budget).await;
+        warm_scopes(&prepared, Kernel::Expression, &keys, &budget).await;
         let retained = budget.reserved();
         let pressure = budget
             .reserve(
@@ -2443,6 +2451,7 @@ mod controls {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
         let (prepared, expression, _) = fixture(&session, &budget, true, false).await;
+        warm_scopes(&prepared, Kernel::Expression, &[*expression.id().bytes(), [254;16]], &budget).await;
         let retained = budget.reserved();
         let scope = prepared
             .scope(Kernel::Expression, *expression.id().bytes(), &budget)
@@ -2470,6 +2479,7 @@ mod controls {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
         let (prepared, expression, inv) = fixture(&session, &budget, true, true).await;
+        warm_scopes(&prepared, Kernel::Expression, &[*expression.id().bytes(), [254;16]], &budget).await;
         let retained = budget.reserved();
         let scope = prepared
             .scope(Kernel::Expression, *expression.id().bytes(), &budget)
@@ -2767,6 +2777,7 @@ mod controls {
         register(&session, &uses);
         register(&session, &observations);
         let prepared = prepare(&session, &budget).await;
+        warm_scopes(&prepared, Kernel::Use, &[*observations[0].id().bytes(), *observations[1].id().bytes(), [254;16]], &budget).await;
         let retained = budget.reserved();
         let cancellation = crate::workspace::Cancellation::default();
         let keys = vec![
@@ -2968,6 +2979,10 @@ mod controls {
         register(&session, &[detail]);
         register(&session, std::slice::from_ref(&literal));
         let prepared = prepare(&session, &budget).await;
+        let warm_keys = calls.iter().map(|(_, call)| *call.id().bytes()).collect::<Vec<_>>();
+        warm_scopes(&prepared, Kernel::FieldCall, &warm_keys, &budget).await;
+        let warm_artifact = table_rows::<SourceArtifact>(&session).await.pop().unwrap();
+        warm_scopes(&prepared, Kernel::FieldRoot, &[*warm_artifact.id().bytes()], &budget).await;
         let retained = budget.reserved();
         assert_ne!(
             prepared.root_index(Kernel::FieldCall).unwrap(),

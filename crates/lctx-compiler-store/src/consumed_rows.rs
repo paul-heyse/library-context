@@ -2204,12 +2204,15 @@ mod nominal_closure_controls {
 
     #[test]
     fn optional_domain_retention_only_refuses_local_reservation_without_erasing_finality() {
-        let budget = ResourceBudget::fixed(1).unwrap();
+        let budget = ResourceBudget::fixed(4096).unwrap();
         let mut charge = charged::StateCharge::new(&budget, "optional-domain-control");
-        assert!(!optional_domain_retention(charge.grow(2)).unwrap());
-        assert_eq!(budget.reserved(), 0);
         assert!(optional_domain_retention(charge.grow(1)).unwrap());
-        assert_eq!(budget.reserved(), 1);
+        assert_eq!(charge.reserved(), 1);
+        assert_eq!(budget.reserved(), charge.accounted_bytes());
+        // Actual accounting metadata is admitted before applying local pressure.
+        let pressure = budget.reserve("optional-domain-pressure", budget.limit() - budget.reserved()).unwrap();
+        assert!(!optional_domain_retention(charge.grow(2)).unwrap());
+        assert_eq!(charge.reserved(), 1);
         let native_resource = budget.reserve("submitted-native-refusal", 1).unwrap_err();
         let mut finality = completion::Completion {
             remote: completion::RemoteState::Unknown,
@@ -2231,6 +2234,8 @@ mod nominal_closure_controls {
         assert_eq!(outcome.completion.remote, completion::RemoteState::Unknown);
         assert_eq!(outcome.completion.failures.len(), 1);
         assert!(optional_domain_retention(Err(ModelError::Conflict("native failure"))).is_err());
+        drop(pressure);
+        assert_eq!(budget.reserved(), charge.accounted_bytes());
         drop(charge);
         assert_eq!(budget.reserved(), 0);
     }
@@ -2920,9 +2925,10 @@ mod nominal_closure_controls {
         let source_edges = edges.0.source(1, &budget).await.unwrap();
         edges.0.source(0, &budget).await.unwrap();
         let index_usage = budget.reserved();
-        assert!(
-            source_edges.batches.len() > 32,
-            "fixture requires many unrelated IPC batches"
+        assert_eq!(
+            source_edges.batches.len(),
+            releases.len().div_ceil(resources::TRANSFER_ROWS),
+            "every release contributes one compacted reverse edge"
         );
         let source = (1, *selected.id().bytes());
         let range = source_edges.matching_batches(source);

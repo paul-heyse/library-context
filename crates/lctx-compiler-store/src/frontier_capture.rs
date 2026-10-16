@@ -1,6 +1,6 @@
 //! Invocation-local successful native frontier captures. IPC is private preparation, never
 //! completed-input authority. Coverage is published only after checked EOF and file finality.
-use crate::{admission::Cancellation, consumed_rows::{PreparedEdges, coverage_index::CoverageIndex}, invocation_ipc::{InvocationIpc, InvocationRead, SealedIpc}};
+use crate::{admission::Cancellation, consumed_rows::{PreparedEdges, coverage_index::CoverageIndex}, invocation_ipc::{InvocationIpc, InvocationRead, SealedStream, IpcStreamRead}};
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch};
 use arrow_schema::SchemaRef;
 use datafusion::physical_plan::{SendableRecordBatchStream, RecordBatchStream};
@@ -12,10 +12,9 @@ struct Group {
     schema: SchemaRef,
     key_field: &'static str,
     windows: Vec<Window>,
-    indexes: Vec<Option<CoverageIndex>>,
-    pending: Option<(usize, CoverageIndex)>,
+    indexes: Vec<(usize, CoverageIndex)>,
 }
-struct Window { rows_name: String, rows: SealedIpc }
+struct Window { rows_name: String, rows: Arc<SealedStream> }
 /// Exact immutable source and budget ownership survive local membership/partition retries.
 /// Failed source acquisition is terminal; successful windows are never reissued.
 pub struct FrontierCapture {
@@ -47,32 +46,28 @@ impl FrontierCapture {
     pub(crate) fn complete_acquisition(&mut self) { self.acquisition_failed = false; }
     async fn prepare_group(&mut self, name: &str) -> Result<(), ModelError> {
         let group = self.groups.get_mut(name).expect("capture group");
-        // Successful capture owns its pending index before this pure compaction. Refusal
-        // retains both immutable merge inputs; only a completed replacement retires them.
-        while let Some((level, pending)) = group.pending.as_ref() {
-            let level = *level;
-            if level >= group.indexes.len() {
-                if group.indexes.len() == group.indexes.capacity() {
-                    let additional = group.indexes.capacity().max(4);
-                    self.charge.grow(additional * size_of::<Option<CoverageIndex>>())?;
-                    group.indexes.reserve_exact(additional);
-                }
-                group.indexes.push(None);
-            }
-            if let Some(old) = &group.indexes[level] {
-                let merged = old.merge(pending, &self.budget, &self.cancellation).await?;
-                group.indexes[level] = None;
-                group.pending = Some((level + 1, merged));
-            } else {
-                let (_, pending) = group.pending.take().expect("pending capture index");
-                group.indexes[level] = Some(pending);
-            }
+        // Compaction is optional pure work over successful immutable runs. A refusal
+        // leaves every run routable, so a narrower membership retry need not repeat it
+        // or reacquire any source. Other errors still retain their full meaning.
+        loop {
+            let pair = group.indexes.iter().enumerate().find_map(|(a, (level, _))| {
+                group.indexes.iter().enumerate().skip(a + 1)
+                    .find(|(_, (other, _))| other == level).map(|(b, _)| (a, b, *level))
+            });
+            let Some((a, b, level)) = pair else { break; };
+            let merged = match group.indexes[a].1.merge(&group.indexes[b].1, &self.budget, &self.cancellation).await {
+                Ok(merged) => merged,
+                Err(ModelError::Resource { .. }) => break,
+                Err(error) => return Err(error),
+            };
+            group.indexes[a] = (level + 1, merged);
+            group.indexes.remove(b);
         }
         Ok(())
     }
     fn routes(&self, group: &str, keys: &[[u8;16]]) -> Result<BTreeMap<[u8;16], usize>, ModelError> {
         let mut routes = BTreeMap::new();
-        for index in self.groups[group].indexes.iter().flatten() {
+        for (_, index) in &self.groups[group].indexes {
             index.lookup(keys, &self.budget, |key, window| {
                 if routes.insert(key, window).is_some() { return Err(ModelError::Conflict("duplicate native capture coverage")); }
                 Ok(())
@@ -95,7 +90,7 @@ impl FrontierCapture {
         } else {
             self.charge.grow(512 + group.len() + schema.fields().iter().map(|f| f.size()).sum::<usize>())?;
             self.groups.insert(group.clone(), Group { schema: schema.clone(), key_field, windows: Vec::new(),
-                indexes: Vec::new(), pending: None });
+                indexes: Vec::new() });
         }
         let _keys = self.budget.reserve("native-capture-key-window", keys.len() * 256 + 4096)?;
         self.prepare_group(&group).await?;
@@ -116,7 +111,15 @@ impl FrontierCapture {
                 self.charge.grow(additional * size_of::<Window>())?;
                 windows.reserve_exact(additional);
             }
-            let mut writer = self.ipc.begin(schema.clone())?;
+            if index.is_some() {
+                let indexes = &mut self.groups.get_mut(&group).expect("capture group").indexes;
+                if indexes.len() == indexes.capacity() {
+                    let additional = indexes.capacity().max(4);
+                    self.charge.grow(additional * size_of::<(usize, CoverageIndex)>())?;
+                    indexes.reserve_exact(additional);
+                }
+            }
+            let mut writer = self.ipc.begin_stream(schema.clone())?;
             let _buffer = self.budget.reserve("native-capture-nominal-buffer",
                 lctx_model::domain::resources::TRANSFER_ROWS * schema.fields().len() * 64 + 4096)?;
             let mut buffer = NominalBuffer::new(schema.clone())?;
@@ -131,13 +134,14 @@ impl FrontierCapture {
                 let ids = batch.column_by_name("id").and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
                     .ok_or(ModelError::Schema("native capture nominal row ID"))?;
                 for row in 0..batch.num_rows() {
-                    if column.is_null(row) && key_field != "id" { continue; }
-                    if column.is_null(row) || ids.is_null(row) { return Err(ModelError::Schema("native capture null key")); }
-                    let key: [u8;16] = column.value(row).try_into().map_err(ModelError::codec)?;
+                    if ids.is_null(row) { return Err(ModelError::Schema("native capture null row ID")); }
                     let id: [u8;16] = ids.value(row).try_into().map_err(ModelError::codec)?;
-                    if missing.binary_search(&key).is_err() { return Err(ModelError::Conflict("native capture source demand")); }
                     if previous.is_some_and(|old| old >= id) { return Err(ModelError::Conflict("native capture source row order")); }
                     previous = Some(id);
+                    if column.is_null(row) && key_field != "id" { continue; }
+                    if column.is_null(row) { return Err(ModelError::Schema("native capture null key")); }
+                    let key: [u8;16] = column.value(row).try_into().map_err(ModelError::codec)?;
+                    if missing.binary_search(&key).is_err() { return Err(ModelError::Conflict("native capture source demand")); }
                 }
                 buffer.push(&batch, |batch| writer.push(&batch))?;
                 tokio::task::yield_now().await;
@@ -148,8 +152,9 @@ impl FrontierCapture {
             let rows = writer.seal()?;
             let state = self.groups.get_mut(&group).expect("capture group");
             state.windows.push(Window { rows_name, rows });
-            state.pending = index.map(|index| (0, index));
+            if let Some(index) = index { state.indexes.push((0, index)); }
             self.complete_acquisition();
+            drop(_buffer);
             selected.insert(window_ordinal);
             self.prepare_group(&group).await?;
         }
@@ -158,23 +163,53 @@ impl FrontierCapture {
         // neither scans old result files nor rebuilds a logical union over its history.
         let retained = self.budget.reserve("native-capture-local-query",
             selected.iter().map(|index| windows[*index].rows_name.len() + 64).sum::<usize>() * 3 + keys.len() * 128 + 4096)?;
-        let sql = if selected.is_empty() {
-            format!("SELECT * FROM {} WHERE FALSE", windows[0].rows_name)
-        } else {
-            format!("SELECT * FROM ({}) captured WHERE {} ORDER BY id",
-                selected.iter().map(|index| format!("SELECT * FROM {}", windows[*index].rows_name)).collect::<Vec<_>>().join(" UNION ALL "),
-                key_predicate(key_field, &keys))
+        let empty = selected.is_empty();
+        let ordered = selected.len() <= 1;
+        let inputs = if empty { vec![windows[0].rows.clone()] } else {
+            selected.iter().map(|index| windows[*index].rows.clone()).collect()
         };
-        let mut reader = self.ipc.reader()?;
-        if selected.is_empty() {
-            reader.adopt(&windows[0].rows, &windows[0].rows_name).await?;
-        } else {
-            for index in selected { reader.adopt(&windows[index].rows, &windows[index].rows_name).await?; }
-        }
+        let partition = Arc::new(CapturePartition { schema: schema.clone(), inputs });
+        let mut provider = datafusion::catalog::streaming::StreamingTable::try_new(schema.clone(), vec![partition])
+            .map_err(crate::sql::model_error)?;
+        // Each issued native window was checked in strict ID order. Across distinct
+        // windows we retain the ordinary spill-capable sort rather than claim ordering.
+        if ordered { provider = provider.with_sort_order(vec![datafusion::prelude::col("id").sort(true, true)]); }
+        let reader = self.ipc.reader()?;
+        reader.session().register_table("captured", Arc::new(provider)).map_err(crate::sql::model_error)?;
+        let sql = if empty { "SELECT * FROM captured WHERE FALSE".to_owned() } else {
+            format!("SELECT * FROM captured WHERE {} ORDER BY id", key_predicate(key_field, &keys))
+        };
         let stream = crate::sql::query(reader.session(), &sql).await.map_err(crate::sql::model_error)?
             .execute_stream().await.map_err(crate::sql::model_error)?;
         Ok(Box::pin(CapturedRead { inner: Some(stream), reader: Some(reader), query: Some(retained), schema }))
 
+    }
+}
+struct CapturePartition { schema: SchemaRef, inputs: Vec<Arc<SealedStream>> }
+impl std::fmt::Debug for CapturePartition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.debug_struct("CapturePartition").field("windows", &self.inputs.len()).finish() }
+}
+impl datafusion::physical_plan::streaming::PartitionStream for CapturePartition {
+    fn schema(&self) -> &SchemaRef { &self.schema }
+    fn execute(&self, _context: Arc<datafusion::execution::TaskContext>) -> SendableRecordBatchStream {
+        let inputs = self.inputs.clone();
+        let stream = futures::stream::try_unfold((inputs, 0usize, None::<IpcStreamRead>), |(inputs, mut index, mut active)| async move {
+            loop {
+                if active.is_none() {
+                    let Some(input) = inputs.get(index) else { return Ok::<_, datafusion::error::DataFusionError>(None); };
+                    active = Some(input.open().map_err(|error| datafusion::error::DataFusionError::External(Box::new(error)))?);
+                }
+                match active.as_mut().expect("active stream reader").next()
+                    .map_err(|error| datafusion::error::DataFusionError::External(Box::new(error)))? {
+                    Some(batch) => {
+                        tokio::task::yield_now().await;
+                        return Ok(Some((batch, (inputs, index, active))));
+                    }
+                    None => { drop(active.take()); index += 1; }
+                }
+            }
+        });
+        Box::pin(datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(self.schema.clone(), stream))
     }
 }
 struct CapturedRead {
@@ -375,7 +410,7 @@ mod tests {
             let _keys = budget.reserve("index-route-control", 4096).unwrap();
             let routes = capture.routes("ids", &[[3;16],[29;16],[99;16]]).unwrap();
             assert_eq!(routes, BTreeMap::from([([3;16],2),([29;16],28)]));
-            assert_eq!(capture.groups["ids"].indexes.iter().flatten().count(), 1);
+            assert_eq!(capture.groups["ids"].indexes.len(), 1);
             assert_eq!(capture.groups["ids"].windows.len(), 32);
             // No data-window provider remains registered in the persistent writer owner.
             assert!(capture.ipc.session().catalog_names().iter().all(|name| {
@@ -414,6 +449,100 @@ mod tests {
             assert_eq!(budget.reserved(), retained);
         }
         assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn optional_compaction_refusal_keeps_exact_runs_readable_without_native_reissue() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        {
+            let owner = owner(&budget).await;
+            let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
+            for n in 1..=2u8 {
+                let rows = capture.read("ids".into(), "id", Arc::new(vec![[n;16]]), schema(), |keys| async move {
+                    Ok(stream(vec![Ok(batch(&keys))]))
+                }).await.unwrap();
+                assert_eq!(ids(rows).await, [[n;16]]);
+            }
+            // Represent two successful immutable runs before optional adoption. No source
+            // acquisition is involved in this local owner-state fixture.
+            let left = CoverageIndex::new(&[[1;16]], 0, &budget).unwrap();
+            let right = CoverageIndex::new(&[[2;16]], 1, &budget).unwrap();
+            capture.groups.get_mut("ids").unwrap().indexes = vec![(0,left),(0,right)];
+            let available = lctx_model::domain::resources::TRANSFER_ROWS * 48 * 3;
+            let pressure = budget.reserve("coverage-merge-pressure", budget.limit() - budget.reserved() - available).unwrap();
+            for keys in [vec![[1;16],[2;16]], vec![[2;16]]] {
+                let rows = capture.read("ids".into(), "id", Arc::new(keys.clone()), schema(), |_| async {
+                    panic!("pure refusal must not reissue successful native acquisition")
+                }).await.unwrap();
+                assert_eq!(ids(rows).await, keys);
+                assert_eq!(capture.groups["ids"].indexes.len(), 2);
+                assert!(capture.permits_local_retry());
+            }
+            drop(pressure);
+            let duplicate = CoverageIndex::new(&[[1;16]], 0, &budget).unwrap();
+            capture.groups.get_mut("ids").unwrap().indexes.push((0,duplicate));
+            assert!(matches!(capture.routes("ids", &[[1;16]]), Err(ModelError::Conflict("duplicate native capture coverage"))));
+            capture.groups.get_mut("ids").unwrap().indexes.pop();
+            capture.prepare_group("ids").await.unwrap();
+            assert_eq!(capture.groups["ids"].indexes.len(), 1);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn high_fanout_reverse_capture_narrows_with_one_bounded_reader_without_reissue() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        {
+            let owner = owner(&budget).await;
+            let mut capture = owner.capture_discovery(&budget, &Cancellation::default()).unwrap();
+            let reverse = Arc::new(arrow_schema::Schema::new(vec![
+                arrow_schema::Field::new("id", arrow_schema::DataType::FixedSizeBinary(16), false),
+                arrow_schema::Field::new("owner", arrow_schema::DataType::FixedSizeBinary(16), false),
+            ]));
+            let shape = reverse.clone();
+            let transfer = lctx_model::domain::resources::TRANSFER_ROWS;
+            const BATCHES: usize = 1024;
+            let rows = capture.read("reverse".into(), "owner", Arc::new(vec![[1;16],[2;16]]), reverse.clone(), |_| async move {
+                let batches = futures::stream::iter((0..BATCHES).map(move |n| {
+                    let ids = (0..transfer).map(|row| ((n * transfer + row) as u128).to_be_bytes());
+                    let owners = std::iter::repeat_n(if n < BATCHES / 2 { [1;16] } else { [2;16] }, transfer);
+                    Ok::<_, DataFusionError>(RecordBatch::try_new(shape.clone(), vec![
+                        Arc::new(FixedSizeBinaryArray::try_from_iter(ids).unwrap()),
+                        Arc::new(FixedSizeBinaryArray::try_from_iter(owners).unwrap()),
+                    ]).unwrap())
+                }));
+                Ok(Box::pin(RecordBatchStreamAdapter::new(reverse.clone(), batches)) as SendableRecordBatchStream)
+            }).await.unwrap();
+            async fn count(mut rows: SendableRecordBatchStream, expected: Option<[u8;16]>) -> usize {
+                let mut count = 0;
+                while let Some(batch) = rows.try_next().await.unwrap() {
+                    if let Some(expected) = expected {
+                        let owners = batch.column(1).as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
+                        assert!((0..batch.num_rows()).all(|row| owners.value(row) == expected));
+                    }
+                    count += batch.num_rows();
+                }
+                count
+            }
+            assert_eq!(count(rows, None).await, BATCHES * transfer);
+            let retained = budget.reserved();
+            // Less space than the former whole-file footer allowance, but enough for
+            // one exact nominal transfer and the active read/query metadata.
+            let available = transfer * 32 * 3 + 65536;
+            assert!(available < BATCHES * 256 * 2 + 4096);
+            let pressure = budget.reserve("reverse-singleton-pressure", budget.limit() - retained - available).unwrap();
+            let rows = capture.read("reverse".into(), "owner", Arc::new(vec![[2;16]]), shape_for_reverse(), |_| async {
+                panic!("successful high-fanout native source must never be replayed")
+            }).await.unwrap();
+            assert_eq!(count(rows, Some([2;16])).await, BATCHES / 2 * transfer);
+            assert_eq!(budget.reserved(), retained + pressure.size());
+            drop(pressure);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    fn shape_for_reverse() -> SchemaRef {
+        Arc::new(arrow_schema::Schema::new(vec![
+            arrow_schema::Field::new("id", arrow_schema::DataType::FixedSizeBinary(16), false),
+            arrow_schema::Field::new("owner", arrow_schema::DataType::FixedSizeBinary(16), false),
+        ]))
     }
     #[test]
     fn tiny_nominal_fragments_form_bounded_transfer_windows() {

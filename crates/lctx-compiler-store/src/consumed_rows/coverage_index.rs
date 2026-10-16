@@ -82,11 +82,11 @@ impl CoverageIndex {
     /// Two immutable successful inputs remain owned until the merged replacement is complete.
     /// A local refusal cannot erase either run or require source acquisition to be repeated.
     pub(crate) async fn merge(&self, other: &Self, budget: &ResourceBudget, cancellation: &Cancellation) -> Result<Self, ModelError> {
+        let mut out = Builder::new(budget)?;
         let mut a = Entries::new(self, budget)?;
         let mut b = Entries::new(other, budget)?;
         let mut left = a.next(budget)?;
         let mut right = b.next(budget)?;
-        let mut out = Builder::new(budget)?;
         let mut count = 0usize;
         while left.is_some() || right.is_some() {
             cancellation.check()?;
