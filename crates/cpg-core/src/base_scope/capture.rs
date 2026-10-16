@@ -181,7 +181,7 @@ impl<'a> CapturedBase<'a> {
                                     .ok_or(ModelError::Schema("Base captured nominal key"))
                             })
                             .collect::<Result<Vec<_>, ModelError>>()?;
-                        let point = scopes.edges.point_input(table, keys, budget)?;
+                        let point = scopes.edges.point_input(table, keys, budget).await?;
                         if opaque_literals && table == literals {
                             stream_capture(
                                 point.session(),

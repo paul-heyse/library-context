@@ -324,284 +324,43 @@ impl NominalClosure {
             "SELECT CAST({source} AS BIGINT) AS source_kind, source_id, CAST({target} AS BIGINT) AS target_kind, target_id FROM ({sql}) AS pair_rows WHERE source_id IS NOT NULL AND target_id IS NOT NULL"
         )
     }
-    /// Project nominal edges once for an immutable dependency set into an external ordered IPC
-    /// stream. All subsequent grains reuse these compact edges without rescanning rich inputs.
+    /// Bind exact program metadata without earning unused physical providers or rules.
+    /// Reached source namespaces initialize their complete contextual universe once.
     #[tracing::instrument(skip_all, target="lctx_phase", fields(tables=self.tables.len(), pairs=self.pairs.len()))]
     pub async fn prepare(
         &self,
         session: &SessionContext,
         budget: &ResourceBudget,
     ) -> Result<PreparedEdges, ModelError> {
-        use datafusion::{
-            arrow::{
-                ipc::writer::FileWriter,
-                row::{RowConverter, SortField},
-            },
-            execution::{options::ArrowReadOptions, session_state::SessionStateBuilder},
-            prelude::col,
-        };
-        use std::{
-            fs::File,
-            io::{Read, Seek, SeekFrom},
-        };
+        use datafusion::execution::session_state::SessionStateBuilder;
         let state = session.state();
         let catalogs = state.catalog_list().clone();
-        let config = state
-            .config()
-            .clone()
-            .with_create_default_catalog_and_schema(false)
-            .with_repartition_joins(true)
-            .set_bool("datafusion.optimizer.prefer_hash_join", false);
-        let session = SessionContext::new_with_state(
-            SessionStateBuilder::new_from_existing(state)
-                .with_config(config)
-                .with_catalog_list(catalogs)
-                .build(),
-        );
-        let directory = tempfile::tempdir().map_err(ModelError::codec)?;
-        let pending = directory.path().join("pending-edges.arrow");
-        let path = directory.path().join("nominal-edges.arrow");
-        let schema = std::sync::Arc::new(arrow_schema::Schema::new(vec![
-            arrow_schema::Field::new("source_kind", arrow_schema::DataType::Int64, false),
-            arrow_schema::Field::new(
-                "source_id",
-                arrow_schema::DataType::FixedSizeBinary(16),
-                false,
-            ),
-            arrow_schema::Field::new("target_kind", arrow_schema::DataType::Int64, false),
-            arrow_schema::Field::new(
-                "target_id",
-                arrow_schema::DataType::FixedSizeBinary(16),
-                false,
-            ),
-        ]));
-        // Preserve the complete lexicographic edge key as one lossless Arrow row encoding.
-        // DataFusion can then sort/merge the Binary column with its FieldCursor, avoiding
-        // multi-column RowCursor's additional encoded-key caches for every live run.
-        // Only private staging uses this representation; final IPC and graph keys stay typed.
-        let ordering_schema =
-            std::sync::Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
-                "edge_order",
-                arrow_schema::DataType::Binary,
-                false,
-            )]));
-        let mut staging_charge =
-            charged::StateCharge::new(budget, "semantic-edge-staging-metadata");
-        staging_charge.grow(4096)?;
-        let codec = RowConverter::new(
-            schema
-                .fields()
-                .iter()
-                .map(|field| {
-                    SortField::new_with_options(
-                        field.data_type().clone(),
-                        arrow_schema::SortOptions {
-                            descending: false,
-                            nulls_first: false,
-                        },
-                    )
-                })
-                .collect(),
-        )
-        .map_err(ModelError::codec)?;
-        // The staging envelope covers its writer/footer block descriptors, not per-edge state.
-        // Copy fixed nominal values into one charged storage batch. Upstream sorting/filtering
-        // can emit tiny fragments; neither IPC footer nor sparse index may grow per fragment.
-        let coalescing_charge = budget.reserve(
-            "semantic-edge-coalescing",
-            resources::TRANSFER_ROWS
-                .saturating_mul(48 * 3)
-                .saturating_add(4096),
-        )?;
-        let mut buffer = EdgeBuffer::new(schema.clone());
-        staging_charge.grow(codec.size())?;
-        let mut staged = FileWriter::try_new(
-            File::create(&pending).map_err(ModelError::codec)?,
-            &ordering_schema,
-        )
-        .map_err(ModelError::codec)?;
-        let mut provider_charge =
-            charged::StateCharge::new(budget, "semantic-edge-provider-bindings");
-        provider_charge.grow(
-            self.tables
-                .len()
-                .saturating_mul(
-                    size_of::<std::sync::Arc<dyn datafusion::catalog::TableProvider>>()
-                        + size_of::<ClosureTable>(),
-                )
-                .saturating_add(
-                    self.tables
-                        .iter()
-                        .map(|table| table.alias.len())
-                        .sum::<usize>(),
-                )
-                .saturating_add(self.native.len().saturating_mul(size_of::<NativeEdge>()))
-                .saturating_add(self.programs.len().saturating_mul(size_of::<
-                    std::sync::Arc<scope_program::CompiledScopeProgram>,
-                >())),
-        )?;
-        let mut providers = Vec::with_capacity(self.tables.len());
-        for table in &self.tables {
-            providers.push(
-                lctx_native::phase::wait(
-                    "nominal_closure_provider",
-                    session.table_provider(table.alias.as_str()),
-                )
-                .await
-                .map_err(ModelError::codec)?,
-            );
-        }
-        let mut native_edges = Vec::with_capacity(self.native.len());
-        for (source, target, sql) in &self.pairs {
-            if let Some(edge) = self.native.get(&(*source, *target, sql.clone()))
-                && crate::compiler_provider::is_native_table(&providers[edge.table])
-                && (!edge.require_owner_presence
-                    || crate::compiler_provider::is_native_table(&providers[edge.source]))
-            {
-                native_edges.push(*edge);
-                continue;
-            }
-            // Only detached finite sources and owner-authored contextual pair queries need
-            // a compact bulk adjacency universe. Native declared references use the frontier.
-            let span = tracing::info_span!(target:"lctx_phase", "nominal_closure_pair",
-                source=self.tables[*source].alias, target=self.tables[*target].alias,
-                source_kind=source, target_kind=target, query_kind="contextual_pair");
-            async {
-                let frame = lctx_native::phase::wait(
-                    "nominal_closure_pair_plan",
-                    crate::sql::query(&session, &Self::pair_sql(*source, *target, sql)),
-                )
-                .await
-                .map_err(crate::sql::model_error)?;
-                let mut stream =
-                    lctx_native::phase::wait("nominal_closure_pair_start", frame.execute_stream())
-                        .await
-                        .map_err(crate::sql::model_error)?;
-                let mut rows = 0usize;
-                while let Some(batch) =
-                    lctx_native::phase::wait("nominal_closure_pair_batch", stream.try_next())
-                        .await
-                        .map_err(crate::sql::model_error)?
-                {
-                    let _transfer = budget.reserve(
-                        "semantic-edge-transfer",
-                        logical_batch_bytes(&batch)?
-                            .saturating_mul(3)
-                            .saturating_add(4096),
-                    )?;
-                    validate_edge_batch(&batch)?;
-                    buffer.push(&batch, |edge_batch| {
-                        staging_charge.grow(128)?;
-                        write_edge_ordering(
-                            &edge_batch,
-                            &codec,
-                            &ordering_schema,
-                            &mut staged,
-                            budget,
-                        )
-                    })?;
-                    rows = rows.saturating_add(batch.num_rows());
-                    tokio::task::yield_now().await;
-                }
-                tracing::info!(target:"lctx_phase", observation="nominal_closure_pair_eof", rows);
-                Ok::<(), ModelError>(())
-            }
-            .with_tracing_span(span)
-            .await?;
-        }
-        if let Some(batch) = buffer.finish()? {
-            staging_charge.grow(128)?;
-            write_edge_ordering(&batch, &codec, &ordering_schema, &mut staged, budget)?;
-        }
-        staged.finish().map_err(ModelError::codec)?;
-        drop(staged);
-        let frame = session
-            .read_arrow(
-                pending.to_string_lossy().into_owned(),
-                ArrowReadOptions::default().schema(ordering_schema.as_ref()),
-            )
-            .await
-            .map_err(crate::sql::model_error)?
-            .sort(vec![col("edge_order").sort(true, false)])
-            .map_err(crate::sql::model_error)?;
-        let mut stream =
-            lctx_native::phase::wait("nominal_closure_sort_start", frame.execute_stream())
-                .await
-                .map_err(crate::sql::model_error)?;
-        let mut batches = charged::ChargedVec::default();
-        let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
-        let mut writer =
-            FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema)
-                .map_err(ModelError::codec)?;
-        while let Some(encoded) =
-            lctx_native::phase::wait("nominal_closure_sort_batch", stream.try_next())
-                .await
-                .map_err(crate::sql::model_error)?
-        {
-            // The query stream owns its encoded input. Charge typed decoding, its row-slice
-            // vector and the outgoing copy before reconstructing this one compute batch.
-            let _transfer = budget.reserve(
-                "semantic-edge-transfer",
-                encoded
-                    .num_rows()
-                    .saturating_mul(48 * 3 + size_of::<&[u8]>())
-                    .saturating_add(4096),
-            )?;
-            let batch = decode_edge_ordering(&encoded, &codec, &schema)?;
-            validate_edge_batch(&batch)?;
-            buffer.push(&batch, |edge_batch| {
-                write_edge_batch(&edge_batch, &mut writer, &mut batches, &mut index_charge)
-            })?;
-            tokio::task::yield_now().await;
-        }
-        if let Some(batch) = buffer.finish()? {
-            write_edge_batch(&batch, &mut writer, &mut batches, &mut index_charge)?;
-        }
-        writer.finish().map_err(ModelError::codec)?;
-        drop(buffer);
-        drop(coalescing_charge);
-        drop(writer);
-        drop(stream);
-        drop(staging_charge);
-        std::fs::remove_file(&pending).map_err(ModelError::codec)?;
-        // Reserve the reader's footer/block metadata before FileReader allocates it in a grain.
-        let mut file = File::open(&path).map_err(ModelError::codec)?;
-        file.seek(SeekFrom::End(-10)).map_err(ModelError::codec)?;
-        let mut length = [0; 4];
-        file.read_exact(&mut length).map_err(ModelError::codec)?;
-        let footer = u32::from_le_bytes(length) as usize;
-        let reader_allowance = footer
-            .saturating_mul(2)
-            .saturating_add(batches.len().saturating_mul(64))
-            .saturating_add(4096);
-        // Bulk edge preparation retains compact topology. Each native grain binds its keys
-        // before payload hydration; detached finite tables use the same keys in a local join.
-        let state = session.state();
-        let catalogs = state.catalog_list().clone();
-        let config = state
-            .config()
-            .clone()
+        let config = state.config().clone()
             .with_create_default_catalog_and_schema(false)
             .with_repartition_joins(false)
             .set_bool("datafusion.optimizer.prefer_hash_join", true);
         let session = SessionContext::new_with_state(
-            SessionStateBuilder::new_from_existing(state)
-                .with_config(config)
-                .with_catalog_list(catalogs)
-                .build(),
+            SessionStateBuilder::new_from_existing(state).with_config(config)
+                .with_catalog_list(catalogs).build(),
         );
+        let mut charge = charged::StateCharge::new(budget, "semantic-edge-provider-bindings");
+        charge.grow(self.tables.len().saturating_mul(
+            size_of::<ClosureTable>() + size_of::<tokio::sync::OnceCell<std::sync::Arc<dyn datafusion::catalog::TableProvider>>>()
+            + size_of::<tokio::sync::OnceCell<PreparedAdjacency>>()
+        ).saturating_add(self.tables.iter().map(|table| table.alias.len()).sum::<usize>())
+            .saturating_add(self.pairs.iter().map(|(_, _, sql)| sql.len().saturating_add(128)).sum::<usize>())
+            .saturating_add(self.native.keys().map(|(_, _, sql)| sql.len().saturating_add(128)).sum::<usize>())
+            .saturating_add(self.programs.len().saturating_mul(size_of::<std::sync::Arc<scope_program::CompiledScopeProgram>>()))
+        )?;
         Ok(PreparedEdges(std::sync::Arc::new(EdgeSource {
             session,
-            path,
-            batches,
-            reader_allowance,
             tables: self.tables.clone(),
             _programs: self.programs.clone(),
-            providers,
-            native_edges,
-            _provider_charge: provider_charge,
-            _index_charge: index_charge,
-            _directory: directory,
+            providers: (0..self.tables.len()).map(|_| tokio::sync::OnceCell::new()).collect(),
+            adjacency: (0..self.tables.len()).map(|_| tokio::sync::OnceCell::new()).collect(),
+            pairs: self.pairs.clone(),
+            native: self.native.clone(),
+            _provider_charge: charge,
         })))
     }
 }
@@ -786,21 +545,285 @@ impl HeapSize for EdgeBatch {}
 struct EdgeSource {
     _programs: Vec<std::sync::Arc<scope_program::CompiledScopeProgram>>,
     session: SessionContext,
-    path: std::path::PathBuf,
+    tables: Vec<ClosureTable>,
+    providers: Vec<tokio::sync::OnceCell<std::sync::Arc<dyn datafusion::catalog::TableProvider>>>,
+    adjacency: Vec<tokio::sync::OnceCell<PreparedAdjacency>>,
+    pairs: BTreeSet<(usize, usize, String)>,
+    native: BTreeMap<(usize, usize, String), NativeEdge>,
+    _provider_charge: charged::StateCharge,
+}
+struct PreparedAdjacency {
+    path: Option<std::path::PathBuf>,
     batches: charged::ChargedVec<EdgeBatch>,
     reader_allowance: usize,
-    tables: Vec<ClosureTable>,
-    providers: Vec<std::sync::Arc<dyn datafusion::catalog::TableProvider>>,
     native_edges: Vec<NativeEdge>,
-    _provider_charge: charged::StateCharge,
     _index_charge: charged::StateCharge,
-    _directory: tempfile::TempDir,
+    _directory: Option<tempfile::TempDir>,
 }
-impl EdgeSource {
+impl PreparedAdjacency {
     fn matching_batches(&self, key: NominalKey) -> std::ops::Range<usize> {
         let start = self.batches.partition_point(|batch| batch.last < key);
         let end = self.batches.partition_point(|batch| batch.first <= key);
         start..end
+    }
+}
+impl EdgeSource {
+    async fn provider(&self, table: usize) -> Result<&std::sync::Arc<dyn datafusion::catalog::TableProvider>, ModelError> {
+        let slot = self.providers.get(table).ok_or(ModelError::Schema("scope provider namespace"))?;
+        slot.get_or_try_init(|| async {
+            lctx_native::phase::wait("nominal_closure_provider", self.session.table_provider(self.tables[table].alias.as_str()))
+                .await.map_err(ModelError::codec)
+        }).await
+    }
+    async fn source(&self, source: usize, budget: &ResourceBudget) -> Result<&PreparedAdjacency, ModelError> {
+        if self._provider_charge.budget().is_none_or(|owner| !owner.shares_pool(budget)) {
+            return Err(ModelError::Conflict("scope preparation foreign resource pool"));
+        }
+        // Even an edge-free reached root earns its physical port. Failed initialization is
+        // never memoized as success; native recovery remains with the operation owner.
+        self.provider(source).await?;
+        self.adjacency.get(source).ok_or(ModelError::Schema("scope adjacency namespace"))?
+            .get_or_try_init(|| self.prepare_adjacency(source, budget)).await
+    }
+    /// Project nominal edges once for an immutable dependency set into an external ordered IPC
+    /// stream. All subsequent grains reuse these compact edges without rescanning rich inputs.
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(tables=self.tables.len(), pairs=self.pairs.len()))]
+    async fn prepare_adjacency(
+        &self,
+        source_kind: usize,
+        budget: &ResourceBudget,
+    ) -> Result<PreparedAdjacency, ModelError> {
+        use datafusion::{
+            arrow::{
+                ipc::writer::FileWriter,
+                row::{RowConverter, SortField},
+            },
+            execution::{options::ArrowReadOptions, session_state::SessionStateBuilder},
+            prelude::col,
+        };
+        use std::{
+            fs::File,
+            io::{Read, Seek, SeekFrom},
+        };
+        let state = self.session.state();
+        let catalogs = state.catalog_list().clone();
+        let config = state
+            .config()
+            .clone()
+            .with_create_default_catalog_and_schema(false)
+            .with_repartition_joins(true)
+            .set_bool("datafusion.optimizer.prefer_hash_join", false);
+        let session = SessionContext::new_with_state(
+            SessionStateBuilder::new_from_existing(state)
+                .with_config(config)
+                .with_catalog_list(catalogs)
+                .build(),
+        );
+        let count = self.pairs.range((source_kind, 0, String::new())..(source_kind + 1, 0, String::new())).count();
+        let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
+        index_charge.grow(count.saturating_mul(size_of::<NativeEdge>() + 3 * size_of::<usize>()))?;
+        let mut native_edges = Vec::with_capacity(count);
+        let mut contextual = Vec::with_capacity(count);
+        for (source, target, sql) in self.pairs.range((source_kind, 0, String::new())..(source_kind + 1, 0, String::new())) {
+            if let Some(edge) = self.native.get(&(*source, *target, sql.clone()))
+                && crate::compiler_provider::is_native_table(self.provider(edge.table).await?)
+                && (!edge.require_owner_presence
+                    || crate::compiler_provider::is_native_table(self.provider(edge.source).await?))
+            {
+                native_edges.push(*edge);
+                continue;
+            }
+            contextual.push((source, target, sql));
+        }
+        if contextual.is_empty() {
+            return Ok(PreparedAdjacency {
+                path: None, batches: charged::ChargedVec::default(), reader_allowance: 0,
+                native_edges, _index_charge: index_charge, _directory: None,
+            });
+        }
+        let directory = tempfile::tempdir().map_err(ModelError::codec)?;
+        let pending = directory.path().join("pending-edges.arrow");
+        let path = directory.path().join("nominal-edges.arrow");
+        let schema = std::sync::Arc::new(arrow_schema::Schema::new(vec![
+            arrow_schema::Field::new("source_kind", arrow_schema::DataType::Int64, false),
+            arrow_schema::Field::new(
+                "source_id",
+                arrow_schema::DataType::FixedSizeBinary(16),
+                false,
+            ),
+            arrow_schema::Field::new("target_kind", arrow_schema::DataType::Int64, false),
+            arrow_schema::Field::new(
+                "target_id",
+                arrow_schema::DataType::FixedSizeBinary(16),
+                false,
+            ),
+        ]));
+        // Preserve the complete lexicographic edge key as one lossless Arrow row encoding.
+        // DataFusion can then sort/merge the Binary column with its FieldCursor, avoiding
+        // multi-column RowCursor's additional encoded-key caches for every live run.
+        // Only private staging uses this representation; final IPC and graph keys stay typed.
+        let ordering_schema =
+            std::sync::Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+                "edge_order",
+                arrow_schema::DataType::Binary,
+                false,
+            )]));
+        let mut staging_charge =
+            charged::StateCharge::new(budget, "semantic-edge-staging-metadata");
+        staging_charge.grow(4096)?;
+        let codec = RowConverter::new(
+            schema
+                .fields()
+                .iter()
+                .map(|field| {
+                    SortField::new_with_options(
+                        field.data_type().clone(),
+                        arrow_schema::SortOptions {
+                            descending: false,
+                            nulls_first: false,
+                        },
+                    )
+                })
+                .collect(),
+        )
+        .map_err(ModelError::codec)?;
+        // The staging envelope covers its writer/footer block descriptors, not per-edge state.
+        // Copy fixed nominal values into one charged storage batch. Upstream sorting/filtering
+        // can emit tiny fragments; neither IPC footer nor sparse index may grow per fragment.
+        let coalescing_charge = budget.reserve(
+            "semantic-edge-coalescing",
+            resources::TRANSFER_ROWS
+                .saturating_mul(48 * 3)
+                .saturating_add(4096),
+        )?;
+        let mut buffer = EdgeBuffer::new(schema.clone());
+        staging_charge.grow(codec.size())?;
+        let mut staged = FileWriter::try_new(
+            File::create(&pending).map_err(ModelError::codec)?,
+            &ordering_schema,
+        )
+        .map_err(ModelError::codec)?;
+        for (source, target, sql) in contextual {
+            // Only detached finite sources and owner-authored contextual pair queries need
+            // a compact bulk adjacency universe. Native declared references use the frontier.
+            let span = tracing::info_span!(target:"lctx_phase", "nominal_closure_pair",
+                source=self.tables[*source].alias, target=self.tables[*target].alias,
+                source_kind=source, target_kind=target, query_kind="contextual_pair");
+            async {
+                let frame = lctx_native::phase::wait(
+                    "nominal_closure_pair_plan",
+                    crate::sql::query(&session, &NominalClosure::pair_sql(*source, *target, sql)),
+                )
+                .await
+                .map_err(crate::sql::model_error)?;
+                let mut stream =
+                    lctx_native::phase::wait("nominal_closure_pair_start", frame.execute_stream())
+                        .await
+                        .map_err(crate::sql::model_error)?;
+                let mut rows = 0usize;
+                while let Some(batch) =
+                    lctx_native::phase::wait("nominal_closure_pair_batch", stream.try_next())
+                        .await
+                        .map_err(crate::sql::model_error)?
+                {
+                    let _transfer = budget.reserve(
+                        "semantic-edge-transfer",
+                        logical_batch_bytes(&batch)?
+                            .saturating_mul(3)
+                            .saturating_add(4096),
+                    )?;
+                    validate_edge_batch(&batch)?;
+                    buffer.push(&batch, |edge_batch| {
+                        staging_charge.grow(128)?;
+                        write_edge_ordering(
+                            &edge_batch,
+                            &codec,
+                            &ordering_schema,
+                            &mut staged,
+                            budget,
+                        )
+                    })?;
+                    rows = rows.saturating_add(batch.num_rows());
+                    tokio::task::yield_now().await;
+                }
+                tracing::info!(target:"lctx_phase", observation="nominal_closure_pair_eof", rows);
+                Ok::<(), ModelError>(())
+            }
+            .with_tracing_span(span)
+            .await?;
+        }
+        if let Some(batch) = buffer.finish()? {
+            staging_charge.grow(128)?;
+            write_edge_ordering(&batch, &codec, &ordering_schema, &mut staged, budget)?;
+        }
+        staged.finish().map_err(ModelError::codec)?;
+        drop(staged);
+        let frame = session
+            .read_arrow(
+                pending.to_string_lossy().into_owned(),
+                ArrowReadOptions::default().schema(ordering_schema.as_ref()),
+            )
+            .await
+            .map_err(crate::sql::model_error)?
+            .sort(vec![col("edge_order").sort(true, false)])
+            .map_err(crate::sql::model_error)?;
+        let mut stream =
+            lctx_native::phase::wait("nominal_closure_sort_start", frame.execute_stream())
+                .await
+                .map_err(crate::sql::model_error)?;
+        let mut batches = charged::ChargedVec::default();
+        let mut writer =
+            FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema)
+                .map_err(ModelError::codec)?;
+        while let Some(encoded) =
+            lctx_native::phase::wait("nominal_closure_sort_batch", stream.try_next())
+                .await
+                .map_err(crate::sql::model_error)?
+        {
+            // The query stream owns its encoded input. Charge typed decoding, its row-slice
+            // vector and the outgoing copy before reconstructing this one compute batch.
+            let _transfer = budget.reserve(
+                "semantic-edge-transfer",
+                encoded
+                    .num_rows()
+                    .saturating_mul(48 * 3 + size_of::<&[u8]>())
+                    .saturating_add(4096),
+            )?;
+            let batch = decode_edge_ordering(&encoded, &codec, &schema)?;
+            validate_edge_batch(&batch)?;
+            buffer.push(&batch, |edge_batch| {
+                write_edge_batch(&edge_batch, &mut writer, &mut batches, &mut index_charge)
+            })?;
+            tokio::task::yield_now().await;
+        }
+        if let Some(batch) = buffer.finish()? {
+            write_edge_batch(&batch, &mut writer, &mut batches, &mut index_charge)?;
+        }
+        writer.finish().map_err(ModelError::codec)?;
+        drop(buffer);
+        drop(coalescing_charge);
+        drop(writer);
+        drop(stream);
+        drop(staging_charge);
+        std::fs::remove_file(&pending).map_err(ModelError::codec)?;
+        // Reserve the reader's footer/block metadata before FileReader allocates it in a grain.
+        let mut file = File::open(&path).map_err(ModelError::codec)?;
+        file.seek(SeekFrom::End(-10)).map_err(ModelError::codec)?;
+        let mut length = [0; 4];
+        file.read_exact(&mut length).map_err(ModelError::codec)?;
+        let footer = u32::from_le_bytes(length) as usize;
+        let reader_allowance = footer
+            .saturating_mul(2)
+            .saturating_add(batches.len().saturating_mul(64))
+            .saturating_add(4096);
+        Ok(PreparedAdjacency {
+            path: Some(path),
+            batches,
+            reader_allowance,
+            native_edges,
+            _index_charge: index_charge,
+            _directory: Some(directory),
+        })
     }
 }
 /// Four fixed, non-null nominal columns are the complete edge row shape. Buffer
@@ -854,8 +877,8 @@ fn edge_key(
 /// One FileReader and at most one current batch. Reader/block metadata and the decoded edge
 /// batch are charged before allocation; the cache is replaced before reading another batch.
 struct EdgeCursor<'a> {
-    source: &'a EdgeSource,
-    reader: datafusion::arrow::ipc::reader::FileReader<std::fs::File>,
+    source: &'a PreparedAdjacency,
+    reader: Option<datafusion::arrow::ipc::reader::FileReader<std::fs::File>>,
     current: Option<(
         usize,
         arrow_array::RecordBatch,
@@ -864,18 +887,17 @@ struct EdgeCursor<'a> {
     _reader_charge: Box<dyn resources::Reservation>,
 }
 impl<'a> EdgeCursor<'a> {
-    fn new(source: &'a EdgeSource, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    fn new(source: &'a PreparedAdjacency, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let charge = budget.reserve("semantic-edge-reader", source.reader_allowance)?;
-        let reader = datafusion::arrow::ipc::reader::FileReader::try_new(
-            std::fs::File::open(&source.path).map_err(ModelError::codec)?,
-            None,
-        )
-        .map_err(ModelError::codec)?;
-        if reader.num_batches() != source.batches.len() {
-            return Err(ModelError::Schema(
-                "nominal edge sparse index does not match IPC batches",
-            ));
-        }
+        let reader = if let Some(path) = &source.path {
+            let reader = datafusion::arrow::ipc::reader::FileReader::try_new(
+                std::fs::File::open(path).map_err(ModelError::codec)?, None,
+            ).map_err(ModelError::codec)?;
+            if reader.num_batches() != source.batches.len() {
+                return Err(ModelError::Schema("nominal edge sparse index does not match IPC batches"));
+            }
+            Some(reader)
+        } else { None };
         Ok(Self {
             source,
             reader,
@@ -903,10 +925,9 @@ impl<'a> EdgeCursor<'a> {
                 "semantic-edge-current-batch",
                 descriptor.ipc_bytes.saturating_mul(2).saturating_add(4096),
             )?;
-            self.reader.set_index(index).map_err(ModelError::codec)?;
-            let batch = self
-                .reader
-                .next()
+            let reader = self.reader.as_mut().ok_or(ModelError::Schema("nominal edge IPC absent"))?;
+            reader.set_index(index).map_err(ModelError::codec)?;
+            let batch = reader.next()
                 .ok_or(ModelError::Schema("nominal edge IPC batch missing"))?
                 .map_err(ModelError::codec)?;
             validate_edge_batch(&batch)?;
@@ -987,7 +1008,7 @@ impl PreparedEdges {
             return Err(ModelError::Schema("native forward table binding"));
         }
         let selected = crate::compiler_provider::select_table(
-            &self.0.providers[source],
+            self.0.provider(source).await?,
             keys.clone(),
             charge,
         )?
@@ -1088,7 +1109,7 @@ impl PreparedEdges {
         mut accept: impl FnMut([u8; 16], [u8; 16]) -> Result<(), ModelError>,
     ) -> Result<(), ModelError> {
         use arrow_array::{Array, FixedSizeBinaryArray};
-        let provider = &self.0.providers[edge.table];
+        let provider = self.0.provider(edge.table).await?;
         let selected = crate::compiler_provider::select_field_table(
             provider,
             edge.field,
@@ -1323,7 +1344,7 @@ impl PreparedEdges {
     }
 
     /// One bounded ordered point-demand owner over the same immutable provider binding.
-    pub fn point_input(
+    pub async fn point_input(
         &self,
         table: usize,
         keys: Vec<[u8; 16]>,
@@ -1344,13 +1365,14 @@ impl PreparedEdges {
         charge.grow(keys.len() * 160 + 4096)?;
         let keys = std::sync::Arc::new(keys);
         let charge = std::sync::Arc::new(charge);
+        let provider = self.0.provider(table).await?;
         let selected = crate::compiler_provider::select_table(
-            &self.0.providers[table],
+            provider,
             keys.clone(),
             charge.clone(),
         )?;
         let native = selected.is_some();
-        let provider = selected.unwrap_or_else(|| self.0.providers[table].clone());
+        let provider = selected.unwrap_or_else(|| provider.clone());
         if provider.schema().as_ref() != relation.schema().as_ref() {
             return Err(ModelError::Schema("point-input source schema"));
         }
@@ -1471,7 +1493,6 @@ impl PreparedEdges {
         budget: &ResourceBudget,
         cancellation: Option<&crate::admission::Cancellation>,
     ) -> Result<(), ModelError> {
-        let mut cursor = EdgeCursor::new(&self.0, budget)?;
         while !pending.is_empty() {
             check_cancellation(cancellation)?;
             let count = pending.len().min(crate::compiler_provider::REFERENCE_KEYS);
@@ -1487,7 +1508,20 @@ impl PreparedEdges {
                 );
             }
             frontier.sort_unstable();
-            for key in &frontier {
+            let frontier_charge = std::sync::Arc::new(frontier_charge);
+            let mut offset = 0;
+            while offset < frontier.len() {
+                let kind = frontier[offset].0;
+                let end = offset + frontier[offset..].partition_point(|key| key.0 == kind);
+                let keys = std::sync::Arc::new(
+                    frontier[offset..end]
+                        .iter()
+                        .map(|(_, key)| *key)
+                        .collect::<Vec<_>>(),
+                );
+                let source = self.0.source(usize::try_from(kind).map_err(ModelError::codec)?, budget).await?;
+                let mut cursor = EdgeCursor::new(source, budget)?;
+            for key in &frontier[offset..end] {
                 cursor.targets(*key, budget, |target| {
                     check_cancellation(cancellation)?;
                     if let Some((arcs, charge)) = adjacency.as_mut() {
@@ -1502,26 +1536,8 @@ impl PreparedEdges {
                     Ok(())
                 })?;
             }
-            let frontier_charge = std::sync::Arc::new(frontier_charge);
-            let mut offset = 0;
-            while offset < frontier.len() {
-                let kind = frontier[offset].0;
-                let end = offset + frontier[offset..].partition_point(|key| key.0 == kind);
-                let keys = std::sync::Arc::new(
-                    frontier[offset..end]
-                        .iter()
-                        .map(|(_, key)| *key)
-                        .collect::<Vec<_>>(),
-                );
-                let first = self
-                    .0
-                    .native_edges
-                    .partition_point(|edge| (edge.source as i64) < kind);
-                let last = self
-                    .0
-                    .native_edges
-                    .partition_point(|edge| (edge.source as i64) <= kind);
-                let edges = &self.0.native_edges[first..last];
+                drop(cursor);
+                let edges = source.native_edges.as_slice();
                 let kind_source = kind;
                 let present = self
                     .native_forward_targets(
@@ -1751,7 +1767,11 @@ impl PreparedRootBatch {
                     )? {
                         return Ok(None);
                     }
-                    let provider = self.union.edges.providers[table].clone();
+                    if keys.is_empty() {
+                        tables.push(BTreeMap::new());
+                        continue;
+                    }
+                    let provider = self.union.edges.provider(table).await?.clone();
                     let requested = keys.clone();
                     let read_budget = budget.clone();
                     let found = runtime
@@ -2097,11 +2117,10 @@ impl PreparedClosure {
         if let Some(alias) = aliases.get(&table) {
             return Ok(format!("SELECT * FROM {}", identifier(alias)));
         }
-        if let Some(provider) = crate::compiler_provider::select_table(
-            &self.edges.providers[table],
-            self.native_keys[table].clone(),
-            self._charge.clone(),
-        )? {
+        if let Some(earned) = self.edges.providers[table].get()
+            && let Some(provider) = crate::compiler_provider::select_table(
+                earned, self.native_keys[table].clone(), self._charge.clone(),
+            )? {
             let alias = scope_alias("selected");
             self.edges
                 .session
@@ -2475,12 +2494,45 @@ mod nominal_closure_controls {
     }
 
     #[tokio::test]
+    async fn unused_invalid_namespace_is_lazy_but_explicit_empty_demand_still_refuses() {
+        let (session, mut tables, releases, _) = fixture();
+        tables[1].alias = "unavailable_companion".into();
+        let mut plan = NominalClosure::new(tables).unwrap();
+        plan.pairs(1, 0,
+            "SELECT id AS source_id,id AS target_id FROM unavailable_companion".into()).unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let edges = plan.prepare(&session, &budget).await.unwrap();
+        assert!(edges.0.providers.iter().all(|slot| slot.get().is_none()));
+        assert!(edges.0.adjacency.iter().all(|slot| slot.get().is_none()));
+        let scope = edges.grain(0, &id_predicate(releases[0].id()), &budget).await.unwrap();
+        assert_eq!(decode::<Release>(&scope, 0).await, vec![releases[0].clone()]);
+        assert!(edges.0.providers[1].get().is_none());
+        assert!(edges.0.adjacency[1].get().is_none());
+        // A demanded namespace never becomes a fabricated empty source. Planning must
+        // establish the real port even when subsequent optimization would yield no rows.
+        let selected = scope.select(1).unwrap();
+        for suffix in ["WHERE FALSE", "WHERE NULL", "LIMIT 0"] {
+            assert!(crate::sql::query(scope.session(), &format!("SELECT * FROM ({selected}) demanded {suffix}")).await.is_err());
+        }
+        assert!(edges.point_input(1, Vec::new(), &budget).await.is_err());
+        assert!(edges.grain(1, "FALSE", &budget).await.is_err());
+        assert!(edges.0.providers[1].get().is_none(), "failed provider acquisition is not a reusable success");
+        assert!(edges.0.adjacency[1].get().is_none());
+        // Later correct finite bindings can be earned: no failure is memoized as success.
+        register::<Package>(&session, "unavailable_companion", &[]);
+        assert!(edges.point_input(1, Vec::new(), &budget).await.is_ok());
+        assert!(edges.0.providers[1].get().is_some());
+    }
+
+    #[tokio::test]
     async fn batched_roots_keep_overlap_duplicate_partitions_and_absence_explicit() {
         let (session, tables, releases, package) = fixture();
         let mut plan = NominalClosure::new(tables).unwrap();
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        edges.0.source(0, &budget).await.unwrap();
+        edges.0.source(1, &budget).await.unwrap();
         let prepared_charge = budget.reserved();
         let physical = |table, key| PreparedRoot {
             table,
@@ -2719,6 +2771,8 @@ mod nominal_closure_controls {
             session.copied_config().target_partitions(),
             "preparation preserves available parallelism"
         );
+        edges.0.source(0, &budget).await.unwrap();
+        edges.0.source(1, &budget).await.unwrap();
         let index_usage = budget.reserved();
         assert!(index_usage > 0);
         let scope = edges
@@ -2826,21 +2880,23 @@ mod nominal_closure_controls {
         plan.own(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        let source_edges = edges.0.source(1, &budget).await.unwrap();
+        edges.0.source(0, &budget).await.unwrap();
         let index_usage = budget.reserved();
         assert!(
-            edges.0.batches.len() > 32,
+            source_edges.batches.len() > 32,
             "fixture requires many unrelated IPC batches"
         );
         let source = (1, *selected.id().bytes());
-        let range = edges.0.matching_batches(source);
+        let range = source_edges.matching_batches(source);
         assert!(
             range.len() > 1,
             "one source must cross record-batch boundaries"
         );
-        assert!(range.len() < edges.0.batches.len());
-        assert!(range.start > 0 && range.end < edges.0.batches.len());
+        assert!(range.len() < source_edges.batches.len());
+        assert!(range.start > 0 && range.end < source_edges.batches.len());
         // The direct cursor exercise proves every duplicate source range contributes its keys.
-        let mut cursor = EdgeCursor::new(&edges.0, &budget).unwrap();
+        let mut cursor = EdgeCursor::new(source_edges, &budget).unwrap();
         let mut targets = std::collections::BTreeSet::new();
         cursor
             .targets(source, &budget, |key| {
@@ -2960,9 +3016,10 @@ mod nominal_closure_controls {
         assert_eq!(plan.pairs.len(), 1, "identical follow demands are a set");
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        let source_edges = edges.0.source(0, &budget).await.unwrap();
+        edges.0.source(1, &budget).await.unwrap();
         assert_eq!(
-            edges
-                .0
+            source_edges
                 .batches
                 .iter()
                 .map(|batch| batch.rows)
@@ -2990,9 +3047,11 @@ mod nominal_closure_controls {
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
+        let source_edges = edges.0.source(0, &budget).await.unwrap();
+        edges.0.source(1, &budget).await.unwrap();
         let index_usage = budget.reserved();
-        let descriptor = &edges.0.batches[0];
-        let mut cursor = EdgeCursor::new(&edges.0, &budget).unwrap();
+        let descriptor = &source_edges.batches[0];
+        let mut cursor = EdgeCursor::new(source_edges, &budget).unwrap();
         let batch = cursor.batch(0, &budget).unwrap();
         validate_edge_batch(batch).unwrap();
         assert_eq!(logical_batch_bytes(batch).unwrap(), descriptor.rows * 48);
@@ -3006,7 +3065,7 @@ mod nominal_closure_controls {
         );
         assert_eq!(
             budget.reserved(),
-            index_usage + edges.0.reader_allowance + descriptor.ipc_bytes + 4096
+            index_usage + source_edges.reader_allowance + descriptor.ipc_bytes + 4096
         );
         let usage = budget.reserved();
         cursor.batch(0, &budget).unwrap();
@@ -3137,7 +3196,7 @@ mod nominal_closure_controls {
     }
 
     #[tokio::test]
-    async fn many_pair_streams_share_one_external_sort_with_the_workspace_eight_mib_pool() {
+    async fn demand_partitioned_pair_streams_preserve_every_edge_in_the_workspace_eight_mib_pool() {
         use crate::admission::{AdmissionOptions, AdmissionRuntime};
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let workspace = AdmissionRuntime::with_budget(
@@ -3199,51 +3258,32 @@ mod nominal_closure_controls {
             session.copied_config().target_partitions(),
             "preparation preserves its caller's partition target"
         );
-        let edge_rows = ROWS * BINDINGS;
-        assert_eq!(
-            edges
-                .0
-                .batches
-                .iter()
-                .map(|batch| batch.rows)
-                .sum::<usize>(),
-            edge_rows,
-            "all distinct declared edges survive staging and ordering"
-        );
-        assert_eq!(
-            edges.0.batches.len(),
-            edge_rows.div_ceil(resources::TRANSFER_ROWS),
-            "index has one entry per full storage batch, independent of upstream tiny fragments"
-        );
-        assert!(
-            edges.0.batches[..edges.0.batches.len() - 1]
-                .iter()
-                .all(|batch| batch.rows == resources::TRANSFER_ROWS)
-        );
-        let index_usage = workspace.budget().reserved();
-        let mut cursor = EdgeCursor::new(&edges.0, workspace.budget()).unwrap();
+        assert!(edges.0.adjacency.iter().all(|slot| slot.get().is_none()));
         let mut seen = 0;
-        for index in 0..edges.0.batches.len() {
-            let batch = cursor.batch(index, workspace.budget()).unwrap();
-            for row in 0..batch.num_rows() {
-                let binding = seen / ROWS;
-                assert_eq!(
-                    edge_key(batch, "source_kind", "source_id", row).unwrap(),
-                    (binding as i64, expected_sources[binding][seen % ROWS])
-                );
-                assert_eq!(
-                    edge_key(batch, "target_kind", "target_id", row).unwrap(),
-                    (BINDINGS as i64, *package.id().bytes())
-                );
-                seen += 1;
+        for (binding, expected) in expected_sources.iter().enumerate() {
+            let prepared = edges.0.source(binding, workspace.budget()).await.unwrap();
+            assert_eq!(prepared.batches.len(), ROWS.div_ceil(resources::TRANSFER_ROWS));
+            let index_usage = workspace.budget().reserved();
+            let mut cursor = EdgeCursor::new(prepared, workspace.budget()).unwrap();
+            let mut source_row = 0;
+            for index in 0..prepared.batches.len() {
+                let batch = cursor.batch(index, workspace.budget()).unwrap();
+                for row in 0..batch.num_rows() {
+                    assert_eq!(edge_key(batch, "source_kind", "source_id", row).unwrap(),
+                        (binding as i64, expected[source_row]));
+                    assert_eq!(edge_key(batch, "target_kind", "target_id", row).unwrap(),
+                        (BINDINGS as i64, *package.id().bytes()));
+                    source_row += 1;
+                }
             }
+            assert_eq!(source_row, ROWS);
+            seen += source_row;
+            drop(cursor);
+            assert_eq!(workspace.budget().reserved(), index_usage);
         }
-        assert_eq!(
-            seen, edge_rows,
-            "complete edge content is checked in exact sort order"
-        );
-        drop(cursor);
-        assert_eq!(workspace.budget().reserved(), index_usage);
+        assert_eq!(seen, ROWS * BINDINGS);
+        edges.0.source(BINDINGS, workspace.budget()).await.unwrap();
+        let index_usage = workspace.budget().reserved();
         let scope = edges
             .grain(0, &id_predicate(selected.id()), workspace.budget())
             .await
