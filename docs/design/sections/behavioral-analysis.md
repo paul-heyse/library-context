@@ -153,6 +153,18 @@ silently reported as complete.
 
 ## Transfer summaries
 
+**Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Summary discovers a
+private charged canonical question domain from processed current finite operands and residuals,
+without persisting every attempted pair. Existing finite witnesses/residuals preserve member
+evidence, caller qualification, broad refusal scope and exact proven correspondence. Diagnostic
+replay reconstructs questions independently; ordinary admission does not rerun the entire solver.
+Canonical candidate accounting, frame-wide allowances and SCC/shared-callee progress remain.
+Immutable composition/Completion preparation is shared at its real frame/body lifetime. The
+[publication coordinator §6](../../plans/catalog-publication-performance-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns actual consumer/schema migration and focused verification.
+
+> Decision: ADR-0190
+
 **Implemented / focused verification in progress, 2026-10-17:** caller-attempt preparation is
 SCC-local and releases after its final component borrower; shared signature ingredients survive
 later callers. Solving-only lexical/progress state releases before terminal postprocessing.

@@ -90,6 +90,18 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Publication prepares
+operation-shaped canonical/role/search expectations and demanded definition details once, under
+actual source, pin, executable and resource ownership. Seal freshly reconciles actual content,
+roles and roots. Nongraph compiler envelopes use shared immutable blocks and contribution-qualified
+indexed locators; logical IDs remain distinct from physical protection addresses. One operation
+root protects exact native page outcomes and bounded progress, replacing ordinary per-page host
+envelopes. Genuine full cuts, independent receiving and Unknown ownership remain. Terminal cleanup
+excludes its exact reference/collector hazards. The [publication coordinator §6](../../plans/catalog-publication-performance-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns migration, generation10 cutover and focused verification; these are not established by acceptance.
+
+> Decision: ADR-0190
+
 **Implemented / focused-Tested,2026-10-17 (ADR-0189).** Original layouts have
 model/codec-qualified physical addresses because they reference exact model-qualified Source
 payloads. Public source/original manifest identities remain nominal; original blob and chunk bytes
@@ -602,6 +614,14 @@ mechanisms have independent scoped review acceptance; the coordinator owns uncom
 > Decision: ADR-0168
 
 ### §6.2 Readers
+
+**Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Borrow the actual
+authenticated reader/session owner; intentional forks have checked closure. Block slot reads
+retain exact contribution-qualified selection and advertised native predicate/order semantics.
+Original pins and actual reader/native-executor drainage remain necessary; equal selectors,
+host process exit and successful new generations do not discharge an old obligation.
+
+> Decision: ADR-0190
 
 **Implemented / focused-Tested,2026-10-17 (ADR-0189).** Logical Source EntityIds
 resolve through the model/codec-qualified original-layout owner. Indexed source candidates from

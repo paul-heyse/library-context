@@ -147,10 +147,12 @@ supersede only an explicit replaced decision, not an unrelated whole record beca
 appears above. Update the owning architectural section with the implemented decision. PA02/PA03
 and PB03 initially fit existing immutable preparation/output contracts.
 
-I01's stronger executed-whole-input authority, changed question/refusal meanings, or a new
-semantic budget/support policy are additional impacts if selected. Present their exact contract
-before dependent implementation; the approved directions do not silently waive those decisions.
-Compatible acquisition/preparation work may proceed without that stronger change.
+**Additional operator approval, 2026-10-17 (execution planning):** I01 may reuse genuinely
+completed whole-input checks only within the same live operation and exact model/invariant/profile,
+ordered roles/views, ledger/frontier, retained original pins and executor/resource/cancellation
+context. Only authentic complete execution earns the private carrier; failed prefixes publish no
+success. Cold/incoming receiving remains independent. ADR-0190 records this accepted contract.
+Changed question/refusal meaning or semantic budget/support policy remains outside that approval.
 
 ## 4. Work packages and actual prerequisite order
 
@@ -284,10 +286,10 @@ refer to the publication performance review, not identically numbered older find
 | Source obligation | Assigned work and distinct closure obligations | Current disposition, 2026-10-17 |
 |---|---|---|
 | F01 | PC00's four demand migrations; PC01's first-use and cross-outer-window acquisition with genuine coverage preserved | Planned; no new implementation |
-| F02 | PA00/PA01 question/evidence meaning and all trace consumers; PA04 only for compatible accounting-preserving reduction | Planned; preferred target selected, sufficient member representation open |
+| F02 | PA00/PA01 question/evidence meaning and all trace consumers; PA04 only for compatible accounting-preserving reduction | In progress; private question domain and existing witness/residual sufficiency selected; trace consumer cutover underway |
 | F03 | PA02 Summary allowance/overlay/guard/index work; PA03 actual Completion statement/body preparation reuse | Planned; no new implementation |
 | F04 | PC02 all surveyed consuming-output migrations; PC03 canonical prefixes, failure ownership and last-use release | Planned; no new implementation |
-| F05 | PN00/PN02 physical expansion and preserving preparation; PN03 candidate/cold/original set observation; PN06 actual cutover and consumer removal | Planned; layout unresolved, packet target selected |
+| F05 | PN00/PN02 physical expansion and preserving preparation; PN03 candidate/cold/original set observation; PN06 actual cutover and consumer removal | In progress; global immutable blocks and contribution-qualified locators selected; full writer/reader/audit/recovery migration remains required |
 | F06 | PN04 exact operation/page durability and recovery, including last witness, delayed work and retained receipts | Planned; operation-root direction selected, no new protocol implementation |
 | F07 | PN05 narrow terminal hazards with exact collector/reference exclusion and preserved real cuts | Planned; hazard realization open |
 | F08 | PC04 readiness/retention separation with independent lifetime and accepted-failure joins | Planned; no new implementation |
@@ -295,27 +297,40 @@ refer to the publication performance review, not identically numbered older find
 | F10 | PB02 retained canonical/role expectation, fresh actual/root comparison and independent receiving | Planned; no new implementation |
 | F11 | PB03 indexed link/binding correspondence and retained/spilled Basic across real barrier | Planned; no new implementation |
 | F12 | PN01 helper/caller session ownership and checked deliberate detach | Planned; auxiliary-session finality remains unresolved |
-| I01 | PC05 independently decides shared acquisition versus authentic executed whole-input authority; additional rule route if needed | Open; bounded source/functional investigation planned |
-| I02 | PN00 source-based server work/resident assessment; narrowly selected evidence only if it changes a concrete choice | Open/conditional; no campaign required |
-| I03 | PA00 smallest sufficient member evidence and consumer contract; complete run/disposition counts retained in later handoff | Open in stated representation; full recursive runtime not_run |
-| I04 | PN00 selected exact blocks/locators/access/protection/receiving/collection design, not just packet sizing | Open; indexed nongraph blocks preferred |
+| I01 | PC05 shares protected acquisitions and authentic complete whole-input execution; native fixed-driver/durable validation remains the source of authority | Approved contract; implementation and native counterexample controls in progress |
+| I02 | PN00 source-based server work/resident assessment; narrowly selected evidence only if it changes a concrete choice | Source-based structural choice sufficient; selected-slot query/index qualification remains required, no timing/memory claim |
+| I03 | PA00 smallest sufficient member evidence and consumer contract; complete run/disposition counts retained in later handoff | Representation settled: charged private question domain plus existing witnesses/residuals; focused controls in progress; full recursive runtime not_run |
+| I04 | PN00 selected exact blocks/locators/access/protection/receiving/collection design, not just packet sizing | Selected in ADR-0190: global shared canonical blocks, fused indexed locators, physical-address checks and contribution-to-block holds; migration/qualification in progress |
 | Additional scheduling | PC03 actual whole-window callers; PA04 candidate/SCC and Local/Base-expression/SourceCall/Enriched grain opportunities; preserve body/premise order | Planned decision and compatible implementation |
-| RC01–RC10 | Section3 records each approved direction and implementation decision route | Approved directions only; not enacted by plan publication |
+| RC01–RC10 | Section3 records each approved direction and implementation decision route | Approved; ADR-0190 enacts the target refinements; each actual implementation/verification obligation remains separate |
 
-**Current checkpoint:** this five-document proposal is authored; code, schemas and decisions have
-not been changed by authoring. Focused source assessment supports the selected directions, not
-implemented or tested replacements. Authoring product compile/tests/Clippy/services are **not_run**
-because this increment changes documentation only. Focused cross-document advice found no remaining
-material coverage/contract omission after clarifying selected-view conflict scope, all remaining
-grain loops, bounded page progress and early/final cutover prerequisites. All26 source finding/
-investigation/rule identifiers occur here; all34 relative document links resolve.
+**Execution checkpoint, 2026-10-17:** implementation authorized against clean main
+`609175c2b69b9f3de603a7e12a49fd2fdc0a0f1b`. ADR-0190 and architectural owners record the accepted
+semantic/physical/recovery/publication contracts. Independent parallel ownership covers model
+PA00–PA03, compiler PC00–PC04/PA04, and native PN00–PN06; the coordinator owns admission PC05,
+public publication PB01–PB04, integration and dispositions. No auxiliary worktree is in use.
+
+Source cutovers are in progress: private Summary questions/evidence and shared preparation;
+sufficient adapter demand, consuming output, canonical ready prefixes and source-owned retention;
+borrowed sessions, typed graph envelopes and candidate/cold/original set observations; protected
+whole execution/acquisition and retained publication role/search/definition preparation. New
+block codec/locators are not sufficient for PN02 closure: actual installer, every selected/audit/
+transport/collector consumer, operation-root protocol and authenticated generation10 cutover must
+all work before those packages complete. Existing shared service and eight Unknown obligations
+remain protected. Candidate setup and final shared regeneration have not occurred.
+
+Five selected pure model controls passed via `cargo nextest run --release -p lctx-model --lib
+--no-fail-fast -E 'test(question_domain_coalesces_discoveries) | test(prepared_completion_keeps_request_limits_independent) | test(published_components_keep_frame_global_member_limit_and_shared_callee_progress) | test(correspondence_keeps_competing_headers_declarations_and_contextual_events) | test(signature_preparation_is_lazy_shared_ordered_and_borrow_scoped)'`
+(nextest run `f66e874c-e6fe-4fe4-8dd3-9911c1309cce`). Further independent question/witness/member
+cases and integrated compilation are in progress; no final PP90 pass or speedup is claimed.
 
 **Authoring verification, 2026-10-17:** `just run --background --label publication-plan-docs -- just docs-check`
 **passed**, run `20261017T221447.030Z-fb2a70`, exit0/host cleanup confirmed:510 canonical pages,
 zero link errors, ADR lint116 records and agent lint passed. `git diff --check` passed. These
 checks establish document publication, not architectural acceptance or production functionality.
 
-**Next executable step:** plan detailed execution of PP00 and the early PA00/PN00 decisions,
-alongside independently ready preparation/session corrections. Resolve actual prerequisites
-and editing ownership before parallel implementation. The full functional scope and final
-long-validation scope remain distinct. Existing plans and native Unknowns remain unchanged.
+**Next executable step:** complete and integrate the active source slices, migrate every native
+physical consumer and implement operation-root pages, then qualify the explicit candidate and
+perform owner-authenticated final regeneration. Run focused functionality and PP90 compile/strict
+keep-going Clippy/applicable leaves, then PP99 retirement/handoff. Existing plans and native
+Unknowns remain unchanged; full long journeys remain later validation.

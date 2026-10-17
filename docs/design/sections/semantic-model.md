@@ -62,6 +62,15 @@ from this architectural decision.
 
 ## §15.1 Layers, owners and mechanisms
 
+**Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Exact semantic
+dependency identity and sufficient coverage properties do not imply rich payload demand.
+Protected preparation binds ordered roles/views and actual model/context/pin/resource owners.
+Whole-input reuse requires complete authentic execution against exact native inputs, not an
+external mutable planner or digest memo; only a wholly successful validation attempt publishes
+private reusable evidence. Independent receiving and final mutable-state checks remain.
+
+> Decision: ADR-0190
+
 **Implemented / focused verification in progress,2026-10-17 (ADR-0187).** Model declarations and
 authentic selected assurance govern dependency-ready consumers across phase labels. Selected-only
 runtime scope cannot acquire whole-artifact authority. Independent private jobs retain actual
@@ -984,6 +993,17 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 <a id="section-15-11"></a>
 
 ## §15.11 Compilation and physical realization
+
+**Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Canonical output moves
+charged backing after its last semantic use. Ready ordered private prefixes integrate while
+independent work continues, with complete accepted-work joins and no premature completed visibility.
+Required readiness may precede accepted optional retention only under a source-protecting child
+owner joined by the enclosing operation. This replaces the retention-before-readiness ordering
+below; existing coherent composition and source/finality obligations remain. The
+[publication coordinator §6](../../plans/catalog-publication-performance-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns implementation and focused acceptance.
+
+> Decision: ADR-0190
 
 **Implemented / integrated functional acceptance blocked,2026-10-17 (ADR-0187).** Complete selected prerequisite readiness replaces broad execution phase barriers. Private checked inputs retain exact dependency/qualification inventories and provider-only facts coverage; final coherent admission and ordered publication remain. Existing joined task owners execute independent typed grains with canonical integration. Analytic indexes and shared incidence remove repeated work; Summary releases dead solving preparation while retaining SCC/global frontier semantics.
 After terminal failure, analytic preparation and queued successful results which cannot integrate
