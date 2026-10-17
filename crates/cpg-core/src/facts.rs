@@ -1,7 +1,7 @@
 //! Independent facts producers into exact persisted completed contribution views.
 use crate::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use cpg_extract::bundle::{self, CapturedInputs, ProviderStage};
-use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use lctx_model::domain::{
     ContentHash, ModelError, ValidatedModel,
     batching::TransferLimits,
@@ -63,22 +63,14 @@ pub async fn compile_facts(
                 let declaration = declaration.clone();
                 let workspace = workspace.clone();
                 let captured_run = captured_run.clone();
-                pending.push(
-                    async move {
-                        let name = declaration.name;
-                        let result = run_provider(
-                            &workspace,
-                            provider,
-                            declaration,
-                            profile,
-                            captured_run,
-                            limits,
-                        )
-                        .await;
-                        (name, result)
-                    }
-                    .boxed(),
-                );
+                pending.push(provider_task(
+                    workspace,
+                    provider,
+                    declaration,
+                    profile,
+                    captured_run,
+                    limits,
+                ));
             }
         }
         let Some((name, result)) = pending.next().await else {
@@ -103,6 +95,33 @@ pub async fn compile_facts(
     }
 
     Ok(())
+}
+
+/// Erase the complete owned task at the facts boundary, rather than exposing its
+/// provider/output completion coroutine's Send proof to every downstream consumer.
+/// This is the scheduler's existing allocation; setup and effects remain lazy.
+fn provider_task(
+    workspace: Arc<Workspace>,
+    provider: Box<dyn ProviderStage<ProducerOutput>>,
+    declaration: lctx_model::domain::stages::Stage,
+    profile: Profile,
+    captured_run: bundle::CapturedTreeRunGuard,
+    limits: TransferLimits,
+) -> BoxFuture<'static, (&'static str, Result<(), ModelError>)> {
+    async move {
+        let name = declaration.name;
+        let result = run_provider(
+            &workspace,
+            provider,
+            declaration,
+            profile,
+            captured_run,
+            limits,
+        )
+        .await;
+        (name, result)
+    }
+    .boxed()
 }
 
 async fn run_provider(
