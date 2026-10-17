@@ -6,6 +6,20 @@ sole current disposition. This document develops runtime F03–F05 and the memor
 It preserves inherited admission, ingress, recovery and lifecycle obligations without duplicating
 their status. The coordinator retains exact source/candidate/production evidence boundaries.
 
+### Implementation checkpoint
+
+RN00 selected one atomic bounded apply, and RN01–RN03 are integrated on `main` under
+[ADR-0178](../adr/0178-atomic-bounded-native-effects.md). Ordinary effects no longer use a
+separately committed intent stage. Complete original owner context is checked before recovered
+terminal knowledge and reference settlement; actual changed incidence drives necessary writes,
+while complete attempt/admission cuts and new-hold retirement exclusion remain. Receiving and
+retained readers carry complete native-earned protection under the controlled-write boundary.
+The [integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+accepts the inspected composition. RN04's source/host conclusion appears in §6; it does not
+attribute the historical memory observation. Native focused controls and exact RE80 regeneration
+are recorded by the coordinator; RE90 integrated acceptance remains pending. The alternatives
+and cases below preserve the decision/acceptance reasoning, not an unresolved protocol selection.
+
 ## 1. Responsibility, foundations and target
 
 `lctx-native` owns actual effects, protected physical content, incarnations, sessions and recovery.
@@ -15,7 +29,7 @@ The [storage owner](../design/sections/storage-and-publication.md#section-6-1),
 current contracts. The model retains identities, meaning and structured completion observations.
 
 The RE00 baseline `control/authorization.rs` captured expected guards/owner/era, committed intent and payload
-separately, records terminal knowledge and settles references. `control/coordination.rs` supplies
+separately, recorded terminal knowledge and settled references. `control/coordination.rs` supplies
 complete attempt/installation admission and scalar guard checks. `control/schema.surql` already
 uses bulk immutable insertion, but touches declared incidence before determining what changes.
 `control/live_view.rs` and `installed_view/{receiving,live}.rs` earn receiving/retained protection

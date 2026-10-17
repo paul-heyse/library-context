@@ -5,6 +5,20 @@
 rule decisions and shared dependencies. This document develops runtime F08/F09 and preserves the
 previous Base/Summary/analytics delivery and its remaining functional acceptance.
 
+### Implementation checkpoint
+
+RA00–RA02 are integrated on `main`. [ADR-0180](../adr/0180-shared-exact-base-preparation.md)
+governs shared immutable Base preparation with exact typed root partitions and once-only mutable
+production. Successful checked capture coverage is reusable; pure local preparation may narrow,
+while fresh-provider earning or issued acquisition failure remains terminal. RA01 selected exact
+existing-model Summary factoring, described in §3, without changing proof, work or residual meaning.
+Focused controls exercise high-degree equivalent/distinct residuals, deferred endpoint routing,
+Alias/Path products and the capture preparation/issue boundary. The
+[integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+accepts that inspected route. RE90 must still establish the actual ordinary/recursive Summary,
+Base/SourceCall and analytic consumers on the final target; focused evidence does not establish
+those enclosing outcomes. Current finding dispositions and exact receipts remain with the coordinator.
+
 ## 1. Semantic owners and suitable foundations
 
 The model owns root/frame identity, requestedness, negative universes, proof/evaluation order,
@@ -80,9 +94,10 @@ shared acquisition and finality. Existing focused capture passes remain narrower
 
 ## 3. RA01 — Decide Summary candidate and residual factoring
 
-The existing queue allowance counts admitted/popped work. It does not claim to bound every
-candidate scan or residual construction. Runtime F09 is an unresolved high-degree execution-fit
-question, not a queue bug or established cause of a timeout.
+The queue allowance counts admitted/popped work. It does not claim to bound every candidate scan
+or residual construction. At the RE00 baseline, runtime F09 was an unresolved high-degree
+execution-fit question, not a queue bug or established cause of a timeout. The selected factoring
+below resolves the source design question; integrated functional acceptance remains separate.
 
 Inspect opposite-owner proof buckets, endpoint eligibility, candidate enumeration after queue
 exhaustion, residual qualification and obligation identity. Construct two minimal service-free

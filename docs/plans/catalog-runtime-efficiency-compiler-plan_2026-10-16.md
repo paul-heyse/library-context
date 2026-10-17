@@ -1,9 +1,23 @@
 # Catalog runtime efficiency: demand and joined compiler execution
 
-**Proposed, 2026-10-16.** Companion to the
+**Accepted target / implemented source, integrated acceptance pending, 2026-10-16.** Companion to the
 [coordinator](catalog-runtime-efficiency-plan_2026-10-16.md), which alone owns rule decisions,
 dependencies and disposition. This document develops runtime F01/F02. It consumes existing exact
 completed inputs and finality rather than redefining semantic admission or provider meaning.
+
+### Implementation checkpoint
+
+CX00 and CX01 are integrated on `main`. Demand-shaped provider acquisition now earns reached
+namespaces and contextual preparation through exact dependency-owned slots. Upper producers run
+as independently polled joined tasks; one coordinator retains readiness, ordered integration and
+prefix publication. Stage joins precede provider-descendant discovery and native finality, so a
+late producer cannot register work after its owner has declared drainage.
+[ADR-0179](../adr/0179-joined-owned-producer-execution.md) and the semantic owner govern the
+changed placement; native capabilities retain [ADR-0178](../adr/0178-atomic-bounded-native-effects.md).
+The [integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+accepts the inspected composition at its declared source boundary. Focused controls do not close
+RE90's integrated producer, provider, CLI and reconstruction acceptance. The requirements below
+remain the acceptance contract, rather than a second current-disposition ledger.
 
 ## 1. Foundations, responsibility and intended changes
 
@@ -19,10 +33,10 @@ checked predecessor rebase/handoff, complete-key optional Catalog requests and i
 reference admission. Mutable captured inputs still require full opening/post-provider checks.
 Facts providers already run on explicit owned native threads with joins. Retain those mechanisms.
 
-The remaining scope program eagerly resolves every declared table provider and constructs
-contextual adjacency before root demand. The upper producer scheduler stores ordinary futures
-inside one parent task; synchronous `borrowed_cpu` prevents polling siblings in that task. Correct
-these physical choices while retaining scope universes, coordinator integration and exact lifetime.
+At the RE00 baseline, scope preparation eagerly resolved every declared table provider and
+constructed contextual adjacency before root demand. The upper producer scheduler stored ordinary
+futures inside one parent task; synchronous `borrowed_cpu` prevented polling siblings in that task.
+The integrated corrections retain scope universes, coordinator integration and exact lifetime.
 
 ## 2. CX00 — Demand-shaped scope acquisition
 

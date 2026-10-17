@@ -1,9 +1,22 @@
 # Catalog runtime efficiency: publication and functional completion
 
-**Proposed work / inherited evidence, 2026-10-16.** Companion to the
+**Accepted target / implemented source, integrated acceptance pending, 2026-10-16.** Companion to the
 [coordinator](catalog-runtime-efficiency-plan_2026-10-16.md), whose §6 alone owns current finding
 disposition. This document specifies runtime F06/F07, preserves exact inherited evidence and
 defines RE80/RE90/RE99. Retained receipt observations below do not establish fresh executor state.
+
+### Implementation checkpoint
+
+RP00/RP01 are integrated on `main`: selected backup shares exact descriptors inside its one
+snapshot, then reaches checked source EOF and transaction/session/pin finality before independent
+local carrier construction. [ADR-0178](../adr/0178-atomic-bounded-native-effects.md) governs native
+protection/recovery; [ADR-0179](../adr/0179-joined-owned-producer-execution.md) and
+[ADR-0180](../adr/0180-shared-exact-base-preparation.md) govern the joined compiler and shared Base
+contracts with which publication composes. The
+[integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+accepts the inspected composition at its declared source boundary. RE80 default regeneration
+passed as detailed in §5. RE90 selected-complete acceptance and RE99 final handback remain pending;
+their outcomes and sole finding disposition belong to the coordinator.
 
 ## 1. Publication responsibility and suitable foundations
 
@@ -19,17 +32,22 @@ snapshot with owned spools. Correct repeated dependency descriptor queries and t
 unnecessarily long lifetime; do not replace backup with a server dump that loses selected closure,
 an old-generation copy or a transaction spanning local carrier work.
 
-## 2. Inherited checkpoint and protected obligations
+## 2. Historical inherited checkpoint and obligation provenance
+
+This section preserves dated evidence and the identities behind original outcomes. It is not a
+list of still-open default-target cleanup actions: the RE80 regeneration in §5 separately settled
+the inherited protected attachment obligations through authenticated shutdown/discard. Original
+failed/Unknown observations remain unchanged, and historical passes do not qualify the new source.
 
 ### Target and dated acceptance
 
 The previous efficiency CE80 default regeneration passed in
-`20261016T154634.590Z-fe4647`. Installation `58abe9ea-2088-4109-95ab-8440a3749c51` uses generation
+`20261016T154634.590Z-fe4647`. Installation `58abe9ea-2088-4109-95ab-8440a3749c51` then used generation
 `880b51cb809f3b0697ff56a45a4f6efb22d758b5eab076bcd88b2c6a4ff80fcf`, required patched peer
 `9fbab612b96f62d2e88070ffd2cb7f1d8ec7b7a3a5cf304592c1c041ed3c761e` and regeneration journal
-`fd0f108d2ed2e72c2a70b18026f77f00344a7429e17cebdc5f9a5e463d055bea`. These are the delivered
-baseline, not instructions to reinstall or recreate E1. Reobserve actual prerequisites before
-authorized execution; generated format8/physical completion v2 and current lexical definitions
+`fd0f108d2ed2e72c2a70b18026f77f00344a7429e17cebdc5f9a5e463d055bea`. These identify the inherited
+baseline superseded by §5, not instructions to reinstall or recreate E1. Reobserve actual
+prerequisites before authorized execution; generated format8/physical completion v2 and current lexical definitions
 remain subject to their existing runtime checks.
 
 | Retained run | Outcome and evidence limit |
@@ -47,15 +65,16 @@ remain subject to their existing runtime checks.
 Last finality implementation separates ordered operation errors from actual driver joins and
 finalizers, retaining typed JoinError and nested Unknown. The corrected large-binding native
 control now earns an actual InputRevision contribution through its factory/pool; its execution
-remains not_run. Process-only compiler protocol controls construct their signal owner once;
+was not_run at that inherited checkpoint. Process-only compiler protocol controls construct
+their signal owner once;
 actual constructors still earn receipt-backed ownership. These are source-accepted foundations
 with the exact remaining functional controls carried into RE90.
 
-### Default-target unreleased attachments
+### Default-target attachments protected at the inherited checkpoint
 
-The following sixteen attachments are named by the previous coordinator and remain unreleased
-in retained attachment records inspected on 2026-10-16. They bind the delivered default generation
-above. Complete/Started counts are stored record observations, not proof of current live work or
+The following sixteen attachments were named by the previous coordinator and were unreleased
+in retained attachment records inspected at the inherited checkpoint on 2026-10-16. They bound
+the delivered default generation above. Complete/Started counts are stored record observations, not proof of current live work or
 actual executor drainage. Fourteen records explicitly retain native Unknown and confirmed command
 cleanup; the two broad interrupted records omit aggregate native/host fields and require their
 managed run and individual owner/drain receipts. No successful cleanup is inferred from omission.
@@ -81,10 +100,11 @@ managed run and individual owner/drain receipts. No successful cleanup is inferr
 
 All abbreviated runs in this table have prefix `20261016T`. Exact records remain under
 `/home/paul/.local/state/library-context/surrealdb/attachments/<ID>/record.json`, with their native
-owners/pending actions in the same existing receipt scope. RE00 rechecks these actual owner routes
-before any release/recovery effect. A stale record neither proves a daemon is live nor permits
-disposal. This list covers named inherited default obligations; it is not a complete installation
-inventory or authorization to inspect/reset operator content.
+owners/pending actions in the same existing receipt scope. RE80 used the actual owner routes and
+separate discard acknowledgements to settle protected obligations; it did not turn their original
+native observations into successful logical cleanup. A stale record neither proves a daemon is
+live nor permits disposal. This historical list covers named inherited default obligations; it
+is not a complete installation inventory or authorization to inspect/reset operator content.
 
 ### Disposed targets and predecessor acknowledgements
 
@@ -124,8 +144,8 @@ inventory covers 34 of 149 existing full managed run IDs cited by the previous c
 It cannot replace their receipt context. No storage consumer was released by plan authorship.
 
 The [superseded coordinator's dated records](catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
-and companions remain consumed by immutable ADR-0173–0177 historical citations and their receipt
-context. They are reference-only, with no live execution ownership. This is the reason for
+and companions retain historical consumers, including immutable ADR-0174/0175/0177 citations
+and their receipt context. They are reference-only, with no live execution ownership. This is the reason for
 retaining full content rather than leaving stubs or editing accepted ADR bodies. Current obligations
 are available here without recovering old instructions. Remove historical documents only when
 their actual remaining consumers end; Git provides recovery.
@@ -176,6 +196,20 @@ replacement. Verify source-finalization ordering using explicit local gates/fail
 selected backup/independent restore with exact originals, aliases, ownership and cold semantics.
 
 ## 5. RE80 — Conditional final target-state regeneration
+
+**Delivered RE80 default replacement, passed 2026-10-16:** managed run
+`20261016T232319.399Z-739293` completed exact default installation
+`58abe9ea-2088-4109-95ab-8440a3749c51` regeneration of `library_context/{main,validation}` through
+the existing service/run/storage owners. Its generation is
+`1b7ae070a26755c60d87888e1b2291b75b120d6a89941bae7c87dc001c79db4c`, regeneration journal
+`21343c88a458c8df763770a0c998950921522037461e2e5aba8b99ccaccc7e14`, with unchanged required peer
+`9fbab612b96f62d2e88070ffd2cb7f1d8ec7b7a3a5cf304592c1c041ed3c761e`. Authenticated host/native
+executor drainage and exact daemon shutdown preceded discard/reinitialization; both scopes
+passed their checks and admission reopened. Host cleanup was confirmed. All 23 previously
+protected default attachments received separate validated discard acknowledgements. Those settle
+ownership obligations without rewriting their original failed/Unknown outcomes. The one owned
+candidate's controls, regeneration and final disposal remain separately recorded by the coordinator.
+This establishes target replacement, not RE90 functional acceptance or operator adoption.
 
 Prior CE80 is delivered. Determine from selected new code/schema/definition/identity changes whether
 fresh project reconstruction is required; do not redo an old campaign automatically. Fresh logical
@@ -238,6 +272,21 @@ while mandatory exits remain. Carry unresolved evidence and storage consumers fo
 
 Identify which paused Catalog-completion/SA9/persisted-efficiency assumptions and exits need later
 operator-authorized reconciliation. Do not execute or close those tracks as part of handback.
+
+The later handback must account for these changed assumptions in their existing owners:
+
+- **Catalog completion:** original 900-second reconstruction timeouts do not qualify the new
+  demand/joined/capture/Summary route. Reconcile its remaining acceptance against RE90's actual
+  reached assertions and exclusions, rather than schedule duplicate historical runs automatically.
+- **SA9/native lifecycle:** ordinary bounded effects are atomic under ADR-0178; split-intent
+  expectations must move to original-request reconciliation and complete cuts. Distinguish
+  independently acknowledged target discard from successful logical cleanup and retain actual
+  receiving ownership, source finality and adoption boundaries.
+- **Persisted efficiency:** shared Base and descriptor preparation, changed incidence and protected
+  preserving reads are implemented contracts. Reconcile old eager acquisition, singleton-only
+  preparation, per-window assurance and prolonged backup-source assumptions against ADR-0178–0180
+  and current owners. Historical memory attribution and quantitative speedup remain unestablished.
+
 Remove superseded runtime paths and no-longer-consumed documents according to actual ownership;
 retain immutable historical citations while they have a consumer. RE99 changes documentation only;
 no final regeneration or product mutation follows accepted target-state evidence.
