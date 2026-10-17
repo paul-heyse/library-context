@@ -1,5 +1,6 @@
-//! Actual native packets model a committed acknowledgement unobserved by its owner.
-//! This is not network fault injection; the fixture must be a task-owned RocksDB target.
+//! Native terminal-reference controls, including ordinary logical ownership scopes.
+//! Ignored acknowledgement controls below require a task-owned RocksDB target;
+//! they model unobserved acknowledgements rather than inject network faults.
 use super::*;
 use futures::FutureExt;
 use lctx_model::domain::{
@@ -274,6 +275,111 @@ async fn committed_packet_recovery(persist_terminal: bool) {
             if !completion.failures.is_empty() {
                 eprintln!("native recovery control cleanup: {completion:?}");
             }
+            std::panic::resume_unwind(panic);
+        }
+    }
+}
+
+/// Observe the delta inside the actual production transaction, so unrelated
+/// processes changing the same installation stripe cannot mask or fail the case.
+async fn settle_with_stripe_delta(
+    client: &Surreal<Client>,
+    envelope: &PendingRecoveryEnvelope,
+    expected_delta: i64,
+) -> Result<(), ModelError> {
+    envelope.validate(&envelope.target)?;
+    let current = IssuanceEra::capture(client).await?;
+    let (sql, mut bindings) = terminal_reference_settlement_plan(envelope, current)?;
+    let body = sql.strip_prefix("BEGIN; ").and_then(|sql| sql.strip_suffix(" COMMIT;"))
+        .ok_or(ModelError::Schema("native settlement control transaction"))?;
+    bindings.insert("control_expected_delta", expected_delta);
+    let observed = format!(
+        "BEGIN; LET $control_before=SELECT VALUE revision FROM ONLY $__stripe; {body} IF (SELECT VALUE revision FROM ONLY $__stripe) - $control_before != $control_expected_delta {{ THROW 'native terminal settlement stripe delta'; }}; COMMIT;"
+    );
+    coordination::preflight(&observed, &bindings)?;
+    super::super::retry::transaction_named(client, &observed, bindings, true, "terminal_settlement_stripe_control").await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn native_terminal_release_preserves_stripe_checks_without_an_ordinary_revision_write() {
+    let config = crate::RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("installed logical validation target"),
+    )).unwrap();
+    let budget = ResourceBudget::fixed(DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = RecoveryFactoryOwner::new(config.receipt_binding().unwrap(), budget).unwrap();
+    let (client, lease) = crate::reader::connect_owned(
+        &config.endpoint, &config.writer_credentials(), config.namespace.as_str(),
+        config.database.as_str(), &factory,
+    ).await.unwrap();
+    let scope = lease.recovery_scope().clone();
+    let mut retained = Vec::new();
+    let result = AssertUnwindSafe(with_recovery_scope(scope.clone(), async {
+        for (policy, expected_delta) in [
+            (RecoveryReferencePolicy::ReleaseRecovery, 0),
+            (RecoveryReferencePolicy::RetainCaller, 1),
+        ] {
+            let payload = PreparedNativePayload::new("RETURN true", Variables::new())?;
+            let request = NativeRequest::issue(&client, payload.digest).await?;
+            let plan = owner_effect_plan(request, &EffectOwner::Installation, payload.sql,
+                payload.bindings, policy == RecoveryReferencePolicy::RetainCaller)?;
+            let pending = scope.prepare(request, plan.recovery_owner.clone(), plan.reference.clone(), policy)?;
+            if policy == RecoveryReferencePolicy::RetainCaller { retained.push(request); }
+            super::super::retry::transaction_named(&client, &plan.query, plan.bindings, false, "terminal_settlement_control_apply").await?;
+            pending.committed()?;
+            let envelope = pending.inspect(Clone::clone)?;
+            if policy == RecoveryReferencePolicy::ReleaseRecovery {
+                let mut wrong_owner = envelope.clone();
+                wrong_owner.owner = RecoveryOwner::OpenAttempt(fresh_identity("foreign-settlement-owner")?);
+                assert!(settle_reference(&client, &wrong_owner, scope.cancellation()).await.is_err());
+                let mut wrong_reference = envelope.clone();
+                wrong_reference.outcome_reference = RecordId::new("native_outcome_ref", fresh_identity("foreign-settlement-reference")?.hex());
+                assert!(settle_reference(&client, &wrong_reference, scope.cancellation()).await.is_err());
+                let mut foreign_generation = envelope.clone();
+                let foreign = fresh_identity("foreign-settlement-generation")?;
+                foreign_generation.request.issuance.generation = foreign;
+                foreign_generation.target.generation = foreign;
+                assert!(settle_reference(&client, &foreign_generation, scope.cancellation()).await.is_err());
+                let mut response = client.query("SELECT VALUE id FROM ONLY $reference")
+                    .bind(("reference", envelope.outcome_reference.clone())).await.map_err(ModelError::codec)?
+                    .check().map_err(ModelError::codec)?;
+                let reference: Value = response.take(0).map_err(ModelError::codec)?;
+                assert_eq!(reference, Value::RecordId(envelope.outcome_reference.clone()),
+                    "refusals must preserve the exact surviving reference");
+                assert_eq!(pending.inspect(Clone::clone)?, envelope,
+                    "refusals must preserve durable terminal knowledge and the actual recipient");
+            }
+            settle_with_stripe_delta(&client, &envelope, expected_delta).await?;
+            pending.settle(EffectDisposition::Committed)?;
+            // A lost settlement acknowledgement can repeat only this exact metadata
+            // action; it must not revive the original payload or a recovery reference.
+            settle_with_stripe_delta(&client, &envelope, expected_delta).await?;
+            let mut response = client.query("SELECT * FROM ONLY $effect; SELECT VALUE id FROM ONLY $reference")
+                .bind(("effect", RecordId::new("native_effect", request.operation.hex())))
+                .bind(("reference", envelope.outcome_reference.clone())).await.map_err(ModelError::codec)?
+                .check().map_err(ModelError::codec)?;
+            let outcome: Object = response.take(0).map_err(ModelError::codec)?;
+            assert_eq!(int_field(&outcome, "revision")?, 1, "settlement leaves the original outcome unchanged");
+            assert_eq!(hash_field(&outcome, "request")?, request.request);
+            let reference: Value = response.take(1).map_err(ModelError::codec)?;
+            assert_eq!(reference, if policy == RecoveryReferencePolicy::RetainCaller {
+                Value::RecordId(envelope.outcome_reference)
+            } else { Value::None });
+        }
+        assert_eq!(scope.pending_count()?, 0);
+        Ok::<(), ModelError>(())
+    })).catch_unwind().await;
+    let mut completion = Completion::default();
+    completion.step("terminal settlement pending recovery", resume_recovery_scope(&scope).await);
+    for request in retained {
+        completion.step("terminal settlement caller reference release", with_recovery_scope(scope.clone(),
+            super::super::history::release_outcome(&client, request, &request.operation.hex(), "caller")).await);
+    }
+    drop(lease);
+    completion.step("terminal settlement owned session finality", factory.drain(scope.cancellation()).await);
+    match result {
+        Ok(result) => complete(result, completion).unwrap(),
+        Err(panic) => {
+            if !completion.failures.is_empty() { eprintln!("terminal settlement control cleanup: {completion:?}"); }
             std::panic::resume_unwind(panic);
         }
     }

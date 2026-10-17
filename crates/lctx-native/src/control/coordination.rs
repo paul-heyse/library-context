@@ -49,9 +49,19 @@ pub(super) fn attempt_stripe_ids(attempt: &RecordId) -> Vec<RecordId> {
         })
         .collect()
 }
-// The marker read carries configuration only. The selected stripe WRITE is the conflict
-// partner for close/open/cut, including an uncommitted apply that arrived before the cut.
-pub(super) const ERA_GUARD: &str = "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=9 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; }; UPDATE $__stripe SET revision+=1 RETURN NONE;";
+// The marker read carries configuration only. Ordinary effects WRITE the selected
+// stripe so both commit orders exclude an overlapping installation cut. A terminal
+// recovery-reference DELETE only removes protection; its locked read must fail
+// after a cut commits, but release-first cannot invalidate the cut's drain proof.
+// Keep one exact check literal for both routes.
+macro_rules! issuance_stripe_checks {
+    () => { "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=9 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; };" };
+}
+pub(super) const ERA_GUARD: &str = concat!(
+    issuance_stripe_checks!(),
+    " UPDATE $__stripe SET revision+=1 RETURN NONE;"
+);
+pub(super) const TERMINAL_RELEASE_ERA_GUARD: &str = issuance_stripe_checks!();
 pub(super) const ALL_STRIPES_GUARD: &str = "IF array::len($__stripes)!=64 { THROW 'native stripe set width'; }; FOR $__stripe_id IN $__stripes { LET $__state=SELECT * FROM ONLY $__stripe_id FOR UPDATE; IF $__state=NONE OR $__state.format!=1 OR $__state.generation!=$__generation OR $__state.era!=$__era OR $__state.closed_through!=$__installation.closed_through OR $__state.admission_open!=$__installation.admission_open OR $__state.revision>=9223372036854775807 { THROW 'native all-stripe authority'; }; UPDATE $__stripe_id SET revision+=1 RETURN NONE; };";
 // One literal serves the actual production drain guard and its isolated native
 // control, so unrelated attempt/effect borrowers cannot mask pin exclusion.

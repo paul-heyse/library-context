@@ -1140,6 +1140,18 @@ pub(super) async fn settle_reference(
         )
         .await;
     }
+    let current = IssuanceEra::capture(client).await?;
+    let (sql, bindings) = terminal_reference_settlement_plan(envelope, current)?;
+    super::retry::transaction_named(client, &sql, bindings, true, "outcome_reference_settlement")
+        .await
+}
+/// The original terminal result and its actual recipient already own this release.
+/// Share the exact lowering with native controls; this grants no production authority.
+fn terminal_reference_settlement_plan(
+    envelope: &PendingRecoveryEnvelope,
+    current: IssuanceEra,
+) -> Result<(String, Variables), ModelError> {
+    let request = envelope.request;
     let mut bindings = Variables::new();
     bindings.insert("reference", envelope.outcome_reference.clone());
     bindings.insert(
@@ -1174,7 +1186,6 @@ pub(super) async fn settle_reference(
         ));
     }
     request.bind(&mut bindings);
-    let current = IssuanceEra::capture(client).await?;
     if current.generation != request.issuance.generation {
         return Err(ModelError::Conflict("native recovery reference generation"));
     }
@@ -1188,12 +1199,17 @@ pub(super) async fn settle_reference(
     } else {
         "DELETE $reference RETURN NONE;"
     };
+    // ReleaseRecovery never creates an effect, borrower or reference. RetainCaller
+    // may establish protection and retains ordinary write/cut exclusion.
+    let era_guard = match envelope.reference_policy {
+        RecoveryReferencePolicy::RetainCaller => ERA_GUARD,
+        RecoveryReferencePolicy::ReleaseRecovery => coordination::TERMINAL_RELEASE_ERA_GUARD,
+    };
     let sql = format!(
-        "BEGIN; {ERA_GUARD} fn::native_touch($effect); fn::native_touch($reference); {check} {action} COMMIT;"
+        "BEGIN; {era_guard} fn::native_touch($effect); fn::native_touch($reference); {check} {action} COMMIT;"
     );
     coordination::preflight(&sql, &bindings)?;
-    super::retry::transaction_named(client, &sql, bindings, true, "outcome_reference_settlement")
-        .await
+    Ok((sql, bindings))
 }
 /// The actual parent finalization owner calls this after joining submitted work.
 /// Failed admission/settlement leaves both durable metadata and the owning scope.
