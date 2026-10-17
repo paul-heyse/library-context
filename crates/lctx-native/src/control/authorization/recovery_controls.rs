@@ -312,6 +312,14 @@ async fn native_terminal_release_preserves_stripe_checks_without_an_ordinary_rev
         config.database.as_str(), &factory,
     ).await.unwrap();
     let scope = lease.recovery_scope().clone();
+    // The successor is an actually enrolled parent recovery operation, not a
+    // replacement/reset of the production token which will remain stopped.
+    let recovery = RetryCancellation::default();
+    let stopped = recovery.clone();
+    let recovery_signal = crate::signal::SignalRegistration::with_receipt(
+        "ordinary terminal settlement parent recovery", move || stopped.cancel(),
+        config.receipt_binding().unwrap(),
+    ).unwrap();
     let mut retained = Vec::new();
     let result = AssertUnwindSafe(with_recovery_scope(scope.clone(), async {
         for (policy, expected_delta) in [
@@ -366,16 +374,76 @@ async fn native_terminal_release_preserves_stripe_checks_without_an_ordinary_rev
             } else { Value::None });
         }
         assert_eq!(scope.pending_count()?, 0);
+        // Caller-retained ownership is a separate explicit consumer. Release it
+        // while production is still open; parent recovery below cannot admit a
+        // new history effect through the original stopped production scope.
+        while let Some(request) = retained.last().copied() {
+            super::super::history::release_outcome(&client, request,
+                &request.operation.hex(), "caller").await?;
+            let _ = retained.pop();
+        }
+        // This response is observed and durably recorded. Stop only subsequent
+        // settlement issuance; this is not a simulated transport acknowledgement loss.
+        let payload = PreparedNativePayload::new("RETURN true", Variables::new())?;
+        let request = NativeRequest::issue(&client, payload.digest).await?;
+        let plan = owner_effect_plan(request, &EffectOwner::Installation, payload.sql,
+            payload.bindings, false)?;
+        let pending = scope.prepare(request, plan.recovery_owner.clone(), plan.reference.clone(),
+            RecoveryReferencePolicy::ReleaseRecovery)?;
+        super::super::retry::transaction_named(&client, &plan.query, plan.bindings, false,
+            "terminal_settlement_stopped_control_apply").await?;
+        pending.committed()?;
+        let envelope = pending.inspect(Clone::clone)?;
+        let receipt = &envelope.host_owner.receipt;
+        let path = receipt.parent().ok_or(ModelError::Schema("pending control receipt parent"))?
+            .with_extension("requests")
+            .join(receipt.file_stem().ok_or(ModelError::Schema("pending control receipt name"))?)
+            .join(format!("{}.json", request.operation.hex()));
+        let persisted = read_recovery_envelope(&path, scope.target(), scope.budget())?;
+        assert_eq!(persisted.envelope(), &envelope);
+        drop(persisted);
+        scope.cancellation().cancel();
+        assert!(matches!(resume_recovery_scope(&scope).await,
+            Err(ModelError::Conflict("native recovery issuance stopped; owner retained"))));
+        assert_eq!(scope.pending_count()?, 1);
+        assert_eq!(pending.inspect(Clone::clone)?, envelope);
+        let persisted = read_recovery_envelope(&path, scope.target(), scope.budget())?;
+        assert_eq!(persisted.envelope(), &envelope,
+            "stopped release preserves the original durable recipient and terminal knowledge");
+        drop(persisted);
+        let mut response = client.query("SELECT VALUE id FROM ONLY $reference")
+            .bind(("reference", envelope.outcome_reference.clone())).await.map_err(ModelError::codec)?
+            .check().map_err(ModelError::codec)?;
+        assert_eq!(response.take::<Value>(0).map_err(ModelError::codec)?,
+            Value::RecordId(envelope.outcome_reference.clone()));
+        resume_recovery_scope_admitted(&scope, &recovery).await?;
+        assert_eq!(scope.pending_count()?, 0);
+        assert!(!path.exists(), "checked settlement consumes the original durable sidecar");
+        assert!(scope.cancellation().stopped());
+        assert!(!recovery.stopped());
+        assert!(matches!(scope.prepare(request, envelope.owner.clone(),
+            envelope.outcome_reference.clone(), envelope.reference_policy),
+            Err(ModelError::Conflict("native recovery admission stopped"))),
+            "parent recovery must not reopen production admission");
+        let mut response = client.query("SELECT * FROM ONLY $effect; SELECT VALUE id FROM ONLY $reference")
+            .bind(("effect", RecordId::new("native_effect", request.operation.hex())))
+            .bind(("reference", envelope.outcome_reference)).await.map_err(ModelError::codec)?
+            .check().map_err(ModelError::codec)?;
+        let outcome: Object = response.take(0).map_err(ModelError::codec)?;
+        assert_eq!(int_field(&outcome, "revision")?, 1);
+        assert_eq!(hash_field(&outcome, "request")?, request.request);
+        assert_eq!(response.take::<Value>(1).map_err(ModelError::codec)?, Value::None);
         Ok::<(), ModelError>(())
     })).catch_unwind().await;
     let mut completion = Completion::default();
-    completion.step("terminal settlement pending recovery", resume_recovery_scope(&scope).await);
+    completion.step("terminal settlement pending recovery", resume_recovery_scope_admitted(&scope, &recovery).await);
     for request in retained {
         completion.step("terminal settlement caller reference release", with_recovery_scope(scope.clone(),
             super::super::history::release_outcome(&client, request, &request.operation.hex(), "caller")).await);
     }
     drop(lease);
-    completion.step("terminal settlement owned session finality", factory.drain(scope.cancellation()).await);
+    completion.step("terminal settlement owned session finality", factory.drain(&recovery).await);
+    completion.step("terminal settlement parent recovery receipt", recovery_signal.complete(&completion).await);
     match result {
         Ok(result) => complete(result, completion).unwrap(),
         Err(panic) => {
