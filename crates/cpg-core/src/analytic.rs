@@ -1,5 +1,5 @@
 //! A1 owns optional nominal results over stored A0 frames and admitted E1 winning bytes.
-use crate::producer_operations::{Declaration, declare, declare_ordered, emit};
+use crate::producer_operations::{Declaration, declare, declare_ordered};
 use crate::{
     analysis_graphs::PreparedGraphs,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
@@ -144,15 +144,15 @@ fn load_frame<'a>(
     })
 }
 fn emit_results<'a>(
-    rows: &'a semantic::Output,
+    rows: &'a mut semantic::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a semantic::Output,
+        &'a mut semantic::Output,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a semantic::Output, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut semantic::Output, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[Emission] = &[$($field,)*];
     };}
     lctx_model::analytic_outputs!(adapters);
@@ -164,15 +164,15 @@ fn emit_results<'a>(
     })
 }
 fn emit_context<'a>(
-    rows: &'a frames::Context,
+    rows: &'a mut frames::Context,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a frames::Context,
+        &'a mut frames::Context,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident),*) => {
-        $(fn $field<'a>(rows: &'a frames::Context, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut frames::Context, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[Emission] = &[$($field,)*];
     };}
     adapters!(invocations, sources, inputs);
@@ -408,11 +408,8 @@ pub async fn produce(
                 }
                 jobs.push(job);
             }
-            for (data, context, results, receipts, projections) in
-                crate::owned_work::ordered(runtime, jobs).await?
-            {
-                emit_results(&results, &output).await?;
-                emit(&results.qualifications, &output).await?;
+            let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
+            while let Some((data, mut context, mut results, mut receipts, mut projections)) = ready.next().await? {
                 if !results.qualifications.is_empty() {
                     let (c, nodes) = conditions::Diagram::always().records();
                     output.push(c).await?;
@@ -420,9 +417,6 @@ pub async fn produce(
                         output.push(n).await?;
                     }
                 }
-                emit_context(&context, &output).await?;
-                emit(&receipts, &output).await?;
-                emit(&projections, &output).await?;
 
                 for result in results.results.iter() {
                     let invocation = context.invocations.get(result.invocation).unwrap();
@@ -458,6 +452,11 @@ pub async fn produce(
                     }
                     output.push(outcome).await?;
                 }
+                crate::producer_operations::emit_owned(&mut results.qualifications, &output).await?;
+                emit_results(&mut results, &output).await?;
+                emit_context(&mut context, &output).await?;
+                crate::producer_operations::emit_owned(&mut receipts, &output).await?;
+                crate::producer_operations::emit_owned(&mut projections, &output).await?;
                 drop(results);
                 drop(context);
                 drop(data);

@@ -1,4 +1,4 @@
-//! Borrowed operation boundaries for ordered typed publication.
+//! Ordered declarations and consuming canonical output publication.
 //! Semantic inventories own dispatch; the writer retains buffering and terminal ownership.
 use crate::workspace::ProducerOutput;
 use futures::future::BoxFuture;
@@ -23,14 +23,7 @@ pub(crate) fn declare_ordered<'a>(
     })
 }
 
-pub(crate) fn emit<'a, R: Record>(
-    rows: &'a Rows<R>,
-    output: &'a ProducerOutput,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    Box::pin(async move {
-        for row in rows.iter() {
-            output.push(row.clone()).await?;
-        }
-        Ok(())
-    })
+/// Consume canonical results at their final semantic use without rich row clones.
+pub(crate) fn emit_owned<'a, R: Record>(rows: &'a mut Rows<R>, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move { output.push_rows(rows).await })
 }

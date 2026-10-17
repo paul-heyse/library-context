@@ -1250,12 +1250,12 @@ impl Preparation {
 /// Append one rendered grain to the stage's already declared publications.
 pub fn publish_mandatory<'a>(
     output: &'a ProducerOutput,
-    rows: &'a Output,
+    rows: &'a mut Output,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit =
-            for<'a> fn(&'a Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+            for<'a> fn(&'a mut Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         lctx_model::retrieval_outputs!(entries);
         for emit in EMITTERS {
             emit(rows, output).await?;

@@ -302,7 +302,8 @@ pub async fn produce(
                 }
                 jobs.push(job);
             }
-            for (
+            let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
+            while let Some((
                 mut result,
                 coverage,
                 invocation,
@@ -311,8 +312,7 @@ pub async fn produce(
                 receipts,
                 projections,
                 _frame,
-            ) in crate::owned_work::ordered(runtime, jobs).await?
-            {
+            )) = ready.next().await? {
                 let mut actual_coverage = normalized::Rows::new(budget);
                 let mut actual_premises = normalized::Rows::new(budget);
                 for scope in coverage.scopes() {
@@ -356,18 +356,18 @@ pub async fn produce(
 fn publish_frame<'a>(
     output: &'a ProducerOutput,
     coverage: &'a owner::coverage::AdmittedCoverage,
-    result: SummaryRecords,
-    actual_coverage: normalized::Rows<owner::AnalysisCoverage>,
-    actual_premises: normalized::Rows<owner::AnalysisCoveragePremise>,
+    mut result: SummaryRecords,
+    mut actual_coverage: normalized::Rows<owner::AnalysisCoverage>,
+    mut actual_premises: normalized::Rows<owner::AnalysisCoveragePremise>,
     invocation: owner::AnalysisInvocation,
-    parents: normalized::Rows<owner::InvocationSource>,
+    mut parents: normalized::Rows<owner::InvocationSource>,
     inputs: Vec<owner::AnalysisInput>,
     receipts: Vec<owner::SourceReceipt>,
     projections: Vec<owner::ProjectionInput>,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        emit_results(&result, output).await?;
-        emit_vocabulary(&result.vocabulary, output).await?;
+        emit_results(&mut result, output).await?;
+        emit_vocabulary(&mut result.vocabulary, output).await?;
         for scope in coverage.scopes() {
             let (requirement, required) = scope.expectation().records()?;
             output.push(requirement).await?;
@@ -378,17 +378,11 @@ fn publish_frame<'a>(
                 output.push(row.source().clone()).await?;
             }
         }
-        for row in actual_coverage.iter() {
-            output.push(row.clone()).await?;
-        }
-        for row in actual_premises.iter() {
-            output.push(row.clone()).await?;
-        }
+        producer_operations::emit_owned(&mut actual_coverage, output).await?;
+        producer_operations::emit_owned(&mut actual_premises, output).await?;
         output.push(result.outcome).await?;
         output.push(invocation).await?;
-        for row in parents.iter() {
-            output.push(row.clone()).await?;
-        }
+        producer_operations::emit_owned(&mut parents, output).await?;
         for row in inputs {
             output.push(row).await?;
         }
@@ -403,43 +397,29 @@ fn publish_frame<'a>(
 }
 
 type RecordEmitter =
-    for<'a> fn(&'a SummaryRecords, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+    for<'a> fn(&'a mut SummaryRecords, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
 fn emit_results<'a>(
-    records: &'a SummaryRecords,
+    records: &'a mut SummaryRecords,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         macro_rules! write {($($field:ident:$ty:ty,)*)=>{{
-            const EMITTERS: &[RecordEmitter] = &[$(|records, output| producer_operations::emit(&records.$field, output),)*];
+            const EMITTERS: &[RecordEmitter] = &[$(|records, output| producer_operations::emit_owned(&mut records.$field, output),)*];
             for emit in EMITTERS { emit(records, output).await?; }
         }};}
         lctx_model::summary_outputs!(write);
         Ok(())
     })
 }
-type VocabularyEmitter =
-    for<'a> fn(&'a Vocabulary, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
-fn emit_vocabulary<'a>(
-    vocabulary: &'a Vocabulary,
-    output: &'a ProducerOutput,
-) -> BoxFuture<'a, Result<(), ModelError>> {
+fn emit_vocabulary<'a>(vocabulary: &'a mut Vocabulary, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        macro_rules! write {($($field:ident:$ty:ty,)*)=>{{
-            const EMITTERS: &[VocabularyEmitter] = &[$(|vocabulary, output| emit_values(&vocabulary.$field, output),)*];
-            for emit in EMITTERS { emit(vocabulary, output).await?; }
-        }};}
+        macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(
+            let limits = output.canonical_limits::<$ty>()?;
+            while let Some(rows) = vocabulary.$field(limits.rows, limits.bytes)? {
+                output.push_owned_batch(rows).await?;
+            }
+        )*};}
         lctx_model::summary_vocabulary!(write);
-        Ok(())
-    })
-}
-fn emit_values<'a, R: Record>(
-    values: &'a charged::ChargedMap<Id<R>, R>,
-    output: &'a ProducerOutput,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    Box::pin(async move {
-        for row in values.values() {
-            output.push(row.clone()).await?;
-        }
         Ok(())
     })
 }

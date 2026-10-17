@@ -251,10 +251,10 @@ async fn actual_summary_control(case: &str) {
     );
     assert!(
         !expected.origins.is_empty() && !expected.alternatives.is_empty(),
-        "fixture must publish actual finite Summary proofs: Local contributions={}, alternatives={}, invocations={}; Summary origins={}, alternatives={}, witnesses={}, pairs={}, residuals={}",
+        "fixture must publish actual finite Summary proofs: Local contributions={}, alternatives={}, invocations={}; Summary origins={}, alternatives={}, witnesses={}, residuals={}",
         data.local_contributions.len(), data.local_alternatives.len(), data.local_invocations.len(),
         expected.origins.len(), expected.alternatives.len(), expected.witnesses.len(),
-        expected.pair_outcomes.len(), expected.residuals.len(),
+        expected.residuals.len(),
     );
     let fixture = runtime::Fixture { workspace: workspace.clone(), session };
     if case == "scoped_recursive_summary" {

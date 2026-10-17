@@ -52,31 +52,23 @@ pub async fn produce(
     let session = access.session(runtime).await?;
     macro_rules! read{($($ty:ty),* $(,)?)=>{$(for input in selected_inputs::<$ty>(&inputs){load::<$ty>(&access,&session,input,&mut data).await?;})*};}
     lctx_model::final_frontier_inputs!(read);
-    let records = frontier::derive(&data, target, budget)?;
+    let mut records = frontier::derive(&data, target, budget)?;
     match target {
         Target::Analysis => {
             output
                 .declare_async::<frontier::AnalysisAssessment>()
                 .await?;
             output.declare_async::<frontier::AnalysisMember>().await?;
-            for row in records.analysis.iter() {
-                output.push(row.clone()).await?;
-            }
-            for row in records.analysis_members.iter() {
-                output.push(row.clone()).await?;
-            }
+            crate::producer_operations::emit_owned(&mut records.analysis, &output).await?;
+            crate::producer_operations::emit_owned(&mut records.analysis_members, &output).await?;
         }
         Target::Catalog => {
             output
                 .declare_async::<frontier::CatalogAssessment>()
                 .await?;
             output.declare_async::<frontier::CatalogMember>().await?;
-            for row in records.catalog.iter() {
-                output.push(row.clone()).await?;
-            }
-            for row in records.catalog_members.iter() {
-                output.push(row.clone()).await?;
-            }
+            crate::producer_operations::emit_owned(&mut records.catalog, &output).await?;
+            crate::producer_operations::emit_owned(&mut records.catalog_members, &output).await?;
         }
     }
     drop(records);

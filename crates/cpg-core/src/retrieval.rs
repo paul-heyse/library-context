@@ -359,10 +359,11 @@ pub async fn produce(
                         work.push(future);
                     }
                     drop(window);
-                    let rendered = crate::owned_work::ordered(runtime, work).await?;
+                    let mut rendered = crate::owned_work::ordered(runtime, work).await?;
                     let mut pending = PendingUses::new(b);
-                    for (root, rendered) in keys.iter().zip(rendered) {
-                        let (render, mandatory) = rendered.retain(runtime, &output).await?;
+                    for root in &keys {
+                        let rendered = rendered.next().await?.ok_or(ModelError::Conflict("retrieval missing canonical partition"))?;
+                        let (render, mut mandatory) = rendered.retain(runtime, &output).await?;
                         if let Some(service) = service.as_mut() {
                             for semantic in mandatory.windows.iter() {
                                 if semantic.availability
@@ -417,7 +418,7 @@ pub async fn produce(
                         }
                         async {
                             let phase = lctx_native::phase::Phase::begin("retrieval_required_publication");
-                            let result = retrieval_preparation::publish_mandatory(&output, &mandatory).await;
+                            let result = retrieval_preparation::publish_mandatory(&output, &mut mandatory).await;
                             phase.finish_result(&result);
                             result
                         }.instrument(tracing::info_span!(target:"lctx_phase", "retrieval_publication", brief, ?root)).await?;

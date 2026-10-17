@@ -626,15 +626,15 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
     })
 }
 fn publish_seed<'a>(
-    rows: &'a synthesis::seeds::Output,
+    rows: &'a mut synthesis::seeds::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit = for<'a> fn(
-            &'a synthesis::seeds::Output,
+            &'a mut synthesis::seeds::Output,
             &'a ProducerOutput,
         ) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         entries!(plans, automatic, decisions, candidates, sources, selected);
         for emit in EMITTERS {
             emit(rows, output).await?;
@@ -643,15 +643,15 @@ fn publish_seed<'a>(
     })
 }
 fn publish_assertions<'a>(
-    rows: &'a synthesis::assertions::Output,
+    rows: &'a mut synthesis::assertions::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit = for<'a> fn(
-            &'a synthesis::assertions::Output,
+            &'a mut synthesis::assertions::Output,
             &'a ProducerOutput,
         ) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         entries!(assertions, templates, sources, supports);
         for emit in EMITTERS {
             emit(rows, output).await?;
@@ -660,15 +660,15 @@ fn publish_assertions<'a>(
     })
 }
 fn publish_briefs<'a>(
-    rows: &'a synthesis::briefs::Output,
+    rows: &'a mut synthesis::briefs::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit = for<'a> fn(
-            &'a synthesis::briefs::Output,
+            &'a mut synthesis::briefs::Output,
             &'a ProducerOutput,
         ) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         entries!(
             briefs,
             assertions,
@@ -685,15 +685,15 @@ fn publish_briefs<'a>(
     })
 }
 fn publish_patterns<'a>(
-    rows: &'a synthesis::patterns::Output,
+    rows: &'a mut synthesis::patterns::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit = for<'a> fn(
-            &'a synthesis::patterns::Output,
+            &'a mut synthesis::patterns::Output,
             &'a ProducerOutput,
         ) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         lctx_model::synthesis_pattern_outputs!(entries);
         for emit in EMITTERS {
             emit(rows, output).await?;
@@ -702,15 +702,15 @@ fn publish_patterns<'a>(
     })
 }
 fn publish_observations<'a>(
-    rows: &'a synthesis::observations::Output,
+    rows: &'a mut synthesis::observations::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit = for<'a> fn(
-            &'a synthesis::observations::Output,
+            &'a mut synthesis::observations::Output,
             &'a ProducerOutput,
         ) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         lctx_model::synthesis_observation_outputs!(entries);
         for emit in EMITTERS {
             emit(rows, output).await?;
@@ -719,17 +719,17 @@ fn publish_observations<'a>(
     })
 }
 fn publish_frames<'a>(
-    frames: &'a Rows<synthesis::frames::Frame>,
-    sources: &'a Rows<InvocationSource>,
-    inputs: &'a Rows<AnalysisInput>,
-    receipts: &'a Rows<SourceReceipt>,
+    frames: &'a mut Rows<synthesis::frames::Frame>,
+    sources: &'a mut Rows<InvocationSource>,
+    inputs: &'a mut Rows<AnalysisInput>,
+    receipts: &'a mut Rows<SourceReceipt>,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        producer_operations::emit(frames, output).await?;
-        producer_operations::emit(sources, output).await?;
-        producer_operations::emit(inputs, output).await?;
-        producer_operations::emit(receipts, output).await
+        producer_operations::emit_owned(frames, output).await?;
+        producer_operations::emit_owned(sources, output).await?;
+        producer_operations::emit_owned(inputs, output).await?;
+        producer_operations::emit_owned(receipts, output).await
     })
 }
 fn publish_coverage<'a, 'sources>(
@@ -850,7 +850,7 @@ pub async fn produce(
     // literal identities and members needing later text. No upstream producer is replayed.
     synthesis_preparation::publish_documentary(
         &mut output,
-        &synthesis::documentary::Output::new(runtime.budget()),
+        &mut synthesis::documentary::Output::new(runtime.budget()),
     )
     .await?;
     let links = access.table_for(&ValidationInput::of::<catalog::CatalogMemberInvocation>(&[
@@ -917,7 +917,7 @@ pub async fn produce(
                     LoadPhase::Documentary,
                     runtime.budget(),
                 )?;
-                let docs = synthesis::documentary::build(&grain.documentary, runtime.budget())?;
+                let mut docs = synthesis::documentary::build(&grain.documentary, runtime.budget())?;
                 requests.observe(&grain.documentary, settings, runtime.budget())?;
                 summaries.observe(&docs)?;
                 documentary_spool.append(id, &docs)?;
@@ -929,7 +929,7 @@ pub async fn produce(
                 {
                     emission.insert(&mut emission_charge, id)?;
                 }
-                synthesis_preparation::publish_documentary_grain(&output, &docs).await?;
+                synthesis_preparation::publish_documentary_grain(&output, &mut docs).await?;
             }
         }
     }
@@ -992,7 +992,6 @@ pub async fn produce(
         )?;
         // Every candidate and ranking decision is emitted; only selected navigation identities
         // and their plan survive until the member render pass.
-        publish_seed(&selected, &output).await?;
         for row in selected.plans.iter() {
             seeds.plans.insert(row.clone())?;
         }
@@ -1000,6 +999,7 @@ pub async fn produce(
             emission.insert(&mut emission_charge, row.member)?;
             seeds.selected.insert(row.clone())?;
         }
+        publish_seed(&mut selected, &output).await?;
         drop(selected);
         drop(automatic);
         drop(public);
@@ -1076,7 +1076,7 @@ pub async fn produce(
                 runtime.budget(),
             )?;
             let docs = documentary_spool.read(id)?;
-            let assertions = synthesis::assertions::build_all(
+            let mut assertions = synthesis::assertions::build_all(
                 &grain.documentary,
                 &docs,
                 &grain.observations,
@@ -1096,7 +1096,7 @@ pub async fn produce(
                 &invocations,
                 runtime.budget(),
             )?;
-            let patterns = synthesis::patterns::build(
+            let mut patterns = synthesis::patterns::build(
                 &grain.patterns,
                 &grain.documentary,
                 &frames,
@@ -1114,7 +1114,7 @@ pub async fn produce(
                         .clone(),
                 )?;
             }
-            let briefs = synthesis::briefs::build_with_summary(
+            let mut briefs = synthesis::briefs::build_with_summary(
                 &grain.documentary,
                 &docs,
                 &assertions,
@@ -1126,9 +1126,9 @@ pub async fn produce(
                 &patterns,
                 runtime.budget(),
             )?;
-            publish_assertions(&assertions, &output).await?;
-            publish_briefs(&briefs, &output).await?;
-            publish_patterns(&patterns, &output).await?;
+            publish_assertions(&mut assertions, &output).await?;
+            publish_briefs(&mut briefs, &output).await?;
+            publish_patterns(&mut patterns, &output).await?;
             drop(briefs);
             drop(selected);
             drop(patterns);
@@ -1222,7 +1222,7 @@ pub async fn produce(
                             LoadPhase::Conclusion,
                             runtime.budget(),
                         )?;
-                        let observations = synthesis::observations::build_all(
+                        let mut observations = synthesis::observations::build_all(
                             &grain.observations,
                             &grain.summary,
                             &data.documentary,
@@ -1231,15 +1231,15 @@ pub async fn produce(
                             &coverages,
                             runtime.budget(),
                         )?;
-                        let (facets, _) = synthesis::summary::build(
+                        let (mut facets, _) = synthesis::summary::build(
                             &grain.summary,
                             &data.documentary,
                             &frames,
                             &invocations,
                             runtime.budget(),
                         )?;
-                        producer_operations::emit(&facets, &output).await?;
-                        publish_observations(&observations, &output).await?;
+                        producer_operations::emit_owned(&mut facets, &output).await?;
+                        publish_observations(&mut observations, &output).await?;
                         drop(facets);
                         drop(observations);
                         drop(grain);
@@ -1248,7 +1248,7 @@ pub async fn produce(
             }
         }
     }
-    publish_frames(&frames, &sources, &inputs, &receipts, &output).await?;
+    publish_frames(&mut frames, &mut sources, &mut inputs, &mut receipts, &output).await?;
     publish_coverage(
         &invocations,
         &definition,

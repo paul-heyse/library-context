@@ -1021,9 +1021,9 @@ impl UpperTask {
                             workspace,
                             model,
                             prepared.definition(AnalysisMethod::SourceCalls)?,
-                            shared.bindings.as_deref(),
-                            shared.evaluations.as_deref(),
-                            shared.completed_bodies.as_deref(),
+                            shared.bindings.as_ref(),
+                            shared.evaluations.as_ref(),
+                            shared.completed_bodies.as_ref(),
                         )
                         .await?;
                         result_preparation = value

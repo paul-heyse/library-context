@@ -109,15 +109,15 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
     })
 }
 fn publish_selection<'a>(
-    rows: &'a build::Output,
+    rows: &'a mut build::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit = for<'a> fn(
-            &'a build::Output,
+            &'a mut build::Output,
             &'a ProducerOutput,
         ) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+        macro_rules! entries {($($field:ident:$ty:ty,)*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         lctx_model::catalog_selection_outputs!(entries);
         for emit in EMITTERS {
             emit(rows, output).await?;
@@ -293,15 +293,15 @@ async fn member_batch(
             &mut |table| selected.keys(partition, table),
             runtime.budget(),
         )?;
-        let rows = build::member(&data, *member, *context, runtime.budget())?;
-        let links = selection::frames::links(
+        let mut rows = build::member(&data, *member, *context, runtime.budget())?;
+        let mut links = selection::frames::links(
             &rows,
             invocations,
             &data.source.catalog.members,
             runtime.budget(),
         )?;
-        publish_selection(&rows, output).await?;
-        producer_operations::emit(&links, output).await?;
+        publish_selection(&mut rows, output).await?;
+        producer_operations::emit_owned(&mut links, output).await?;
         tokio::task::yield_now().await;
     }
     Ok(())
@@ -324,8 +324,8 @@ async fn witness_batch(
             &mut |table| selected.keys(partition, table),
             runtime.budget(),
         )?;
-        let rows = build::witnesses(&data, runtime.budget())?;
-        producer_operations::emit(&rows.witnesses, output).await?;
+        let mut rows = build::witnesses(&data, runtime.budget())?;
+        producer_operations::emit_owned(&mut rows.witnesses, output).await?;
         tokio::task::yield_now().await;
     }
     Ok(())

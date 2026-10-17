@@ -100,10 +100,10 @@ async fn unpolled_documentary_publication_leaves_output_available_for_empty_comp
         inputs,
         [],
     );
-    let rows = documentary::Output::new(workspace.budget());
+    let mut rows = documentary::Output::new(workspace.budget());
     drop(synthesis_preparation::publish_documentary(
         &mut output,
-        &rows,
+        &mut rows,
     ));
     output.finish(ProviderOutcome::Complete).await.unwrap();
     assert!(
@@ -138,8 +138,8 @@ async fn documentary_publication_refuses_first_declared_relation_before_later_wo
         inputs,
         [],
     );
-    let rows = documentary::Output::new(workspace.budget());
-    let error = synthesis_preparation::publish_documentary(&mut output, &rows)
+    let mut rows = documentary::Output::new(workspace.budget());
+    let error = synthesis_preparation::publish_documentary(&mut output, &mut rows)
         .await
         .unwrap_err();
     assert!(matches!(error, ModelError::Invalid(message) if message ==

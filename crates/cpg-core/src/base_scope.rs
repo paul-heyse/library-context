@@ -150,6 +150,7 @@ pub(super) struct BaseScopes {
     dynamic_attribute: usize,
     field_call: usize,
     field_global: usize,
+    captures: std::sync::Mutex<capture::CaptureReuse>,
     _charge: charged::StateCharge,
 }
 macro_rules! evaluation_selection{($($field:ident:$ty:ty,)*)=>{
@@ -799,6 +800,7 @@ impl BaseScopes {
             dynamic_attribute,
             field_call,
             field_global,
+            captures: std::sync::Mutex::new(capture::CaptureReuse::new(budget)),
             _charge: charge,
         })
     }
@@ -1372,14 +1374,14 @@ impl BaseScopes {
 }
 pub(super) fn write_reads<'a>(
     output: &'a crate::workspace::ProducerOutput,
-    records: &'a ReadRecords,
+    records: &'a mut ReadRecords,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
         &'a crate::workspace::ProducerOutput,
-        &'a ReadRecords,
+        &'a mut ReadRecords,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! reads {($($field:ident),*) => {
-        $(fn $field<'a>(output: &'a crate::workspace::ProducerOutput, records: &'a ReadRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit(&records.$field, output) })*
+        $(fn $field<'a>(output: &'a crate::workspace::ProducerOutput, records: &'a mut ReadRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut records.$field, output) })*
         const READS: &[Emission] = &[$($field,)*];
     };}
     reads!(
@@ -1391,7 +1393,7 @@ pub(super) fn write_reads<'a>(
         dynamic_premises
     );
     macro_rules! fields {($($field:ident),*) => {
-        $(fn $field<'a>(output: &'a crate::workspace::ProducerOutput, records: &'a ReadRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit(&records.fields.$field, output) })*
+        $(fn $field<'a>(output: &'a crate::workspace::ProducerOutput, records: &'a mut ReadRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut records.fields.$field, output) })*
         const FIELDS: &[Emission] = &[$($field,)*];
     };}
     fields!(locations, assessments, globals, global_assessments);
@@ -1526,10 +1528,10 @@ impl BaseScopes {
                                     values,
                                 );
                                 production_phase.finish_result(&result);
-                                let records = result?;
+                                let mut records = result?;
                                 let emission_phase =
                                     lctx_native::phase::Phase::begin("base_read_emission");
-                                let emission = write_reads(output, &records).await;
+                                let emission = write_reads(output, &mut records).await;
                                 emission_phase.finish_result(&emission);
                                 emission?;
                             }
@@ -1607,9 +1609,9 @@ impl BaseScopes {
                 values,
             );
             production_phase.finish_result(&result);
-            let records = result?;
+            let mut records = result?;
             let emission_phase = lctx_native::phase::Phase::begin("base_read_emission");
-            let emission = write_reads(output, &records).await;
+            let emission = write_reads(output, &mut records).await;
             emission_phase.finish_result(&emission);
             emission?;
             previous = Some((class, name));
@@ -2222,8 +2224,31 @@ mod controls {
         drop(one);
         drop(window);
         drop(captured);
-        assert_eq!(budget.reserved(), retained);
+        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
         drop(prepared);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn later_outer_window_reuses_sealed_payload_and_preserves_empty_membership() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(32 << 20).unwrap();
+        let (prepared, expression, inv) = fixture(&session, &budget, false, true).await;
+        let cancellation = crate::workspace::Cancellation::default();
+        let (_, charge) = prepared.admit_expression_window(1, &budget).unwrap();
+        let first = prepared.capture_expressions(vec![*expression.id().bytes()], charge, inv.context, &budget, &cancellation).await.unwrap();
+        let before = first.captured_rows::<Occurrence>().await.unwrap();
+        assert!(before > 0);
+        drop(first);
+        let (_, charge) = prepared.admit_expression_window(2, &budget).unwrap();
+        let second = prepared.capture_expressions(vec![*expression.id().bytes(), [254; 16]], charge, inv.context, &budget, &cancellation).await.unwrap();
+        // The complete rich relation is reconstructed from earlier immutable local
+        // backing. Only the newly missing nominal root is acquired in this window.
+        assert_eq!(second.captured_rows::<Occurrence>().await.unwrap(), before);
+        assert_eq!(second.new_captured_rows::<Occurrence>().await.unwrap(), 0);
+        let window = second.cohort(0, 2, &budget, &cancellation).await.unwrap();
+        assert!(window.partition(0, &budget).unwrap().evaluation().unwrap().occurrences.get(expression.id()).is_some());
+        assert!(window.partition(1, &budget).unwrap().evaluation().unwrap().occurrences.is_empty());
+        drop(window); drop(second); drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
@@ -2472,7 +2497,7 @@ mod controls {
         drop(metadata);
         drop(captured);
         drop(pressure);
-        assert_eq!(budget.reserved(), retained);
+        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -2955,7 +2980,7 @@ mod controls {
         drop(oracle_metadata);
         drop(actual);
         drop(captured);
-        assert_eq!(budget.reserved(), retained);
+        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -3140,7 +3165,7 @@ mod controls {
         drop(metadata);
         drop(actual);
         drop(captured);
-        assert_eq!(budget.reserved(), retained);
+        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -3215,7 +3240,7 @@ mod controls {
         assert_eq!(budget.reserved(), budget.limit());
         drop(pressure);
         drop(captured);
-        assert_eq!(budget.reserved(), retained);
+        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }

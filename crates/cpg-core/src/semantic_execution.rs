@@ -1,7 +1,7 @@
 //! Qualified base execution consumes actual completed Local/native/normalized inputs.
 //! Behavioral Base, Completion and SourceCall execute fresh. Checking complete current domains
 //! and all semantic output fields repeats their kernels; cached row replay would add work.
-use crate::producer_operations::{Declaration, declare, declare_ordered, emit};
+use crate::producer_operations::{Declaration, declare, declare_ordered};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::future::BoxFuture;
 use lctx_model::domain::{
@@ -97,7 +97,20 @@ fn load_ignored<'a, R: Record>(
     consumed: &'a mut crate::consumed_rows::ConsumedInputs,
     admission: &'a mut CoverageAdmission<'_>,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
-    load::<R>(access, session, consumed, admission, |_, _, _| Ok(()))
+    // Dependency identity and expected-domain evidence are separate demands. Selected
+    // semantic kernels hydrate their own protected rich partitions later; dispatching
+    // a dependency must not first decode and discard the complete relation.
+    macro_rules! expected_types { ($($field:ident:$ty:ty,)*) => {
+        false $(|| std::any::TypeId::of::<R>() == std::any::TypeId::of::<$ty>())*
+    }; }
+    if lctx_model::expected_domain_inputs!(expected_types) {
+        load::<R>(access, session, consumed, admission, |_, _, _| Ok(()))
+    } else {
+        Box::pin(async move {
+            while consumed.next::<R>(access)?.is_some() {}
+            Ok(())
+        })
+    }
 }
 fn load_ordered<'a>(
     access: &'a CompletedInputs,
@@ -128,9 +141,9 @@ macro_rules! consume_types {
 }
 macro_rules! rows_emitter {
     ($name:ident, $records:ty; $($field:ident),* $(,)?) => {
-        fn $name<'a>(records: &'a $records, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> {
-            type Emission = for<'a> fn(&'a $records, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
-            $(fn $field<'a>(records: &'a $records, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&records.$field, output) })*
+        fn $name<'a>(records: &'a mut $records, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> {
+            type Emission = for<'a> fn(&'a mut $records, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+            $(fn $field<'a>(records: &'a mut $records, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut records.$field, output) })*
             const EMISSIONS: &[Emission] = &[$($field,)*];
             Box::pin(async move { for emission in EMISSIONS { emission(records, output).await?; } Ok(()) })
         }
@@ -241,20 +254,18 @@ pub async fn evaluate_base(
     let mut local = Rows::<analysis::local::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
     if profile == Profile::Behavioral {
-        load::<EntryValueWitness>(
+        load_ignored::<EntryValueWitness>(
             &access,
             &session,
             &mut consumed,
             &mut admission,
-            |_, _, _| Ok(()),
         )
         .await?;
-        load::<EntryAccessSource>(
+        load_ignored::<EntryAccessSource>(
             &access,
             &session,
             &mut consumed,
             &mut admission,
-            |_, _, _| Ok(()),
         )
         .await?;
     }
@@ -560,7 +571,7 @@ pub async fn evaluate_base(
                             if let Some(phase) = computation_phase {
                                 phase.finish_result(&computation);
                             }
-                            let records = match computation {
+                            let mut records = match computation {
                                 Ok(records) => records,
                                 Err(error)
                                     if window.keys.len() > 1
@@ -585,7 +596,7 @@ pub async fn evaluate_base(
                             }
                             let emission_phase =
                                 lctx_native::phase::Phase::begin("base_expression_emission");
-                            let emission = emit_evaluation(&records, &output).await;
+                            let emission = emit_evaluation(&mut records, &output).await;
                             emission_phase.finish_result(&emission);
                             emission?;
                             drop(records);
@@ -695,6 +706,7 @@ pub async fn complete_base(
             "base completion definition is not bound".into(),
         ));
     }
+    let access = crate::owned_work::Shared::new(access, runtime.budget())?;
     let evaluation_owner = evaluations.cloned();
     let evaluations = evaluations
         .map(|owner| owner.borrow(&access, runtime))
@@ -970,7 +982,8 @@ pub async fn complete_base(
                             }
                             jobs.push(job);
                         }
-                        for (records, owner) in crate::owned_work::ordered(runtime, jobs).await? {
+                        let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
+            while let Some((mut records, owner)) = ready.next().await? {
                             if let Some(owner) = owner {
                                 produced
                                     .as_mut()
@@ -988,12 +1001,12 @@ pub async fn complete_base(
                             if body {
                                 run.bodied = add(run.bodied, records.run.bodied)?;
                                 run.body_refused = add(run.body_refused, records.run.body_refused)?;
-                                emit_completion_body(&records, &output).await?;
                                 for row in records.outcomes.iter().filter(|row| {
                                     records.bodies.iter().any(|body| body.outcome == row.id())
                                 }) {
                                     output.push(row.clone()).await?;
                                 }
+                                emit_completion_body(&mut records, &output).await?;
                                 if records.run.body_refused != 0 {
                                     outcome.status = analysis::AnalysisStatus::Partial;
                                     outcome.reason =
@@ -1002,7 +1015,7 @@ pub async fn complete_base(
                             } else {
                                 run.completed = add(run.completed, records.run.completed)?;
                                 run.refused = add(run.refused, records.run.refused)?;
-                                emit_completion_statement(&records, &output).await?;
+                                emit_completion_statement(&mut records, &output).await?;
                                 if records.run.refused != 0 {
                                     outcome.status = analysis::AnalysisStatus::Partial;
                                     outcome.reason =
@@ -1086,12 +1099,12 @@ pub async fn complete_base(
 pub async fn prepare_source_calls(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
-    evaluations: Option<&Produced<production::ProducedEvaluations>>,
-    bodies: Option<&Produced<execution::completion_production::ProducedBodies>>,
+    bindings: Option<&Arc<crate::analysis_bindings::PreparedBindings>>,
+    evaluations: Option<&Arc<Produced<production::ProducedEvaluations>>>,
+    bodies: Option<&Arc<Produced<execution::completion_production::ProducedBodies>>>,
 ) -> Result<Option<Produced<execution::source_call_records::ProducedSourceCalls>>, ModelError> {
     use analysis::source_call as owner;
     use execution::source_call_records::*;
@@ -1100,13 +1113,19 @@ pub async fn prepare_source_calls(
             "source call definition is unbound".into(),
         ));
     }
-    let evaluations = evaluations
+    // Private event jobs share the authentic captured input owner. Cloning
+    // CompletedInputs per event would duplicate its complete rich relation map.
+    let access = crate::owned_work::Shared::new(access, runtime.budget())?;
+    let evaluation_owner = evaluations.cloned();
+    let body_owner = bodies.cloned();
+    let binding_owner = bindings.cloned();
+    let _evaluations = evaluations
         .map(|owner| owner.borrow(&access, runtime))
         .transpose()?;
-    let bodies = bodies
+    let _bodies = bodies
         .map(|owner| owner.borrow(&access, runtime))
         .transpose()?;
-    let application = if access.profile() == Profile::Behavioral {
+    let _application = if access.profile() == Profile::Behavioral {
         Some(
             bindings
                 .ok_or_else(|| {
@@ -1333,21 +1352,31 @@ pub async fn prepare_source_calls(
                     let window = scopes
                         .event_window(&keys, budget, &runtime.cancellation())
                         .await?;
+                    let mut jobs = Vec::new();
+                    let mut jobs_charge = charged::StateCharge::new(budget, "SourceCall private event jobs");
                     for (partition, key) in keys.iter().enumerate() {
                         runtime.cancellation().check()?;
                         let event = execution_scope::nominal(key)?;
                         let selected = window.data(partition, budget, &runtime.cancellation())?;
-                        let (records, owner, payload) = prepare_event_produced(
-                            &selected,
-                            &invocation,
-                            definition,
-                            profile,
-                            budget,
-                            application,
-                            evaluations,
-                            bodies,
-                            event,
-                        )?;
+                        let runtime = runtime.clone();
+                        let access = access.clone();
+                        let invocation = invocation.clone();
+                        let definition = definition.clone();
+                        let binding_owner = binding_owner.clone();
+                        let evaluation_owner = evaluation_owner.clone();
+                        let body_owner = body_owner.clone();
+                        let job = async move {
+                            let application = binding_owner.as_ref().map(|owner| owner.application(&access, &runtime)).transpose()?;
+                            let evaluations = evaluation_owner.as_ref().map(|owner| owner.borrow(&access, &runtime)).transpose()?;
+                            let bodies = body_owner.as_ref().map(|owner| owner.borrow(&access, &runtime)).transpose()?;
+                            let (records, owner, payload) = crate::stage_runtime::borrowed_cpu("source_call_event", || prepare_event_produced(&selected, &invocation, &definition, profile, runtime.budget(), application, evaluations, bodies, event))?;
+                            Ok((event, records, owner, payload))
+                        };
+                        if jobs.is_empty() { jobs_charge.grow(keys.len().saturating_mul(size_of_val(&job)))?; jobs.reserve_exact(keys.len()); }
+                        jobs.push(job);
+                    }
+                    let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
+                    while let Some((event, mut records, owner, payload)) = ready.next().await? {
                         private_payloads.insert(invocation.id(), event, payload.bytes())?;
                         drop(payload);
                         produced
@@ -1366,9 +1395,8 @@ pub async fn prepare_source_calls(
                             outcome.status = records.outcome.status;
                             outcome.reason = records.outcome.reason;
                         }
-                        emit_source_calls(&records, &output).await?;
+                        emit_source_calls(&mut records, &output).await?;
                         drop(records);
-                        drop(selected);
                         tokio::task::yield_now().await;
                     }
                 }
@@ -1815,7 +1843,7 @@ pub async fn enrich(
                             let mut selected =
                                 window.enriched_data(partition, budget, &runtime.cancellation())?;
                             source_call_scope::enriched_configuration(&data, &mut selected)?;
-                            let records = if unowned {
+                            let mut records = if unowned {
                                 enrich_unowned_statement(
                                     &selected,
                                     &invocation,
@@ -1854,7 +1882,7 @@ pub async fn enrich(
                             for row in records.body_boundaries.iter() {
                                 counts.push(3, row)?;
                             }
-                            emit_enriched(&records, &output).await?;
+                            emit_enriched(&mut records, &output).await?;
                             drop(records);
                             drop(selected);
                             tokio::task::yield_now().await;
@@ -1962,6 +1990,17 @@ mod produced_authority_controls {
         let selected = runtime
             .inputs("consumer", Profile::Catalog, [SourceArtifact::NAME])
             .unwrap();
+        // A complete dependency with no rich or coverage demand dispatches without
+        // planning SQL. An unrelated empty session intentionally has no source table.
+        {
+            let dependency = runtime.inputs("dependency-only-control", Profile::Catalog, [ArtifactChunk::NAME]).unwrap();
+            let captured = CapturedSources::capture(dependency.profile(), dependency.snapshots(), runtime.budget()).unwrap();
+            let mut admission = CoverageAdmission::new(&captured, runtime.budget()).unwrap();
+            let mut consumed = crate::consumed_rows::ConsumedInputs::new(vec![ValidationInput::of::<ArtifactChunk>(&["id"])], runtime.budget()).unwrap();
+            load_ignored::<ArtifactChunk>(&dependency, &datafusion::prelude::SessionContext::new(), &mut consumed, &mut admission).await.unwrap();
+            consumed.finish("dependency-only-control").unwrap();
+        }
+
         {
             let session = datafusion::prelude::SessionContext::new();
             let sources = CapturedSources::capture(

@@ -408,9 +408,10 @@ pub async fn apply(
                 let window = scopes
                     .window(&access, &kinds, frame.id(), budget, &runtime.cancellation())
                     .await?;
-                for produced in apply_window(&application, &window, &kinds).await? {
+                let mut ready = apply_window(&application, &window, &kinds).await?;
+                while let Some(mut produced) = ready.next().await? {
                     merge_run(&mut records, &produced)?;
-                    publish_records(&output, &produced).await?;
+                    publish_records(&output, &mut produced).await?;
                 }
             }
             let parent = data
@@ -483,7 +484,7 @@ fn publish_frame<'a>(
     coverage: &'a owner::coverage::AdmittedCoverage,
     records: ModelRecords,
     invocation: owner::AnalysisInvocation,
-    parents: Rows<owner::InvocationSource>,
+    mut parents: Rows<owner::InvocationSource>,
     inputs: Vec<owner::AnalysisInput>,
     receipts: Vec<owner::SourceReceipt>,
     projections: Vec<owner::ProjectionInput>,
@@ -514,9 +515,7 @@ fn publish_frame<'a>(
         output.push(records.run).await?;
         output.push(records.outcome).await?;
         output.push(invocation).await?;
-        for row in parents.iter() {
-            output.push(row.clone()).await?;
-        }
+        producer_operations::emit_owned(&mut parents, output).await?;
         for row in inputs {
             output.push(row).await?;
         }
@@ -662,9 +661,10 @@ fn apply_roots<'a, R: Record>(
                         application.cancellation,
                     )
                     .await?;
-                for produced in apply_window(application, &window, &kinds).await? {
+                let mut ready = apply_window(application, &window, &kinds).await?;
+                while let Some(mut produced) = ready.next().await? {
                     merge_run(records, &produced)?;
-                    publish_records(application.output, &produced).await?;
+                    publish_records(application.output, &mut produced).await?;
                 }
             }
         }
@@ -673,14 +673,14 @@ fn apply_roots<'a, R: Record>(
 }
 
 type RecordEmitter =
-    for<'a> fn(&'a ModelRecords, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+    for<'a> fn(&'a mut ModelRecords, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
 fn publish_records<'a>(
     output: &'a ProducerOutput,
-    records: &'a ModelRecords,
+    records: &'a mut ModelRecords,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         macro_rules! write {($($field:ident,)*)=>{{
-        const EMITTERS: &[RecordEmitter] = &[$(|records, output| producer_operations::emit(&records.$field, output),)*];
+        const EMITTERS: &[RecordEmitter] = &[$(|records, output| producer_operations::emit_owned(&mut records.$field, output),)*];
         for emit in EMITTERS { emit(records, output).await?; }
     }};}
         write!(

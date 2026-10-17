@@ -241,82 +241,42 @@ pub async fn produce(
                 &mut |_, input, batch| union.visit(input.name(), batch).map(|_| ()),
             )
             .await?;
-            let mut domain = KeySink::new("catalog-root-window-domain/v1");
-            let _domain = runtime.budget().reserve("C0 root domain encoding", 256)?;
-            for key in &keys {
-                format!(
-                    "X'{}'",
-                    key.key
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect::<String>()
-                )
-                .encode(&mut domain);
-            }
-            let domain = domain.finish();
-            drop(_domain);
-            let mut product_window =
-                crate::catalog_products::ProductWindow::new(&union, &output, domain, runtime)?;
-            let hit = product_window.lookup(runtime).await?;
-            let reused = hit.is_some();
-            let rows = match hit {
-                Some(rows) => rows,
-                None => {
-                    let mut _jobs = None;
-                    let mut work = Vec::new();
-                    for partition in 0..keys.len() {
-                        let data = selected_partition(
-                            &union,
-                            &scopes.inputs,
-                            &selected,
-                            partition,
-                            runtime.budget(),
-                        )?;
-                        let budget = runtime.budget().clone();
-                        let future = async move {
-                            crate::stage_runtime::borrowed_cpu("catalog_core", || {
-                                build::build(&data, &budget)
-                            })
-                        };
-                        if work.is_empty() {
-                            _jobs = Some(runtime.budget().reserve(
-                                "C0 owned window task list",
-                                keys.len() * size_of_val(&future),
-                            )?);
-                            work.reserve_exact(keys.len());
-                        }
-                        work.push(future);
-                    }
-                    let results = crate::owned_work::ordered(runtime, work).await?;
-                    let mut merged = build::CatalogOutput::new(runtime.budget());
-                    for rows in results {
-                        macro_rules! merge {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter() {merged.$field.insert_borrowed(row)?;})*};}
-                        lctx_model::catalog_outputs!(merge);
-                    }
-                    merged
+            let mut _jobs = None;
+            let mut work = Vec::new();
+            for (partition, key) in keys.iter().enumerate() {
+                let data = selected_partition(&union, &scopes.inputs, &selected, partition, runtime.budget())?;
+                let worker = runtime.clone();
+                let implementation = output.implementation_identity();
+                let key = key.key;
+                let future = async move {
+                    let mut domain = KeySink::new("catalog-public-root-domain/v2");
+                    domain.part(b"root", &key);
+                    let mut product = crate::catalog_products::ProductWindow::new(&data, implementation, domain.finish(), &worker)?;
+                    let hit = product.lookup(&worker).await?;
+                    let reused = hit.is_some();
+                    let rows = match hit {
+                        Some(rows) => rows,
+                        None => product.compute(|| crate::stage_runtime::borrowed_cpu("catalog_core", || build::build(&data, worker.budget())))?,
+                    };
+                    Ok((data, rows, product, reused))
+                };
+                if work.is_empty() {
+                    _jobs = Some(runtime.budget().reserve("C0 owned window task list", keys.len() * size_of_val(&future))?);
+                    work.reserve_exact(keys.len());
                 }
-            };
+                work.push(future);
+            }
             drop(selected);
-            let data = union;
-            // Bind only semantic payload rows from the cache. The current invocation frame
-            // and all exact receipts above belong to this attempt and are never replayed.
-            let links = product_window.compute(|| {
-                build::invocation_links(&data, &rows, &invocations, runtime.budget())
-            })?;
-            // The request and payload are owned; current links were the last input borrower.
-            drop(data);
-            product_window.prepare_emission(&rows, &links, runtime.budget())?;
-            if !reused {
-                product_window.retain(&rows, runtime).await?;
-            } else {
-                drop(product_window);
+            drop(union);
+            let mut results = crate::owned_work::ordered(runtime, work).await?;
+            while let Some((data, mut rows, mut product, reused)) = results.next().await? {
+                let mut links = product.compute(|| build::invocation_links(&data, &rows, &invocations, runtime.budget()))?;
+                drop(data);
+                product.prepare_emission(&rows, &links, runtime.budget())?;
+                if !reused { product.retain(&rows, runtime).await?; }
+                emit_rows(&mut rows, &output).await?;
+                producer_operations::emit_owned(&mut links, &output).await?;
             }
-            emit_rows(&rows, &output).await?;
-            for link in links.iter() {
-                output.push(link.clone()).await?;
-            }
-            drop(links);
-            drop(rows);
         }
     }
     drop(roots);
@@ -339,15 +299,15 @@ pub(super) fn selected_partition(
     union.selected_copy(inputs, &mut |table| selected.keys(partition, table), budget)
 }
 type Emitter = for<'a> fn(
-    &'a build::CatalogOutput,
+    &'a mut build::CatalogOutput,
     &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>>;
 fn emit_rows<'a>(
-    rows: &'a build::CatalogOutput,
+    rows: &'a mut build::CatalogOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        macro_rules! emit {($($field:ident:$ty:ty,)*)=>{{const EMITTERS:&[Emitter]=&[$(|rows,output|producer_operations::emit(&rows.$field,output),)*];for emit in EMITTERS{emit(rows,output).await?;}}};}
+        macro_rules! emit {($($field:ident:$ty:ty,)*)=>{{const EMITTERS:&[Emitter]=&[$(|rows,output|producer_operations::emit_owned(&mut rows.$field,output),)*];for emit in EMITTERS{emit(rows,output).await?;}}};}
         lctx_model::catalog_outputs!(emit);
         Ok(())
     })

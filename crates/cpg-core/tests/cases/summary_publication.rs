@@ -574,38 +574,8 @@ pub(crate) async fn assert_repeated_prepared_call_pairs(fixture: &catalog_runtim
         1,
         "one actual admitted call is repeatedly composed"
     );
-    type PairRow = (Vec<u8>, Vec<u8>, Vec<u8>, i16, Option<Vec<u8>>, Option<i16>);
-    let pairs: Vec<PairRow> =
-        catalog_runtime::query(fixture, format!(
-            "SELECT p.attempt,p.caller,p.callee,p.disposition,p.witness,p.reason FROM summary_pair_outcomes p JOIN call_binding_attempts a ON a.id=p.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence WHERE site.start={call}"
-        )).await;
-    assert!(pairs.iter().all(|p| p.0 == attempts[0]));
-    assert!(
-        pairs.iter().any(|p| p.3 == 0),
-        "mismatched value ports retain Disjoint outcomes: {pairs:?}"
-    );
-    assert!(
-        pairs.iter().any(|p| p.3 == 2),
-        "matching entry ports retain Proven outcomes: {pairs:?}"
-    );
-    assert!(
-        pairs.iter().all(|p| matches!(p.3, 0..=2) && p.5.is_none()),
-        "the finite checked call has no refused pair or residual reason: {pairs:?}"
-    );
-    for p in &pairs {
-        assert_eq!(
-            p.4.is_some(),
-            p.3 == 2,
-            "only a proven pair carries a finite witness"
-        );
-    }
-    assert!(
-        pairs.iter().any(|left| pairs
-            .iter()
-            .any(|right| left.1 == right.1 && left.2 != right.2 && left.3 != right.3)),
-        "one caller premise must process distinct callee operands through the same prepared call"
-    );
-
+    // Finite witnesses below and independent endpoint assertions test the actual
+    // product. Rejected pair enumeration is no longer a mandatory publication.
     let witnesses: Vec<(i64, Vec<u8>, i16, Vec<u8>)> = catalog_runtime::query(fixture, format!(
         "SELECT entry.start,q.condition,node.kind,w.id FROM summary_transfer_witnesses w JOIN call_binding_attempts a ON a.id=w.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence JOIN summary_transfer_keys k ON k.id=w.transfer JOIN places input ON input.id=k.input JOIN place_roots root ON root.id=input.root JOIN occurrences entry ON entry.id=root.entry_declaration JOIN assertion_qualifications q ON q.id=w.qualification JOIN conditions c ON c.id=q.condition JOIN condition_nodes node ON node.id=c.root WHERE site.start={call} AND root.kind=9"
     )).await;
@@ -643,12 +613,6 @@ pub(crate) async fn assert_repeated_prepared_call_pairs(fixture: &catalog_runtim
         1,
         "both branch answers restate the same call's flag evaluation"
     );
-    for w in &witnesses {
-        assert!(
-            pairs.iter().any(|p| p.3 == 2 && p.4.as_ref() == Some(&w.3)),
-            "each independent finite witness retains its attempted-pair evidence"
-        );
-    }
     let residuals: i64 = catalog_runtime::one(fixture, format!(
         "SELECT count(*) FROM summary_residuals r JOIN normalized_call_events event ON event.id=r.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence WHERE site.start={call}"
     )).await;
@@ -676,8 +640,6 @@ async fn assert_unsupported_truthy_call_pairs(fixture: &catalog_runtime::Fixture
         |function: usize, name: &str| (function + source[function..].find(name).unwrap()) as i64;
     let value = parameter(outer, "value");
     let other = parameter(outer, "other");
-    let item = parameter(inner, "item");
-    let alternative = parameter(inner, "alternative");
     let flag = parameter(inner, "flag");
     let test = (inner + source[inner..].find("if flag:").unwrap() + 3) as i64;
     let call = source.find("truthy_fresh(value, other, gate)").unwrap() as i64;
@@ -704,36 +666,6 @@ async fn assert_unsupported_truthy_call_pairs(fixture: &catalog_runtime::Fixture
         1,
         "the unsupported guard still has one admitted fresh source call"
     );
-    type Pair = (Vec<u8>, i16, Option<Vec<u8>>, Option<i16>);
-    let pairs: Vec<Pair> = catalog_runtime::query(fixture, format!(
-        "SELECT p.attempt,p.disposition,p.witness,p.reason FROM summary_pair_outcomes p JOIN call_binding_attempts a ON a.id=p.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site WHERE site.start={call}"
-    )).await;
-    assert!(
-        !pairs.is_empty(),
-        "truthiness refusal must not be satisfied by absent pair work"
-    );
-    assert!(
-        pairs.iter().all(|p| p.0 == attempts[0]
-            && p.2.is_none()
-            && ((p.1 == 0 && p.3.is_none()) || (p.1 == 3 && p.3 == Some(unsupported)))),
-        "truthiness permits only disjoint ports or exact unsupported-guard refusals, never Proven: {pairs:?}"
-    );
-
-    type LocalPair = (i64, i64, i16, Option<Vec<u8>>, Option<i16>, Vec<u8>);
-    let local_pairs: Vec<LocalPair> = catalog_runtime::query(fixture, format!(
-        "SELECT caller_entry.start,callee_entry.start,p.disposition,p.witness,p.reason,node.branch_atom FROM summary_pair_outcomes p JOIN call_binding_attempts a ON a.id=p.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site JOIN summary_transfer_premises caller ON caller.id=p.caller AND caller.kind=0 JOIN local_transfer_alternatives caller_alt ON caller_alt.id=caller.local_alternative JOIN local_transfer_keys caller_key ON caller_key.id=caller_alt.transfer JOIN places caller_input ON caller_input.id=caller_key.input JOIN place_roots caller_root ON caller_root.id=caller_input.root JOIN occurrences caller_entry ON caller_entry.id=caller_root.entry_declaration JOIN summary_transfer_premises callee ON callee.id=p.callee AND callee.kind=0 JOIN local_transfer_alternatives callee_alt ON callee_alt.id=callee.local_alternative JOIN local_transfer_keys callee_key ON callee_key.id=callee_alt.transfer JOIN places callee_input ON callee_input.id=callee_key.input JOIN place_roots callee_root ON callee_root.id=callee_input.root JOIN occurrences callee_entry ON callee_entry.id=callee_root.entry_declaration JOIN assertion_qualifications q ON q.id=callee_alt.qualification JOIN conditions condition ON condition.id=q.condition JOIN condition_nodes node ON node.id=condition.root WHERE site.start={call} AND caller_root.kind=9 AND callee_root.kind=9 AND node.kind=2"
-    )).await;
-    for (caller, callee) in [(value, item), (other, alternative)] {
-        assert!(
-            local_pairs.iter().any(|p| p.0 == caller
-                && p.1 == callee
-                && p.2 == 3
-                && p.3.is_none()
-                && p.4 == Some(unsupported)
-                && p.5 == atoms[0].0),
-            "each matching source Entry port must refuse the original Truthy guard: {local_pairs:?}"
-        );
-    }
     let witnesses: i64 = catalog_runtime::one(fixture, format!(
         "SELECT count(*) FROM summary_transfer_witnesses w JOIN call_binding_attempts a ON a.id=w.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site WHERE site.start={call}"
     )).await;
@@ -760,7 +692,7 @@ async fn assert_unsupported_truthy_call_pairs(fixture: &catalog_runtime::Fixture
 
 // Expectations below come from actual fixture source: identity/relay return their one input,
 // recurse has a guarded base return, and no_base has no finite return seed at all.
-// The whole-operation comparison separately checks every emitted record and PairOutcome.
+// The whole-operation comparison separately checks every emitted record.
 pub(crate) async fn assert_recursive_summary_answers(fixture: &catalog_runtime::Fixture) {
     use std::collections::BTreeSet;
     let text =
@@ -826,7 +758,7 @@ pub(crate) async fn assert_recursive_summary_answers(fixture: &catalog_runtime::
         text.find("return recurse(value)").unwrap() as i64 + "return ".len() as i64;
     type GuardMapping = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, bool);
     let mapped: Vec<GuardMapping> = catalog_runtime::query(fixture, format!(
-        "SELECT bound.id,source.id,w.id,condition.id,(p.kind=9 AND p.boundguard_source=source.id AND sp.kind=0 AND bound.id<>source.id AND bound.evaluation=event.site AND bound.operand=s.actual_place AND bound.context=source.context AND bound.context=event.context) FROM guard_substitutions s JOIN evaluation_atoms bound ON bound.id=s.atom JOIN predicates p ON p.id=bound.predicate JOIN evaluation_atoms source ON source.id=s.source_atom JOIN predicates sp ON sp.id=source.predicate JOIN occurrences source_site ON source_site.id=source.evaluation JOIN normalized_call_events event ON event.id=s.event JOIN occurrences call_site ON call_site.id=event.site JOIN source_call_headers h ON h.event=event.id JOIN summary_transfer_witnesses w ON w.attempt=h.attempt JOIN summary_pair_outcomes pair ON pair.witness=w.id AND pair.disposition=2 JOIN summary_transfer_keys k ON k.id=w.transfer JOIN places output ON output.id=k.output JOIN place_roots returned ON returned.id=output.root JOIN assertion_qualifications q ON q.id=w.qualification JOIN conditions condition ON condition.id=q.condition WHERE h.owner=h.callee AND source_site.start={base_test} AND call_site.start={recursive_call} AND returned.kind=2"
+        "SELECT bound.id,source.id,w.id,condition.id,(p.kind=9 AND p.boundguard_source=source.id AND sp.kind=0 AND bound.id<>source.id AND bound.evaluation=event.site AND bound.operand=s.actual_place AND bound.context=source.context AND bound.context=event.context) FROM guard_substitutions s JOIN evaluation_atoms bound ON bound.id=s.atom JOIN predicates p ON p.id=bound.predicate JOIN evaluation_atoms source ON source.id=s.source_atom JOIN predicates sp ON sp.id=source.predicate JOIN occurrences source_site ON source_site.id=source.evaluation JOIN normalized_call_events event ON event.id=s.event JOIN occurrences call_site ON call_site.id=event.site JOIN source_call_headers h ON h.event=event.id JOIN summary_transfer_witnesses w ON w.attempt=h.attempt JOIN summary_transfer_keys k ON k.id=w.transfer JOIN places output ON output.id=k.output JOIN place_roots returned ON returned.id=output.root JOIN assertion_qualifications q ON q.id=w.qualification JOIN conditions condition ON condition.id=q.condition WHERE h.owner=h.callee AND source_site.start={base_test} AND call_site.start={recursive_call} AND returned.kind=2"
     )).await;
     assert!(
         !mapped.is_empty(),
@@ -983,15 +915,8 @@ pub(crate) async fn assert_recursive_summary_answers(fixture: &catalog_runtime::
         "no finite return seed can produce a recursive return closure proof"
     );
 
-    let bad_pairs: i64 = catalog_runtime::one(fixture,
-        "SELECT count(*) FROM summary_pair_outcomes p LEFT JOIN summary_transfer_witnesses w ON w.id=p.witness WHERE (p.disposition=2 AND (p.witness IS NULL OR w.id IS NULL OR p.reason IS NOT NULL)) OR (p.disposition<>2 AND p.witness IS NOT NULL) OR (p.disposition=3 AND p.reason IS NULL) OR (p.disposition<>3 AND p.reason IS NOT NULL)"
-    ).await;
-    assert_eq!(
-        bad_pairs, 0,
-        "every actual attempted pair retains exact finite proof or refusal accounting"
-    );
     let recursive_proofs: i64 = catalog_runtime::one(fixture, format!(
-        "SELECT count(*) FROM summary_pair_outcomes pair JOIN source_call_headers header ON header.attempt=pair.attempt JOIN entity_refs owner ON owner.id=header.owner JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration WHERE header.owner=header.callee AND declaration.start={} AND pair.disposition=2", start("recurse")
+        "SELECT count(*) FROM summary_transfer_witnesses witness JOIN source_call_headers header ON header.attempt=witness.attempt JOIN entity_refs owner ON owner.id=header.owner JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration WHERE header.owner=header.callee AND declaration.start={}", start("recurse")
     )).await;
     assert!(
         recursive_proofs > 0,

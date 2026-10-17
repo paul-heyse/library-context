@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use lctx_model::domain::{synthesis::documentary::Output, *};
 pub fn publish_documentary<'a>(
     output: &'a mut ProducerOutput,
-    rows: &'a Output,
+    rows: &'a mut Output,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         const DECLARATIONS: &[Declaration] = &[
@@ -26,12 +26,12 @@ pub fn publish_documentary<'a>(
 /// Append one selected documentary grain after the producer has declared its outputs.
 pub(crate) fn publish_documentary_grain<'a>(
     output: &'a ProducerOutput,
-    rows: &'a Output,
+    rows: &'a mut Output,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         type Emit =
-            for<'a> fn(&'a Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
-        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit(&rows.$field, output),)*];};}
+            for<'a> fn(&'a mut Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+        macro_rules! entries {($($field:ident),*) => {const EMITTERS: &[Emit] = &[$(|rows, output| producer_operations::emit_owned(&mut rows.$field, output),)*];};}
         entries!(
             sources,
             prose_sources,

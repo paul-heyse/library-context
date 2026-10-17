@@ -209,13 +209,11 @@ pub async fn produce(
                 }
                 jobs.push(job);
             }
-            for (context, results, receipts, projections) in
-                crate::owned_work::ordered(runtime, jobs).await?
-            {
-                emit_results(&results, &output).await?;
-                emit_links(&context, &receipts, &projections, &output).await?;
-
+            let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
+            while let Some((mut context, mut results, mut receipts, mut projections)) = ready.next().await? {
                 emit_coverage(&context, &results, &admission, runtime, &output).await?;
+                emit_results(&mut results, &output).await?;
+                emit_links(&mut context, &mut receipts, &mut projections, &output).await?;
                 drop(receipts);
                 drop(projections);
                 drop(results);
@@ -435,19 +433,19 @@ fn derive_parent(
 }
 
 type ResultEmitter =
-    for<'a> fn(&'a semantic::Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+    for<'a> fn(&'a mut semantic::Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
 fn emit_results<'a>(
-    results: &'a semantic::Output,
+    results: &'a mut semantic::Output,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        producer_operations::emit(&results.conclusion_qualifications, output).await?;
-        producer_operations::emit(&results.flow_conditions, output).await?;
-        producer_operations::emit(&results.flow_condition_nodes, output).await?;
-        producer_operations::emit(&results.flow_assumption_sets, output).await?;
-        producer_operations::emit(&results.flow_assumption_members, output).await?;
+        producer_operations::emit_owned(&mut results.conclusion_qualifications, output).await?;
+        producer_operations::emit_owned(&mut results.flow_conditions, output).await?;
+        producer_operations::emit_owned(&mut results.flow_condition_nodes, output).await?;
+        producer_operations::emit_owned(&mut results.flow_assumption_sets, output).await?;
+        producer_operations::emit_owned(&mut results.flow_assumption_members, output).await?;
         macro_rules! result {($($f:ident:$ty:ty,)*)=>{{
-            const EMITTERS: &[ResultEmitter]=&[$(|results,output| producer_operations::emit(&results.$f,output),)*];
+            const EMITTERS: &[ResultEmitter]=&[$(|results,output| producer_operations::emit_owned(&mut results.$f,output),)*];
             for emit in EMITTERS { emit(results,output).await?; }
         }};}
         lctx_model::structural_outputs!(result);
@@ -455,17 +453,17 @@ fn emit_results<'a>(
     })
 }
 fn emit_links<'a>(
-    context: &'a frames::Context,
-    receipts: &'a normalized::Rows<owner::SourceReceipt>,
-    projections: &'a normalized::Rows<owner::ProjectionInput>,
+    context: &'a mut frames::Context,
+    receipts: &'a mut normalized::Rows<owner::SourceReceipt>,
+    projections: &'a mut normalized::Rows<owner::ProjectionInput>,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        producer_operations::emit(&context.invocations, output).await?;
-        producer_operations::emit(&context.sources, output).await?;
-        producer_operations::emit(&context.inputs, output).await?;
-        producer_operations::emit(receipts, output).await?;
-        producer_operations::emit(projections, output).await?;
+        producer_operations::emit_owned(&mut context.invocations, output).await?;
+        producer_operations::emit_owned(&mut context.sources, output).await?;
+        producer_operations::emit_owned(&mut context.inputs, output).await?;
+        producer_operations::emit_owned(receipts, output).await?;
+        producer_operations::emit_owned(projections, output).await?;
         Ok(())
     })
 }

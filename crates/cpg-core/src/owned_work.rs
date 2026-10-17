@@ -36,98 +36,103 @@ impl<T> std::ops::Deref for Shared<T> {
     }
 }
 
-/// The result allocation and all remaining typed payloads stay owned while consumed.
+/// Results are delivered in canonical order as soon as that prefix is ready. The
+/// registered workspace stages remain the actual join owner if delivery is dropped.
+type PendingResult<T> = futures::future::BoxFuture<'static, (usize, Result<T, ModelError>)>;
 pub(crate) struct OrderedResults<T> {
-    values: std::vec::IntoIter<Option<T>>,
+    values: Vec<Option<T>>,
+    pending: FuturesUnordered<PendingResult<T>>,
+    failures: std::collections::BTreeMap<usize, ModelError>,
+    next: usize,
+    finished: bool,
+    cancellation: crate::workspace::Cancellation,
+    native: std::sync::Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     _charge: Box<dyn Reservation>,
 }
-impl<T> Iterator for OrderedResults<T> {
-    type Item = T;
-    fn next(&mut self) -> Option<T> {
-        self.values
-            .next()
-            .map(|value| value.expect("successful owned work ordinal"))
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.values.size_hint()
+impl<T> Drop for OrderedResults<T> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.cancellation.cancel();
+            self.native.fail();
+        }
     }
 }
-impl<T> ExactSizeIterator for OrderedResults<T> {}
+impl<T> OrderedResults<T> {
+    pub(crate) async fn next(&mut self) -> Result<Option<T>, ModelError> {
+        if self.finished { return Ok(None); }
+        loop {
+            if self.failures.is_empty() {
+                if let Some(value) = self.values.get_mut(self.next).and_then(Option::take) {
+                    self.next += 1;
+                    if self.next == self.values.len() && self.pending.is_empty() {
+                        self.cancellation.check()?;
+                        self.finished = true;
+                    }
+                    return Ok(Some(value));
+                }
+                if self.next == self.values.len() {
+                    self.cancellation.check()?;
+                    self.finished = true;
+                    return Ok(None);
+                }
+            }
+            match self.pending.next().await {
+                Some((ordinal, Ok(value))) if self.failures.is_empty() => self.values[ordinal] = Some(value),
+                Some((_, Ok(_))) => {},
+                Some((ordinal, Err(error))) => {
+                    self.values.iter_mut().for_each(|value| *value = None);
+                    self.failures.insert(ordinal, error);
+                    self.cancellation.cancel();
+                },
+                None => {
+                    self.finished = true;
+                    if self.failures.is_empty() {
+                        return Err(ModelError::Conflict("private work missing ordinal"));
+                    }
+                    self.native.fail();
+                    let key = self.failures.iter().find(|(_,error)| !matches!(error,ModelError::Invalid(message) if message=="compilation cancelled"))
+                        .or_else(|| self.failures.first_key_value()).map(|(key,_)| *key).expect("private work failure");
+                    let primary = self.failures.remove(&key).expect("private work primary");
+                    let mut terminal = completion::Completion::default();
+                    for (_, error) in std::mem::take(&mut self.failures) { terminal.step("private peer completion", Err(error)); }
+                    return completion::complete(Err(primary), terminal);
+                }
+            }
+        }
+    }
+    #[cfg(test)]
+    async fn collect(mut self) -> Result<Vec<T>, ModelError> {
+        let mut values = Vec::new();
+        while let Some(value) = self.next().await? { values.push(value); }
+        Ok(values)
+    }
+}
 
-/// Each future owns its actual prepared inputs and deep result reservations. This finite
-/// coordinator supplies only task placement, charged ordinal slots and joined failure reduction;
-/// it neither estimates kernel memory nor retries a failed operation.
-pub(crate) async fn ordered<T, F, I>(
-    workspace: &Workspace,
-    work: I,
-) -> Result<OrderedResults<T>, ModelError>
+pub(crate) async fn ordered<T, F, I>(workspace: &Workspace, work: I) -> Result<OrderedResults<T>, ModelError>
 where
     T: Send + 'static,
     F: Future<Output = Result<T, ModelError>> + Send + 'static,
     I: IntoIterator<Item = F>,
     I::IntoIter: ExactSizeIterator,
 {
+    use futures::FutureExt;
     let work = work.into_iter();
     let len = work.len();
-    let charge = workspace.budget().reserve(
-        "private work ordinal results",
-        len.checked_mul(size_of::<Option<T>>().saturating_add(128))
-            .ok_or(ModelError::Conflict("private work slots overflow"))?,
-    )?;
-    let mut values = std::iter::repeat_with(|| None)
-        .take(len)
-        .collect::<Vec<_>>();
-    let mut pending = FuturesUnordered::new();
-    let mut failures = std::collections::BTreeMap::new();
+    let charge = workspace.budget().reserve("private work ordinal results",
+        len.checked_mul(size_of::<Option<T>>().saturating_add(128)).ok_or(ModelError::Conflict("private work slots overflow"))?)?;
+    let mut results = OrderedResults {
+        values: std::iter::repeat_with(|| None).take(len).collect(),
+        pending: FuturesUnordered::new(), failures: Default::default(), next: 0,
+        finished: false, cancellation: workspace.cancellation(), native: workspace.native().clone(), _charge: charge,
+    };
     for (ordinal, future) in work.enumerate() {
-        if let Err(error) = workspace.cancellation().check() {
-            failures.insert(ordinal, error);
-            break;
-        }
-        match workspace.spawn_stage(future) {
-            Ok(task) => pending.push(async move { (ordinal, task.await) }),
-            Err(error) => {
-                failures.insert(ordinal, error);
-                workspace.cancellation().cancel();
-                break;
-            }
+        let task = workspace.cancellation().check().and_then(|()| workspace.spawn_stage(future));
+        match task {
+            Ok(task) => results.pending.push(async move { (ordinal, task.await) }.boxed()),
+            Err(error) => { results.failures.insert(ordinal, error); results.cancellation.cancel(); break; }
         }
     }
-    while let Some((ordinal, result)) = pending.next().await {
-        match result {
-            Ok(value) if failures.is_empty() => values[ordinal] = Some(value),
-            Ok(_) => {}
-            Err(error) => {
-                // Delivered successful payloads have no consumer after failure. Their
-                // workers have already joined; keep only slot backing and peer joins.
-                if failures.is_empty() {
-                    values.iter_mut().for_each(|value| *value = None);
-                }
-                failures.insert(ordinal, error);
-                workspace.cancellation().cancel();
-            }
-        }
-    }
-    if !failures.is_empty() {
-        // Cooperative cancellation is secondary to the failure that requested it.
-        // Genuine peer failures reduce in declared order, independently of arrival.
-        let key=failures.iter().find(|(_,error)|!matches!(error,ModelError::Invalid(message) if message=="compilation cancelled"))
-            .or_else(||failures.first_key_value()).map(|(key,_)|*key).expect("private work failure");
-        let primary = failures.remove(&key).expect("private work primary");
-        let mut terminal = completion::Completion::default();
-        for (_, error) in failures {
-            terminal.step("private peer completion", Err(error));
-        }
-        return completion::complete(Err(primary), terminal);
-    }
-    workspace.cancellation().check()?;
-    if values.iter().any(Option::is_none) {
-        return Err(ModelError::Conflict("private work missing ordinal"));
-    }
-    Ok(OrderedResults {
-        values: values.into_iter(),
-        _charge: charge,
-    })
+    Ok(results)
 }
 
 #[cfg(test)]
@@ -166,9 +171,29 @@ mod controls {
                 Ok(ordinal)
             }
         });
-        let results = ordered(&workspace, work).await.unwrap().collect::<Vec<_>>();
+        let results = ordered(&workspace, work).await.unwrap().collect().await.unwrap();
         assert_eq!(results, vec![0, 1, 2]);
         // No native I/O was admitted; actual registered task joins all completed.
+    }
+    #[tokio::test]
+    async fn first_canonical_result_is_delivered_before_a_later_job_finishes() {
+        let workspace = workspace();
+        let (release, held) = tokio::sync::oneshot::channel();
+        let later_done = Arc::new(AtomicUsize::new(0));
+        let observed = later_done.clone();
+        let work: Vec<futures::future::BoxFuture<'static, Result<usize, ModelError>>> = vec![
+            Box::pin(async { Ok(0) }),
+            Box::pin(async move { held.await.map_err(ModelError::codec)?; observed.store(1, Ordering::SeqCst); Ok(1) }),
+        ];
+        let mut ready = ordered(&workspace, work).await.unwrap();
+        assert_eq!(ready.next().await.unwrap(), Some(0));
+        assert_eq!(later_done.load(Ordering::SeqCst), 0);
+        release.send(()).unwrap();
+        assert_eq!(ready.next().await.unwrap(), Some(1));
+        assert_eq!(ready.next().await.unwrap(), None);
+        assert_eq!(later_done.load(Ordering::SeqCst), 1);
+        drop(ready);
+        workspace.cancellation().check().unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn reversed_failures_keep_canonical_cause_and_drain_every_started_peer() {
@@ -195,7 +220,7 @@ mod controls {
                 }))
             }
         });
-        let error = ordered(&workspace, work).await.err().unwrap();
+        let error = ordered(&workspace, work).await.unwrap().collect().await.err().unwrap();
         assert!(format!("{error:?}").contains("first declared failure"));
         assert_eq!(done.load(Ordering::SeqCst), 3);
     }
@@ -243,9 +268,7 @@ mod controls {
                 value
             });
         }
-        let operation = ordered(&workspace, work);
-        tokio::pin!(operation);
-        assert!(futures::poll!(&mut operation).is_pending());
+        let mut ready = ordered(&workspace, work).await.unwrap();
         entered.wait().await; // Every peer has passed admission and owns its actual body.
         let mut senders = senders.into_iter();
         let mut finished = finished.into_iter();
@@ -258,10 +281,12 @@ mod controls {
         };
         assert!(senders.next().unwrap().send(Ok(payload())).is_ok());
         finished.next().unwrap().await.unwrap();
-        // On this current-thread runtime the sender finishes its task in the same poll;
-        // this poll collects that joined success before the failure is made available.
-        assert!(futures::poll!(&mut operation).is_pending());
+        let first = ready.next().await.unwrap().unwrap();
         assert_eq!(dropped.load(Ordering::SeqCst), 0);
+        drop(first);
+        assert_eq!(dropped.load(Ordering::SeqCst), 1);
+        let operation = ready.next();
+        tokio::pin!(operation);
         let retained = workspace.budget().reserved();
         assert!(
             senders
@@ -273,7 +298,7 @@ mod controls {
         finished.next().unwrap().await.unwrap();
         assert!(futures::poll!(&mut operation).is_pending());
         assert_eq!(dropped.load(Ordering::SeqCst), 1);
-        assert!(workspace.budget().reserved() <= retained - 128);
+        assert!(workspace.budget().reserved() <= retained);
         // The remaining accepted worker is still gated, independently of dead output.
         assert!(senders.next().unwrap().send(Ok(payload())).is_ok());
         let error = operation.await.err().unwrap();

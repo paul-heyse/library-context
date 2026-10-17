@@ -1,5 +1,5 @@
 //! Local analysis uses confirmed inputs, one attempt budget and the domain's shared replay.
-use crate::producer_operations::{Declaration, declare, declare_ordered, emit};
+use crate::producer_operations::{Declaration, declare, declare_ordered};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use arrow_array::Array;
 use futures::{TryStreamExt, future::BoxFuture};
@@ -161,28 +161,29 @@ impl SourceApplication<'_> {
             .batch_with_cancellation(roots, self.runtime.budget(), &self.runtime.cancellation())
             .await?;
         let union = self.scopes.union(&selected, self.runtime).await?;
+        let mut jobs = Vec::new();
+        let mut jobs_charge = charged::StateCharge::new(self.runtime.budget(), "Local private grain jobs");
         for (partition, root) in roots.iter().enumerate() {
             self.runtime.cancellation().check()?;
-            let source: Id<source::SourceArtifact> =
-                serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
-                    _,
-                    serde::de::value::Error,
-                >::new(root.key.into_iter()))
-                .map_err(ModelError::codec)?;
-            let data =
-                self.scopes
-                    .partition(&union, &selected, partition, self.runtime.budget())?;
-            let rows = local_semantics::produce_source(
-                &data,
-                self.invocation,
-                self.definition,
-                source,
-                self.runtime.budget(),
-            )?;
+            let source: Id<source::SourceArtifact> = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(root.key.into_iter())).map_err(ModelError::codec)?;
+            let data = self.scopes.partition(&union, &selected, partition, self.runtime.budget())?;
+            let invocation = self.invocation.clone();
+            let definition = self.definition.clone();
+            let budget = self.runtime.budget().clone();
+            let job = async move {
+                let rows = crate::stage_runtime::borrowed_cpu("local_transfers", || local_semantics::produce_source(&data, &invocation, &definition, source, &budget))?;
+                Ok((data, rows))
+            };
+            if jobs.is_empty() { jobs_charge.grow(roots.len().saturating_mul(size_of_val(&job)))?; jobs.reserve_exact(roots.len()); }
+            jobs.push(job);
+        }
+        let mut ready = crate::owned_work::ordered(self.runtime, jobs).await?;
+        while let Some((data, mut rows)) = ready.next().await? {
+            // Shared theory admission and actual-owner append are canonical, even when
+            // independent private source computation finishes in a different order.
             composition.observe(&data, &rows, self.runtime.budget())?;
-            publish_records(self.output, &rows).await?;
+            publish_records(self.output, &mut rows).await?;
             actual.append(rows.actual)?;
-            tokio::task::yield_now().await;
         }
         Ok(())
     }
@@ -407,15 +408,15 @@ pub async fn run(
 
 fn publish_records<'a>(
     output: &'a ProducerOutput,
-    rows: &'a local_semantics::LocalRecords,
+    rows: &'a mut local_semantics::LocalRecords,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
         &'a ProducerOutput,
-        &'a local_semantics::LocalRecords,
+        &'a mut local_semantics::LocalRecords,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     let semantic = {
         macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a mut local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
             const EMISSIONS: &[Emission] = &[$($field,)*];
         };}
         lctx_model::local_semantic_outputs!(adapters);
@@ -423,7 +424,7 @@ fn publish_records<'a>(
     };
     let theory = {
         macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.theory.$field, output) })*
+            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a mut local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.theory.$field, output) })*
             const EMISSIONS: &[Emission] = &[$($field,)*];
         };}
         lctx_model::local_theory_outputs!(adapters);
@@ -431,7 +432,7 @@ fn publish_records<'a>(
     };
     let fields = {
         macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.fields.$field, output) })*
+            $(fn $field<'a>(output: &'a ProducerOutput, rows: &'a mut local_semantics::LocalRecords) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.fields.$field, output) })*
             const EMISSIONS: &[Emission] = &[$($field,)*];
         };}
         lctx_model::local_field_outputs!(adapters);

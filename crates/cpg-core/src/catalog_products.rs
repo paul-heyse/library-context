@@ -1,6 +1,6 @@
 //! C0 caches computation payload only. Current exact invocation/coverage/source receipts and
 //! member-to-invocation links are constructed by catalog_core for every execution.
-use crate::workspace::{ProducerOutput, ReservedProductRequest, Workspace};
+use crate::workspace::{ReservedProductRequest, Workspace};
 use lctx_model::domain::{
     catalog::build::{CatalogData, CatalogOutput},
     compilation_product::*,
@@ -17,7 +17,7 @@ pub(super) struct ProductWindow {
 impl ProductWindow {
     pub(super) fn new(
         data: &CatalogData,
-        output: &ProducerOutput,
+        implementation: ContentHash,
         domain: ContentHash,
         runtime: &Workspace,
     ) -> Result<Self, ModelError> {
@@ -28,7 +28,7 @@ impl ProductWindow {
                 || {
                     request(
                         data,
-                        output.implementation_identity(),
+                        implementation,
                         domain,
                         runtime.model().digest(),
                         runtime.budget(),

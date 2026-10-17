@@ -319,18 +319,16 @@ async fn build_artifact(
     crate::stage_runtime::borrowed_cpu("catalog_evidence", || build::build(&data, &budget))
 }
 fn emit_artifact<'a>(
-    rows: build::EvidenceOutput,
+    mut rows: build::EvidenceOutput,
     output: &'a ProducerOutput,
     invocations: &'a Rows<Invocation>,
     budget: &'a resources::ResourceBudget,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(for row in rows.$f.iter() {output.push(row.clone()).await?;})*};}
+        let mut links = build::invocation_links(&rows, invocations, budget)?;
+        macro_rules! write {($($f:ident:$ty:ty,)*)=>{$(crate::producer_operations::emit_owned(&mut rows.$f, output).await?;)*};}
         lctx_model::catalog_evidence_outputs!(write);
-        let links = build::invocation_links(&rows, invocations, budget)?;
-        for row in links.iter() {
-            output.push(row.clone()).await?;
-        }
+        crate::producer_operations::emit_owned(&mut links, output).await?;
         drop(links);
         drop(rows);
         Ok(())
@@ -377,8 +375,8 @@ async fn artifact_batch(
     }
     drop(union);
     drop(selected);
-    let results = crate::owned_work::ordered(runtime, work).await?;
-    for rows in results {
+    let mut results = crate::owned_work::ordered(runtime, work).await?;
+    while let Some(rows) = results.next().await? {
         emit_artifact(rows, output, invocations, runtime.budget()).await?;
         tokio::task::yield_now().await;
     }

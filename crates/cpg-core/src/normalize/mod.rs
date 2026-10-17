@@ -1,5 +1,5 @@
 //! Computed normalization stages over admitted completed-stage inputs.
-use crate::producer_operations::{Declaration, declare, declare_ordered, emit};
+use crate::producer_operations::{Declaration, declare, declare_ordered};
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use arrow_array::Array;
 use futures::{TryStreamExt, future::BoxFuture};
@@ -292,7 +292,7 @@ impl EntityScopes {
                 } else {
                     None
                 };
-                if let Some(rows) = hit {
+                if let Some(mut rows) = hit {
                     if !kernel_products::prepare_hits(
                         &mut hits[partition + 1..],
                         kernel_products::entity_emission_bound(&rows, kernel),
@@ -301,7 +301,7 @@ impl EntityScopes {
                         point_fallback = true;
                     }
                     emit_entities(
-                        &rows,
+                        &mut rows,
                         output,
                         matches!(
                             kernel,
@@ -340,7 +340,7 @@ impl EntityScopes {
             // Cache hits remove partitions. The surviving dense partition still belongs to
             // its original explicit root, never to an incidental supporting symbol.
             let demand = entity_demand(roots[misses[partition]], kernel, &self.roots)?;
-            let rows = product_window.compute(|| {
+            let mut rows = product_window.compute(|| {
             macro_rules! selected_inputs {($($field:ident:$ty:ty => $family:ident,)*)=>{{
     $(let $field=if let Some(table)=self.inputs.iter().position(|input|input.type_id()==std::any::TypeId::of::<$ty>()){
       // Entity's former rich nominal work list refused required available premises. Keep that
@@ -357,16 +357,6 @@ impl EntityScopes {
                 kernel_products::entity_emission_bound(&rows, kernel),
                 runtime.budget(),
             )?;
-            emit_entities(
-                &rows,
-                output,
-                matches!(
-                    kernel,
-                    entity_normalization::EntityKernel::Public
-                        | entity_normalization::EntityKernel::Enumeration
-                ),
-            )
-            .await?;
             if let Some(request) = request {
                 kernel_products::retain_entity(
                     &mut product_window,
@@ -376,21 +366,31 @@ impl EntityScopes {
                     runtime,
                 )?;
             }
+            emit_entities(
+                &mut rows,
+                output,
+                matches!(
+                    kernel,
+                    entity_normalization::EntityKernel::Public
+                        | entity_normalization::EntityKernel::Enumeration
+                ),
+            )
+            .await?;
             tokio::task::yield_now().await;
         }
         product_window.finish(runtime).await
     }
 }
 fn emit_relations<'a>(
-    rows: &'a normalized::relation_normalization::RelationOutput,
+    rows: &'a mut normalized::relation_normalization::RelationOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a normalized::relation_normalization::RelationOutput,
+        &'a mut normalized::relation_normalization::RelationOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a normalized::relation_normalization::RelationOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut normalized::relation_normalization::RelationOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::normalized_relation_outputs!(adapters);
@@ -402,15 +402,15 @@ fn emit_relations<'a>(
     })
 }
 fn emit_callables<'a>(
-    rows: &'a normalized::callable_normalization::CallableOutput,
+    rows: &'a mut normalized::callable_normalization::CallableOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a normalized::callable_normalization::CallableOutput,
+        &'a mut normalized::callable_normalization::CallableOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a normalized::callable_normalization::CallableOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut normalized::callable_normalization::CallableOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::normalized_callable_outputs!(adapters);
@@ -422,15 +422,15 @@ fn emit_callables<'a>(
     })
 }
 fn emit_receivers<'a>(
-    rows: &'a normalized::receiver::ReceiverOutput,
+    rows: &'a mut normalized::receiver::ReceiverOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a normalized::receiver::ReceiverOutput,
+        &'a mut normalized::receiver::ReceiverOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a normalized::receiver::ReceiverOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut normalized::receiver::ReceiverOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::normalized_receiver_outputs!(adapters);
@@ -442,15 +442,15 @@ fn emit_receivers<'a>(
     })
 }
 fn emit_bindings<'a>(
-    rows: &'a normalized::binding_normalization::BindingOutput,
+    rows: &'a mut normalized::binding_normalization::BindingOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a normalized::binding_normalization::BindingOutput,
+        &'a mut normalized::binding_normalization::BindingOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a normalized::binding_normalization::BindingOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut normalized::binding_normalization::BindingOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::normalized_binding_outputs!(adapters);
@@ -462,15 +462,15 @@ fn emit_bindings<'a>(
     })
 }
 fn emit_projections<'a>(
-    rows: &'a projection::normalization::ProjectionOutput,
+    rows: &'a mut projection::normalization::ProjectionOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a projection::normalization::ProjectionOutput,
+        &'a mut projection::normalization::ProjectionOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a projection::normalization::ProjectionOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut projection::normalization::ProjectionOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::projection_outputs!(adapters);
@@ -482,16 +482,16 @@ fn emit_projections<'a>(
     })
 }
 fn emit_aspects<'a>(
-    rows: &'a normalized::callable_aspects::AspectOutput,
+    rows: &'a mut normalized::callable_aspects::AspectOutput,
     output: &'a ProducerOutput,
     class: bool,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a normalized::callable_aspects::AspectOutput,
+        &'a mut normalized::callable_aspects::AspectOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a normalized::callable_aspects::AspectOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut normalized::callable_aspects::AspectOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::callable_aspect_outputs!(adapters);
@@ -506,16 +506,16 @@ fn emit_aspects<'a>(
 }
 
 fn emit_entities<'a>(
-    rows: &'a entity_normalization::EntityOutput,
+    rows: &'a mut entity_normalization::EntityOutput,
     output: &'a ProducerOutput,
     public_only: bool,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a entity_normalization::EntityOutput,
+        &'a mut entity_normalization::EntityOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a entity_normalization::EntityOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut entity_normalization::EntityOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::normalized_entity_outputs!(adapters);
@@ -650,8 +650,8 @@ pub async fn entities(
                 source_module = Some((*row.source.bytes(), if count == 1 { only } else { None }));
             }
             let module = source_module.as_ref().expect("selected source").1;
-            let rows = owners.push(row, module, runtime.budget())?;
-            emit_entities(&rows, &output, false).await?;
+            let mut rows = owners.push(row, module, runtime.budget())?;
+            emit_entities(&mut rows, &output, false).await?;
         }
     }
     drop(stream);
@@ -856,9 +856,9 @@ impl RelationScopes {
                 SelectedRelationInputs::new(self, &selected, partition, &data, runtime.budget())?;
             let view = relations.view(facts.view(&data)?, entities.view(&data)?, &data)?;
             relation_normalization::require_scope_premises(&view, kernel)?;
-            let rows =
+            let mut rows =
                 relation_normalization::normalize_scope_view(&view, kernel, runtime.budget())?;
-            emit_relations(&rows, output).await?;
+            emit_relations(&mut rows, output).await?;
             tokio::task::yield_now().await;
         }
         Ok(())
@@ -1086,7 +1086,7 @@ pub async fn callables(
                     } else {
                         None
                     };
-                    if let Some(rows) = hit {
+                    if let Some(mut rows) = hit {
                         if !kernel_products::prepare_hits(
                             &mut hits[partition + 1..],
                             kernel_products::callable_emission_bound(&rows),
@@ -1094,7 +1094,7 @@ pub async fn callables(
                         )? {
                             point_fallback = true;
                         }
-                        emit_callables(&rows, &output).await?;
+                        emit_callables(&mut rows, &output).await?;
                     } else {
                         misses.push(partition);
                         requests.push(request);
@@ -1113,7 +1113,7 @@ pub async fn callables(
                     kernel_products::ProductWindow::new(requests.len(), runtime)?;
                 for (partition, request) in requests.into_iter().enumerate() {
                     let index = start + misses[partition];
-                    let rows = product_window.compute(|| {
+                    let mut rows = product_window.compute(|| {
                         let selection = callable_scope::DataSelection::new(
                             &selected,
                             partition,
@@ -1150,7 +1150,6 @@ pub async fn callables(
                         kernel_products::callable_emission_bound(&rows),
                         runtime.budget(),
                     )?;
-                    emit_callables(&rows, &output).await?;
                     if let Some(request) = request {
                         kernel_products::retain_callable(
                             &mut product_window,
@@ -1159,6 +1158,7 @@ pub async fn callables(
                             runtime,
                         )?;
                     }
+                    emit_callables(&mut rows, &output).await?;
                 }
                 product_window.finish(runtime).await?;
             }
@@ -1299,7 +1299,7 @@ pub async fn aspects(
                     } else {
                         None
                     };
-                    if let Some(rows) = hit {
+                    if let Some(mut rows) = hit {
                         if !kernel_products::prepare_hits(
                             &mut hits[partition + 1..],
                             kernel_products::aspect_emission_bound(&rows),
@@ -1308,7 +1308,7 @@ pub async fn aspects(
                             point_fallback = true;
                         }
                         let kernel = crate::scoped_aspects::kernel(index, request.key)?;
-                        emit_aspects(&rows, &output, matches!(kernel, AspectKernel::Class(_)))
+                        emit_aspects(&mut rows, &output, matches!(kernel, AspectKernel::Class(_)))
                             .await?;
                     } else {
                         misses.push(partition);
@@ -1335,7 +1335,7 @@ pub async fn aspects(
                     let request = &requested[misses[partition]];
                     runtime.cancellation().check()?;
                     let kernel = crate::scoped_aspects::kernel(index, request.key)?;
-                    let rows = product_window.compute(|| {
+                    let mut rows = product_window.compute(|| {
                         let owner = crate::scoped_aspects::AspectSelection::new(
                             &selected,
                             partition,
@@ -1356,7 +1356,6 @@ pub async fn aspects(
                         runtime.budget(),
                     )?;
                     // Class defaults are scratch; canonical emission remains field-owned.
-                    emit_aspects(&rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
                     if let Some(product) = product {
                         kernel_products::retain_aspect(
                             &mut product_window,
@@ -1365,6 +1364,7 @@ pub async fn aspects(
                             runtime,
                         )?;
                     }
+                    emit_aspects(&mut rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
                 }
                 product_window.finish(runtime).await?;
             }
@@ -1490,7 +1490,7 @@ pub(crate) async fn receivers_produced(
                     runtime.budget(),
                 )?;
                 let view = selection.view()?;
-                let (rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || {
+                let (mut rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || {
                     receiver::normalize_target_produced_view(
                         &view,
                         callable_scope::nominal(keys.value(index))?,
@@ -1498,7 +1498,7 @@ pub(crate) async fn receivers_produced(
                     )
                 })?;
                 verified.append(authority)?;
-                emit_receivers(&rows, &output).await?;
+                emit_receivers(&mut rows, &output).await?;
                 tokio::task::yield_now().await;
             }
         }
@@ -1519,15 +1519,15 @@ pub(crate) async fn receivers_produced(
 }
 
 fn emit_event_rows<'a>(
-    rows: &'a normalized::event_normalization::EventOutput,
+    rows: &'a mut normalized::event_normalization::EventOutput,
     output: &'a ProducerOutput,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Emission = for<'a> fn(
-        &'a normalized::event_normalization::EventOutput,
+        &'a mut normalized::event_normalization::EventOutput,
         &'a ProducerOutput,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     macro_rules! adapters {($($field:ident:$ty:ty,)*) => {
-        $(fn $field<'a>(rows: &'a normalized::event_normalization::EventOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { emit(&rows.$field, output) })*
+        $(fn $field<'a>(rows: &'a mut normalized::event_normalization::EventOutput, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> { crate::producer_operations::emit_owned(&mut rows.$field, output) })*
         const EMISSIONS: &[(&str, Emission)] = &[$((stringify!($field), $field),)*];
     };}
     lctx_model::normalized_event_outputs!(adapters);
@@ -1635,7 +1635,7 @@ fn event_roots<'a, R: Record>(
                         runtime.budget(),
                     )?;
                     let view = selection.view()?;
-                    let (rows, authority) =
+                    let (mut rows, authority) =
                         crate::stage_runtime::borrowed_cpu(access.name(), || {
                             event_normalization::normalize_event_produced_view(
                                 &view,
@@ -1645,7 +1645,7 @@ fn event_roots<'a, R: Record>(
                             )
                         })?;
                     verified.append(authority)?;
-                    emit_event_rows(&rows, output).await?;
+                    emit_event_rows(&mut rows, output).await?;
                     tokio::task::yield_now().await;
                 }
             }
@@ -2061,7 +2061,7 @@ pub(crate) async fn bindings_prepared(
                     runtime.budget(),
                 )?;
                 let view = selection.view()?;
-                let (rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || {
+                let (mut rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || {
                     binding_normalization::normalize_event_produced_view(
                         &view,
                         callable_scope::nominal(keys.value(index))?,
@@ -2071,7 +2071,7 @@ pub(crate) async fn bindings_prepared(
                     )
                 })?;
                 application.append(verified)?;
-                emit_bindings(&rows, &output).await?;
+                emit_bindings(&mut rows, &output).await?;
                 tokio::task::yield_now().await;
             }
         }
@@ -2149,10 +2149,10 @@ pub async fn projections(
     lctx_model::projection_outputs!(declarations);
     declare_ordered(&output, DECLARATIONS).await?;
     for key in prepared.keys() {
-        let rows = crate::stage_runtime::borrowed_cpu(access.name(), || {
+        let mut rows = crate::stage_runtime::borrowed_cpu(access.name(), || {
             prepared.produce(key, runtime.budget())
         })?;
-        emit_projections(&rows, &output).await?;
+        emit_projections(&mut rows, &output).await?;
         drop(rows);
         tokio::task::yield_now().await;
     }

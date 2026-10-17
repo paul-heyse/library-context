@@ -45,6 +45,7 @@ struct WorkspaceFiles {
     _directory: tempfile::TempDir,
 }
 /// Execution ownership survives a compiler catalog handoff without retaining that catalog.
+type RetentionJoin = futures::future::Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 struct WorkspaceExecutionOwner {
     _files: Arc<WorkspaceFiles>,
     cancellation: Cancellation,
@@ -52,6 +53,7 @@ struct WorkspaceExecutionOwner {
     native_calls: Arc<crate::native_calls::NativeCalls>,
     native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     stages: StageExecution,
+    retention: Mutex<Vec<(RetentionJoin, Box<dyn Reservation>)>>,
     provider_drains: Arc<Mutex<Vec<OwnedTaskJoin>>>,
     product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
     membership_demand: Arc<Mutex<Option<MembershipDemand>>>,
@@ -139,12 +141,30 @@ pub struct Workspace {
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
     frozen_facts_availability: Mutex<Option<FrozenFactsAvailability>>,
 }
+impl WorkspaceExecutionOwner {
+    async fn join_retention(&self) -> Result<(), ModelError> {
+        let retained = self.retention.lock().map_err(|_| poisoned())?.iter().map(|(join, _)| join.clone()).collect::<Vec<_>>();
+        let mut terminal = lctx_model::domain::completion::Completion::default();
+        for retained in retained { terminal.step("accepted product retention", retained.await.map_err(ModelError::SharedCause)); }
+        lctx_model::domain::completion::complete(Ok(()), terminal)
+    }
+}
 impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner {
     fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion> {
         async move {
             use lctx_model::domain::completion::{Completion, LocalState};
-            self.cancellation.cancel();
             let mut completion = Completion::default();
+            // Required consumers may already have used the completed source. Accepted
+            // optional retention remains an observed child, never a detached cache miss.
+            let retained = match self.retention.lock() {
+                Ok(retained) => retained.iter().map(|(join, _)| join.clone()).collect::<Vec<_>>(),
+                Err(_) => { completion.step("retention join ownership", Err(poisoned())); Vec::new() }
+            };
+            let retained_count = retained.len();
+            for retained in retained {
+                completion.step("accepted product retention", retained.await.map_err(ModelError::SharedCause));
+            }
+            self.cancellation.cancel();
             // Stages can register provider descendants. Seal/join them before snapshotting providers.
             match self.stages.seal() {
                 Ok(stages) => for stage in stages {
@@ -157,6 +177,15 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
                     // registration stopped. Retain provider/native owners for retry.
                     return completion;
                 }
+            }
+            // A producer present in the stage snapshot may have registered a child after
+            // our first snapshot. Actual stage drainage closes that registration window.
+            let late_retention = match self.retention.lock() {
+                Ok(retained) => retained.iter().skip(retained_count).map(|(join, _)| join.clone()).collect::<Vec<_>>(),
+                Err(_) => { completion.step("late retention join ownership", Err(poisoned())); Vec::new() }
+            };
+            for retained in late_retention {
+                completion.step("accepted late product retention", retained.await.map_err(ModelError::SharedCause));
             }
             let drains = match self.provider_drains.lock() {
                 Ok(drains) => drains.clone(),
@@ -229,6 +258,13 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
     }
 }
 impl Workspace {
+    fn retain_child(&self, work: impl std::future::Future<Output = Result<(), ModelError>> + Send + 'static) -> Result<(), ModelError> {
+        let slot = self.budget.reserve("accepted retention child join", size_of::<(RetentionJoin, Box<dyn Reservation>)>() + 128)?;
+        let task = self.spawn_stage(work)?;
+        let joined = task.map(|result| result.map_err(Arc::new)).boxed().shared();
+        self.execution.retention.lock().map_err(|_| poisoned())?.push((joined, slot));
+        Ok(())
+    }
     /// Schedule owned producer work; only its terminal result is returned to the coordinator.
     pub(crate) fn spawn_stage<T: Send + 'static>(
         &self,
@@ -345,6 +381,7 @@ impl Workspace {
             native_calls: native_calls.clone(),
             native: native.clone(),
             stages: StageExecution::new(&budget),
+            retention: Mutex::new(Vec::new()),
             provider_drains: provider_drains.clone(),
             product_cache: product_cache.clone(),
             membership_demand: membership_demand.clone(),
@@ -550,6 +587,10 @@ impl Workspace {
             ContentHash,
         )>,
     ) -> Result<(), ModelError> {
+        // Final artifact freeze is the enclosing boundary, not producer readiness.
+        // All optional children accepted by completed stages settle before native
+        // admission freezes mutation/retained-product inventory.
+        self.execution.join_retention().await?;
         let _gate =
             lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
         self.cancellation.check()?;
@@ -3250,6 +3291,52 @@ impl ProducerOutput {
         }
         self.write(batch)
     }
+    /// Canonical model output transfers ownership into the existing native batch path.
+    /// Native incidence still arbitrates duplicate equality across batch flushes.
+    pub(crate) fn canonical_limits<R: Record>(&self) -> Result<TransferLimits, ModelError> {
+        self.check()?;
+        let mut writers = self.writers.lock().map_err(|_| poisoned())?;
+        let writer = writers.get_mut(R::NAME).and_then(|writer| writer.as_any_mut().downcast_mut::<Writer<R>>()).ok_or(ModelError::Schema("undeclared canonical output"))?;
+        Ok(writer.limits)
+    }
+    pub(crate) async fn push_owned_batch<R: Record>(&self, canonical: lctx_model::domain::normalized::CanonicalBatch<R>) -> Result<(), ModelError> {
+        let result = async {
+            self.check()?;
+            let limits = self.canonical_limits::<R>()?;
+            let batch = canonical.into_batch(&self.workspace.model, self.workspace.budget(), limits)?;
+            let (producer, previous) = {
+                let mut writers = self.writers.lock().map_err(|_| poisoned())?;
+                let writer = writers.get_mut(R::NAME).and_then(|writer| writer.as_any_mut().downcast_mut::<Writer<R>>()).ok_or(ModelError::Schema("undeclared canonical output"))?;
+                if batch.rows().iter().any(|row| row.row_bytes() > writer.limits.max_row) { return Err(ModelError::Schema("canonical output row limit")); }
+                let previous = if writer.pending.is_empty() { None } else {
+                    let charge = std::mem::replace(&mut writer.charge, self.workspace.budget.reserve(R::NAME, 0)?);
+                    let pending = Batch::with_reservation(&self.workspace.model, std::mem::take(&mut writer.pending), charge)?;
+                    writer.bytes = 0;
+                    Some(pending)
+                };
+                (writer.producer, previous)
+            };
+            for batch in previous.into_iter().chain(std::iter::once(batch)) {
+                let write = owned_batch_write(self.ingress.clone(), self.workspace.native.clone(), producer, batch, Some(self.producing_scope()?), self.workspace.budget().clone());
+                submit_batch_write(self.workspace.native_calls.clone(), write, None).await?;
+            }
+            Ok(())
+        }.await;
+        if result.is_err() { self.failed.store(true, Ordering::Release); }
+        result
+    }
+    pub(crate) async fn push_rows<R: Record>(&self, rows: &mut lctx_model::domain::normalized::Rows<R>) -> Result<(), ModelError> {
+        let result = async {
+            self.check()?;
+            let limits = self.canonical_limits::<R>()?;
+            while let Some(batch) = rows.take_batch(limits.rows, limits.bytes)? {
+                self.push_owned_batch(batch).await?;
+            }
+            Ok(())
+        }.await;
+        if result.is_err() { self.failed.store(true, Ordering::Release); }
+        result
+    }
     pub async fn push<R: Record>(&self, row: R) -> Result<(), ModelError> {
         let result = async {
             self.check()?;
@@ -3466,11 +3553,6 @@ impl ProducerOutput {
             let descriptor = production.descriptor();
             if descriptor.spec != spec || descriptor.outcome != expected_outcome {
                 return Err(ModelError::Conflict("completed native producer handoff"));
-            }
-            if let Some(request) = product_request {
-                self.workspace
-                    .retain_product(request, production.clone())
-                    .await?;
             }
             // Immutable composition and host carriers are prepared privately. Only
             // capture/recheck, binding and the coherent visible handoff hold the gate.
@@ -3742,6 +3824,14 @@ impl ProducerOutput {
             }
             drop((owners, by_producer, visible));
             self.workspace.refresh_membership_demand()?;
+            // The coherent required handoff is complete. Retention protects its own exact
+            // source and is observed by the enclosing execution owner, not this readiness.
+            if let Some(request) = product_request {
+                let retained = self.workspace.clone();
+                self.workspace.retain_child(async move {
+                    retained.retain_product(request, production).await
+                })?;
+            }
             Ok(())
         })
     }
@@ -5018,9 +5108,16 @@ mod tests {
             })
             .collect();
         if reverse {
+            let mut canonical = lctx_model::domain::normalized::Rows::new(workspace.budget());
             for row in rows.into_iter().rev() {
-                output.push(row).await.unwrap();
+                canonical.insert(row).unwrap();
             }
+            output.push_rows(&mut canonical).await.unwrap();
+            assert!(canonical.is_empty(), "the canonical owner is consumed");
+            // Equality is arbitrated by actual native incidence, including IDs that
+            // appeared in an earlier canonical batch and no longer have host backing.
+            canonical.insert(Package { name: "package-00000000".into() }).unwrap();
+            output.push_rows(&mut canonical).await.unwrap();
         } else {
             for row in rows {
                 output.push(row).await.unwrap();
