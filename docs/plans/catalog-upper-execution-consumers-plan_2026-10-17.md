@@ -2,7 +2,7 @@
 
 _Date: 2026-10-17. UC01–UC05 delivered / focused-Tested under ADR-0186; full Catalog qualification remains pending. The coordinator §6 owns actual dispositions and receipts; this companion is not a second mutable status ledger._
 
-The [coordinator’s current checkpoint](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the subsequent layout, epoch, recipe and dependency-traversal corrections and operator-requested closeout. Earlier focused receipts retain their original scope; the latest native integration gate remains pending.
+The [coordinator’s current checkpoint](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the subsequent corrections and the2026-10-17 functional audit at `160c5254`. UC01–UC05 production acquisition, model-property and indexed-window migrations are implemented on inspected paths; no remaining consumer-package gap was found. R01 narrow feedback controls exist and the original full-frontier assertions remain. Their unrun integration is distinct from missing implementation; earlier focused receipts retain their original scope.
 
 ## 1. Responsibility and basis
 
