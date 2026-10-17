@@ -1720,7 +1720,8 @@ impl PendingOriginals {
             .checked_mul(std::mem::size_of::<(Blob, u64, &[u8])>())
             .ok_or(ModelError::Schema("original ingress slice metadata"))?;
         let _metadata = budget.reserve("original ingress slice metadata", metadata_bytes)?;
-        let mut writer = crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
+        let mut writer =
+            crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
         let mut segments = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             chunk.validate()?;
@@ -1791,7 +1792,8 @@ impl PendingOriginals {
         if !sources.is_empty() {
             self.retain_budget(budget)?;
         }
-        let mut writer = crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
+        let mut writer =
+            crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
         for source in sources {
             let layout = Layout::source(source)?;
             validate_layout(reader, &layout).await?;
@@ -1807,7 +1809,16 @@ impl PendingOriginals {
                 budget,
             )
             .await?;
-            drain_pending(reader, &mut writer, attempt, contribution, &layout, budget, true).await?;
+            drain_pending(
+                reader,
+                &mut writer,
+                attempt,
+                contribution,
+                &layout,
+                budget,
+                true,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -1912,7 +1923,8 @@ async fn process_pending<Context>(
     vars.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
     vars.insert("after", Value::None);
     let _charge = budget.reserve("pending original root page", 32 * 4096)?;
-    let mut writer = crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
+    let mut writer =
+        crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
     loop {
         let values=rows(reader,"SELECT * FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$attempt AND ($after=NONE OR id>$after) ORDER BY id LIMIT 32",vars.clone()).await?;
         if values.is_empty() {

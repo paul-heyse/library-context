@@ -264,8 +264,11 @@ impl Inspect<'_> {
                 actual.actual.entry(witness, source, self.budget)?
             } else {
                 // Finite whole-input owner oracle. Production always supplies actual Local.
-                let Ok(proof) =
-                    conditions::entry::EntryValueWitness::derive_view(self.entry, request, self.budget)?
+                let Ok(proof) = conditions::entry::EntryValueWitness::derive_view(
+                    self.entry,
+                    request,
+                    self.budget,
+                )?
                 else {
                     continue;
                 };

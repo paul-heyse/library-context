@@ -97,7 +97,6 @@ impl ImmutableWindow {
             merge_plan_bindings(&mut bindings, scope)?;
             // The native window classifies declaration, layout and holds together.
             // Existing blob completion is mutable; immutable header equality remains strict.
-
         }
         if let Some((hold_owner, _, holds)) = hold_plan(attempt, references)? {
             if !matches!(
@@ -334,7 +333,9 @@ impl<'a> WindowWriter<'a> {
     ) -> Self {
         Self::for_owner(
             client,
-            attempt.map(EffectOwner::OpenAttempt).unwrap_or(EffectOwner::Installation),
+            attempt
+                .map(EffectOwner::OpenAttempt)
+                .unwrap_or(EffectOwner::Installation),
             budget,
         )
     }
@@ -343,7 +344,13 @@ impl<'a> WindowWriter<'a> {
         owner: EffectOwner,
         budget: Option<&'a ResourceBudget>,
     ) -> Self {
-        Self { client, budget, owner, issuance: None, control_bytes: None }
+        Self {
+            client,
+            budget,
+            owner,
+            issuance: None,
+            control_bytes: None,
+        }
     }
     pub async fn install(&mut self, window: ImmutableWindow) -> Result<(), ModelError> {
         let _charge: Option<Box<dyn Reservation>> = if window.charges.is_empty() {
@@ -367,7 +374,10 @@ impl<'a> WindowWriter<'a> {
         // native/serialization/container allowance. No row or endpoint is cloned here.
         let sizing = if self.control_bytes.is_none() {
             let sizing_bytes = plan_bytes(coordination::ERA_GUARD, &Variables::new())?
-                .saturating_add(plan_bytes(coordination::EXPECTED_OBJECT_GUARD, &Variables::new())?);
+                .saturating_add(plan_bytes(
+                    coordination::EXPECTED_OBJECT_GUARD,
+                    &Variables::new(),
+                )?);
             self.budget
                 .map(|budget| budget.reserve("native immutable sizing templates", sizing_bytes))
                 .transpose()?
@@ -375,16 +385,16 @@ impl<'a> WindowWriter<'a> {
             None
         };
         let controls = self.control_workspace_bytes()?;
-        let mut workspace_bytes = plan_bytes(sql, &bindings)?
-            .saturating_add(controls);
-        let mut workspace = self.budget
+        let mut workspace_bytes = plan_bytes(sql, &bindings)?.saturating_add(controls);
+        let mut workspace = self
+            .budget
             .map(|budget| budget.reserve("native immutable complete preparation", workspace_bytes))
             .transpose()?;
         // The initial raw/control charge admits the fixed sizing templates. Derive
         // the growing expectation envelope from the actual planned identities before
         // prepare_expectations allocates/maps/reads their physical observations.
-        workspace_bytes = workspace_bytes
-            .saturating_add(Self::expectation_workspace_bytes(&bindings)?);
+        workspace_bytes =
+            workspace_bytes.saturating_add(Self::expectation_workspace_bytes(&bindings)?);
         if let Some(workspace) = &mut workspace {
             workspace.try_resize(workspace_bytes)?;
         }
@@ -398,12 +408,16 @@ impl<'a> WindowWriter<'a> {
         let prepared = authorization::prepare_owner_effect(
             self.client,
             &self.owner,
-            self.issuance.expect("captured exact immutable owner issuance"),
+            self.issuance
+                .expect("captured exact immutable owner issuance"),
             sql,
             bindings,
-        ).await?;
+        )
+        .await?;
         if prepared.bytes()? > workspace_bytes {
-            return Err(ModelError::Schema("native immutable complete preparation bound"));
+            return Err(ModelError::Schema(
+                "native immutable complete preparation bound",
+            ));
         }
         // Recovery retains this request's identity. Neither retry nor a later window
         // refreshes the original owner's generation/era after an eligibility cut.
@@ -416,13 +430,15 @@ impl<'a> WindowWriter<'a> {
         // Fixed-width hashes and the widest positive era bound every actual request.
         // Reuse the production lowering rather than copying its wrapper SQL/controls.
         let request = NativeRequest {
-            issuance: IssuanceEra { generation: ContentHash([0; 32]), era: i64::MAX },
+            issuance: IssuanceEra {
+                generation: ContentHash([0; 32]),
+                era: i64::MAX,
+            },
             operation: ContentHash([0; 32]),
             request: ContentHash([0; 32]),
         };
-        let mut plan = authorization::owner_effect_plan(
-            request, &self.owner, "", Variables::new(), false,
-        )?;
+        let mut plan =
+            authorization::owner_effect_plan(request, &self.owner, "", Variables::new(), false)?;
         {
             let bindings = &mut plan.bindings;
             bindings.insert("__stripe", RecordId::new("native_admission_stripe", 63i64));
@@ -442,7 +458,9 @@ impl<'a> WindowWriter<'a> {
                     self.0 = self.0.saturating_add(bytes.len());
                     Ok(bytes.len())
                 }
-                fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
             }
             let mut counter = Counter(0);
             serde_json::to_writer(&mut counter, value).map_err(ModelError::codec)?;
@@ -470,23 +488,36 @@ impl<'a> WindowWriter<'a> {
         };
         fields.remove("record");
         fields.remove("guard");
-        let field_native = fields.iter().map(|(key, value)| {
-            key.len().saturating_add(32).saturating_add(crate::loader::native_bytes(value))
-        }).fold(0usize, usize::saturating_add);
+        let field_native = fields
+            .iter()
+            .map(|(key, value)| {
+                key.len()
+                    .saturating_add(32)
+                    .saturating_add(crate::loader::native_bytes(value))
+            })
+            .fold(0usize, usize::saturating_add);
         let field_encoded = fields.iter().try_fold(0usize, |bytes, (key, value)| {
             // Added fields contribute a comma, a JSON key, a colon and their value.
-            Ok::<_, ModelError>(bytes.saturating_add(encoded(key)?)
-                .saturating_add(encoded(value)?).saturating_add(2))
+            Ok::<_, ModelError>(
+                bytes
+                    .saturating_add(encoded(key)?)
+                    .saturating_add(encoded(value)?)
+                    .saturating_add(2),
+            )
         })?;
-        let mut native = "__object_expectations".len().saturating_add(std::mem::size_of::<Value>());
+        let mut native = "__object_expectations"
+            .len()
+            .saturating_add(std::mem::size_of::<Value>());
         let mut serialized = encoded(&"__object_expectations")?
             .saturating_add(encoded(&Value::Array(Vec::<Value>::new().into()))?)
             .saturating_add(2);
         if let Some(records) = records {
             for record in records.iter() {
-                native = native.saturating_add(crate::loader::native_bytes(record))
+                native = native
+                    .saturating_add(crate::loader::native_bytes(record))
                     .saturating_add(field_native);
-                serialized = serialized.saturating_add(encoded(record)?)
+                serialized = serialized
+                    .saturating_add(encoded(record)?)
                     .saturating_add(field_encoded);
             }
             serialized = serialized.saturating_add(records.len().saturating_sub(1));
@@ -495,7 +526,9 @@ impl<'a> WindowWriter<'a> {
         // At most one expected guard receives each planned creation declaration.
         if let Some(Value::Array(creations)) = bindings.get("__immutable_creations") {
             for creation in creations.iter() {
-                let Some(Value::String(kind)) = creation.as_object().and_then(|row| row.get("kind")) else {
+                let Some(Value::String(kind)) =
+                    creation.as_object().and_then(|row| row.get("kind"))
+                else {
                     return Err(ModelError::Schema("native immutable creation envelope"));
                 };
                 let source = match kind.as_str() {
@@ -506,21 +539,25 @@ impl<'a> WindowWriter<'a> {
                 let Some(Value::Array(rows)) = bindings.get(source) else {
                     return Err(ModelError::Schema("native immutable creation payload"));
                 };
-                let index = i64::try_from(rows.len().saturating_sub(1))
-                    .map_err(ModelError::codec)?;
+                let index =
+                    i64::try_from(rows.len().saturating_sub(1)).map_err(ModelError::codec)?;
                 let mut reference = Object::new();
                 reference.insert("kind", kind.as_str());
                 reference.insert("index", index);
                 let reference = Value::Object(reference);
-                native = native.saturating_add(crate::loader::native_bytes(&reference)
-                    .saturating_sub(crate::loader::native_bytes(&Value::None)));
-                serialized = serialized.saturating_add(encoded(&reference)?
-                    .saturating_sub(encoded(&Value::None)?));
+                native = native.saturating_add(
+                    crate::loader::native_bytes(&reference)
+                        .saturating_sub(crate::loader::native_bytes(&Value::None)),
+                );
+                serialized = serialized
+                    .saturating_add(encoded(&reference)?.saturating_sub(encoded(&Value::None)?));
             }
         }
         // Match plan_bytes' resident-container and serialization workspace model.
         // This is not the protobuf wire bound; production preflight checks that separately.
-        Ok(native.saturating_mul(2).saturating_add(serialized.saturating_mul(3)))
+        Ok(native
+            .saturating_mul(2)
+            .saturating_add(serialized.saturating_mul(3)))
     }
 }
 
@@ -532,14 +569,19 @@ mod writer_workspace_controls {
     fn complete_workspace_covers_distinct_endpoint_guards_and_creation_indices() {
         let attempt = ContentHash::of(b"immutable workspace control");
         let owner = RecordId::new("native_attempt", attempt.hex());
-        let rows = (0..crate::loader::NATIVE_WINDOW_ROWS).map(|index| {
-            let mut row = Object::new();
-            row.insert("id", RecordId::new("reference", format!("row-{index}")));
-            for field in ["in", "out", "unit_node", "source"] {
-                row.insert(field, RecordId::new("entity", format!("endpoint-{field}-{index}-\"🦀")));
-            }
-            Value::Object(row)
-        }).collect();
+        let rows = (0..crate::loader::NATIVE_WINDOW_ROWS)
+            .map(|index| {
+                let mut row = Object::new();
+                row.insert("id", RecordId::new("reference", format!("row-{index}")));
+                for field in ["in", "out", "unit_node", "source"] {
+                    row.insert(
+                        field,
+                        RecordId::new("entity", format!("endpoint-{field}-{index}-\"🦀")),
+                    );
+                }
+                Value::Object(row)
+            })
+            .collect();
         let mut windows = ImmutableWindows::for_loading(rows, Some(attempt), Some(owner));
         let window = windows.next().unwrap().unwrap();
         assert!(windows.next().is_none(), "full 128-unit window");
@@ -548,8 +590,14 @@ mod writer_workspace_controls {
         let blob = crate::originals::Blob::new(ContentHash::of(b"x"), 1).unwrap();
         let mut extra = Variables::new();
         extra.insert("original_blobs", vec![blob.value(false)]);
-        extra.insert("__guard_records", guard_records(std::iter::once(&blob.id())).unwrap());
-        extra.insert("__write_guards", vec![guard_id(&Value::RecordId(blob.id())).unwrap()]);
+        extra.insert(
+            "__guard_records",
+            guard_records(std::iter::once(&blob.id())).unwrap(),
+        );
+        extra.insert(
+            "__write_guards",
+            vec![guard_id(&Value::RecordId(blob.id())).unwrap()],
+        );
         let mut creation = Object::new();
         creation.insert("kind", "original_blob");
         creation.insert("record", blob.id());
@@ -558,54 +606,101 @@ mod writer_workspace_controls {
         let client = Surreal::init();
         let mut writer = WindowWriter::new(&client, Some(attempt), None);
         let raw = plan_bytes(&window.sql, &bindings).unwrap();
-        let capacity = raw.saturating_add(writer.control_workspace_bytes().unwrap())
+        let capacity = raw
+            .saturating_add(writer.control_workspace_bytes().unwrap())
             .saturating_add(WindowWriter::expectation_workspace_bytes(&bindings).unwrap());
-        let Some(Value::Array(mapping)) = bindings.get("__guard_records") else { panic!("guard map") };
+        let Some(Value::Array(mapping)) = bindings.get("__guard_records") else {
+            panic!("guard map")
+        };
         assert_eq!(mapping.len(), 5 * crate::loader::NATIVE_WINDOW_ROWS + 2);
-        let Some(Value::Array(creations)) = bindings.get("__immutable_creations") else { panic!("creations") };
+        let Some(Value::Array(creations)) = bindings.get("__immutable_creations") else {
+            panic!("creations")
+        };
         for phase in ["active", "vacant", "retired"] {
-            let expected = mapping.iter().map(|value| {
-                let row = value.as_object().unwrap();
-                let Value::RecordId(record) = &row["record"] else { panic!("record") };
-                let Value::RecordId(guard) = &row["guard"] else { panic!("guard") };
-                let creation = creations.iter().find_map(|value| {
+            let expected = mapping
+                .iter()
+                .map(|value| {
                     let row = value.as_object().unwrap();
-                    if row.get("record") != Some(&Value::RecordId(record.clone())) { return None; }
-                    let Value::String(kind) = &row["kind"] else { panic!("kind") };
-                    let source = if kind == "immutable" { "rows" } else { "original_blobs" };
-                    let Some(Value::Array(rows)) = bindings.get(source) else { panic!("source") };
-                    let index = rows.iter().position(|row| row.as_object().unwrap().get("id") == Some(&Value::RecordId(record.clone()))).unwrap();
-                    let mut reference = Object::new();
-                    reference.insert("kind", kind.as_str());
-                    reference.insert("index", index as i64);
-                    Some(Value::Object(reference))
-                });
-                coordination::ExpectedObject {
-                    record: record.clone(),
-                    incarnation: if phase == "vacant" { 0 } else { i64::MAX },
-                    phase: phase.into(),
-                    tombstone_revision_if_vacant: match phase {
-                        "active" => None,
-                        "vacant" => Some(0),
-                        _ => Some(i64::MAX),
-                    },
-                }.binding(guard.clone(), creation.as_ref())
-            }).collect::<Vec<_>>();
+                    let Value::RecordId(record) = &row["record"] else {
+                        panic!("record")
+                    };
+                    let Value::RecordId(guard) = &row["guard"] else {
+                        panic!("guard")
+                    };
+                    let creation = creations.iter().find_map(|value| {
+                        let row = value.as_object().unwrap();
+                        if row.get("record") != Some(&Value::RecordId(record.clone())) {
+                            return None;
+                        }
+                        let Value::String(kind) = &row["kind"] else {
+                            panic!("kind")
+                        };
+                        let source = if kind == "immutable" {
+                            "rows"
+                        } else {
+                            "original_blobs"
+                        };
+                        let Some(Value::Array(rows)) = bindings.get(source) else {
+                            panic!("source")
+                        };
+                        let index = rows
+                            .iter()
+                            .position(|row| {
+                                row.as_object().unwrap().get("id")
+                                    == Some(&Value::RecordId(record.clone()))
+                            })
+                            .unwrap();
+                        let mut reference = Object::new();
+                        reference.insert("kind", kind.as_str());
+                        reference.insert("index", index as i64);
+                        Some(Value::Object(reference))
+                    });
+                    coordination::ExpectedObject {
+                        record: record.clone(),
+                        incarnation: if phase == "vacant" { 0 } else { i64::MAX },
+                        phase: phase.into(),
+                        tombstone_revision_if_vacant: match phase {
+                            "active" => None,
+                            "vacant" => Some(0),
+                            _ => Some(i64::MAX),
+                        },
+                    }
+                    .binding(guard.clone(), creation.as_ref())
+                })
+                .collect::<Vec<_>>();
             let mut observed = bindings.clone();
             observed.insert("__object_expectations", expected);
             let request = NativeRequest {
-                issuance: IssuanceEra { generation: ContentHash([0; 32]), era: i64::MAX },
-                operation: ContentHash([0; 32]), request: ContentHash([0; 32]),
+                issuance: IssuanceEra {
+                    generation: ContentHash([0; 32]),
+                    era: i64::MAX,
+                },
+                operation: ContentHash([0; 32]),
+                request: ContentHash([0; 32]),
             };
             // Complete lowering includes the independent protobuf wire admission.
             let plan = authorization::owner_effect_plan(
-                request, &writer.owner, &window.sql, observed.clone(), false,
-            ).unwrap();
+                request,
+                &writer.owner,
+                &window.sql,
+                observed.clone(),
+                false,
+            )
+            .unwrap();
             let actual = plan_bytes(&plan.query, &plan.bindings).unwrap();
-            assert!(actual > raw + 131072, "old fixed allowance fails for {phase}: raw={raw} actual={actual}");
-            assert!(actual <= capacity, "derived capacity covers {phase}: capacity={capacity} actual={actual}");
-            assert_eq!(WindowWriter::expectation_workspace_bytes(&observed).unwrap(), 0,
-                "already captured envelopes are charged by raw plan sizing");
+            assert!(
+                actual > raw + 131072,
+                "old fixed allowance fails for {phase}: raw={raw} actual={actual}"
+            );
+            assert!(
+                actual <= capacity,
+                "derived capacity covers {phase}: capacity={capacity} actual={actual}"
+            );
+            assert_eq!(
+                WindowWriter::expectation_workspace_bytes(&observed).unwrap(),
+                0,
+                "already captured envelopes are charged by raw plan sizing"
+            );
         }
     }
 }
@@ -615,7 +710,9 @@ pub async fn install_window(
     window: ImmutableWindow,
     budget: Option<&ResourceBudget>,
 ) -> Result<(), ModelError> {
-    WindowWriter::new(client, attempt, budget).install(window).await
+    WindowWriter::new(client, attempt, budget)
+        .install(window)
+        .await
 }
 
 /// A frozen derivation can only retain derived children and exact existing canonical
@@ -887,22 +984,47 @@ mod tests {
                 external,
             ];
             let selected = rows.iter().map(control_address).collect::<Vec<_>>();
-            let mut windows = ImmutableWindows::new(rows.clone(), Some(store.attempt()), None, Some(owner.clone()));
+            let mut windows = ImmutableWindows::new(
+                rows.clone(),
+                Some(store.attempt()),
+                None,
+                Some(owner.clone()),
+            );
             let window = windows.next().unwrap()?;
             assert!(windows.next().is_none());
             let mut writer = WindowWriter::new(&client, Some(store.attempt()), None);
-            assert!(writer.issuance.is_none(), "unused writer earns no native issuance");
+            assert!(
+                writer.issuance.is_none(),
+                "unused writer earns no native issuance"
+            );
             writer.install(window).await?;
             let issuance = writer.issuance;
             let before = control_guard(&client, &selected[0]).await;
-            let replay = ImmutableWindows::new(rows, Some(store.attempt()), None, Some(owner)).next().unwrap()?;
+            let replay = ImmutableWindows::new(rows, Some(store.attempt()), None, Some(owner))
+                .next()
+                .unwrap()?;
             writer.install(replay).await?;
-            assert_eq!(writer.issuance, issuance, "later windows retain the exact original issuance");
-            assert_eq!(control_guard(&client, &selected[0]).await, before, "equal rows and equal holds do not churn physical guards");
-            let (_, sql, variables) = hold_plan(Some(store.attempt()), vec![(selected[1].clone(), selected[0].clone())])?.unwrap();
+            assert_eq!(
+                writer.issuance, issuance,
+                "later windows retain the exact original issuance"
+            );
+            assert_eq!(
+                control_guard(&client, &selected[0]).await,
+                before,
+                "equal rows and equal holds do not churn physical guards"
+            );
+            let (_, sql, variables) = hold_plan(
+                Some(store.attempt()),
+                vec![(selected[1].clone(), selected[0].clone())],
+            )?
+            .unwrap();
             effect(&client, Some(store.attempt()), &sql, variables).await?;
             let after = control_guard(&client, &selected[0]).await;
-            assert_eq!(authorization::int_field(&after, "revision")?, authorization::int_field(&before, "revision")? + 1, "equal bytes with a new owner hold are changed incidence");
+            assert_eq!(
+                authorization::int_field(&after, "revision")?,
+                authorization::int_field(&before, "revision")? + 1,
+                "equal bytes with a new owner hold are changed incidence"
+            );
             let edge = relation.get("id").unwrap().clone();
             let mut response = client
                 .query("SELECT * FROM $edge")
@@ -1376,9 +1498,25 @@ mod tests {
             );
             let collision = windows.next().unwrap().unwrap();
             assert!(windows.next().is_none());
-            let (request, plan) = control_packet(&client, attempt, &collision.sql, collision.bindings.into(), None).await;
-            let result = checked_transaction(client.query(plan.query).bind(plan.bindings).await.unwrap());
-            assert!(matches!(authorization::reconcile_request(&client, request).await.unwrap(), EffectDisposition::FencedUncommitted), "failed atomic mixed window has no committed outcome");
+            let (request, plan) = control_packet(
+                &client,
+                attempt,
+                &collision.sql,
+                collision.bindings.into(),
+                None,
+            )
+            .await;
+            let result =
+                checked_transaction(client.query(plan.query).bind(plan.bindings).await.unwrap());
+            assert!(
+                matches!(
+                    authorization::reconcile_request(&client, request)
+                        .await
+                        .unwrap(),
+                    EffectDisposition::FencedUncommitted
+                ),
+                "failed atomic mixed window has no committed outcome"
+            );
             assert!(result.is_err(), "full-value collision must refuse");
             let mut response = client
                 .query("SELECT * FROM $absent; SELECT * FROM native_hold WHERE object=$absent")
@@ -1398,9 +1536,19 @@ mod tests {
             assert!(rows.is_empty());
             assert!(holds.is_empty());
             let prior_id = control_address(&immutable_control_row(&existing, 0));
-            let mut response = client.query("SELECT * FROM $prior").bind(("prior", prior_id)).await.unwrap().check().unwrap();
+            let mut response = client
+                .query("SELECT * FROM $prior")
+                .bind(("prior", prior_id))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
             let prior: Vec<Value> = response.take(0).unwrap();
-            assert_eq!(prior, vec![immutable_control_row(&existing, 0)], "earlier committed window survives later atomic collision");
+            assert_eq!(
+                prior,
+                vec![immutable_control_row(&existing, 0)],
+                "earlier committed window survives later atomic collision"
+            );
         })
         .await;
         assert_eq!(

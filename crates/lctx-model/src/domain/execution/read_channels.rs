@@ -961,7 +961,14 @@ pub fn produce_with_local(
     budget: &resources::ResourceBudget,
     actual: ReadEntries<'_>,
 ) -> Result<ReadRecords, ModelError> {
-    produce_whole(data.view(), entry.view(), invocation, roots, budget, Some(actual))
+    produce_whole(
+        data.view(),
+        entry.view(),
+        invocation,
+        roots,
+        budget,
+        Some(actual),
+    )
 }
 fn produce_whole(
     data: EvaluationDataView<'_>,

@@ -434,7 +434,11 @@ async fn root_native_query_cancellation_drains_before_fresh_checked_query() {
     drop(rows);
     native.close().await.unwrap();
     client.invalidate().await.unwrap();
-    assert_eq!(budget.reserved(), 0, "completed reads release their caller budget");
+    assert_eq!(
+        budget.reserved(),
+        0,
+        "completed reads release their caller budget"
+    );
 }
 
 #[tokio::test]

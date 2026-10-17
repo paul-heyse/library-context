@@ -64,7 +64,12 @@ impl RecoveryOwner {
             Self::OpenAttempt(id) => EffectOwner::OpenAttempt(*id),
             Self::FrozenAttempt(id) => EffectOwner::FrozenAttempt(*id),
             Self::Pin(id) => EffectOwner::Pin(id.clone()),
-            Self::TerminalAttempt { identity, epoch } => EffectOwner::TerminalAttempt(TerminalAttempt { identity: *identity, epoch: *epoch }),
+            Self::TerminalAttempt { identity, epoch } => {
+                EffectOwner::TerminalAttempt(TerminalAttempt {
+                    identity: *identity,
+                    epoch: *epoch,
+                })
+            }
             Self::Retirement(id) => EffectOwner::Retirement(id.clone()),
             Self::RetirementSetup(id) => EffectOwner::RetirementSetup(id.clone()),
             Self::Cleanup(id) => EffectOwner::Cleanup(id.clone()),

@@ -438,7 +438,9 @@ fn immutable_row_plan(
     } else {
         ""
     };
-    let sql = format!("{fence} fn::native_immutable_install($rows,[],$__attempt_context,$__deferred_guards,($original_blobs ?? []));");
+    let sql = format!(
+        "{fence} fn::native_immutable_install($rows,[],$__attempt_context,$__deferred_guards,($original_blobs ?? []));"
+    );
     Ok(Some((sql, bindings)))
 }
 /// Keep the first exact row ordering, coalescing only complete equal values. The

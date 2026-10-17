@@ -140,10 +140,7 @@ async fn definition_inventory(transaction: &Snapshot<'_>) -> Result<BTreeSet<Str
     }
     Ok(inventory)
 }
-async fn view(
-    transaction: &Snapshot<'_>,
-    identity: ContentHash,
-) -> Result<Value, ModelError> {
+async fn view(transaction: &Snapshot<'_>, identity: ContentHash) -> Result<Value, ModelError> {
     one(
         transaction,
         "SELECT * FROM $view".into(),
@@ -177,9 +174,13 @@ impl SnapshotViews {
             // Admit both the retained native row and decoded descriptor before decoding.
             // This also covers tree entries and the traversal's temporary descriptor copy.
             let previous = self.charge.size();
-            self.charge.try_resize(previous.saturating_add(
-                lctx_native::loader::native_bytes(&row).saturating_mul(4).saturating_add(512),
-            ))?;
+            self.charge.try_resize(
+                previous.saturating_add(
+                    lctx_native::loader::native_bytes(&row)
+                        .saturating_mul(4)
+                        .saturating_add(512),
+                ),
+            )?;
             let decoded = (|| {
                 let descriptor: CompletedView = descriptor(&row)?;
                 descriptor.validate()?;
@@ -199,7 +200,9 @@ impl SnapshotViews {
             };
             entry.insert((row, descriptor));
         }
-        self.rows.get(&identity).ok_or(ModelError::Conflict("snapshot view acquisition absent"))
+        self.rows
+            .get(&identity)
+            .ok_or(ModelError::Conflict("snapshot view acquisition absent"))
     }
 }
 async fn snapshot_closure<F>(
@@ -214,7 +217,11 @@ where
 {
     while let Some(requested) = traversal.next_view()? {
         cancel.check()?;
-        let actual = views.acquire(requested.identity, &mut read).await?.1.clone();
+        let actual = views
+            .acquire(requested.identity, &mut read)
+            .await?
+            .1
+            .clone();
         let mut contributors = Vec::new();
         for logical in &actual.contributions {
             let descriptor = (*logical_descriptors
@@ -230,7 +237,8 @@ where
             contributors.push(descriptor);
         }
         traversal.include_view(&requested, actual, contributors, |id| {
-            views.rows
+            views
+                .rows
                 .get(&id)
                 .map(|(_, descriptor)| descriptor.clone())
                 .ok_or(ModelError::Conflict("snapshot dependency view absent"))
@@ -382,7 +390,14 @@ pub(crate) async fn export(
         .iter()
         .map(|copy| Ok((copy.descriptor.identity()?, &copy.descriptor)))
         .collect::<Result<BTreeMap<_, _>, ModelError>>()?;
-    let closure = snapshot_closure(&mut views, traversal, &logical_descriptors, cancel, |identity| view(transaction, identity)).await?;
+    let closure = snapshot_closure(
+        &mut views,
+        traversal,
+        &logical_descriptors,
+        cancel,
+        |identity| view(transaction, identity),
+    )
+    .await?;
     let all_views = transport
         .envelope()
         .roots
@@ -773,7 +788,10 @@ mod tests {
     fn view_record(view: &CompletedView) -> Value {
         let mut row = Object::new();
         row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
-        row.insert("descriptor", Value::Bytes(serde_json::to_vec(view).unwrap().into()));
+        row.insert(
+            "descriptor",
+            Value::Bytes(serde_json::to_vec(view).unwrap().into()),
+        );
         Value::Object(row)
     }
     #[tokio::test]
@@ -800,14 +818,26 @@ mod tests {
                 outputs: ["packages".into()].into(),
             },
             outcome: 0,
-            outputs: [("packages".into(), OutputContent { rows: 0, content: ContentHash::of(b"empty") })].into(),
+            outputs: [(
+                "packages".into(),
+                OutputContent {
+                    rows: 0,
+                    content: ContentHash::of(b"empty"),
+                },
+            )]
+            .into(),
         };
-        let make_view = |contribution: &CompletedContribution| CompletedView::new(
-            "packages".into(), [contribution.identity().unwrap()].into(), 0,
-        ).unwrap();
-        let source = |view: &CompletedView| SourceSnapshot::of_completed_view(
-            &Relation::of::<Package>(), model, view,
-        ).unwrap();
+        let make_view = |contribution: &CompletedContribution| {
+            CompletedView::new(
+                "packages".into(),
+                [contribution.identity().unwrap()].into(),
+                0,
+            )
+            .unwrap()
+        };
+        let source = |view: &CompletedView| {
+            SourceSnapshot::of_completed_view(&Relation::of::<Package>(), model, view).unwrap()
+        };
         let seed = contribution("shared", vec![]);
         let shared = make_view(&seed);
         let left = contribution("left", vec![source(&shared)]);
@@ -816,8 +846,14 @@ mod tests {
         let right_view = make_view(&right);
         let root = contribution("root", vec![source(&left_view), source(&right_view)]);
         let root_view = make_view(&root);
-        let descriptors = [&seed, &left, &right, &root].into_iter().map(|descriptor| (descriptor.identity().unwrap(), descriptor)).collect();
-        let raw = [&shared, &left_view, &right_view, &root_view].into_iter().map(|view| (view.identity, view_record(view))).collect::<BTreeMap<_, _>>();
+        let descriptors = [&seed, &left, &right, &root]
+            .into_iter()
+            .map(|descriptor| (descriptor.identity().unwrap(), descriptor))
+            .collect();
+        let raw = [&shared, &left_view, &right_view, &root_view]
+            .into_iter()
+            .map(|view| (view.identity, view_record(view)))
+            .collect::<BTreeMap<_, _>>();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let mut views = SnapshotViews::new(&budget).unwrap();
         let mut acquired = BTreeMap::<ContentHash, usize>::new();
@@ -828,66 +864,134 @@ mod tests {
             &crate::owned_read::Cancellation::default(),
             |identity| {
                 *acquired.entry(identity).or_default() += 1;
-                std::future::ready(raw.get(&identity).cloned().ok_or(ModelError::Conflict("missing diamond dependency")))
+                std::future::ready(
+                    raw.get(&identity)
+                        .cloned()
+                        .ok_or(ModelError::Conflict("missing diamond dependency")),
+                )
             },
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(closure.views().len(), 4);
         assert_eq!(closure.contributions().len(), 4);
-        assert_eq!(acquired, raw.keys().map(|identity| (*identity, 1)).collect());
-        assert_eq!(views.rows.iter().map(|(identity, (row, _))| (*identity, row.clone())).collect::<BTreeMap<_, _>>(), raw);
+        assert_eq!(
+            acquired,
+            raw.keys().map(|identity| (*identity, 1)).collect()
+        );
+        assert_eq!(
+            views
+                .rows
+                .iter()
+                .map(|(identity, (row, _))| (*identity, row.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            raw
+        );
     }
     #[tokio::test]
     async fn snapshot_descriptor_reuse_retains_exact_rows_and_is_snapshot_local() {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let mut views = SnapshotViews::new(&budget).unwrap();
-        let descriptors = ["root", "left", "right", "shared"]
-            .map(|name| CompletedView::new(name.into(), [ContentHash::of(name.as_bytes())].into(), 0).unwrap());
-        let raw = descriptors.iter().map(|view| (view.identity, view_record(view))).collect::<BTreeMap<_, _>>();
+        let descriptors = ["root", "left", "right", "shared"].map(|name| {
+            CompletedView::new(name.into(), [ContentHash::of(name.as_bytes())].into(), 0).unwrap()
+        });
+        let raw = descriptors
+            .iter()
+            .map(|view| (view.identity, view_record(view)))
+            .collect::<BTreeMap<_, _>>();
         let mut acquired = BTreeMap::<ContentHash, usize>::new();
         // Root traversal discovers left/right; both branches discover shared. Each
         // eventual traversal/export request must reuse the dependency acquisition.
         for index in [0, 1, 2, 1, 3, 2, 3, 3] {
             let expected = &descriptors[index];
-            let actual = views.acquire(expected.identity, |identity| {
-                *acquired.entry(identity).or_default() += 1;
-                std::future::ready(Ok(raw[&identity].clone()))
-            }).await.unwrap();
+            let actual = views
+                .acquire(expected.identity, |identity| {
+                    *acquired.entry(identity).or_default() += 1;
+                    std::future::ready(Ok(raw[&identity].clone()))
+                })
+                .await
+                .unwrap();
             assert_eq!(&actual.0, &raw[&expected.identity]);
             assert_eq!(&actual.1, expected);
         }
-        assert_eq!(acquired, descriptors.iter().map(|view| (view.identity, 1)).collect());
+        assert_eq!(
+            acquired,
+            descriptors.iter().map(|view| (view.identity, 1)).collect()
+        );
         assert_eq!(views.rows.len(), 4);
         assert!(budget.reserved() > 0);
         drop(views);
-        assert_eq!(budget.reserved(), 0, "snapshot consumer owns the entire retained map");
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "snapshot consumer owns the entire retained map"
+        );
         let mut independent = SnapshotViews::new(&budget).unwrap();
-        independent.acquire(descriptors[3].identity, |identity| {
-            *acquired.entry(identity).or_default() += 1;
-            std::future::ready(Ok(raw[&identity].clone()))
-        }).await.unwrap();
-        assert_eq!(acquired[&descriptors[3].identity], 2, "another snapshot earns its own row");
+        independent
+            .acquire(descriptors[3].identity, |identity| {
+                *acquired.entry(identity).or_default() += 1;
+                std::future::ready(Ok(raw[&identity].clone()))
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            acquired[&descriptors[3].identity], 2,
+            "another snapshot earns its own row"
+        );
     }
     #[tokio::test]
     async fn snapshot_descriptor_failures_never_install_a_reusable_entry() {
-        let view = CompletedView::new("fixture".into(), [ContentHash::of(b"copy")].into(), 0).unwrap();
+        let view =
+            CompletedView::new("fixture".into(), [ContentHash::of(b"copy")].into(), 0).unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let mut views = SnapshotViews::new(&budget).unwrap();
-        assert!(views.acquire(view.identity, |_| std::future::ready(Err(ModelError::Conflict("missing dependency")))).await.is_err());
+        assert!(
+            views
+                .acquire(view.identity, |_| std::future::ready(Err(
+                    ModelError::Conflict("missing dependency")
+                )))
+                .await
+                .is_err()
+        );
         let mut unequal = view.clone();
         unequal.rows = 1; // Same alleged identity, unequal descriptor.
-        assert!(views.acquire(view.identity, |_| std::future::ready(Ok(view_record(&unequal)))).await.is_err());
+        assert!(
+            views
+                .acquire(view.identity, |_| std::future::ready(Ok(view_record(
+                    &unequal
+                ))))
+                .await
+                .is_err()
+        );
         let wrong = Value::Object({
             let mut row = object(&view_record(&view)).unwrap().clone();
             row.insert("id", RecordId::new("compiler_view", "foreign"));
             row
         });
-        assert!(views.acquire(view.identity, |_| std::future::ready(Ok(wrong))).await.is_err());
+        assert!(
+            views
+                .acquire(view.identity, |_| std::future::ready(Ok(wrong)))
+                .await
+                .is_err()
+        );
         assert!(views.rows.is_empty());
         assert_eq!(budget.reserved(), 0);
-        views.acquire(view.identity, |_| std::future::ready(Ok(view_record(&view)))).await.unwrap();
+        views
+            .acquire(view.identity, |_| {
+                std::future::ready(Ok(view_record(&view)))
+            })
+            .await
+            .unwrap();
         let tiny = ResourceBudget::fixed(1).unwrap();
         let mut refused = SnapshotViews::new(&tiny).unwrap();
-        assert!(refused.acquire(view.identity, |_| std::future::ready(Ok(view_record(&view)))).await.is_err());
+        assert!(
+            refused
+                .acquire(view.identity, |_| std::future::ready(Ok(view_record(
+                    &view
+                ))))
+                .await
+                .is_err()
+        );
         assert!(refused.rows.is_empty());
         assert_eq!(tiny.reserved(), 0);
     }

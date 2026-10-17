@@ -912,13 +912,16 @@ async fn small_publication_from_source(
         ));
         let settings = ContentHash::of(nonce.as_bytes());
         let prepared = if frontier == Frontier::Catalog {
-            Some(compilation::PreparedCompilation::new(
-                frontier,
-                runtime::settings(&nonce),
-                captured.config().catalog(),
-                None,
-                workspace.budget(),
-            ).map(std::sync::Arc::new)?)
+            Some(
+                compilation::PreparedCompilation::new(
+                    frontier,
+                    runtime::settings(&nonce),
+                    captured.config().catalog(),
+                    None,
+                    workspace.budget(),
+                )
+                .map(std::sync::Arc::new)?,
+            )
         } else {
             None
         };

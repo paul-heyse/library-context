@@ -291,7 +291,14 @@ mod tests {
         let mut acknowledged = Vec::new();
         for index in 0..512 {
             let (answer, received) = oneshot::channel();
-            bridge.launch(async move { answer.send(index).unwrap(); }.boxed()).unwrap();
+            bridge
+                .launch(
+                    async move {
+                        answer.send(index).unwrap();
+                    }
+                    .boxed(),
+                )
+                .unwrap();
             acknowledged.push(received);
         }
         for (index, received) in acknowledged.into_iter().enumerate() {

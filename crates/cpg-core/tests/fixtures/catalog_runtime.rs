@@ -407,7 +407,8 @@ pub async fn compile(
                 captured.config().catalog(),
                 embedder.as_deref(),
                 workspace.budget(),
-            ).map(std::sync::Arc::new)
+            )
+            .map(std::sync::Arc::new)
             .unwrap()
         });
         compilation::compile(

@@ -404,11 +404,24 @@ impl EffectOwner {
             _ => None,
         };
         ReplayOwnerContext {
-            owner: self.record().unwrap_or_else(|| coordination::operation_owner(request)),
+            owner: self
+                .record()
+                .unwrap_or_else(|| coordination::operation_owner(request)),
             kind: self.kind(),
-            attempt: attempt.map(|id| Value::RecordId(RecordId::new("native_attempt", id.hex()))).unwrap_or(Value::None),
-            slot: attempt.map(|_| surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(request.operation))).unwrap_or(Value::None),
-            terminal_epoch: match self { Self::TerminalAttempt(attempt) => Some(attempt.epoch), _ => None },
+            attempt: attempt
+                .map(|id| Value::RecordId(RecordId::new("native_attempt", id.hex())))
+                .unwrap_or(Value::None),
+            slot: attempt
+                .map(|_| {
+                    surrealdb::types::SurrealValue::into_value(coordination::attempt_slot(
+                        request.operation,
+                    ))
+                })
+                .unwrap_or(Value::None),
+            terminal_epoch: match self {
+                Self::TerminalAttempt(attempt) => Some(attempt.epoch),
+                _ => None,
+            },
         }
     }
     fn record(&self) -> Option<RecordId> {
@@ -910,7 +923,8 @@ fn execute_owner_plan<'a>(
                 },
             )
             .map_err(|error| request.error(error))?;
-        let result = super::retry::transaction_named(client, &query, bindings, false, "apply").await;
+        let result =
+            super::retry::transaction_named(client, &query, bindings, false, "apply").await;
         let primary = match result {
             Ok(()) => {
                 // Durable knowledge precedes the last native witness release.
@@ -1084,8 +1098,13 @@ pub(super) async fn reconcile_pending_envelope(
     }
     let (disposition, row) = reconcile_request_observed(client, envelope.request).await?;
     if disposition == EffectDisposition::Committed {
-        validate_replay_owner(envelope.request, &envelope.owner.effect_owner(),
-            &row.ok_or(ModelError::Conflict("native committed recovery row missing"))?)?;
+        validate_replay_owner(
+            envelope.request,
+            &envelope.owner.effect_owner(),
+            &row.ok_or(ModelError::Conflict(
+                "native committed recovery row missing",
+            ))?,
+        )?;
     }
     if disposition == EffectDisposition::CompactedTerminal {
         prove_compacted_owner_absent(
@@ -1139,7 +1158,13 @@ pub(super) async fn settle_reference(
     bindings.insert("expected_owner_kind", context.kind);
     bindings.insert("expected_attempt", context.attempt);
     bindings.insert("expected_attempt_slot", context.slot);
-    bindings.insert("expected_terminal_epoch", context.terminal_epoch.map(surrealdb::types::SurrealValue::into_value).unwrap_or(Value::None));
+    bindings.insert(
+        "expected_terminal_epoch",
+        context
+            .terminal_epoch
+            .map(surrealdb::types::SurrealValue::into_value)
+            .unwrap_or(Value::None),
+    );
     if !matches!(
         envelope.observed_disposition,
         EffectDisposition::Committed | EffectDisposition::FencedUncommitted
@@ -1646,7 +1671,9 @@ fn validate_replay_owner(
         || row.get("committed") != Some(&Value::Bool(true))
         || row.get("resolved") != Some(&Value::Bool(true))
         || int_field(row, "epoch")? <= 0
-        || context.terminal_epoch.is_some_and(|epoch| row.get("epoch") != Some(&surrealdb::types::SurrealValue::into_value(epoch)))
+        || context.terminal_epoch.is_some_and(|epoch| {
+            row.get("epoch") != Some(&surrealdb::types::SurrealValue::into_value(epoch))
+        })
     {
         return Err(request.error(ModelError::Conflict(
             "native committed replay original owner changed",
@@ -1658,7 +1685,9 @@ pub async fn reconcile_request(
     client: &Surreal<Client>,
     request: NativeRequest,
 ) -> Result<EffectDisposition, ModelError> {
-    reconcile_request_observed(client, request).await.map(|(disposition, _)| disposition)
+    reconcile_request_observed(client, request)
+        .await
+        .map(|(disposition, _)| disposition)
 }
 async fn reconcile_request_observed(
     client: &Surreal<Client>,
@@ -1877,7 +1906,6 @@ mod payload_controls {
             ));
         }
     }
-
 }
 
 #[cfg(test)]
@@ -1887,7 +1915,10 @@ mod owner_effect_packet_controls {
     fn atomic_effect_parses_for_every_real_owner() {
         let identity = ContentHash::of(b"atomic-owner-parser");
         let request = NativeRequest {
-            issuance: IssuanceEra { generation: identity, era: 1 },
+            issuance: IssuanceEra {
+                generation: identity,
+                era: 1,
+            },
             operation: identity,
             request: identity,
         };
@@ -1901,7 +1932,8 @@ mod owner_effect_packet_controls {
             EffectOwner::RetirementSetup(RecordId::new("native_retirement", identity.hex())),
             EffectOwner::Cleanup(RecordId::new("native_cleanup", identity.hex())),
         ] {
-            let plan = owner_effect_plan(request, &owner, "RETURN true", Variables::new(), false).unwrap();
+            let plan =
+                owner_effect_plan(request, &owner, "RETURN true", Variables::new(), false).unwrap();
             surrealdb_syn::parse(&plan.query).unwrap();
         }
         surrealdb_syn::parse(include_str!("schema.surql")).unwrap();
@@ -1994,9 +2026,7 @@ mod compacted_owner_controls {
                 .register_attempt(allocation.attempt, allocation.request)
                 .unwrap();
             let payload = PreparedNativePayload::new("RETURN true", Variables::new()).unwrap();
-            let request = NativeRequest::issue(&client, payload.digest)
-                .await
-                .unwrap();
+            let request = NativeRequest::issue(&client, payload.digest).await.unwrap();
             let reference =
                 request_outcome_reference(request, RecoveryReferencePolicy::ReleaseRecovery)
                     .unwrap();
@@ -2008,10 +2038,27 @@ mod compacted_owner_controls {
                     RecoveryReferencePolicy::ReleaseRecovery,
                 )
                 .unwrap();
-            let delayed = owner_effect_plan(request, &EffectOwner::Installation, payload.sql, payload.bindings, false).unwrap();
+            let delayed = owner_effect_plan(
+                request,
+                &EffectOwner::Installation,
+                payload.sql,
+                payload.bindings,
+                false,
+            )
+            .unwrap();
             super::super::set_admission(&client, false).await.unwrap();
             super::super::history::cut_era(&client).await.unwrap();
-            assert!(super::super::checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap()).is_err(), "permanent era cut refuses the original delayed atomic apply");
+            assert!(
+                super::super::checked_transaction(
+                    client
+                        .query(delayed.query)
+                        .bind(delayed.bindings)
+                        .await
+                        .unwrap()
+                )
+                .is_err(),
+                "permanent era cut refuses the original delayed atomic apply"
+            );
             assert_eq!(
                 reconcile_request(&client, request).await.unwrap(),
                 EffectDisposition::CompactedTerminal

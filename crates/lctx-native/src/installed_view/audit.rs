@@ -161,21 +161,43 @@ pub(super) struct CheckedContextLifetime {
     budget: ResourceBudget,
 }
 impl CheckedContextLifetime {
-    pub(super) fn check(&self, reader: &NativeReader<()>, budget: &ResourceBudget) -> Result<(), ModelError> {
-        let pin = self.pin.upgrade().ok_or(ModelError::Conflict("checked context source released"))?;
-        let client = self.client.upgrade().ok_or(ModelError::Conflict("checked context session released"))?;
-        let work = self.work.upgrade().ok_or(ModelError::Conflict("checked context operation released"))?;
-        let closed = self.closed.upgrade().ok_or(ModelError::Conflict("checked context source released"))?;
+    pub(super) fn check(
+        &self,
+        reader: &NativeReader<()>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let pin = self
+            .pin
+            .upgrade()
+            .ok_or(ModelError::Conflict("checked context source released"))?;
+        let client = self
+            .client
+            .upgrade()
+            .ok_or(ModelError::Conflict("checked context session released"))?;
+        let work = self
+            .work
+            .upgrade()
+            .ok_or(ModelError::Conflict("checked context operation released"))?;
+        let closed = self
+            .closed
+            .upgrade()
+            .ok_or(ModelError::Conflict("checked context source released"))?;
         pin.ensure_live()?;
         if !std::ptr::eq(client.as_ref(), reader.client()) {
-            return Err(ModelError::Conflict("checked context foreign native session"));
+            return Err(ModelError::Conflict(
+                "checked context foreign native session",
+            ));
         }
         if !self.budget.shares_pool(budget) {
-            return Err(ModelError::Conflict("checked context foreign resource owner"));
+            return Err(ModelError::Conflict(
+                "checked context foreign resource owner",
+            ));
         }
         if closed.load(std::sync::atomic::Ordering::Acquire)
             || !work.accepting.load(std::sync::atomic::Ordering::Acquire)
-            || !work.context_checked.load(std::sync::atomic::Ordering::Acquire)
+            || !work
+                .context_checked
+                .load(std::sync::atomic::Ordering::Acquire)
         {
             return Err(ModelError::Conflict("checked context source closed"));
         }
@@ -301,7 +323,11 @@ impl InstallationAudit {
             ));
         }
         if self.closed.load(std::sync::atomic::Ordering::Acquire)
-            || (!self.worker && !self.work.accepting.load(std::sync::atomic::Ordering::Acquire))
+            || (!self.worker
+                && !self
+                    .work
+                    .accepting
+                    .load(std::sync::atomic::Ordering::Acquire))
         {
             return Err(ModelError::Conflict("installation audit closed"));
         }
@@ -361,14 +387,22 @@ impl InstallationAudit {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         self.check(reader, budget)?;
-        if self.work.context_checked.load(std::sync::atomic::Ordering::Acquire) {
+        if self
+            .work
+            .context_checked
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             return Ok(());
         }
         // The constructor observed context BEFORE acquiring its native pin. Only
         // this post-pin observation earns reuse, coalesced across actual workers.
         let _context = self.work.context_gate.lock().await;
         self.check(reader, budget)?;
-        if self.work.context_checked.load(std::sync::atomic::Ordering::Acquire) {
+        if self
+            .work
+            .context_checked
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             return Ok(());
         }
         let _charge = budget.reserve("installation audit context check", 4096)?;
@@ -397,7 +431,9 @@ impl InstallationAudit {
             ));
         }
         self.check(reader, budget)?;
-        self.work.context_checked.store(true, std::sync::atomic::Ordering::Release);
+        self.work
+            .context_checked
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
     pub(super) fn checked_context_lifetime(
@@ -406,8 +442,14 @@ impl InstallationAudit {
         budget: &ResourceBudget,
     ) -> Result<CheckedContextLifetime, ModelError> {
         self.check_source_local(reader, budget)?;
-        if !self.work.context_checked.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(ModelError::Conflict("installation audit context not earned"));
+        if !self
+            .work
+            .context_checked
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ModelError::Conflict(
+                "installation audit context not earned",
+            ));
         }
         Ok(CheckedContextLifetime {
             pin: std::sync::Arc::downgrade(&self.pin),

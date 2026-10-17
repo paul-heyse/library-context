@@ -77,7 +77,9 @@ macro_rules! entry_value_inputs {
     };
 }
 impl<'a> From<&'a EntryData> for EntryDataView<'a> {
-    fn from(data: &'a EntryData) -> Self { data.view() }
+    fn from(data: &'a EntryData) -> Self {
+        data.view()
+    }
 }
 macro_rules! inputs {($($field:ident:$ty:ty,)*)=>{
     pub struct EntryData {$(pub $field:Rows<$ty>,)*}

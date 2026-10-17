@@ -261,10 +261,16 @@ impl BasePartition<'_> {
     }
     fn roots(&self, budget: &resources::ResourceBudget) -> Result<AdmittedSourceRoots, ModelError> {
         let data = self.evaluation()?;
-        let bytes = data.artifacts.iter().map(|row| row.row_bytes()).sum::<usize>()
+        let bytes = data
+            .artifacts
+            .iter()
+            .map(|row| row.row_bytes())
+            .sum::<usize>()
             + data.uses.len() * size_of::<input::ArtifactUse>();
-        let copy = budget.reserve("selected-base-root-metadata",
-            bytes.saturating_mul(2) + data.artifacts.len() * 128)?;
+        let copy = budget.reserve(
+            "selected-base-root-metadata",
+            bytes.saturating_mul(2) + data.artifacts.len() * 128,
+        )?;
         let roots = admission::analysis_roots(
             &data.artifacts.iter().cloned().collect::<Vec<_>>(),
             &data.uses.iter().cloned().collect::<Vec<_>>(),
@@ -1469,8 +1475,10 @@ impl BaseScopes {
                         // All exact borrowed partitions are prepared before the first mutable
                         // root. Only this pure preparation may shrink; emitted roots never replay.
                         let partitions = (|| {
-                            let charge = budget.reserve("Base-read-partition-window",
-                                window.keys.len() * size_of::<BasePartition<'_>>())?;
+                            let charge = budget.reserve(
+                                "Base-read-partition-window",
+                                window.keys.len() * size_of::<BasePartition<'_>>(),
+                            )?;
                             let selected = (0..window.keys.len())
                                 .map(|partition| window.partition(partition, budget))
                                 .collect::<Result<Vec<_>, ModelError>>()?;
@@ -1478,7 +1486,9 @@ impl BaseScopes {
                         })();
                         let (partitions, _partitions) = match partitions {
                             Ok(partitions) => partitions,
-                            Err(error) if window.keys.len() > 1 && capture::local_resource(&error) => {
+                            Err(error)
+                                if window.keys.len() > 1 && capture::local_resource(&error) =>
+                            {
                                 local_width = (window.keys.len() / 2).max(1);
                                 continue;
                             }
@@ -1492,7 +1502,11 @@ impl BaseScopes {
                                 let _key = budget.reserve("Base-field-root-key", 128)?;
                                 let roots = [nominal(key)?].into_iter().collect();
                                 let result = prepared.field_roots(
-                                    selected.evaluation()?, selected.entry()?, inv, &roots);
+                                    selected.evaluation()?,
+                                    selected.entry()?,
+                                    inv,
+                                    &roots,
+                                );
                                 production_phase.finish_result(&result);
                                 result?;
                             } else {
@@ -1545,28 +1559,31 @@ impl BaseScopes {
                     + next.1.len().saturating_mul(2),
             )?;
             let (class, name) = next.clone();
-            if class_data.as_ref().is_none_or(|(owner, _, _)| *owner != class) {
+            if class_data
+                .as_ref()
+                .is_none_or(|(owner, _, _)| *owner != class)
+            {
                 // Release the prior class before charging a new independent class universe.
                 drop(class_data.take());
-            let _predicate = budget.reserve(
-                "Base-field-class-predicate",
-                classes.len().saturating_add(1).saturating_mul(128),
-            )?;
-            let mut keys = classes.iter().copied().collect::<Vec<_>>();
-            keys.push(*class.bytes());
-            keys.sort();
-            keys.dedup();
-            let scope = self
-                .edges
-                .grain(
-                    self.index(TypeId::of::<ClassEntity>())?,
-                    &crate::scoped_admission::root_predicate(&keys),
-                    budget,
-                )
-                .await?;
-            drop(keys);
-            let data = self.data(access, &scope, budget, false).await?;
-            class_data = Some((class, scope, data));
+                let _predicate = budget.reserve(
+                    "Base-field-class-predicate",
+                    classes.len().saturating_add(1).saturating_mul(128),
+                )?;
+                let mut keys = classes.iter().copied().collect::<Vec<_>>();
+                keys.push(*class.bytes());
+                keys.sort();
+                keys.dedup();
+                let scope = self
+                    .edges
+                    .grain(
+                        self.index(TypeId::of::<ClassEntity>())?,
+                        &crate::scoped_admission::root_predicate(&keys),
+                        budget,
+                    )
+                    .await?;
+                drop(keys);
+                let data = self.data(access, &scope, budget, false).await?;
+                class_data = Some((class, scope, data));
             }
             let (_, _, data) = class_data.as_ref().expect("field class prepared");
             let (roots, _root_charge) = data.roots(budget)?;
@@ -1665,8 +1682,15 @@ mod controls {
     // Detached fixtures earn the same exact lazy adjacency inputs before recording the
     // persistent owner's baseline. Temporary cohort/read owners must still release exactly;
     // dropping BaseScopes below must also release this successful preparation.
-    async fn warm_scopes(prepared: &BaseScopes, kernel: Kernel, keys: &[[u8; 16]], budget: &resources::ResourceBudget) {
-        for key in keys { drop(prepared.scope(kernel, *key, budget).await.unwrap()); }
+    async fn warm_scopes(
+        prepared: &BaseScopes,
+        kernel: Kernel,
+        keys: &[[u8; 16]],
+        budget: &resources::ResourceBudget,
+    ) {
+        for key in keys {
+            drop(prepared.scope(kernel, *key, budget).await.unwrap());
+        }
     }
     async fn prepare(session: &SessionContext, budget: &resources::ResourceBudget) -> BaseScopes {
         let mut inputs = EvaluationData::validation_inputs();
@@ -2062,7 +2086,13 @@ mod controls {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(32 << 20).unwrap();
         let (prepared, expression, inv) = fixture(&session, &budget, false, true).await;
-        warm_scopes(&prepared, Kernel::Expression, &[*expression.id().bytes(), [254;16]], &budget).await;
+        warm_scopes(
+            &prepared,
+            Kernel::Expression,
+            &[*expression.id().bytes(), [254; 16]],
+            &budget,
+        )
+        .await;
         let retained = budget.reserved();
         let keys = [
             [254; 16],
@@ -2451,7 +2481,13 @@ mod controls {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
         let (prepared, expression, _) = fixture(&session, &budget, true, false).await;
-        warm_scopes(&prepared, Kernel::Expression, &[*expression.id().bytes(), [254;16]], &budget).await;
+        warm_scopes(
+            &prepared,
+            Kernel::Expression,
+            &[*expression.id().bytes(), [254; 16]],
+            &budget,
+        )
+        .await;
         let retained = budget.reserved();
         let scope = prepared
             .scope(Kernel::Expression, *expression.id().bytes(), &budget)
@@ -2479,7 +2515,13 @@ mod controls {
         let session = SessionContext::new();
         let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
         let (prepared, expression, inv) = fixture(&session, &budget, true, true).await;
-        warm_scopes(&prepared, Kernel::Expression, &[*expression.id().bytes(), [254;16]], &budget).await;
+        warm_scopes(
+            &prepared,
+            Kernel::Expression,
+            &[*expression.id().bytes(), [254; 16]],
+            &budget,
+        )
+        .await;
         let retained = budget.reserved();
         let scope = prepared
             .scope(Kernel::Expression, *expression.id().bytes(), &budget)
@@ -2777,7 +2819,17 @@ mod controls {
         register(&session, &uses);
         register(&session, &observations);
         let prepared = prepare(&session, &budget).await;
-        warm_scopes(&prepared, Kernel::Use, &[*observations[0].id().bytes(), *observations[1].id().bytes(), [254;16]], &budget).await;
+        warm_scopes(
+            &prepared,
+            Kernel::Use,
+            &[
+                *observations[0].id().bytes(),
+                *observations[1].id().bytes(),
+                [254; 16],
+            ],
+            &budget,
+        )
+        .await;
         let retained = budget.reserved();
         let cancellation = crate::workspace::Cancellation::default();
         let keys = vec![
@@ -2824,13 +2876,10 @@ mod controls {
             let selected = window.partition(partition, &budget).unwrap();
             let evaluation = selected.evaluation().unwrap();
             let entry = selected.entry().unwrap();
+            assert!(entry.use_observations.get(observation.id()).is_some());
             assert!(
-                entry.use_observations
-                    .get(observation.id())
-                    .is_some()
-            );
-            assert!(
-                entry.use_observations
+                entry
+                    .use_observations
                     .get(observations[1 - partition].id())
                     .is_none()
             );
@@ -2979,10 +3028,19 @@ mod controls {
         register(&session, &[detail]);
         register(&session, std::slice::from_ref(&literal));
         let prepared = prepare(&session, &budget).await;
-        let warm_keys = calls.iter().map(|(_, call)| *call.id().bytes()).collect::<Vec<_>>();
+        let warm_keys = calls
+            .iter()
+            .map(|(_, call)| *call.id().bytes())
+            .collect::<Vec<_>>();
         warm_scopes(&prepared, Kernel::FieldCall, &warm_keys, &budget).await;
         let warm_artifact = table_rows::<SourceArtifact>(&session).await.pop().unwrap();
-        warm_scopes(&prepared, Kernel::FieldRoot, &[*warm_artifact.id().bytes()], &budget).await;
+        warm_scopes(
+            &prepared,
+            Kernel::FieldRoot,
+            &[*warm_artifact.id().bytes()],
+            &budget,
+        )
+        .await;
         let retained = budget.reserved();
         assert_ne!(
             prepared.root_index(Kernel::FieldCall).unwrap(),
@@ -3021,13 +3079,26 @@ mod controls {
         drop(rootdata);
         drop(rootscope);
         reads.begin_field_candidates().unwrap();
-        let window = captured.cohort(0, calls.len(), &budget, &cancellation).await.unwrap();
+        let window = captured
+            .cohort(0, calls.len(), &budget, &cancellation)
+            .await
+            .unwrap();
         {
             let first = window.partition(0, &budget).unwrap();
             let second = window.partition(1, &budget).unwrap();
             assert!(std::ptr::eq(
-                first.evaluation().unwrap().literals.get(literal.id()).unwrap(),
-                second.evaluation().unwrap().literals.get(literal.id()).unwrap(),
+                first
+                    .evaluation()
+                    .unwrap()
+                    .literals
+                    .get(literal.id())
+                    .unwrap(),
+                second
+                    .evaluation()
+                    .unwrap()
+                    .literals
+                    .get(literal.id())
+                    .unwrap(),
             ));
         }
 
@@ -3039,7 +3110,8 @@ mod controls {
             assert_eq!(evaluation.call_arguments.len(), 1);
             assert!(evaluation.call_syntax.get(call.id()).is_some());
             assert!(
-                evaluation.call_syntax
+                evaluation
+                    .call_syntax
                     .get(calls[1 - partition].1.id())
                     .is_none()
             );

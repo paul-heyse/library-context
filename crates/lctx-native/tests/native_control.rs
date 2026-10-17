@@ -887,11 +887,19 @@ async fn transaction_timeouts_preserve_executor_stack_and_following_queries() {
 #[ignore = "permanent era cuts require explicit exclusive validation maintenance"]
 async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut() {
     let cfg = maintenance_config();
-    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
-    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+    let budget =
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory =
+        control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
     let (client, lease) = lctx_native::reader::connect_owned(
-        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
-    ).await.unwrap();
+        &cfg.endpoint,
+        &cfg.writer_credentials(),
+        cfg.namespace.as_str(),
+        cfg.database.as_str(),
+        &factory,
+    )
+    .await
+    .unwrap();
     let connection = client.connection_completion().unwrap();
     let mut admission_was_open = None;
     let result=std::panic::AssertUnwindSafe(control::with_recovery_scope(lease.recovery_scope().clone(), async {
@@ -933,19 +941,23 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
         ))))
     });
     let mut completion = lctx_model::domain::completion::Completion::default();
-    if result.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+    if result
+        .as_ref()
+        .is_err_and(|error| !error.permits_storage_cleanup())
+    {
         completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
     }
     control::with_recovery_scope(lease.recovery_scope().clone(), async {
-    completion.step(
-        "era control admission restoration",
-        match admission_was_open {
-            Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
-            Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
-            None => Ok(()), // Failed observation grants no admission-state change.
-        },
-    );
-    }).await;
+        completion.step(
+            "era control admission restoration",
+            match admission_was_open {
+                Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
+                Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
+                None => Ok(()), // Failed observation grants no admission-state change.
+            },
+        );
+    })
+    .await;
     completion.step(
         "owned maintenance fixture factory finalization",
         lease.complete_with(&completion).await,
@@ -983,11 +995,19 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
 #[ignore = "closing crash recovery and era cuts require explicit validation maintenance"]
 async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_through_drain() {
     let cfg = maintenance_config();
-    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
-    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+    let budget =
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory =
+        control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
     let (client, lease) = lctx_native::reader::connect_owned(
-        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
-    ).await.unwrap();
+        &cfg.endpoint,
+        &cfg.writer_credentials(),
+        cfg.namespace.as_str(),
+        cfg.database.as_str(),
+        &factory,
+    )
+    .await
+    .unwrap();
     let connection = client.connection_completion().unwrap();
     let mut admission_was_open = None;
     let mut acquired_attempts = Vec::new();
@@ -1033,31 +1053,35 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
         ))))
     });
     let mut completion = lctx_model::domain::completion::Completion::default();
-    if result.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+    if result
+        .as_ref()
+        .is_err_and(|error| !error.permits_storage_cleanup())
+    {
         completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
     }
     control::with_recovery_scope(lease.recovery_scope().clone(), async {
-    if result.is_err() && admission_was_open.is_some() {
-        completion.step(
-            "failed attempt setup admission closure",
-            lctx_compiler_store::compiler::close_admission(&cfg).await,
-        );
-        for attempt in acquired_attempts {
+        if result.is_err() && admission_was_open.is_some() {
             completion.step(
-                "partially acquired owned attempt cleanup",
-                cleanup_owned_attempt(&client, attempt).await,
+                "failed attempt setup admission closure",
+                lctx_compiler_store::compiler::close_admission(&cfg).await,
             );
+            for attempt in acquired_attempts {
+                completion.step(
+                    "partially acquired owned attempt cleanup",
+                    cleanup_owned_attempt(&client, attempt).await,
+                );
+            }
         }
-    }
-    completion.step(
-        "closing control admission restoration",
-        match admission_was_open {
-            Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
-            Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
-            None => Ok(()), // Failed observation grants no admission-state change.
-        },
-    );
-    }).await;
+        completion.step(
+            "closing control admission restoration",
+            match admission_was_open {
+                Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
+                Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
+                None => Ok(()), // Failed observation grants no admission-state change.
+            },
+        );
+    })
+    .await;
     completion.step(
         "owned maintenance fixture factory finalization",
         lease.complete_with(&completion).await,
@@ -1083,11 +1107,19 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
 #[ignore = "successor ownership across permanent cuts requires explicit validation maintenance"]
 async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() {
     let cfg = maintenance_config();
-    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
-    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+    let budget =
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory =
+        control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
     let (client, lease) = lctx_native::reader::connect_owned(
-        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
-    ).await.unwrap();
+        &cfg.endpoint,
+        &cfg.writer_credentials(),
+        cfg.namespace.as_str(),
+        cfg.database.as_str(),
+        &factory,
+    )
+    .await
+    .unwrap();
     let connection = client.connection_completion().unwrap();
     let mut admission_was_open = None;
     let nonce = control::fresh_identity("maintenance-successors").unwrap();
@@ -1155,31 +1187,35 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         ))))
     });
     let mut completion = lctx_model::domain::completion::Completion::default();
-    if result.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+    if result
+        .as_ref()
+        .is_err_and(|error| !error.permits_storage_cleanup())
+    {
         completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
     }
     control::with_recovery_scope(lease.recovery_scope().clone(), async {
-    if result.is_err() && admission_was_open.is_some() {
-        completion.step(
-            "failed attempt setup admission closure",
-            lctx_compiler_store::compiler::close_admission(&cfg).await,
-        );
-        for attempt in acquired_attempts {
+        if result.is_err() && admission_was_open.is_some() {
             completion.step(
-                "partially acquired owned attempt cleanup",
-                cleanup_owned_attempt(&client, attempt).await,
+                "failed attempt setup admission closure",
+                lctx_compiler_store::compiler::close_admission(&cfg).await,
             );
+            for attempt in acquired_attempts {
+                completion.step(
+                    "partially acquired owned attempt cleanup",
+                    cleanup_owned_attempt(&client, attempt).await,
+                );
+            }
         }
-    }
-    completion.step(
-        "successor control admission restoration",
-        match admission_was_open {
-            Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
-            Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
-            None => Ok(()), // Failed observation grants no admission-state change.
-        },
-    );
-    }).await;
+        completion.step(
+            "successor control admission restoration",
+            match admission_was_open {
+                Some(true) => lctx_compiler_store::compiler::open_admission(&cfg).await,
+                Some(false) => lctx_compiler_store::compiler::close_admission(&cfg).await,
+                None => Ok(()), // Failed observation grants no admission-state change.
+            },
+        );
+    })
+    .await;
     completion.step(
         "owned maintenance fixture factory finalization",
         lease.complete_with(&completion).await,

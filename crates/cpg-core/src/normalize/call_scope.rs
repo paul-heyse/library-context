@@ -349,7 +349,10 @@ mod call_scope_controls {
             owner
         );
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        runtime.freeze_inputs_async(PublicationBoundary::Facts).await.unwrap();
+        runtime
+            .freeze_inputs_async(PublicationBoundary::Facts)
+            .await
+            .unwrap();
         let mut declaration = event_normalization::stage(Profile::Catalog);
         declaration.inputs = EventData::stage_inputs()
             .into_iter()

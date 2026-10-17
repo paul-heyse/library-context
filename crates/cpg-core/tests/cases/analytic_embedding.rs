@@ -15,7 +15,11 @@ async fn run(mode: Mode) {
         Profile::Catalog,
         Frontier::Analysis,
         settings,
-        if requested { Some(std::sync::Arc::new(provider)) } else { None },
+        if requested {
+            Some(std::sync::Arc::new(provider))
+        } else {
+            None
+        },
     )
     .await;
     let uses: Vec<UseRow> = catalog_runtime::query(

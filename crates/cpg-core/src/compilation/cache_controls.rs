@@ -220,7 +220,8 @@ async fn run_with_analytics(
             captured.config().catalog(),
             None,
             workspace.budget(),
-        ).map(std::sync::Arc::new)
+        )
+        .map(std::sync::Arc::new)
         .unwrap();
         let configuration = ContentHash::of(b"integrated-compiler-reuse-control/v1");
         setup.finish(lctx_native::phase::Terminal::Passed);

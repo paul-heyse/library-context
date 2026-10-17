@@ -12,8 +12,8 @@ pub use live::{
     InstalledMember, SelectedMembers, attach_live_view, attach_live_views,
     attach_live_views_retaining, hold_frozen_view, hold_physical_view, hold_published_view,
 };
-pub(crate) use receiving::protect_receiving_views;
 pub(crate) use receiving::ReceivingViews;
+pub(crate) use receiving::protect_receiving_views;
 use serde::{Deserialize, Serialize};
 use surrealdb::types::{RecordId, Value};
 

@@ -43,7 +43,8 @@ async fn compiled_case(
             captured.config().catalog(),
             None,
             workspace.budget(),
-        ).map(std::sync::Arc::new)
+        )
+        .map(std::sync::Arc::new)
         .unwrap()
     });
     compilation::compile(
@@ -325,7 +326,8 @@ async fn artifact_identity_includes_exact_consumed_embedding_values() {
         captured.config().catalog(),
         Some(embedder.as_ref()),
         workspace.budget(),
-    ).map(std::sync::Arc::new)
+    )
+    .map(std::sync::Arc::new)
     .unwrap();
     compilation::compile(
         &workspace,
@@ -511,7 +513,8 @@ async fn selected_analytics_export_membership_provenance_and_projection_losses()
         captured.config().catalog(),
         None,
         workspace.budget(),
-    ).map(std::sync::Arc::new)
+    )
+    .map(std::sync::Arc::new)
     .unwrap();
     compilation::compile(
         &workspace,

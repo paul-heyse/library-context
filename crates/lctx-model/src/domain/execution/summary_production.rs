@@ -1376,7 +1376,11 @@ impl Progress {
             charge: StateCharge::new(b, "finite-summary-progress"),
         }
     }
-    fn admit(&mut self, branch: &WorkBranch, vocabulary: &Vocabulary) -> Result<summary_worklist::Admission, ModelError> {
+    fn admit(
+        &mut self,
+        branch: &WorkBranch,
+        vocabulary: &Vocabulary,
+    ) -> Result<summary_worklist::Admission, ModelError> {
         let result = self.frontier.insert(
             branch.semantic(),
             summary_worklist::Representative {
@@ -1392,11 +1396,23 @@ impl Progress {
             self.branches
                 .insert(&mut self.charge, branch.id(), branch.clone())?;
         }
-        if result == summary_worklist::Admission::Advanced { self.index_current(branch, vocabulary)?; }
+        if result == summary_worklist::Admission::Advanced {
+            self.index_current(branch, vocabulary)?;
+        }
         Ok(result)
     }
-    fn index_current(&mut self, branch: &WorkBranch, vocabulary: &Vocabulary) -> Result<(), ModelError> {
-        self.endpoints.track(branch, vocabulary, &self.branches, &self.frontier, &mut self.charge)
+    fn index_current(
+        &mut self,
+        branch: &WorkBranch,
+        vocabulary: &Vocabulary,
+    ) -> Result<(), ModelError> {
+        self.endpoints.track(
+            branch,
+            vocabulary,
+            &self.branches,
+            &self.frontier,
+            &mut self.charge,
+        )
     }
     fn current(&self, id: ProofId) -> bool {
         self.branches
@@ -1654,8 +1670,14 @@ fn path_candidates(
                                     .flatten()
                                 {
                                     if consume(WorkItem::Alias(
-                                        branch.id(), vs.id(), rs.id(), ds.id(), us.id(),
-                                    ))? { break 'aliases; }
+                                        branch.id(),
+                                        vs.id(),
+                                        rs.id(),
+                                        ds.id(),
+                                        us.id(),
+                                    ))? {
+                                        break 'aliases;
+                                    }
                                 }
                             }
                         }
@@ -1703,7 +1725,9 @@ fn path_candidates(
                     .into_iter()
                     .flatten()
                 {
-                    if consume(WorkItem::Path(branch.id(), vs.id(), ps.id(), step.id()))? { break 'paths; }
+                    if consume(WorkItem::Path(branch.id(), vs.id(), ps.id(), step.id()))? {
+                        break 'paths;
+                    }
                 }
             }
         }
@@ -1767,7 +1791,9 @@ impl EnqueueContext<'_> {
                 && let Some(rows) = progress.by_owner.get(&call.callee)
             {
                 for other in rows {
-                    if progress.current(*other) && !consume(WorkItem::Call(call.attempt, new, *other))? {
+                    if progress.current(*other)
+                        && !consume(WorkItem::Call(call.attempt, new, *other))?
+                    {
                         return Ok(());
                     }
                 }
@@ -1778,7 +1804,8 @@ impl EnqueueContext<'_> {
                 for other in rows {
                     if progress.current(*other)
                         && enqueue_groups::caller_eligible(vocabulary, &progress.branches[other])
-                        && !consume(WorkItem::Call(call.attempt, *other, new))? {
+                        && !consume(WorkItem::Call(call.attempt, *other, new))?
+                    {
                         return Ok(());
                     }
                 }
@@ -1951,36 +1978,66 @@ fn enqueue(
     exhausted: &mut ExhaustedGroups,
     out: &mut SummaryRecords,
 ) -> Result<usize, ModelError> {
-    let EnqueueContext { discovery, data, vocabulary, component_id, invocation, progress, seeds, .. } = enqueue_context;
-    if !progress.current(new) { return Ok(0); }
+    let EnqueueContext {
+        discovery,
+        data,
+        vocabulary,
+        component_id,
+        invocation,
+        progress,
+        seeds,
+        ..
+    } = enqueue_context;
+    if !progress.current(new) {
+        return Ok(0);
+    }
     let mut materialized = 0;
     // Preserve the original canonical admissions exactly until the permanent queue limit.
     if !queue.exhausted() {
         enqueue_context.call_candidates(new, |item| {
             exhausted.examined += 1;
-            if !processed.contains(&item) { let _ = queue.insert(item)?; }
+            if !processed.contains(&item) {
+                let _ = queue.insert(item)?;
+            }
             Ok(!queue.exhausted())
         })?;
     }
     if queue.exhausted() {
         materialized += exhausted.calls(&enqueue_context, new, queue, processed, out)?;
     }
-    path_candidates(data, discovery, vocabulary, &progress.branches[&new], |item| {
-        exhausted.examined += 1;
-        if processed.contains(&item) || queue.contains(&item) { return Ok(false); }
-        if queue.exhausted() {
-            materialized += usize::from(materialize_residual(
-                ResidualContext { discovery, data, invocation, component: component_id, progress, seeds },
-                item, obligation::ObligationKind::SummaryPairWorkLimit, out,
-            )?);
-            // Alias ignores all support IDs; Path ignores support/step IDs, and every
-            // step in this bucket has the same call site. Each is one exact residual
-            // group, but their two events may differ. Only an actual refusal ends it.
-            return Ok(true);
-        }
-        let _ = queue.insert(item)?;
-        Ok(false)
-    })?;
+    path_candidates(
+        data,
+        discovery,
+        vocabulary,
+        &progress.branches[&new],
+        |item| {
+            exhausted.examined += 1;
+            if processed.contains(&item) || queue.contains(&item) {
+                return Ok(false);
+            }
+            if queue.exhausted() {
+                materialized += usize::from(materialize_residual(
+                    ResidualContext {
+                        discovery,
+                        data,
+                        invocation,
+                        component: component_id,
+                        progress,
+                        seeds,
+                    },
+                    item,
+                    obligation::ObligationKind::SummaryPairWorkLimit,
+                    out,
+                )?);
+                // Alias ignores all support IDs; Path ignores support/step IDs, and every
+                // step in this bucket has the same call site. Each is one exact residual
+                // group, but their two events may differ. Only an actual refusal ends it.
+                return Ok(true);
+            }
+            let _ = queue.insert(item)?;
+            Ok(false)
+        },
+    )?;
     Ok(materialized)
 }
 
@@ -2490,7 +2547,9 @@ fn produce_with_application(
         component_seeds.sort_unstable();
         for index in component_seeds {
             let seed = &seeds[index];
-            if let summary_worklist::Admission::Refused(reason) = progress.admit(seed, &vocabulary)? {
+            if let summary_worklist::Admission::Refused(reason) =
+                progress.admit(seed, &vocabulary)?
+            {
                 origin_boundary(&mut out, invocation, component_id, seed, reason)?;
             }
         }
@@ -3231,196 +3290,201 @@ mod actual_input_property_controls {
     fn indexed_alias_discovery_preserves_every_support_combination_in_source_order() {
         let budget = ResourceBudget::fixed(16 << 20).unwrap();
         {
-        let mut data = SummaryData::new(&budget);
-        let path = AccessPath::empty();
-        let input_root = PlaceRoot::Entry {
-            declaration: nominal(1),
-        };
-        let output_root = PlaceRoot::Occurrence {
-            occurrence: nominal(2),
-        };
-        let input = Place {
-            root: input_root.id(),
-            path: path.id(),
-        };
-        let output = Place {
-            root: output_root.id(),
-            path: path.id(),
-        };
-        for root in [input_root, output_root] {
-            data.vocabulary
-                .roots
-                .insert(&mut data.vocabulary.charge, root.id(), root)
-                .unwrap();
-        }
-        for place in [&input, &output] {
-            data.vocabulary
-                .places
-                .insert(&mut data.vocabulary.charge, place.id(), place.clone())
-                .unwrap();
-        }
-        let condition = Diagram::always();
-        let q = AssertionQualification {
-            assumptions: assumptions::AssumptionSet::empty_id(),
-            context: nominal(3),
-            scope: nominal(4),
-            condition: condition.id(),
-            modality: attribution::Modality::Definite,
-            approximation: Approximation::Exact,
-        };
-        let key = TransferKey::from_descriptor(TransferDescriptor {
-            owner: nominal(5),
-            input: input.id(),
-            output: output.id(),
-            context: q.context,
-            scope: q.scope,
-            modality: q.modality,
-            approximation: q.approximation,
-            kind: TransferKind::Derived,
-            call_site: Some(nominal(55)),
-            provenance: ProvenanceClass::Composed,
-        });
-        let branch = WorkBranch {
-            branch: TransferBranch::new(key, q.clone(), condition, &budget).unwrap(),
-            premise: SummaryPremise::Local {
-                alternative: nominal(6),
-            },
-            origin: nominal(7),
-            facts: SourceFacts {
-                qualification: q.id(),
-                status: analysis::policy::EvidenceStatus::StructurallyObserved,
-                heuristic: false,
-            },
-            cost: ProofCost { depth: 2, steps: 5, rank: 2 },
-        };
-        let definition = FlowDefinitionObservation {
-            qualification: q.id(),
-            definition: nominal(8),
-            scope: nominal(9),
-            kind: lexical::BindingEventKind::Assignment,
-            value: Some(nominal(2)),
-        };
-        let reaching = FlowReachingObservation {
-            qualification: q.id(),
-            use_: nominal(10),
-            target: ReachingDefinition::Bound {
-                definition: definition.definition,
-            }
-            .id(),
-            loop_carried: false,
-        };
-        let value = FlowValueObservation {
-            qualification: q.id(),
-            use_: nominal(10),
-            sink: nominal(11),
-            kind: FlowSinkKind::Return,
-            transfer: TransferKind::Derived,
-            through_call: false,
-        };
-        macro_rules! support {
-            ($ty:ident, $row:expr, $n:expr) => {
-                $ty {
-                    assertion: $row.id(),
-                    run: nominal($n),
-                    surface: nominal(12),
-                    evidence: nominal(13),
-                    origin: attribution::Origin::AnalyzerAssertion,
-                    mode: attribution::ExtractionMode::NativeTraversal,
-                    fidelity: attribution::Fidelity::NativeStructural,
-                }
+            let mut data = SummaryData::new(&budget);
+            let path = AccessPath::empty();
+            let input_root = PlaceRoot::Entry {
+                declaration: nominal(1),
             };
-        }
-        data.entry
-            .definition_observations
-            .insert(definition.clone())
-            .unwrap();
-        data.entry.reaching.insert(reaching.clone()).unwrap();
-        data.entry.values.insert(value.clone()).unwrap();
-        for n in [20, 21] {
-            data.entry
-                .definition_supports
-                .insert(support!(FlowDefinitionSupport, definition, n))
-                .unwrap();
-            data.entry
-                .reaching_supports
-                .insert(support!(FlowReachingSupport, reaching, n))
-                .unwrap();
-            data.entry
-                .value_supports
-                .insert(support!(FlowValueSupport, value, n))
-                .unwrap();
-        }
-        for annotation in [false, true] {
-            let observed = FlowUseObservation {
-                qualification: q.id(),
-                use_: nominal(10),
-                scope: nominal(9),
-                annotation,
+            let output_root = PlaceRoot::Occurrence {
+                occurrence: nominal(2),
             };
-            for n in [20, 21] {
-                data.entry
-                    .use_supports
-                    .insert(support!(FlowUseSupport, observed, n))
+            let input = Place {
+                root: input_root.id(),
+                path: path.id(),
+            };
+            let output = Place {
+                root: output_root.id(),
+                path: path.id(),
+            };
+            for root in [input_root, output_root] {
+                data.vocabulary
+                    .roots
+                    .insert(&mut data.vocabulary.charge, root.id(), root)
                     .unwrap();
             }
-            data.entry.use_observations.insert(observed).unwrap();
-        }
-        // A complete independent relation join supplies the expected proof population and order.
-        let mut expected = Vec::new();
-        for d in data
-            .entry
-            .definition_observations
-            .iter()
-            .filter(|d| d.value == Some(nominal(2)))
-        {
-            let target = ReachingDefinition::Bound {
-                definition: d.definition,
+            for place in [&input, &output] {
+                data.vocabulary
+                    .places
+                    .insert(&mut data.vocabulary.charge, place.id(), place.clone())
+                    .unwrap();
             }
-            .id();
-            for r in data.entry.reaching.iter().filter(|r| r.target == target) {
-                for v in data
-                    .entry
-                    .values
-                    .iter()
-                    .filter(|v| v.use_ == r.use_ && !v.through_call)
-                {
-                    for u in data
+            let condition = Diagram::always();
+            let q = AssertionQualification {
+                assumptions: assumptions::AssumptionSet::empty_id(),
+                context: nominal(3),
+                scope: nominal(4),
+                condition: condition.id(),
+                modality: attribution::Modality::Definite,
+                approximation: Approximation::Exact,
+            };
+            let key = TransferKey::from_descriptor(TransferDescriptor {
+                owner: nominal(5),
+                input: input.id(),
+                output: output.id(),
+                context: q.context,
+                scope: q.scope,
+                modality: q.modality,
+                approximation: q.approximation,
+                kind: TransferKind::Derived,
+                call_site: Some(nominal(55)),
+                provenance: ProvenanceClass::Composed,
+            });
+            let branch = WorkBranch {
+                branch: TransferBranch::new(key, q.clone(), condition, &budget).unwrap(),
+                premise: SummaryPremise::Local {
+                    alternative: nominal(6),
+                },
+                origin: nominal(7),
+                facts: SourceFacts {
+                    qualification: q.id(),
+                    status: analysis::policy::EvidenceStatus::StructurallyObserved,
+                    heuristic: false,
+                },
+                cost: ProofCost {
+                    depth: 2,
+                    steps: 5,
+                    rank: 2,
+                },
+            };
+            let definition = FlowDefinitionObservation {
+                qualification: q.id(),
+                definition: nominal(8),
+                scope: nominal(9),
+                kind: lexical::BindingEventKind::Assignment,
+                value: Some(nominal(2)),
+            };
+            let reaching = FlowReachingObservation {
+                qualification: q.id(),
+                use_: nominal(10),
+                target: ReachingDefinition::Bound {
+                    definition: definition.definition,
+                }
+                .id(),
+                loop_carried: false,
+            };
+            let value = FlowValueObservation {
+                qualification: q.id(),
+                use_: nominal(10),
+                sink: nominal(11),
+                kind: FlowSinkKind::Return,
+                transfer: TransferKind::Derived,
+                through_call: false,
+            };
+            macro_rules! support {
+                ($ty:ident, $row:expr, $n:expr) => {
+                    $ty {
+                        assertion: $row.id(),
+                        run: nominal($n),
+                        surface: nominal(12),
+                        evidence: nominal(13),
+                        origin: attribution::Origin::AnalyzerAssertion,
+                        mode: attribution::ExtractionMode::NativeTraversal,
+                        fidelity: attribution::Fidelity::NativeStructural,
+                    }
+                };
+            }
+            data.entry
+                .definition_observations
+                .insert(definition.clone())
+                .unwrap();
+            data.entry.reaching.insert(reaching.clone()).unwrap();
+            data.entry.values.insert(value.clone()).unwrap();
+            for n in [20, 21] {
+                data.entry
+                    .definition_supports
+                    .insert(support!(FlowDefinitionSupport, definition, n))
+                    .unwrap();
+                data.entry
+                    .reaching_supports
+                    .insert(support!(FlowReachingSupport, reaching, n))
+                    .unwrap();
+                data.entry
+                    .value_supports
+                    .insert(support!(FlowValueSupport, value, n))
+                    .unwrap();
+            }
+            for annotation in [false, true] {
+                let observed = FlowUseObservation {
+                    qualification: q.id(),
+                    use_: nominal(10),
+                    scope: nominal(9),
+                    annotation,
+                };
+                for n in [20, 21] {
+                    data.entry
+                        .use_supports
+                        .insert(support!(FlowUseSupport, observed, n))
+                        .unwrap();
+                }
+                data.entry.use_observations.insert(observed).unwrap();
+            }
+            // A complete independent relation join supplies the expected proof population and order.
+            let mut expected = Vec::new();
+            for d in data
+                .entry
+                .definition_observations
+                .iter()
+                .filter(|d| d.value == Some(nominal(2)))
+            {
+                let target = ReachingDefinition::Bound {
+                    definition: d.definition,
+                }
+                .id();
+                for r in data.entry.reaching.iter().filter(|r| r.target == target) {
+                    for v in data
                         .entry
-                        .use_observations
+                        .values
                         .iter()
-                        .filter(|u| u.use_ == v.use_)
+                        .filter(|v| v.use_ == r.use_ && !v.through_call)
                     {
-                        for vs in data
+                        for u in data
                             .entry
-                            .value_supports
+                            .use_observations
                             .iter()
-                            .filter(|s| s.assertion == v.id())
+                            .filter(|u| u.use_ == v.use_)
                         {
-                            for rs in data
+                            for vs in data
                                 .entry
-                                .reaching_supports
+                                .value_supports
                                 .iter()
-                                .filter(|s| s.assertion == r.id())
+                                .filter(|s| s.assertion == v.id())
                             {
-                                for ds in data
+                                for rs in data
                                     .entry
-                                    .definition_supports
+                                    .reaching_supports
                                     .iter()
-                                    .filter(|s| s.assertion == d.id())
+                                    .filter(|s| s.assertion == r.id())
                                 {
-                                    for us in data
+                                    for ds in data
                                         .entry
-                                        .use_supports
+                                        .definition_supports
                                         .iter()
-                                        .filter(|s| s.assertion == u.id())
+                                        .filter(|s| s.assertion == d.id())
                                     {
-                                        expected.push(WorkItem::Alias(
-                                            branch.id(),
-                                            vs.id(),
-                                            rs.id(),
-                                            ds.id(),
-                                            us.id(),
-                                        ));
+                                        for us in data
+                                            .entry
+                                            .use_supports
+                                            .iter()
+                                            .filter(|s| s.assertion == u.id())
+                                        {
+                                            expected.push(WorkItem::Alias(
+                                                branch.id(),
+                                                vs.id(),
+                                                rs.id(),
+                                                ds.id(),
+                                                us.id(),
+                                            ));
+                                        }
                                     }
                                 }
                             }
@@ -3428,148 +3492,315 @@ mod actual_input_property_controls {
                     }
                 }
             }
-        }
-        let retained = budget.reserved();
-        let discovery = Discovery::new(&data, &[], &budget).unwrap();
-        let mut actual = Vec::new();
-        path_candidates(&data, &discovery, &data.vocabulary, &branch, |item| {
-            actual.push(item);
-            Ok(false)
-        })
-        .unwrap();
-        assert_eq!(actual.len(), 32);
-        assert_eq!(actual, expected);
-        drop(discovery);
-        assert_eq!(budget.reserved(), retained);
-        // Two legitimate support groups have different events: Alias uses the original
-        // call; Path uses this output call site. Repeated steps still share the latter.
-        let formal = PlaceRoot::Formal { declaration: nominal(1) };
-        let formal_place = Place { root: formal.id(), path: path.id() };
-        data.entry.roots.insert(formal).unwrap();
-        data.entry.places.insert(formal_place.clone()).unwrap();
-        let use_ = FlowUse { occurrence: nominal(40), place: formal_place.id() };
-        data.entry.uses.insert(use_.clone()).unwrap();
-        data.entry.owners.insert(OccurrenceOwnership { occurrence: use_.occurrence,
-            owner: nominal(1), entity: branch.descriptor().owner }).unwrap();
-        let path_value = FlowValueObservation { qualification: q.id(), use_: use_.id(), sink: nominal(41),
-            kind: FlowSinkKind::Return, transfer: TransferKind::Derived, through_call: true };
-        data.entry.values.insert(path_value.clone()).unwrap();
-        let (call_path, steps) = FlowCallPath::new(&[
-            (nominal(2),nominal(40),FlowCallOperandRole::Argument),
-            (nominal(2),nominal(41),FlowCallOperandRole::Callee),
-        ]).unwrap();
-        let path_observed = FlowValuePathObservation { qualification: q.id(), value: path_value.id(), path: call_path.id() };
-        data.path.call_paths.insert(call_path).unwrap();
-        for step in steps { data.path.call_steps.insert(step).unwrap(); }
-        data.path.value_paths.insert(path_observed.clone()).unwrap();
-        for n in [20,21] {
-            data.entry.value_supports.insert(support!(FlowValueSupport,path_value,n)).unwrap();
-            data.path.value_path_supports.insert(support!(FlowValuePathSupport,path_observed,n)).unwrap();
-        }
-        let events = [55,2].map(|n| {
-            let ownership = OccurrenceOwnership { occurrence:nominal(n), owner:nominal(1),
-                entity:branch.descriptor().owner };
-            data.entry.owners.insert(ownership.clone()).unwrap();
-            normalized::events::NormalizedCallEvent { site:ownership.occurrence,
-                origin:nominal(56), context:q.context, owner:ownership.id() }
-        });
-        for event in &events { data.bindings.event_events.insert(event.clone()).unwrap(); }
-        let (_, definition) = super::super::configuration::summaries(nominal(1),Default::default()).unwrap();
-        let (invocation,_) = owner::AnalysisInvocation::new(nominal(2),q.context,definition.id(),None,[]);
-        let seeds = [branch.clone()];
-        let mut discovery = Discovery::new(&data,&[],&budget).unwrap();
-        discovery.seeds.insert(branch.origin,0);
-        let mut all = Vec::new();
-        path_candidates(&data,&discovery,&data.vocabulary,&branch,|item| { all.push(item); Ok(false) }).unwrap();
-        assert_eq!(&all[..32],expected);
-        let mut expected_paths = Vec::new();
-        for step in data.path.call_steps.iter() {
-            for vs in data.entry.value_supports.iter().filter(|support| support.assertion == path_value.id()) {
-                for ps in data.path.value_path_supports.iter().filter(|support| support.assertion == path_observed.id()) {
-                    expected_paths.push(WorkItem::Path(branch.id(),vs.id(),ps.id(),step.id()));
+            let retained = budget.reserved();
+            let discovery = Discovery::new(&data, &[], &budget).unwrap();
+            let mut actual = Vec::new();
+            path_candidates(&data, &discovery, &data.vocabulary, &branch, |item| {
+                actual.push(item);
+                Ok(false)
+            })
+            .unwrap();
+            assert_eq!(actual.len(), 32);
+            assert_eq!(actual, expected);
+            drop(discovery);
+            assert_eq!(budget.reserved(), retained);
+            // Two legitimate support groups have different events: Alias uses the original
+            // call; Path uses this output call site. Repeated steps still share the latter.
+            let formal = PlaceRoot::Formal {
+                declaration: nominal(1),
+            };
+            let formal_place = Place {
+                root: formal.id(),
+                path: path.id(),
+            };
+            data.entry.roots.insert(formal).unwrap();
+            data.entry.places.insert(formal_place.clone()).unwrap();
+            let use_ = FlowUse {
+                occurrence: nominal(40),
+                place: formal_place.id(),
+            };
+            data.entry.uses.insert(use_.clone()).unwrap();
+            data.entry
+                .owners
+                .insert(OccurrenceOwnership {
+                    occurrence: use_.occurrence,
+                    owner: nominal(1),
+                    entity: branch.descriptor().owner,
+                })
+                .unwrap();
+            let path_value = FlowValueObservation {
+                qualification: q.id(),
+                use_: use_.id(),
+                sink: nominal(41),
+                kind: FlowSinkKind::Return,
+                transfer: TransferKind::Derived,
+                through_call: true,
+            };
+            data.entry.values.insert(path_value.clone()).unwrap();
+            let (call_path, steps) = FlowCallPath::new(&[
+                (nominal(2), nominal(40), FlowCallOperandRole::Argument),
+                (nominal(2), nominal(41), FlowCallOperandRole::Callee),
+            ])
+            .unwrap();
+            let path_observed = FlowValuePathObservation {
+                qualification: q.id(),
+                value: path_value.id(),
+                path: call_path.id(),
+            };
+            data.path.call_paths.insert(call_path).unwrap();
+            for step in steps {
+                data.path.call_steps.insert(step).unwrap();
+            }
+            data.path.value_paths.insert(path_observed.clone()).unwrap();
+            for n in [20, 21] {
+                data.entry
+                    .value_supports
+                    .insert(support!(FlowValueSupport, path_value, n))
+                    .unwrap();
+                data.path
+                    .value_path_supports
+                    .insert(support!(FlowValuePathSupport, path_observed, n))
+                    .unwrap();
+            }
+            let events = [55, 2].map(|n| {
+                let ownership = OccurrenceOwnership {
+                    occurrence: nominal(n),
+                    owner: nominal(1),
+                    entity: branch.descriptor().owner,
+                };
+                data.entry.owners.insert(ownership.clone()).unwrap();
+                normalized::events::NormalizedCallEvent {
+                    site: ownership.occurrence,
+                    origin: nominal(56),
+                    context: q.context,
+                    owner: ownership.id(),
+                }
+            });
+            for event in &events {
+                data.bindings.event_events.insert(event.clone()).unwrap();
+            }
+            let (_, definition) =
+                super::super::configuration::summaries(nominal(1), Default::default()).unwrap();
+            let (invocation, _) =
+                owner::AnalysisInvocation::new(nominal(2), q.context, definition.id(), None, []);
+            let seeds = [branch.clone()];
+            let mut discovery = Discovery::new(&data, &[], &budget).unwrap();
+            discovery.seeds.insert(branch.origin, 0);
+            let mut all = Vec::new();
+            path_candidates(&data, &discovery, &data.vocabulary, &branch, |item| {
+                all.push(item);
+                Ok(false)
+            })
+            .unwrap();
+            assert_eq!(&all[..32], expected);
+            let mut expected_paths = Vec::new();
+            for step in data.path.call_steps.iter() {
+                for vs in data
+                    .entry
+                    .value_supports
+                    .iter()
+                    .filter(|support| support.assertion == path_value.id())
+                {
+                    for ps in data
+                        .path
+                        .value_path_supports
+                        .iter()
+                        .filter(|support| support.assertion == path_observed.id())
+                    {
+                        expected_paths.push(WorkItem::Path(
+                            branch.id(),
+                            vs.id(),
+                            ps.id(),
+                            step.id(),
+                        ));
+                    }
                 }
             }
+            assert_eq!(&all[32..], expected_paths);
+            assert_eq!(all.len(), 40);
+            let component = [branch.descriptor().owner];
+            let component_id = ContentHash::of(b"alias-path-groups");
+            let mut progress = Progress::new(Default::default(), &budget);
+            progress.admit(&branch, &data.vocabulary).unwrap();
+            let mut queue = summary_worklist::WorkQueue::new(3, &budget);
+            assert_eq!(queue.insert(all[0]).unwrap(), Ok(true));
+            assert_eq!(queue.pop().unwrap(), Some(all[0]));
+            assert_eq!(queue.insert(all[1]).unwrap(), Ok(true));
+            let mut processed = charged::ChargedSet::default();
+            let mut charge = StateCharge::new(&budget, "path-control-processed");
+            processed.insert(&mut charge, all[0]).unwrap();
+            let mut exhausted = ExhaustedGroups::new(&budget);
+            let mut out = SummaryRecords::new(invocation.id(), &budget);
+            retain_proof(&mut out, &invocation, &branch).unwrap();
+            assert_eq!(
+                enqueue(
+                    EnqueueContext {
+                        discovery: &discovery,
+                        data: &data,
+                        vocabulary: &data.vocabulary,
+                        calls: &[],
+                        component: &component,
+                        component_id,
+                        invocation: &invocation,
+                        progress: &progress,
+                        seeds: &seeds
+                    },
+                    branch.id(),
+                    &mut queue,
+                    &processed,
+                    &mut exhausted,
+                    &mut out
+                )
+                .unwrap(),
+                2
+            );
+            assert_eq!(exhausted.examined, 4);
+            assert_eq!(queue.work(), 3);
+            assert_eq!(queue.pending().copied().collect::<Vec<_>>(), [all[1]]);
+            let over = AssertionQualification {
+                approximation: Approximation::Over,
+                ..q.clone()
+            };
+            let mut expected_out = SummaryRecords::new(invocation.id(), &budget);
+            expected_out
+                .vocabulary
+                .qualified(&over, &Diagram::always())
+                .unwrap();
+            for event in &events {
+                expected_out
+                    .residuals
+                    .insert(SummaryResidual {
+                        invocation: invocation.id(),
+                        component: component_id,
+                        origin: branch.origin,
+                        event: event.id(),
+                        channel: analysis::AnalysisChannel::Value,
+                        phase: CallPhase::Call,
+                        input: input.id(),
+                        output: output.id(),
+                        reason: obligation::ObligationKind::SummaryPairWorkLimit,
+                        qualification: over.id(),
+                    })
+                    .unwrap();
+                let subject = owner::ObligationSubject::SourceCall {
+                    occurrence: event.site,
+                };
+                expected_out
+                    .obligations
+                    .insert(owner::AnalysisObligation {
+                        invocation: invocation.id(),
+                        subject: subject.id(),
+                        channel: analysis::AnalysisChannel::Value,
+                        phase: CallPhase::Call,
+                        qualification: over.id(),
+                        reason: obligation::ObligationKind::SummaryPairWorkLimit,
+                        responsible: analysis::AnalysisMethod::Summaries,
+                    })
+                    .unwrap();
+                expected_out.subjects.insert(subject).unwrap();
+            }
+            assert!(out.residuals.same(&expected_out.residuals));
+            assert!(out.obligations.same(&expected_out.obligations));
+            assert!(out.subjects.same(&expected_out.subjects));
+            assert!(
+                out.vocabulary
+                    .qualifications
+                    .values()
+                    .eq(expected_out.vocabulary.qualifications.values())
+            );
+            assert_eq!(out.premises.len(), 1);
+            assert_eq!(out.proof_origins.len(), 1);
+            // Every tuple can legitimately already be processed or pending. That produces no
+            // refusal; a new improving witness must still expose its unattempted equivalents.
+            let mut excepted = summary_worklist::WorkQueue::new(79, &budget);
+            let mut seen = charged::ChargedSet::default();
+            for item in &all {
+                assert_eq!(excepted.insert(*item).unwrap(), Ok(true));
+            }
+            for _ in 0..39 {
+                let item = excepted.pop().unwrap().unwrap();
+                seen.insert(&mut charge, item).unwrap();
+            }
+            let pending_last = all.iter().copied().max().unwrap();
+            assert_eq!(
+                excepted.pending().copied().collect::<Vec<_>>(),
+                [pending_last]
+            );
+            let mut groups = ExhaustedGroups::new(&budget);
+            let mut later = SummaryRecords::new(invocation.id(), &budget);
+            retain_proof(&mut later, &invocation, &branch).unwrap();
+            assert_eq!(
+                enqueue(
+                    EnqueueContext {
+                        discovery: &discovery,
+                        data: &data,
+                        vocabulary: &data.vocabulary,
+                        calls: &[],
+                        component: &component,
+                        component_id,
+                        invocation: &invocation,
+                        progress: &progress,
+                        seeds: &seeds
+                    },
+                    branch.id(),
+                    &mut excepted,
+                    &seen,
+                    &mut groups,
+                    &mut later
+                )
+                .unwrap(),
+                0
+            );
+            assert!(later.residuals.is_empty());
+            assert_eq!(groups.examined, 40);
+            let replacement = WorkBranch {
+                premise: SummaryPremise::Local {
+                    alternative: nominal(57),
+                },
+                cost: ProofCost::SOURCE,
+                ..branch.clone()
+            };
+            assert_eq!(
+                progress.admit(&replacement, &data.vocabulary).unwrap(),
+                summary_worklist::Admission::Advanced
+            );
+            assert!(!progress.current(branch.id()));
+            retain_proof(&mut later, &invocation, &replacement).unwrap();
+            assert_eq!(
+                enqueue(
+                    EnqueueContext {
+                        discovery: &discovery,
+                        data: &data,
+                        vocabulary: &data.vocabulary,
+                        calls: &[],
+                        component: &component,
+                        component_id,
+                        invocation: &invocation,
+                        progress: &progress,
+                        seeds: &seeds
+                    },
+                    replacement.id(),
+                    &mut excepted,
+                    &seen,
+                    &mut groups,
+                    &mut later
+                )
+                .unwrap(),
+                2
+            );
+            assert_eq!(groups.examined, 42);
+            assert!(later.residuals.same(&expected_out.residuals));
+            assert!(later.obligations.same(&expected_out.obligations));
+            assert!(later.subjects.same(&expected_out.subjects));
+            assert_eq!(later.proof_origins.len(), 2);
+            assert_eq!(later.premises.len(), 2);
+            assert_eq!(excepted.work(), 79);
+            assert_eq!(
+                excepted.pending().copied().collect::<Vec<_>>(),
+                [pending_last]
+            );
         }
-        assert_eq!(&all[32..],expected_paths);
-        assert_eq!(all.len(),40);
-        let component = [branch.descriptor().owner];
-        let component_id = ContentHash::of(b"alias-path-groups");
-        let mut progress = Progress::new(Default::default(),&budget);
-        progress.admit(&branch,&data.vocabulary).unwrap();
-        let mut queue = summary_worklist::WorkQueue::new(3,&budget);
-        assert_eq!(queue.insert(all[0]).unwrap(),Ok(true));
-        assert_eq!(queue.pop().unwrap(),Some(all[0]));
-        assert_eq!(queue.insert(all[1]).unwrap(),Ok(true));
-        let mut processed = charged::ChargedSet::default();
-        let mut charge = StateCharge::new(&budget,"path-control-processed");
-        processed.insert(&mut charge,all[0]).unwrap();
-        let mut exhausted = ExhaustedGroups::new(&budget);
-        let mut out = SummaryRecords::new(invocation.id(),&budget);
-        retain_proof(&mut out,&invocation,&branch).unwrap();
-        assert_eq!(enqueue(EnqueueContext { discovery:&discovery,data:&data,vocabulary:&data.vocabulary,calls:&[],
-            component:&component,component_id,invocation:&invocation,progress:&progress,seeds:&seeds },
-            branch.id(),&mut queue,&processed,&mut exhausted,&mut out).unwrap(),2);
-        assert_eq!(exhausted.examined,4);
-        assert_eq!(queue.work(),3);
-        assert_eq!(queue.pending().copied().collect::<Vec<_>>(),[all[1]]);
-        let over = AssertionQualification { approximation:Approximation::Over,..q.clone() };
-        let mut expected_out = SummaryRecords::new(invocation.id(),&budget);
-        expected_out.vocabulary.qualified(&over,&Diagram::always()).unwrap();
-        for event in &events {
-            expected_out.residuals.insert(SummaryResidual { invocation:invocation.id(),component:component_id,
-                origin:branch.origin,event:event.id(),channel:analysis::AnalysisChannel::Value,phase:CallPhase::Call,
-                input:input.id(),output:output.id(),reason:obligation::ObligationKind::SummaryPairWorkLimit,
-                qualification:over.id() }).unwrap();
-            let subject = owner::ObligationSubject::SourceCall { occurrence:event.site };
-            expected_out.obligations.insert(owner::AnalysisObligation { invocation:invocation.id(),subject:subject.id(),
-                channel:analysis::AnalysisChannel::Value,phase:CallPhase::Call,qualification:over.id(),
-                reason:obligation::ObligationKind::SummaryPairWorkLimit,responsible:analysis::AnalysisMethod::Summaries }).unwrap();
-            expected_out.subjects.insert(subject).unwrap();
-        }
-        assert!(out.residuals.same(&expected_out.residuals));
-        assert!(out.obligations.same(&expected_out.obligations));
-        assert!(out.subjects.same(&expected_out.subjects));
-        assert!(out.vocabulary.qualifications.values().eq(expected_out.vocabulary.qualifications.values()));
-        assert_eq!(out.premises.len(),1);
-        assert_eq!(out.proof_origins.len(),1);
-        // Every tuple can legitimately already be processed or pending. That produces no
-        // refusal; a new improving witness must still expose its unattempted equivalents.
-        let mut excepted = summary_worklist::WorkQueue::new(79,&budget);
-        let mut seen = charged::ChargedSet::default();
-        for item in &all { assert_eq!(excepted.insert(*item).unwrap(),Ok(true)); }
-        for _ in 0..39 {
-            let item = excepted.pop().unwrap().unwrap();
-            seen.insert(&mut charge,item).unwrap();
-        }
-        let pending_last = all.iter().copied().max().unwrap();
-        assert_eq!(excepted.pending().copied().collect::<Vec<_>>(),[pending_last]);
-        let mut groups = ExhaustedGroups::new(&budget);
-        let mut later = SummaryRecords::new(invocation.id(),&budget);
-        retain_proof(&mut later,&invocation,&branch).unwrap();
-        assert_eq!(enqueue(EnqueueContext { discovery:&discovery,data:&data,vocabulary:&data.vocabulary,calls:&[],
-            component:&component,component_id,invocation:&invocation,progress:&progress,seeds:&seeds },
-            branch.id(),&mut excepted,&seen,&mut groups,&mut later).unwrap(),0);
-        assert!(later.residuals.is_empty());
-        assert_eq!(groups.examined,40);
-        let replacement = WorkBranch { premise:SummaryPremise::Local { alternative:nominal(57) },
-            cost:ProofCost::SOURCE,..branch.clone() };
-        assert_eq!(progress.admit(&replacement,&data.vocabulary).unwrap(),summary_worklist::Admission::Advanced);
-        assert!(!progress.current(branch.id()));
-        retain_proof(&mut later,&invocation,&replacement).unwrap();
-        assert_eq!(enqueue(EnqueueContext { discovery:&discovery,data:&data,vocabulary:&data.vocabulary,calls:&[],
-            component:&component,component_id,invocation:&invocation,progress:&progress,seeds:&seeds },
-            replacement.id(),&mut excepted,&seen,&mut groups,&mut later).unwrap(),2);
-        assert_eq!(groups.examined,42);
-        assert!(later.residuals.same(&expected_out.residuals));
-        assert!(later.obligations.same(&expected_out.obligations));
-        assert!(later.subjects.same(&expected_out.subjects));
-        assert_eq!(later.proof_origins.len(),2);
-        assert_eq!(later.premises.len(),2);
-        assert_eq!(excepted.work(),79);
-        assert_eq!(excepted.pending().copied().collect::<Vec<_>>(),[pending_last]);
-        }
-        assert_eq!(budget.reserved(),0);
-
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn actual_summary_does_not_decode_unused_provider_defaults_or_decorator_normalizer_inputs() {
@@ -3823,103 +4054,272 @@ mod exhausted_candidate_controls {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
     fn place(data: &mut SummaryData, n: u8, occurrence: bool) -> Id<Place> {
-        let root = if occurrence { PlaceRoot::Occurrence { occurrence: id(n) } }
-            else { PlaceRoot::Entry { declaration: id(n) } };
-        let value = Place { root: root.id(), path: AccessPath::empty().id() };
-        data.vocabulary.roots.insert(&mut data.vocabulary.charge, root.id(), root).unwrap();
-        data.vocabulary.places.insert(&mut data.vocabulary.charge, value.id(), value.clone()).unwrap();
+        let root = if occurrence {
+            PlaceRoot::Occurrence { occurrence: id(n) }
+        } else {
+            PlaceRoot::Entry { declaration: id(n) }
+        };
+        let value = Place {
+            root: root.id(),
+            path: AccessPath::empty().id(),
+        };
+        data.vocabulary
+            .roots
+            .insert(&mut data.vocabulary.charge, root.id(), root)
+            .unwrap();
+        data.vocabulary
+            .places
+            .insert(&mut data.vocabulary.charge, value.id(), value.clone())
+            .unwrap();
         value.id()
     }
     fn branch(
-        endpoints: (Id<EntityRef>, Id<Place>, Id<Place>), origin: Id<SummaryOrigin>,
-        proof: u8, q: &AssertionQualification, cost: ProofCost, budget: &ResourceBudget,
+        endpoints: (Id<EntityRef>, Id<Place>, Id<Place>),
+        origin: Id<SummaryOrigin>,
+        proof: u8,
+        q: &AssertionQualification,
+        cost: ProofCost,
+        budget: &ResourceBudget,
     ) -> WorkBranch {
         let (owner, input, output) = endpoints;
         let key = TransferKey::from_descriptor(TransferDescriptor {
-            owner, input, output, context: q.context, scope: q.scope, modality: q.modality,
-            approximation: q.approximation, kind: TransferKind::Derived,
-            call_site: None, provenance: ProvenanceClass::Composed,
+            owner,
+            input,
+            output,
+            context: q.context,
+            scope: q.scope,
+            modality: q.modality,
+            approximation: q.approximation,
+            kind: TransferKind::Derived,
+            call_site: None,
+            provenance: ProvenanceClass::Composed,
         });
         WorkBranch {
             branch: TransferBranch::new(key, q.clone(), Diagram::always(), budget).unwrap(),
-            premise: SummaryPremise::Local { alternative: id(proof) }, origin,
-            facts: SourceFacts { qualification: q.id(),
-                status: analysis::policy::EvidenceStatus::StructurallyObserved, heuristic: false },
+            premise: SummaryPremise::Local {
+                alternative: id(proof),
+            },
+            origin,
+            facts: SourceFacts {
+                qualification: q.id(),
+                status: analysis::policy::EvidenceStatus::StructurallyObserved,
+                heuristic: false,
+            },
             cost,
         }
     }
     /// Actual private production context; no graph service or replacement queue model.
-    fn exercise(callers: u8, callees: u8, distinct_outputs: bool, recursive: bool, competing: bool, exceptions: u8) {
+    fn exercise(
+        callers: u8,
+        callees: u8,
+        distinct_outputs: bool,
+        recursive: bool,
+        competing: bool,
+        exceptions: u8,
+    ) {
         let budget = ResourceBudget::fixed(32 << 20).unwrap();
         {
-            let (_, definition) = super::super::configuration::summaries(id(1), Default::default()).unwrap();
-            let (invocation, _) = owner::AnalysisInvocation::new(id(2), id(3), definition.id(), None, []);
-            let q = AssertionQualification { assumptions: assumptions::AssumptionSet::empty_id(),
-                context: invocation.context, scope: id(4), condition: Diagram::always().id(),
-                modality: attribution::Modality::Definite, approximation: Approximation::Exact };
+            let (_, definition) =
+                super::super::configuration::summaries(id(1), Default::default()).unwrap();
+            let (invocation, _) =
+                owner::AnalysisInvocation::new(id(2), id(3), definition.id(), None, []);
+            let q = AssertionQualification {
+                assumptions: assumptions::AssumptionSet::empty_id(),
+                context: invocation.context,
+                scope: id(4),
+                condition: Diagram::always().id(),
+                modality: attribution::Modality::Definite,
+                approximation: Approximation::Exact,
+            };
             let mut data = SummaryData::new(&budget);
             let event = normalized::events::NormalizedCallEvent {
-                site: id(5), origin: id(6), context: invocation.context, owner: id(7) };
-            let target = CallTarget { qualification: q.id(), site: event.site, origin: event.origin,
-                destination: id(8), channel: id(9), phase: CallPhase::Call, receiver: id(10),
-                implicit: false, receiver_class: None, passing: None, class_method: None,
-                static_method: None };
-            let source = normalized::events::CallAlternativeSource::Native { target: target.id() };
-            let alternative = normalized::events::NormalizedCallAlternative { event: event.id(),
-                source: source.id(), resolution: None, correspondence: None, entity: Some(id(12)),
-                status: ResolutionStatus::Resolved, reason: normalized::links::LinkReason::ExplicitIdentity };
-            let attempt = CallBindingAttempt { alternative: alternative.id(), variant: None,
-                syntax: None, policy: ContentHash::of(b"candidate-control"), event: event.id(),
-                signature: None, arguments: None, receiver: target.receiver,
-                receiver_assessment: None, dispatch_member: None, effective: None,
+                site: id(5),
+                origin: id(6),
+                context: invocation.context,
+                owner: id(7),
+            };
+            let target = CallTarget {
+                qualification: q.id(),
+                site: event.site,
+                origin: event.origin,
+                destination: id(8),
+                channel: id(9),
+                phase: CallPhase::Call,
+                receiver: id(10),
+                implicit: false,
+                receiver_class: None,
+                passing: None,
+                class_method: None,
+                static_method: None,
+            };
+            let source = normalized::events::CallAlternativeSource::Native {
+                target: target.id(),
+            };
+            let alternative = normalized::events::NormalizedCallAlternative {
+                event: event.id(),
+                source: source.id(),
+                resolution: None,
+                correspondence: None,
+                entity: Some(id(12)),
+                status: ResolutionStatus::Resolved,
+                reason: normalized::links::LinkReason::ExplicitIdentity,
+            };
+            let attempt = CallBindingAttempt {
+                alternative: alternative.id(),
+                variant: None,
+                syntax: None,
+                policy: ContentHash::of(b"candidate-control"),
+                event: event.id(),
+                signature: None,
+                arguments: None,
+                receiver: target.receiver,
+                receiver_assessment: None,
+                dispatch_member: None,
+                effective: None,
                 adjustment: normalized::callables::SignatureAdjustment::None,
-                authority: normalized::signature_applicability::BindingAuthority::EffectiveInvocation,
+                authority:
+                    normalized::signature_applicability::BindingAuthority::EffectiveInvocation,
                 authority_reason: normalized::signature_applicability::AuthorityReason::Established,
-                outcome: BindingOutcome::Bound, reason: BindingReason::Bound, refusal: None,
-                bindings: ContentHash::of(b"bindings") };
+                outcome: BindingOutcome::Bound,
+                reason: BindingReason::Bound,
+                refusal: None,
+                bindings: ContentHash::of(b"bindings"),
+            };
             data.bindings.event_events.insert(event.clone()).unwrap();
             data.bindings.targets.insert(target.clone()).unwrap();
-            data.bindings.event_alternative_sources.insert(source).unwrap();
-            data.bindings.event_alternatives.insert(alternative).unwrap();
-            data.binding_output.attempts.insert(attempt.clone()).unwrap();
+            data.bindings
+                .event_alternative_sources
+                .insert(source)
+                .unwrap();
+            data.bindings
+                .event_alternatives
+                .insert(alternative)
+                .unwrap();
+            data.binding_output
+                .attempts
+                .insert(attempt.clone())
+                .unwrap();
             let caller_owner = id(11);
             let callee_owner = if recursive { caller_owner } else { id(12) };
-            let calls = [CallInfo { attempt: attempt.id(), _event: event.id(), _header: None,
-                owner: caller_owner, callee: callee_owner, target: target.id() }];
+            let calls = [CallInfo {
+                attempt: attempt.id(),
+                _event: event.id(),
+                _header: None,
+                owner: caller_owner,
+                callee: callee_owner,
+                target: target.id(),
+            }];
             let caller_output = place(&mut data, 13, true);
             let mut progress = Progress::new(Default::default(), &budget);
             let mut seeds = Vec::new();
             for n in 0..callers {
                 let input = place(&mut data, 30 + n, false);
-                let value = branch((caller_owner, input, caller_output), id(14), 50 + n, &q,
-                    if competing && n == 0 { ProofCost { depth: 1, steps: 3, rank: 1 } }
-                    else { ProofCost::SOURCE }, &budget);
+                let value = branch(
+                    (caller_owner, input, caller_output),
+                    id(14),
+                    50 + n,
+                    &q,
+                    if competing && n == 0 {
+                        ProofCost {
+                            depth: 1,
+                            steps: 3,
+                            rank: 1,
+                        }
+                    } else {
+                        ProofCost::SOURCE
+                    },
+                    &budget,
+                );
                 progress.admit(&value, &data.vocabulary).unwrap();
-                if n == 0 { seeds.push(value.clone()); }
+                if n == 0 {
+                    seeds.push(value.clone());
+                }
                 if competing && n == 0 {
-                    let other = branch((caller_owner, input, caller_output), value.origin, 80, &q,
-                        ProofCost { depth: 2, steps: 2, rank: 2 }, &budget);
-                    assert_eq!(progress.admit(&other, &data.vocabulary).unwrap(), summary_worklist::Admission::Advanced);
+                    let other = branch(
+                        (caller_owner, input, caller_output),
+                        value.origin,
+                        80,
+                        &q,
+                        ProofCost {
+                            depth: 2,
+                            steps: 2,
+                            rank: 2,
+                        },
+                        &budget,
+                    );
+                    assert_eq!(
+                        progress.admit(&other, &data.vocabulary).unwrap(),
+                        summary_worklist::Admission::Advanced
+                    );
                 }
             }
             for n in 0..callees {
                 let input = place(&mut data, 100 + n, false);
-                let output = place(&mut data, if distinct_outputs { 130 + n } else { 130 }, true);
-                let value = branch((callee_owner, input, output), id(15), 160 + n, &q,
-                    if exceptions > 0 { ProofCost { depth: 2, steps: 5, rank: 2 } } else { ProofCost::SOURCE }, &budget);
+                let output = place(
+                    &mut data,
+                    if distinct_outputs { 130 + n } else { 130 },
+                    true,
+                );
+                let value = branch(
+                    (callee_owner, input, output),
+                    id(15),
+                    160 + n,
+                    &q,
+                    if exceptions > 0 {
+                        ProofCost {
+                            depth: 2,
+                            steps: 5,
+                            rank: 2,
+                        }
+                    } else {
+                        ProofCost::SOURCE
+                    },
+                    &budget,
+                );
                 progress.admit(&value, &data.vocabulary).unwrap();
-                if n == 0 { seeds.push(value); }
+                if n == 0 {
+                    seeds.push(value);
+                }
             }
-            let first_caller = progress.branches.values().find(|b| b.descriptor().owner == caller_owner).unwrap().id();
-            let callee_ids = progress.branches.values().filter(|b| b.descriptor().owner == callee_owner).map(WorkBranch::id).collect::<Vec<_>>();
+            let first_caller = progress
+                .branches
+                .values()
+                .find(|b| b.descriptor().owner == caller_owner)
+                .unwrap()
+                .id();
+            let callee_ids = progress
+                .branches
+                .values()
+                .filter(|b| b.descriptor().owner == callee_owner)
+                .map(WorkBranch::id)
+                .collect::<Vec<_>>();
             let replacement = if exceptions > 0 {
                 let old = &progress.branches[&callee_ids[usize::from(exceptions - 1)]];
-                Some((old.id(), branch((callee_owner, old.descriptor().input, old.descriptor().output),
-                    old.origin, 250, &q, ProofCost::SOURCE, &budget)))
-            } else { None };
+                Some((
+                    old.id(),
+                    branch(
+                        (
+                            callee_owner,
+                            old.descriptor().input,
+                            old.descriptor().output,
+                        ),
+                        old.origin,
+                        250,
+                        &q,
+                        ProofCost::SOURCE,
+                        &budget,
+                    ),
+                ))
+            } else {
+                None
+            };
             let mut discovery = Discovery::new(&data, &calls, &budget).unwrap();
-            for (index, seed) in seeds.iter().enumerate() { discovery.seeds.insert(seed.origin, index); }
-            let mut component = vec![caller_owner, callee_owner]; component.sort(); component.dedup();
+            for (index, seed) in seeds.iter().enumerate() {
+                discovery.seeds.insert(seed.origin, index);
+            }
+            let mut component = vec![caller_owner, callee_owner];
+            component.sort();
+            component.dedup();
             let component_id = ContentHash::of(b"component");
             let queue_limit = if exceptions > 0 { 3 } else { 1 };
             let mut queue = summary_worklist::WorkQueue::new(queue_limit, &budget);
@@ -3933,14 +4333,35 @@ mod exhausted_candidate_controls {
                 processed.insert(&mut processed_charge, item).unwrap();
             }
             let mut out = SummaryRecords::new(invocation.id(), &budget);
-            for value in progress.branches.values() { retain_proof(&mut out, &invocation, value).unwrap(); }
+            for value in progress.branches.values() {
+                retain_proof(&mut out, &invocation, value).unwrap();
+            }
             let proof_ids = out.premises.iter().map(Record::id).collect::<BTreeSet<_>>();
             let mut constructed = 0;
-            for value in progress.branches.values().filter(|b| b.descriptor().owner == caller_owner) {
-                constructed += enqueue(EnqueueContext { discovery: &discovery, data: &data,
-                    vocabulary: &data.vocabulary, calls: &calls, component: &component,
-                    component_id, invocation: &invocation, progress: &progress, seeds: &seeds },
-                    value.id(), &mut queue, &processed, &mut exhausted, &mut out).unwrap();
+            for value in progress
+                .branches
+                .values()
+                .filter(|b| b.descriptor().owner == caller_owner)
+            {
+                constructed += enqueue(
+                    EnqueueContext {
+                        discovery: &discovery,
+                        data: &data,
+                        vocabulary: &data.vocabulary,
+                        calls: &calls,
+                        component: &component,
+                        component_id,
+                        invocation: &invocation,
+                        progress: &progress,
+                        seeds: &seeds,
+                    },
+                    value.id(),
+                    &mut queue,
+                    &processed,
+                    &mut exhausted,
+                    &mut out,
+                )
+                .unwrap();
             }
             assert_eq!(queue.work(), queue_limit);
             assert_eq!(queue.pending().count(), 1);
@@ -3948,79 +4369,210 @@ mod exhausted_candidate_controls {
             // model residual tuple; input proof identity is deliberately absent from that tuple.
             let pending = queue.pending().copied().collect::<BTreeSet<_>>();
             let mut expected = SummaryRecords::new(invocation.id(), &budget);
-            let over = AssertionQualification { approximation: Approximation::Over, ..q.clone() };
-            for caller in progress.branches.values().filter(|b| b.descriptor().owner == caller_owner) {
-                for callee in progress.branches.values().filter(|b| b.descriptor().owner == callee_owner) {
+            let over = AssertionQualification {
+                approximation: Approximation::Over,
+                ..q.clone()
+            };
+            for caller in progress
+                .branches
+                .values()
+                .filter(|b| b.descriptor().owner == caller_owner)
+            {
+                for callee in progress
+                    .branches
+                    .values()
+                    .filter(|b| b.descriptor().owner == callee_owner)
+                {
                     let item = WorkItem::Call(attempt.id(), caller.id(), callee.id());
-                    if pending.contains(&item) || processed.contains(&item) { continue; }
-                    expected.vocabulary.qualified(&over, &Diagram::always()).unwrap();
-                    expected.residuals.insert(SummaryResidual { invocation: invocation.id(),
-                        component: component_id, origin: caller.origin, event: event.id(),
-                        channel: analysis::AnalysisChannel::Value, phase: CallPhase::Call,
-                        input: caller.descriptor().input, output: callee.descriptor().output,
-                        reason: obligation::ObligationKind::SummaryPairWorkLimit,
-                        qualification: over.id() }).unwrap();
-                    let subject = owner::ObligationSubject::SourceCall { occurrence: event.site };
-                    expected.obligations.insert(owner::AnalysisObligation { invocation: invocation.id(),
-                        subject: subject.id(), channel: analysis::AnalysisChannel::Value,
-                        phase: CallPhase::Call, qualification: over.id(),
-                        reason: obligation::ObligationKind::SummaryPairWorkLimit,
-                        responsible: analysis::AnalysisMethod::Summaries }).unwrap();
+                    if pending.contains(&item) || processed.contains(&item) {
+                        continue;
+                    }
+                    expected
+                        .vocabulary
+                        .qualified(&over, &Diagram::always())
+                        .unwrap();
+                    expected
+                        .residuals
+                        .insert(SummaryResidual {
+                            invocation: invocation.id(),
+                            component: component_id,
+                            origin: caller.origin,
+                            event: event.id(),
+                            channel: analysis::AnalysisChannel::Value,
+                            phase: CallPhase::Call,
+                            input: caller.descriptor().input,
+                            output: callee.descriptor().output,
+                            reason: obligation::ObligationKind::SummaryPairWorkLimit,
+                            qualification: over.id(),
+                        })
+                        .unwrap();
+                    let subject = owner::ObligationSubject::SourceCall {
+                        occurrence: event.site,
+                    };
+                    expected
+                        .obligations
+                        .insert(owner::AnalysisObligation {
+                            invocation: invocation.id(),
+                            subject: subject.id(),
+                            channel: analysis::AnalysisChannel::Value,
+                            phase: CallPhase::Call,
+                            qualification: over.id(),
+                            reason: obligation::ObligationKind::SummaryPairWorkLimit,
+                            responsible: analysis::AnalysisMethod::Summaries,
+                        })
+                        .unwrap();
                     expected.subjects.insert(subject).unwrap();
                 }
             }
             assert!(out.residuals.same(&expected.residuals));
             assert!(out.obligations.same(&expected.obligations));
             assert!(out.subjects.same(&expected.subjects));
-            assert!(out.vocabulary.qualifications.values().eq(expected.vocabulary.qualifications.values()));
+            assert!(
+                out.vocabulary
+                    .qualifications
+                    .values()
+                    .eq(expected.vocabulary.qualifications.values())
+            );
             assert_eq!(constructed, out.residuals.len());
-            assert_eq!(out.premises.iter().map(Record::id).collect::<BTreeSet<_>>(), proof_ids);
+            assert_eq!(
+                out.premises.iter().map(Record::id).collect::<BTreeSet<_>>(),
+                proof_ids
+            );
             assert_eq!(out.proof_origins.len(), progress.branches.len());
             assert_eq!(out.costs.len(), progress.branches.len());
             if !recursive && !competing && exceptions == 0 {
-                assert_eq!(constructed, if distinct_outputs { usize::from(callers * callees) - 1 }
-                    else { usize::from(callers) });
+                assert_eq!(
+                    constructed,
+                    if distinct_outputs {
+                        usize::from(callers * callees) - 1
+                    } else {
+                        usize::from(callers)
+                    }
+                );
             }
             if !recursive && !competing && exceptions == 0 {
-                assert!(exhausted.examined <= constructed + 3,
-                    "examined {} pairs for {} residuals", exhausted.examined, constructed);
+                assert!(
+                    exhausted.examined <= constructed + 3,
+                    "examined {} pairs for {} residuals",
+                    exhausted.examined,
+                    constructed
+                );
             }
             let examined = exhausted.examined;
             // Repeating discovery constructs no new rich products and consumes no queue work.
-            for value in progress.branches.values().filter(|b| b.descriptor().owner == caller_owner) {
-                assert_eq!(enqueue(EnqueueContext { discovery: &discovery, data: &data,
-                    vocabulary: &data.vocabulary, calls: &calls, component: &component,
-                    component_id, invocation: &invocation, progress: &progress, seeds: &seeds },
-                    value.id(), &mut queue, &processed, &mut exhausted, &mut out).unwrap(), 0);
+            for value in progress
+                .branches
+                .values()
+                .filter(|b| b.descriptor().owner == caller_owner)
+            {
+                assert_eq!(
+                    enqueue(
+                        EnqueueContext {
+                            discovery: &discovery,
+                            data: &data,
+                            vocabulary: &data.vocabulary,
+                            calls: &calls,
+                            component: &component,
+                            component_id,
+                            invocation: &invocation,
+                            progress: &progress,
+                            seeds: &seeds
+                        },
+                        value.id(),
+                        &mut queue,
+                        &processed,
+                        &mut exhausted,
+                        &mut out
+                    )
+                    .unwrap(),
+                    0
+                );
             }
             assert_eq!(queue.work(), queue_limit);
             assert_eq!(exhausted.examined, examined);
             if let Some((retired, replacement)) = replacement {
-                assert!(out.residuals.is_empty(), "pending and processed are not refused work");
-                assert_eq!(progress.admit(&replacement, &data.vocabulary).unwrap(), summary_worklist::Admission::Advanced);
+                assert!(
+                    out.residuals.is_empty(),
+                    "pending and processed are not refused work"
+                );
+                assert_eq!(
+                    progress.admit(&replacement, &data.vocabulary).unwrap(),
+                    summary_worklist::Admission::Advanced
+                );
                 assert!(!progress.current(retired));
                 assert!(progress.current(replacement.id()));
                 retain_proof(&mut out, &invocation, &replacement).unwrap();
-                assert_eq!(enqueue(EnqueueContext { discovery: &discovery, data: &data,
-                    vocabulary: &data.vocabulary, calls: &calls, component: &component,
-                    component_id, invocation: &invocation, progress: &progress, seeds: &seeds },
-                    replacement.id(), &mut queue, &processed, &mut exhausted, &mut out).unwrap(), 1);
+                assert_eq!(
+                    enqueue(
+                        EnqueueContext {
+                            discovery: &discovery,
+                            data: &data,
+                            vocabulary: &data.vocabulary,
+                            calls: &calls,
+                            component: &component,
+                            component_id,
+                            invocation: &invocation,
+                            progress: &progress,
+                            seeds: &seeds
+                        },
+                        replacement.id(),
+                        &mut queue,
+                        &processed,
+                        &mut exhausted,
+                        &mut out
+                    )
+                    .unwrap(),
+                    1
+                );
                 let caller = &progress.branches[&first_caller];
-                expected.vocabulary.qualified(&over, &Diagram::always()).unwrap();
-                expected.residuals.insert(SummaryResidual { invocation: invocation.id(), component: component_id,
-                    origin: caller.origin, event: event.id(), channel: analysis::AnalysisChannel::Value,
-                    phase: CallPhase::Call, input: caller.descriptor().input, output: replacement.descriptor().output,
-                    reason: obligation::ObligationKind::SummaryPairWorkLimit, qualification: over.id() }).unwrap();
-                let subject = owner::ObligationSubject::SourceCall { occurrence: event.site };
-                expected.obligations.insert(owner::AnalysisObligation { invocation: invocation.id(), subject: subject.id(),
-                    channel: analysis::AnalysisChannel::Value, phase: CallPhase::Call, qualification: over.id(),
-                    reason: obligation::ObligationKind::SummaryPairWorkLimit, responsible: analysis::AnalysisMethod::Summaries }).unwrap();
+                expected
+                    .vocabulary
+                    .qualified(&over, &Diagram::always())
+                    .unwrap();
+                expected
+                    .residuals
+                    .insert(SummaryResidual {
+                        invocation: invocation.id(),
+                        component: component_id,
+                        origin: caller.origin,
+                        event: event.id(),
+                        channel: analysis::AnalysisChannel::Value,
+                        phase: CallPhase::Call,
+                        input: caller.descriptor().input,
+                        output: replacement.descriptor().output,
+                        reason: obligation::ObligationKind::SummaryPairWorkLimit,
+                        qualification: over.id(),
+                    })
+                    .unwrap();
+                let subject = owner::ObligationSubject::SourceCall {
+                    occurrence: event.site,
+                };
+                expected
+                    .obligations
+                    .insert(owner::AnalysisObligation {
+                        invocation: invocation.id(),
+                        subject: subject.id(),
+                        channel: analysis::AnalysisChannel::Value,
+                        phase: CallPhase::Call,
+                        qualification: over.id(),
+                        reason: obligation::ObligationKind::SummaryPairWorkLimit,
+                        responsible: analysis::AnalysisMethod::Summaries,
+                    })
+                    .unwrap();
                 expected.subjects.insert(subject).unwrap();
                 assert!(out.residuals.same(&expected.residuals));
                 assert!(out.obligations.same(&expected.obligations));
                 assert!(out.subjects.same(&expected.subjects));
-                assert!(out.vocabulary.qualifications.values().eq(expected.vocabulary.qualifications.values()));
-                assert!(out.premises.get(retired.1).is_some(), "retired representative proof remains published");
+                assert!(
+                    out.vocabulary
+                        .qualifications
+                        .values()
+                        .eq(expected.vocabulary.qualifications.values())
+                );
+                assert!(
+                    out.premises.get(retired.1).is_some(),
+                    "retired representative proof remains published"
+                );
                 assert_eq!(out.proof_origins.len(), progress.branches.len());
                 assert_eq!(out.costs.len(), progress.branches.len());
                 assert_eq!(queue.work(), queue_limit);
@@ -4030,17 +4582,31 @@ mod exhausted_candidate_controls {
         assert_eq!(budget.reserved(), 0);
     }
     #[test]
-    fn equivalent_exhausted_candidates_construct_one_complete_residual() { exercise(1, 5, false, false, false, 0); }
+    fn equivalent_exhausted_candidates_construct_one_complete_residual() {
+        exercise(1, 5, false, false, false, 0);
+    }
     #[test]
-    fn equivalent_callee_inputs_and_distinct_caller_inputs_examine_only_residual_groups() { exercise(12, 20, false, false, false, 0); }
+    fn equivalent_callee_inputs_and_distinct_caller_inputs_examine_only_residual_groups() {
+        exercise(12, 20, false, false, false, 0);
+    }
     #[test]
-    fn distinct_exhausted_candidates_preserve_every_output() { exercise(1, 5, true, false, false, 0); }
+    fn distinct_exhausted_candidates_preserve_every_output() {
+        exercise(1, 5, true, false, false, 0);
+    }
     #[test]
-    fn distinct_caller_inputs_and_callee_outputs_retain_necessary_cross_product() { exercise(4, 5, true, false, false, 0); }
+    fn distinct_caller_inputs_and_callee_outputs_retain_necessary_cross_product() {
+        exercise(4, 5, true, false, false, 0);
+    }
     #[test]
-    fn processed_only_exception_does_not_hide_new_current_generation() { exercise(1, 2, false, false, false, 1); }
+    fn processed_only_exception_does_not_hide_new_current_generation() {
+        exercise(1, 2, false, false, false, 1);
+    }
     #[test]
-    fn pending_only_exception_does_not_hide_new_current_generation() { exercise(1, 2, false, false, false, 2); }
+    fn pending_only_exception_does_not_hide_new_current_generation() {
+        exercise(1, 2, false, false, false, 2);
+    }
     #[test]
-    fn recursive_endpoints_and_incomparable_proofs_preserve_full_inventory() { exercise(2, 4, true, true, true, 0); }
+    fn recursive_endpoints_and_incomparable_proofs_preserve_full_inventory() {
+        exercise(2, 4, true, true, true, 0);
+    }
 }

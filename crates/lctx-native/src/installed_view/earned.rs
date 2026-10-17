@@ -102,10 +102,15 @@ impl EarnedContributionSet {
                 )
                 .await?;
             let [installation] = installations.as_slice() else {
-                return Err(ModelError::Conflict("earned current installation cardinality"));
+                return Err(ModelError::Conflict(
+                    "earned current installation cardinality",
+                ));
             };
             if installation.get("generation") != Some(&Value::String(self.generation.hex()))
-                || installation.get("validity_epoch") != Some(&Value::Number(surrealdb::types::Number::Int(self.validity_epoch)))
+                || installation.get("validity_epoch")
+                    != Some(&Value::Number(surrealdb::types::Number::Int(
+                        self.validity_epoch,
+                    )))
             {
                 return Err(ModelError::Conflict("earned current installation changed"));
             }
@@ -169,43 +174,108 @@ impl HeldInstalledView {
         let owner = RecordId::new("native_pin", pin.identity.hex());
         let mut charge = StateCharge::new(budget, "receiving independent exact selector");
         charge.grow(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>())?;
-        let (selector, owner) = match &self.owner {
-            InstalledViewOwner::Earned { set } => {
-                charge.grow(super::view_heap(&self.selector.view).saturating_add(
-                    self.selector.mappings.len().saturating_mul(std::mem::size_of::<ContributorRealization>())))?;
-                let mut state = StateCharge::new(budget, "receiving immutable contributor preparation");
-                state.grow(set.contributors.len().saturating_mul(1024)
-                    .saturating_add(set._prepared.len().saturating_mul(std::mem::size_of::<super::audit::LogicalContributorRows>()))
-                    .saturating_add(std::mem::size_of::<EarnedContributionSet>() + 512))?;
-                let copied = EarnedContributionSet {
-                    pin: pin.clone(), owner,
-                    // A new receiving pin cannot inherit the source's checked
-                    // context lifetime. Its existing fresh remote route remains.
-                    context_lifetime: None,
-                    generation: set.generation, validity_epoch: set.validity_epoch,
-                    contributors: set.contributors.clone(), selector: set.selector,
-                    members: set.members.clone(), _prepared: set._prepared.clone(), _charge: state,
-                };
-                (HeldSelector::Earned(self.completion().clone()), InstalledViewOwner::Earned { set: Arc::new(copied) })
-            }
-            InstalledViewOwner::Physical { expected, completed, .. } => (
-                HeldSelector::Retained(self.retained_completion()?.clone()),
-                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: completed.inventory.clone(), pin: pin.clone(), owner },
-            ),
-            InstalledViewOwner::Frozen { expected, completed, .. } => (
-                HeldSelector::Retained(self.retained_completion()?.clone()),
-                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: completed.inventory.clone(), pin: pin.clone(), owner },
-            ),
-            InstalledViewOwner::Published { expected, completed, .. } => (
-                HeldSelector::Retained(self.retained_completion()?.clone()),
-                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: completed.shared_inventory(), pin: pin.clone(), owner },
-            ),
-            InstalledViewOwner::Recovery { expected, inventory, .. } => (
-                HeldSelector::Retained(self.retained_completion()?.clone()),
-                InstalledViewOwner::Recovery { expected: expected.clone(), inventory: inventory.clone(), pin: pin.clone(), owner },
-            ),
-        };
-        Ok(Self { client: pin.client().clone(), selector, owner, _charge: charge })
+        let (selector, owner) =
+            match &self.owner {
+                InstalledViewOwner::Earned { set } => {
+                    charge.grow(
+                        super::view_heap(&self.selector.view).saturating_add(
+                            self.selector
+                                .mappings
+                                .len()
+                                .saturating_mul(std::mem::size_of::<ContributorRealization>()),
+                        ),
+                    )?;
+                    let mut state =
+                        StateCharge::new(budget, "receiving immutable contributor preparation");
+                    state.grow(
+                        set.contributors
+                            .len()
+                            .saturating_mul(1024)
+                            .saturating_add(set._prepared.len().saturating_mul(
+                                std::mem::size_of::<super::audit::LogicalContributorRows>(),
+                            ))
+                            .saturating_add(std::mem::size_of::<EarnedContributionSet>() + 512),
+                    )?;
+                    let copied = EarnedContributionSet {
+                        pin: pin.clone(),
+                        owner,
+                        // A new receiving pin cannot inherit the source's checked
+                        // context lifetime. Its existing fresh remote route remains.
+                        context_lifetime: None,
+                        generation: set.generation,
+                        validity_epoch: set.validity_epoch,
+                        contributors: set.contributors.clone(),
+                        selector: set.selector,
+                        members: set.members.clone(),
+                        _prepared: set._prepared.clone(),
+                        _charge: state,
+                    };
+                    (
+                        HeldSelector::Earned(self.completion().clone()),
+                        InstalledViewOwner::Earned {
+                            set: Arc::new(copied),
+                        },
+                    )
+                }
+                InstalledViewOwner::Physical {
+                    expected,
+                    completed,
+                    ..
+                } => (
+                    HeldSelector::Retained(self.retained_completion()?.clone()),
+                    InstalledViewOwner::Recovery {
+                        expected: expected.clone(),
+                        inventory: completed.inventory.clone(),
+                        pin: pin.clone(),
+                        owner,
+                    },
+                ),
+                InstalledViewOwner::Frozen {
+                    expected,
+                    completed,
+                    ..
+                } => (
+                    HeldSelector::Retained(self.retained_completion()?.clone()),
+                    InstalledViewOwner::Recovery {
+                        expected: expected.clone(),
+                        inventory: completed.inventory.clone(),
+                        pin: pin.clone(),
+                        owner,
+                    },
+                ),
+                InstalledViewOwner::Published {
+                    expected,
+                    completed,
+                    ..
+                } => (
+                    HeldSelector::Retained(self.retained_completion()?.clone()),
+                    InstalledViewOwner::Recovery {
+                        expected: expected.clone(),
+                        inventory: completed.shared_inventory(),
+                        pin: pin.clone(),
+                        owner,
+                    },
+                ),
+                InstalledViewOwner::Recovery {
+                    expected,
+                    inventory,
+                    ..
+                } => (
+                    HeldSelector::Retained(self.retained_completion()?.clone()),
+                    InstalledViewOwner::Recovery {
+                        expected: expected.clone(),
+                        inventory: inventory.clone(),
+                        pin: pin.clone(),
+                        owner,
+                    },
+                ),
+            };
+        Ok(Self {
+            client: pin.client().clone(),
+            selector,
+            owner,
+            _charge: charge,
+        })
     }
     pub fn is_internal(&self) -> bool {
         matches!(&self.owner, InstalledViewOwner::Earned { .. })
@@ -540,7 +610,11 @@ mod tests {
         let source_pin = crate::control::ReaderPin::test_detached(false);
         let source_state = source_pin.factory_state();
         let receiver = crate::control::ReaderPin::test_detached(false);
-        let prepared = crate::ordered_rows::SortedRows::with_budget(&budget).unwrap().finish().unwrap().into_prepared();
+        let prepared = crate::ordered_rows::SortedRows::with_budget(&budget)
+            .unwrap()
+            .finish()
+            .unwrap()
+            .into_prepared();
         let mut state = StateCharge::new(&budget, "receiver copy control state");
         state.grow(4096).unwrap();
         let mut handle = StateCharge::new(&budget, "receiver copy control handle");
@@ -548,31 +622,66 @@ mod tests {
         let source = HeldInstalledView {
             client: source_pin.client().clone(),
             selector: HeldSelector::Earned(SelectedViewDescriptor {
-                view: d::completed::CompletedView::new("packages".into(), [ContentHash([1; 32])].into(), 0).unwrap(),
+                view: d::completed::CompletedView::new(
+                    "packages".into(),
+                    [ContentHash([1; 32])].into(),
+                    0,
+                )
+                .unwrap(),
                 mappings: vec![],
             }),
-            owner: InstalledViewOwner::Earned { set: Arc::new(EarnedContributionSet {
-                pin: source_pin.clone(), owner: RecordId::new("native_pin", source_pin.identity.hex()),
-                context_lifetime: None,
-                generation: ContentHash([2; 32]), validity_epoch: 1, contributors: BTreeMap::new(),
-                selector: ContentHash([3; 32]), members: prepared.point_index(&budget).unwrap(),
-                _prepared: vec![], _charge: state,
-            }) },
+            owner: InstalledViewOwner::Earned {
+                set: Arc::new(EarnedContributionSet {
+                    pin: source_pin.clone(),
+                    owner: RecordId::new("native_pin", source_pin.identity.hex()),
+                    context_lifetime: None,
+                    generation: ContentHash([2; 32]),
+                    validity_epoch: 1,
+                    contributors: BTreeMap::new(),
+                    selector: ContentHash([3; 32]),
+                    members: prepared.point_index(&budget).unwrap(),
+                    _prepared: vec![],
+                    _charge: state,
+                }),
+            },
             _charge: handle,
         };
         let received = source.receiving_copy(&receiver, &budget).unwrap();
         source_pin.retain_unknown();
-        received.check_borrowed_local(receiver.client(), &budget).unwrap();
-        assert!(received.check_borrowed_local(source_pin.client(), &budget).is_err());
+        received
+            .check_borrowed_local(receiver.client(), &budget)
+            .unwrap();
+        assert!(
+            received
+                .check_borrowed_local(source_pin.client(), &budget)
+                .is_err()
+        );
         let foreign_pool = ResourceBudget::fixed(1 << 20).unwrap();
-        assert!(received.check_borrowed_local(receiver.client(), &foreign_pool).is_err());
-        assert!(source.receiving_copy(&crate::control::ReaderPin::test_detached(true), &budget).is_err());
+        assert!(
+            received
+                .check_borrowed_local(receiver.client(), &foreign_pool)
+                .is_err()
+        );
+        assert!(
+            source
+                .receiving_copy(&crate::control::ReaderPin::test_detached(true), &budget)
+                .is_err()
+        );
         drop(source);
         drop(source_pin);
-        assert!(!source_state.has_borrower(), "receiving data must not retain the source factory borrower");
-        received.check_borrowed_local(receiver.client(), &budget).unwrap();
+        assert!(
+            !source_state.has_borrower(),
+            "receiving data must not retain the source factory borrower"
+        );
+        received
+            .check_borrowed_local(receiver.client(), &budget)
+            .unwrap();
         receiver.retain_unknown();
-        assert!(received.check_borrowed_local(receiver.client(), &budget).is_err());
+        assert!(
+            received
+                .check_borrowed_local(receiver.client(), &budget)
+                .is_err()
+        );
     }
     fn member(owner: ContentHash, key: [u8; 16]) -> Value {
         let mut row = Object::new();

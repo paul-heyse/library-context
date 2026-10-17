@@ -1207,13 +1207,20 @@ impl<Context> NativeReader<Context> {
         budget: &lctx_model::domain::resources::ResourceBudget,
     ) -> Result<bool, ModelError> {
         self.ensure_scope_live()?;
-        let Some(scope) = &self.scope else { return Ok(false); };
-        let Some(exact) = &scope.exact else { return Ok(false); };
+        let Some(scope) = &self.scope else {
+            return Ok(false);
+        };
+        let Some(exact) = &scope.exact else {
+            return Ok(false);
+        };
         if let Some(receiving) = &exact.receiving {
             return receiving.ensure_for(view, &self.client, budget);
         }
         if let Some(borrowed) = &scope.borrowed
-            && exact._installed.iter().any(|selected| std::ptr::eq(selected.as_ref(), view))
+            && exact
+                ._installed
+                .iter()
+                .any(|selected| std::ptr::eq(selected.as_ref(), view))
         {
             if !Arc::ptr_eq(&borrowed.client, &self.client) {
                 return Err(ModelError::Conflict("borrowed premise foreign client"));
@@ -2873,11 +2880,15 @@ impl NativeReader<()> {
             setup.pin = Some(pin.clone());
             let reader = Self::private(client.clone()).with_budget(budget);
             let result = async {
-                let receiving = crate::installed_view::protect_receiving_views(views, &pin, &reader, budget)
-                    .await?;
+                let receiving =
+                    crate::installed_view::protect_receiving_views(views, &pin, &reader, budget)
+                        .await?;
                 // The exact native capabilities own these selectors already. Mechanical
                 // selection borrows them; no duplicate compound descriptor is retained.
-                Ok((Vec::<crate::completed_state::InstalledViewRef>::new(), receiving))
+                Ok((
+                    Vec::<crate::completed_state::InstalledViewRef>::new(),
+                    receiving,
+                ))
             }
             .await;
             // Mark uncertainty before any cleanup can release the pin or drop a

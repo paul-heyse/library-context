@@ -80,9 +80,9 @@ impl Options {
                             "/home/paul/wheelhouse/gpu-stack/models/Qwen3-Embedding-8B-NVFP4-r2",
                         )
                     });
-                Some(std::sync::Arc::new(lctx_embed::VllmEmbedder::for_compilation(
-                    endpoint, spec, &assets,
-                )?))
+                Some(std::sync::Arc::new(
+                    lctx_embed::VllmEmbedder::for_compilation(endpoint, spec, &assets)?,
+                ))
             }
         };
         Ok(Some(Upper { settings, embedder }))

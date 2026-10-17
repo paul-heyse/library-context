@@ -67,20 +67,33 @@ impl<'a> CapturedBase<'a> {
         let membership_phase = lctx_native::phase::Phase::begin("base_cohort_membership_capture");
         let mut ipc = InvocationIpc::new(source, budget, cancellation, None)?;
         let mut members = ipc.begin(schema())?;
-        let _transfer = budget.reserve("Base-membership-write-window", resources::TRANSFER_ROWS * 64 + 4096)?;
+        let _transfer = budget.reserve(
+            "Base-membership-write-window",
+            resources::TRANSFER_ROWS * 64 + 4096,
+        )?;
         let mut discovery = scopes.edges.capture_discovery(budget, cancellation)?;
         let mut start = 0;
         let mut maximum = keys.len();
         while start < keys.len() {
             cancellation.check()?;
             let width = (keys.len() - start).min(maximum);
-            let requests = keys[start..start + width].iter().map(|key| crate::consumed_rows::PreparedRoot {
-                table: root_table, key: *key, kind: root_kind,
-            }).collect::<Vec<_>>();
-            let batch = scopes.edges.batch_with_capture(&requests, budget, cancellation, &mut discovery).await;
+            let requests = keys[start..start + width]
+                .iter()
+                .map(|key| crate::consumed_rows::PreparedRoot {
+                    table: root_table,
+                    key: *key,
+                    kind: root_kind,
+                })
+                .collect::<Vec<_>>();
+            let batch = scopes
+                .edges
+                .batch_with_capture(&requests, budget, cancellation, &mut discovery)
+                .await;
             let batch = match batch {
                 Ok(batch) => batch,
-                Err(error) if width > 1 && discovery.permits_local_retry() && local_resource(&error) => {
+                Err(error)
+                    if width > 1 && discovery.permits_local_retry() && local_resource(&error) =>
+                {
                     maximum = (width / 2).max(1);
                     continue;
                 }

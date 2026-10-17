@@ -915,15 +915,47 @@ mod attempt_cut_controls {
         right.commit().await.unwrap().invalidate().await.unwrap();
         // Exact replay never executes payload again; an owner-context collision
         // refuses even when operation, request digest and original era agree.
-        checked_transaction(client.query(a.query.clone()).bind(a.bindings.clone()).await.unwrap()).unwrap();
+        checked_transaction(
+            client
+                .query(a.query.clone())
+                .bind(a.bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         let mut collision = a.bindings.clone();
         collision.insert("__owner_kind", "frozen_attempt");
-        assert!(checked_transaction(client.query(a.query.clone()).bind(collision).await.unwrap()).is_err());
+        assert!(
+            checked_transaction(client.query(a.query.clone()).bind(collision).await.unwrap())
+                .is_err()
+        );
         let absent_operation = fresh_identity("atomic-absent-fence").unwrap();
         let absent = make(absent_operation);
-        let absent_request = NativeRequest { issuance: era, operation: absent_operation, request: ContentHash::of(&absent_operation.0) };
-        assert_eq!(with_recovery_scope(scope.clone(), authorization::reconcile_request(&client, absent_request)).await.unwrap(), EffectDisposition::FencedUncommitted);
-        assert!(checked_transaction(client.query(absent.query).bind(absent.bindings).await.unwrap()).is_err(), "delayed original apply cannot pass exact absent-request fence");
+        let absent_request = NativeRequest {
+            issuance: era,
+            operation: absent_operation,
+            request: ContentHash::of(&absent_operation.0),
+        };
+        assert_eq!(
+            with_recovery_scope(
+                scope.clone(),
+                authorization::reconcile_request(&client, absent_request)
+            )
+            .await
+            .unwrap(),
+            EffectDisposition::FencedUncommitted
+        );
+        assert!(
+            checked_transaction(
+                client
+                    .query(absent.query)
+                    .bind(absent.bindings)
+                    .await
+                    .unwrap()
+            )
+            .is_err(),
+            "delayed original apply cannot pass exact absent-request fence"
+        );
         let cut = client.as_ref().clone().begin().await.unwrap();
         cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,$action); UPDATE $attempt SET state=$next_state,revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).bind(("action",action.to_owned())).bind(("next_state",if action=="freeze" {"frozen"} else {"closing"})).await.unwrap().check().unwrap();
         let late = make(fresh_identity("stripe-late-intent").unwrap());
@@ -935,15 +967,27 @@ mod attempt_cut_controls {
                 .unwrap(),
         )
         .unwrap();
-        let conflict = cut.commit().await.expect_err("older full cut must conflict with later committed atomic apply");
-        assert!(retryable_conflict(&conflict), "expected conclusive native write conflict, not an unknown transport failure: {conflict}");
+        let conflict = cut
+            .commit()
+            .await
+            .expect_err("older full cut must conflict with later committed atomic apply");
+        assert!(
+            retryable_conflict(&conflict),
+            "expected conclusive native write conflict, not an unknown transport failure: {conflict}"
+        );
         let delayed = make(fresh_identity("stripe-delayed-apply").unwrap());
         let cut = client.as_ref().clone().begin().await.unwrap();
         cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,$action); UPDATE $attempt SET state=$next_state,revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).bind(("action",action.to_owned())).bind(("next_state",if action=="freeze" {"frozen"} else {"closing"})).await.unwrap().check().unwrap();
         cut.commit().await.unwrap().invalidate().await.unwrap();
         assert!(
-            checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap())
-                .is_err(),
+            checked_transaction(
+                client
+                    .query(delayed.query)
+                    .bind(delayed.bindings)
+                    .await
+                    .unwrap()
+            )
+            .is_err(),
             "prepared delayed atomic apply is fenced by the completed cut"
         );
         let after = make(fresh_identity("stripe-after-cut-intent").unwrap());

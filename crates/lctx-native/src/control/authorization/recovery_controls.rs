@@ -154,7 +154,10 @@ async fn committed_packet_recovery(persist_terminal: bool) {
         );
         if persist_terminal {
             pending.committed()?;
-            assert_eq!(pending.inspect(|envelope| envelope.action)?, RecoveryAction::ReleaseTerminalReference);
+            assert_eq!(
+                pending.inspect(|envelope| envelope.action)?,
+                RecoveryAction::ReleaseTerminalReference
+            );
         }
         let retained = pending.inspect(Clone::clone)?;
         scope.cancellation().cancel();
@@ -166,11 +169,23 @@ async fn committed_packet_recovery(persist_terminal: bool) {
         );
         assert_eq!(
             pending.inspect(|envelope| envelope.observed_disposition)?,
-            if persist_terminal { EffectDisposition::Committed } else { EffectDisposition::Pending }
+            if persist_terminal {
+                EffectDisposition::Committed
+            } else {
+                EffectDisposition::Pending
+            }
         );
-        assert_eq!(pending.inspect(Clone::clone)?, retained, "failed release preserves exact original recipient and reference policy");
+        assert_eq!(
+            pending.inspect(Clone::clone)?,
+            retained,
+            "failed release preserves exact original recipient and reference policy"
+        );
         let stopped = inspect(&observer, request, allocation_request, attempt).await?;
-        assert_eq!(stopped.get("reference"), before.get("reference"), "native reference remains until admitted exact settlement");
+        assert_eq!(
+            stopped.get("reference"),
+            before.get("reference"),
+            "native reference remains until admitted exact settlement"
+        );
         resume_recovery_scope_admitted(&scope, &recovery).await?;
         assert!(
             scope.cancellation().stopped(),

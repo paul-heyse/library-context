@@ -204,36 +204,41 @@ async fn backup_owned(
         );
         completion
     };
-    let result = after_source(result, source_finality, |(manifest, state_receipt, sql, state)| {
-        // Checked source EOF and successful exact session finality precede all local
-        // carrier work. These owned spools no longer borrow a snapshot or source pin.
-        cancel.check()?;
-        let metadata = recovery_metadata(config, handle)?;
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&sql)
+    let result = after_source(
+        result,
+        source_finality,
+        |(manifest, state_receipt, sql, state)| {
+            // Checked source EOF and successful exact session finality precede all local
+            // carrier work. These owned spools no longer borrow a snapshot or source pin.
+            cancel.check()?;
+            let metadata = recovery_metadata(config, handle)?;
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&sql)
+                .map_err(ModelError::codec)?;
+            writeln!(
+                file,
+                "\n-- lctx-backup-recovery: {}",
+                serde_json::to_string(&metadata).map_err(ModelError::codec)?
+            )
             .map_err(ModelError::codec)?;
-        writeln!(
-            file,
-            "\n-- lctx-backup-recovery: {}",
-            serde_json::to_string(&metadata).map_err(ModelError::codec)?
-        )
-        .map_err(ModelError::codec)?;
-        file.flush().map_err(ModelError::codec)?;
-        drop(file);
-        let carrier = crate::backup_import::write_carrier(&sql, &state, staged.path(), &budget)?;
-        let receipt = BackupReceipt {
-            recipe: 1,
-            source: handle.clone(),
-            manifest,
-            definitions: lctx_model::domain::ContentHash::of(native_definitions.as_bytes()),
-            state: state_receipt,
-            carrier,
-        };
-        receipt.validate()?;
-        Ok(receipt)
-    })
+            file.flush().map_err(ModelError::codec)?;
+            drop(file);
+            let carrier =
+                crate::backup_import::write_carrier(&sql, &state, staged.path(), &budget)?;
+            let receipt = BackupReceipt {
+                recipe: 1,
+                source: handle.clone(),
+                manifest,
+                definitions: lctx_model::domain::ContentHash::of(native_definitions.as_bytes()),
+                state: state_receipt,
+                carrier,
+            };
+            receipt.validate()?;
+            Ok(receipt)
+        },
+    )
     .await;
     let mut completion = Completion::default();
     if let Some(sources) = sources {
@@ -640,36 +645,67 @@ mod tests {
             crate::backup_import::write_carrier(&sql, &state, &output, &budget)
         }));
         assert!(futures::poll!(operation.as_mut()).is_pending());
-        assert_eq!(std::fs::read(&output).unwrap(), b"untouched before source finality");
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            b"untouched before source finality"
+        );
         cancel.send(()).unwrap();
         assert!(futures::poll!(operation.as_mut()).is_pending());
-        assert_eq!(std::fs::read(&output).unwrap(), b"untouched before source finality");
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            b"untouched before source finality"
+        );
         close.send(()).unwrap();
         let digest = operation.await.unwrap();
-        assert_eq!(digest, crate::backup_import::carrier_digest(&output, &budget).unwrap());
-        assert!(std::fs::read(&output).unwrap().starts_with(b"LCTX-BACKUP/1\n"));
+        assert_eq!(
+            digest,
+            crate::backup_import::carrier_digest(&output, &budget).unwrap()
+        );
+        assert!(
+            std::fs::read(&output)
+                .unwrap()
+                .starts_with(b"LCTX-BACKUP/1\n")
+        );
     }
 
     #[tokio::test]
     async fn failed_source_finalization_refuses_carrier_and_retains_primary_and_finalizers() {
         for export_failed in [false, true] {
-            for failed_step in ["backup snapshot explicit cancellation", "backup snapshot session close"] {
+            for failed_step in [
+                "backup snapshot explicit cancellation",
+                "backup snapshot session close",
+            ] {
                 let exported = if export_failed {
                     Err(ModelError::Conflict("late source EOF failure"))
-                } else { Ok(()) };
+                } else {
+                    Ok(())
+                };
                 let finalization = async {
-                    let mut completion = Completion { remote: RemoteState::Unknown, ..Completion::default() };
-                    completion.step(failed_step, Err(ModelError::Conflict("lost source acknowledgement")));
+                    let mut completion = Completion {
+                        remote: RemoteState::Unknown,
+                        ..Completion::default()
+                    };
+                    completion.step(
+                        failed_step,
+                        Err(ModelError::Conflict("lost source acknowledgement")),
+                    );
                     completion
                 };
                 let error = after_source(exported, finalization, |_| -> Result<(), ModelError> {
                     panic!("uncertain source must never construct a carrier")
-                }).await.unwrap_err();
-                let ModelError::Completion(outcome) = error else { panic!("structured source outcome"); };
+                })
+                .await
+                .unwrap_err();
+                let ModelError::Completion(outcome) = error else {
+                    panic!("structured source outcome");
+                };
                 assert_eq!(outcome.completion.remote, RemoteState::Unknown);
                 assert_eq!(outcome.completion.failures[0].step, failed_step);
                 if export_failed {
-                    assert!(matches!(outcome.primary.as_deref(), Some(ModelError::Conflict("late source EOF failure"))));
+                    assert!(matches!(
+                        outcome.primary.as_deref(),
+                        Some(ModelError::Conflict("late source EOF failure"))
+                    ));
                 }
             }
         }
@@ -685,9 +721,14 @@ mod tests {
                 Completion::default()
             },
             |_| -> Result<(), ModelError> { panic!("failed export must not construct carrier") },
-        ).await.unwrap_err();
+        )
+        .await
+        .unwrap_err();
         assert!(finalized.get());
-        assert!(matches!(error, ModelError::Conflict("known export failure")));
+        assert!(matches!(
+            error,
+            ModelError::Conflict("known export failure")
+        ));
         assert!(error.permits_storage_cleanup());
     }
 
@@ -699,11 +740,23 @@ mod tests {
         let output = scratch.path().join("backup");
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
         let error = after_source(Ok(()), std::future::ready(Completion::default()), |_| {
-            crate::backup_import::write_carrier(&scratch.path().join("missing-source"), &scratch.path().join("missing-state"), staged.path(), &budget)
-        }).await.unwrap_err();
+            crate::backup_import::write_carrier(
+                &scratch.path().join("missing-source"),
+                &scratch.path().join("missing-state"),
+                staged.path(),
+                &budget,
+            )
+        })
+        .await
+        .unwrap_err();
         assert!(error.permits_storage_cleanup());
-        assert!(!matches!(error, ModelError::Completion(ref outcome) if outcome.completion.remote == RemoteState::Unknown));
-        let error = complete_backup(staged, &output, Err(error), Ok(()), |_| panic!("failed carrier must remain unpublished")).unwrap_err();
+        assert!(
+            !matches!(error, ModelError::Completion(ref outcome) if outcome.completion.remote == RemoteState::Unknown)
+        );
+        let error = complete_backup(staged, &output, Err(error), Ok(()), |_| {
+            panic!("failed carrier must remain unpublished")
+        })
+        .unwrap_err();
         assert!(error.permits_storage_cleanup());
         assert!(!output.exists());
         assert!(!provisional.exists());

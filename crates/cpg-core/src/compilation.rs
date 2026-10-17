@@ -1066,18 +1066,28 @@ pub async fn compile(
     )
     .with_tracing_span(span)
     .await;
-    if result.is_ok() { cancellation.disarm(); }
+    if result.is_ok() {
+        cancellation.disarm();
+    }
     result
 }
 
 /// Dropping a compiler coordinator requests cooperative stop; actual joins stay owned.
 struct CompilerCancellation(Option<crate::workspace::Cancellation>);
 impl CompilerCancellation {
-    fn new(cancellation: crate::workspace::Cancellation) -> Self { Self(Some(cancellation)) }
-    fn disarm(&mut self) { self.0 = None; }
+    fn new(cancellation: crate::workspace::Cancellation) -> Self {
+        Self(Some(cancellation))
+    }
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
 }
 impl Drop for CompilerCancellation {
-    fn drop(&mut self) { if let Some(cancellation) = &self.0 { cancellation.cancel(); } }
+    fn drop(&mut self) {
+        if let Some(cancellation) = &self.0 {
+            cancellation.cancel();
+        }
+    }
 }
 
 // Keep construction and polling of the full compiler future inside this library boundary.
@@ -1325,7 +1335,10 @@ async fn compile_driver(
                 );
                 match task {
                     Ok(task) => pending.push(task),
-                    Err(error) => { failure = Some(error); break; }
+                    Err(error) => {
+                        failure = Some(error);
+                        break;
+                    }
                 }
             }
         }
@@ -1411,7 +1424,9 @@ async fn compile_driver(
         )),
         _ => None,
     };
-    let analytics_requested = prepared.as_ref().is_some_and(|p| analytics::build::requested(p.settings()));
+    let analytics_requested = prepared
+        .as_ref()
+        .is_some_and(|p| analytics::build::requested(p.settings()));
     let mut graphs = crate::analysis_graphs::GraphPreparation::new(workspace.budget())?;
     let mut local = None;
     let mut evaluations = None;
@@ -1440,8 +1455,9 @@ async fn compile_driver(
                             return Ok(None);
                         }
                         let binding = UpperStage::resolve(declaration.name)?;
-                        let prepared =
-                            prepared.clone().ok_or(ModelError::Conflict("missing upper configuration"))?;
+                        let prepared = prepared
+                            .clone()
+                            .ok_or(ModelError::Conflict("missing upper configuration"))?;
                         let selected = workspace
                             .bind_scheduled_inputs(&schedule, declaration)
                             .await?;
@@ -1504,7 +1520,10 @@ async fn compile_driver(
                         let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
                         match workspace.spawn_stage(task.run().with_tracing_span(producer_span)) {
                             Ok(task) => pending.push(task),
-                            Err(error) => { failure = Some(error); break; }
+                            Err(error) => {
+                                failure = Some(error);
+                                break;
+                            }
                         }
                     }
                     Ok(None) => {}

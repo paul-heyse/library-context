@@ -4204,14 +4204,20 @@ mod tests {
                 for index in 0..512 {
                     let batch = Package::encode(&[Package {
                         name: format!("handoff-{index}"),
-                    }]).unwrap();
-                    let charge = producer_budget.reserve(
-                        "sync-handoff-control", lctx_model::domain::logical_batch_bytes(&batch).unwrap(),
-                    ).unwrap();
+                    }])
+                    .unwrap();
+                    let charge = producer_budget
+                        .reserve(
+                            "sync-handoff-control",
+                            lctx_model::domain::logical_batch_bytes(&batch).unwrap(),
+                        )
+                        .unwrap();
                     sender.blocking_send(Ok((batch, charge))).unwrap();
                 }
                 if emit_error {
-                    sender.blocking_send(Err(ModelError::Schema("native batch handoff refusal"))).unwrap();
+                    sender
+                        .blocking_send(Err(ModelError::Schema("native batch handoff refusal")))
+                        .unwrap();
                 }
             });
             let mut reader = NativeBatches {
@@ -4225,11 +4231,17 @@ mod tests {
             // Tokio task; each actual batch retains its handoff reservation until next().
             for index in 0..512 {
                 let batch = reader.next().unwrap().unwrap();
-                assert_eq!(Package::decode(&batch).unwrap()[0].name, format!("handoff-{index}"));
+                assert_eq!(
+                    Package::decode(&batch).unwrap()[0].name,
+                    format!("handoff-{index}")
+                );
                 assert!(budget.reserved() > 0);
             }
             if emit_error {
-                assert!(matches!(reader.next(), Some(Err(ModelError::Schema("native batch handoff refusal")))));
+                assert!(matches!(
+                    reader.next(),
+                    Some(Err(ModelError::Schema("native batch handoff refusal")))
+                ));
             }
             assert!(reader.next().is_none());
             assert!(reader.next().is_none());
@@ -4972,9 +4984,21 @@ mod tests {
     #[tokio::test]
     async fn stage_join_precedes_late_provider_descendant_snapshot() {
         use cpg_extract::bundle::ProviderSink;
-        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()).unwrap();
-        let output = workspace.output("late-provider", Profile::Catalog, ContentHash::of(b"late-provider"),
-            workspace.inputs("late-provider", Profile::Catalog, []).unwrap(), []);
+        let workspace = Workspace::new(
+            model(),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let output = workspace.output(
+            "late-provider",
+            Profile::Catalog,
+            ContentHash::of(b"late-provider"),
+            workspace
+                .inputs("late-provider", Profile::Catalog, [])
+                .unwrap(),
+            [],
+        );
         let (release, released) = std::sync::mpsc::channel();
         let completed = Arc::new(AtomicBool::new(false));
         let observed = completed.clone();
@@ -4986,13 +5010,15 @@ mod tests {
         let cancellation = workspace.cancellation();
         let (entered, entering) = tokio::sync::oneshot::channel();
         let (registered, registering) = tokio::sync::oneshot::channel();
-        let stage = workspace.spawn_stage(async move {
-            entered.send(()).unwrap();
-            cancellation.cancelled().await;
-            let _acknowledgement = output.drain_provider(provider);
-            registered.send(()).unwrap();
-            Ok(())
-        }).unwrap();
+        let stage = workspace
+            .spawn_stage(async move {
+                entered.send(()).unwrap();
+                cancellation.cancelled().await;
+                let _acknowledgement = output.drain_provider(provider);
+                registered.send(()).unwrap();
+                Ok(())
+            })
+            .unwrap();
         entering.await.unwrap();
         let mut drain = Box::pin(workspace.drain_report());
         assert!(futures::poll!(&mut drain).is_pending());
@@ -5008,11 +5034,26 @@ mod tests {
 
     #[tokio::test]
     async fn independently_joined_stage_completes_its_native_contribution_without_self_drain() {
-        let workspace = Workspace::new(model(), WorkspaceOptions::default(), crate::test_native::store()).unwrap();
-        let output = workspace.output("joined-contribution", Profile::Catalog, ContentHash::of(b"joined-contribution"),
-            workspace.inputs("joined-contribution", Profile::Catalog, []).unwrap(), []);
-        workspace.spawn_stage(async move { output.finish(ProviderOutcome::Complete).await })
-            .unwrap().await.unwrap();
+        let workspace = Workspace::new(
+            model(),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let output = workspace.output(
+            "joined-contribution",
+            Profile::Catalog,
+            ContentHash::of(b"joined-contribution"),
+            workspace
+                .inputs("joined-contribution", Profile::Catalog, [])
+                .unwrap(),
+            [],
+        );
+        workspace
+            .spawn_stage(async move { output.finish(ProviderOutcome::Complete).await })
+            .unwrap()
+            .await
+            .unwrap();
         completion::complete(Ok(()), workspace.drain_report().await).unwrap();
         completion::complete(Ok(()), workspace.native().abandon_finality_report().await).unwrap();
     }

@@ -443,9 +443,8 @@ impl Loader {
         let owner = self
             .attempt
             .map(|attempt| RecordId::new("native_attempt", attempt.hex()));
-        let mut writer = crate::control::WindowWriter::new(
-            &self.client, self.attempt, self.budget.as_ref(),
-        );
+        let mut writer =
+            crate::control::WindowWriter::new(&self.client, self.attempt, self.budget.as_ref());
         for window in crate::control::ImmutableWindows::for_loading(rows, self.attempt, owner)
             .with_budget(self.budget.as_ref())
         {
