@@ -239,11 +239,11 @@ impl ReaderScope {
         if let Some(pin) = &self._pin {
             pin.retain_unknown();
         }
-        if let Some(exact) = &self.exact {
-            if exact.receiving.is_none() {
-                for view in &exact._installed {
-                    view.retain_unknown();
-                }
+        if let Some(exact) = &self.exact
+            && exact.receiving.is_none()
+        {
+            for view in &exact._installed {
+                view.retain_unknown();
             }
         }
     }
@@ -1212,15 +1212,15 @@ impl<Context> NativeReader<Context> {
         if let Some(receiving) = &exact.receiving {
             return receiving.ensure_for(view, &self.client, budget);
         }
-        if let Some(borrowed) = &scope.borrowed {
-            if exact._installed.iter().any(|selected| std::ptr::eq(selected.as_ref(), view)) {
-                if !Arc::ptr_eq(&borrowed.client, &self.client) {
-                    return Err(ModelError::Conflict("borrowed premise foreign client"));
-                }
-                view.check_borrowed_local(&self.client, budget)?;
-                borrowed.ensure_live()?;
-                return Ok(true);
+        if let Some(borrowed) = &scope.borrowed
+            && exact._installed.iter().any(|selected| std::ptr::eq(selected.as_ref(), view))
+        {
+            if !Arc::ptr_eq(&borrowed.client, &self.client) {
+                return Err(ModelError::Conflict("borrowed premise foreign client"));
             }
+            view.check_borrowed_local(&self.client, budget)?;
+            borrowed.ensure_live()?;
+            return Ok(true);
         }
         Ok(false)
     }
