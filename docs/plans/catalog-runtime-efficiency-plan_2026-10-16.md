@@ -399,8 +399,16 @@ consumed checkpoint fragment, restored by `0b5e1973`; exact docs rerun
 `20261017T013429.454Z-a177a8` **passed**. Native follow-up controls
 `20261017T013121.932Z-5e6618` **failed during compilation**, no tests ran: two scalar boolean
 observations used an unsupported SDK result type. `5e6ce1d6` preserves exact true/false assertions
-while taking native `Value` results; affected rerun is pending. Full keep-going workspace check
-`20261017T013311.050Z-c10f51` observed the same pre-correction errors and continues independently.
+while taking native `Value` results. Corrected actual native rerun
+`20261017T013728.517Z-b2c374` **passed**9 cases with enclosing fixture and host cleanup confirmed:
+complete cleanup cuts/nomination/rollback, first declaration mint at full-pool pressure with fresh
+receiving selection, checked live-pin context/closing, genuine independent receiving, preserved blob
+observations and interrupted close. Full keep-going workspace check
+`20261017T013311.050Z-c10f51` **failed** only on the two pre-correction test errors. Corrected full
+workspace/all-target check `20261017T013844.714Z-6714a5` **passed**, no emitted warnings and host
+cleanup confirmed. Strict full keep-going Clippy `20261017T014217.304Z-8e0fab` is running. Actual
+normalized-frontier, provider Resource-negative and compiler scope/borrower controls
+`20261017T014030.401Z-a8ba5a` are building; actual overflow/zero-charge closure remains pending.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 The earlier service observation of23 protected attachments was separately settled by authenticated
