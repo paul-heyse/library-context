@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: assembled target review
 
-**Accept scoped, Interface-checked, 2026-10-16; latest bounded source reassessment `a9a6db1a` / `cf9b97ef`, with control correction `967cf1eb` (2026-10-17 UTC).** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; §13 accepts the mechanical facts-future ownership refinement at source strength. Sections 14–15 assess terminal reference settlement, cleanup/pin bulk lowering and the stopped-release control at source strength. Functional acceptance and native concurrency closure remain pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Accept scoped, Interface-checked, 2026-10-16; latest bounded source reassessment `9d50080d`, with control correction `7e729ba9` (2026-10-17 UTC).** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; §13 accepts the mechanical facts-future ownership refinement at source strength. Sections 14–16 assess terminal reference settlement, cleanup/pin bulk lowering, the stopped-release control and immutable incidence bulk writes at source strength. Functional acceptance and native concurrency closure remain pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
@@ -530,3 +530,58 @@ result is inferred for its subsequent checks. Builds, tests and services were **
 reviewer**. Normal-concurrency reruns and the existing cut/compaction/collision/finality expectations
 remain necessary; these source refinements do not establish remedy sufficiency for historical
 failures or enclosing functional qualification. Additional rule impacts: none.
+
+## 16. Immutable incidence bulk-write reassessment: `9d50080d` / `7e729ba9`
+
+**Accept scoped, Interface-checked, 2026-10-17 UTC.** Independent comparison of `9d50080d` with its
+parent covers the `native_immutable_install` refinement and new immutable-incidence controls.
+The separately inspected test-helper correction is `7e729ba9`, with baseline assertion `ae59c3cb`.
+No remaining material correctness finding was found in this RN02 refinement; earlier judgments
+retain their named source boundaries.
+
+The changed-address classification remains exact: equal rows and already-owned equal holds do not
+enter the distinct actual-changed target set; a new holder still changes both endpoints. Full
+declared-target admission precedes classification, preserving equal foreign-attempt refusal.
+Admitted attempt targets retain their wrapper participation and omission from ordinary incidence;
+context-free attempt endpoints still receive complete cuts. Ordinary predicates retain identical
+`native_predicate:[$record]` IDs, scalar locked reads, MAX refusal and absent-to-one/existing-row
+increment semantics ([schema.surql](../../../crates/lctx-native/src/control/schema.surql),
+lines 237–251 at `9d50080d`).
+
+Physical guards retain the first deferred entry and the original phase-or-not-newly-changed
+qualification. Guard IDs are not deduplicated; accepted host expectation preparation rejects
+different records sharing a physical guard. Scalar guard locks and the same missing/active-phase/MAX
+checks precede the exact-ID bulk UPDATE. First creation remains excluded from an extra increment;
+new incidence on an existing endpoint retains its increment and retirement-conflict address.
+Later parent/full-byte collision refusal still aborts bulk writes and wrapper participation in
+the same transaction (`schema.surql`, lines 252–299;
+[coordination.rs](../../../crates/lctx-native/src/control/coordination.rs), lines 304–324, 427–467).
+
+Construction/preparation charges and complete wire preflight are unchanged. New predicate/guard
+arrays retain native scratch proportional to changed targets and qualifying guards from the full
+admitted expanded packet. This is **not a 128-hold bound**: one input unit can expand into multiple
+holds and endpoint witnesses. Packet admission does not measure native peak memory. Scalar reads
+followed by two bulk writes are source-visible; no speed, capacity or timeout-remedy claim follows
+([immutable_window.rs](../../../crates/lctx-native/src/control/immutable_window.rs),
+lines 275–307, 355–424).
+
+The new controls challenge shared row/hold incidence, equal replay, new-holder increments,
+unchanged admitted-owner physical guards and full context-free cuts. MAX injection happens after
+the actual wrapper's checks within the same transaction, exposing body predicate/guard checks;
+late full-byte collision and exact snapshots challenge rollback of rows, holds, predicate/physical
+revisions and attempt participation. Existing foreign-equal and active-absent controls remain
+relevant. The new `incidence_snapshot` helper initially inferred unsupported SDK `take<Object>`;
+source review identified it, and `7e729ba9` replaces that read with `take<Value>` plus strict
+`Value::Object`/schema refusal, preserving all assertions
+([immutable_incidence_controls.rs](../../../crates/lctx-native/src/control/immutable_incidence_controls.rs),
+lines 154–254 at `7e729ba9`). The inspected one-assertion `ae59c3cb` additionally requires initial
+physical revision 1: the unchanged wrapper creates a vacant guard at revision 1 and the old/new
+qualification excludes that newly changed target from a second increment. This is an independent
+original-contract oracle, not an expected value derived from bulk execution. These test-only
+refinements establish no successful build/test result or additional production change.
+
+**Runtime acceptance and native concurrency closure remain pending with the coordinator.** The
+expanded-packet, retirement-race and normal-concurrency cases are not qualified by these small
+source-inspected controls. Builds, tests, services and database queries were **not_run by this
+reviewer**; asset regeneration, target replacement and actual run outcomes remain coordinator-owned.
+Additional rule impacts: none. No new finding ID or enclosing qualification is introduced.
