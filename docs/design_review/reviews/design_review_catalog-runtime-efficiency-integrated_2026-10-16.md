@@ -426,3 +426,49 @@ Whether this resolves the downstream codegen-only recursion-depth failures requi
 rebuild and functional rerun. Ongoing extraction against preceding binaries cannot qualify this
 revision. Codegen/runtime acceptance remains pending with the coordinator; builds, tests and
 service operations were **not_run by this reviewer**. No performance benefit is Measured.
+
+## 14. Terminal recovery-reference settlement reassessment: `53fb831a`
+
+**Accept scoped, Interface-checked, 2026-10-17 UTC.** Independent read-only comparison with
+`53fb831a^` covers `control/coordination.rs`, `control/authorization.rs` and
+`control/authorization/recovery_controls.rs`, following their recovery/history consumers and
+ADR-0178. No material correctness regression was found in this bounded change. Earlier judgments
+retain their named baselines. Subsequent cleanup/pin bulk lowering is outside this assessment.
+
+The preceding installation `ERA_GUARD` literal is byte-identical to the new shared check literal
+plus its original stripe revision update. Only `ReleaseRecovery` omits that update;
+`RetainCaller`, ordinary apply, reconciliation and complete cuts retain their previous writes.
+Marker/schema/generation/era/closed-through/admission correspondence, locked stripe reads and
+exhaustion refusal remain shared. Settlement still writes the exact effect/reference predicates
+and checks the original terminal outcome and committed owner context before deleting its exact
+recovery reference ([coordination.rs](../../../crates/lctx-native/src/control/coordination.rs),
+lines 57–65; [authorization.rs](../../../crates/lctx-native/src/control/authorization.rs),
+lines 1180–1212). Removing protection cannot introduce another borrower or payload; release-first
+therefore does not invalidate a cut's drain proof. Actual cut-race behavior still needs native
+evidence. Exact effect predicate writes retain history-collection exclusion.
+
+Durable terminal knowledge still precedes release, and pending metadata clears only after checked
+settlement. Failed release retains its actual recipient and Outstanding/Unknown completion.
+Cancellation still stops subsequent issuance while awaiting an already submitted terminal.
+Closed-era settlement retains current stripe authority and original outcome-era correspondence;
+`CompactedTerminal` retains the separate permanent-cut/generation/absent-witness proof
+(`authorization.rs`, lines 926–1084, 1121–1146). This change does not rewrite original outcomes or
+relax session/source finality.
+
+The new native control shares production settlement lowering and observes its stripe delta inside
+the transaction. It checks release delta 0, retention delta 1, foreign-owner/generation refusal,
+exact metadata replay and unchanged outcome revision. Error/panic cleanup resumes pending recovery,
+releases caller retention and requires owned-session drainage. No probe schema, function or synthetic
+persistent authority is added; ordinary resolved effect/owner/predicate history remains, so this is
+not a zero-persistence control. Wrong-reference mutation refuses during envelope validation rather
+than testing corrupted native reference content. Repetition after a checked commit demonstrates
+idempotency, not actual settlement-acknowledgement loss
+([recovery_controls.rs](../../../crates/lctx-native/src/control/authorization/recovery_controls.rs),
+lines 285–385).
+
+**Runtime and concurrency closure remain pending.** The coordinator must run the new control,
+retain lost-apply-acknowledgement/stopped-release and compaction/cross-owner expectations, exercise
+release versus installation cut in both orders and closed-era/history overlap, and rerun the failing
+native concurrency controls at normal concurrency. Removing this write does not establish remedy
+sufficiency for the observed failures. Builds, tests and services were **not_run by this reviewer**;
+no measured benefit or enclosing functional acceptance follows. Additional rule impacts: none.
