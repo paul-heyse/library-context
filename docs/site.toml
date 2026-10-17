@@ -12,7 +12,7 @@ lychee = "0.24.2"
 
 [publication]
 entrypoints = ["README.md", "docs/README.md", "docs/design/README.md", "STATUS.md", "AGENTS.md", "docs/publishing.md"]
-current_work = ["docs/plans/catalog-runtime-efficiency-plan_2026-10-16.md", "docs/plans/catalog-runtime-efficiency-native-plan_2026-10-16.md", "docs/plans/catalog-runtime-efficiency-compiler-plan_2026-10-16.md", "docs/plans/catalog-runtime-efficiency-analysis-plan_2026-10-16.md", "docs/plans/catalog-runtime-efficiency-completion-plan_2026-10-16.md", "docs/plans/graph-native-pivot-plan_2026-10-05.md", "docs/plans/graph-native-model-compiler-plan_2026-10-05.md", "docs/plans/graph-native-surrealdb-realization-plan_2026-10-05.md", "docs/plans/graph-native-serving-plan_2026-10-05.md", "docs/plans/graph-native-projections-plan_2026-10-05.md", "docs/plans/behavioral-model-forward-plan_2026-09-24.md"]
+current_work = ["docs/plans/catalog-collection-efficiency-plan_2026-10-17.md", "docs/plans/catalog-collection-efficiency-analyzers-plan_2026-10-17.md", "docs/plans/catalog-collection-efficiency-flow-plan_2026-10-17.md", "docs/plans/catalog-collection-efficiency-runtime-plan_2026-10-17.md", "docs/plans/graph-native-pivot-plan_2026-10-05.md", "docs/plans/graph-native-model-compiler-plan_2026-10-05.md", "docs/plans/graph-native-surrealdb-realization-plan_2026-10-05.md", "docs/plans/graph-native-serving-plan_2026-10-05.md", "docs/plans/graph-native-projections-plan_2026-10-05.md", "docs/plans/behavioral-model-forward-plan_2026-09-24.md"]
 exclude = ["docs/external-review-postgresl-options.md", "docs/external-review-pathway-working-product.md", "docs/external-review-fully-semantic-graph-data-model.md"]
 assets = []
 

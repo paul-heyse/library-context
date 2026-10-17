@@ -1,9 +1,10 @@
 # Catalog collection efficiency: combined design and implementation plan
 
-**Approved target; selected implementation delivered, 2026-10-17.** This coordinator captures the
+**Functional implementation delivered; focused integrated review accepted, 2026-10-17.** This coordinator captures the
 [Python fact-collection review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md)
 and entirely supersedes execution/disposition ownership of the five 2026-10-16 Catalog runtime
-efficiency plans. Current implementation and focused evidence are recorded in §6; the enclosing plan remains open.
+efficiency plans. Current implementation and focused evidence are recorded in §6. Upper-consumer
+evidence and full validation remain open; this is not whole-plan qualification.
 
 ## 1. Outcome, scope and reading route
 
@@ -60,8 +61,9 @@ requirement downgrade as the default performance fix.
 | Delivered runtime demand, joined producers, atomic effects and protected premises | Keep implemented contracts. Assess only residual source leads and changed interactions; no new scheduler, permanent cache or backend |
 | Shared Base preparation, exact Summary factoring and snapshot-local backup preparation | Retain implemented/source-accepted improvements and focused evidence; wider consumer acceptance is still pending |
 
-The review's F01–F06 are demonstrated execution defects at Implemented / Interface-checked strength;
-their corrections remain Proposed. A1–A3 and examined fidelity/visibility strengths are preservation
+At authoring, the review's F01–F06 were demonstrated execution defects at Implemented / Interface-checked
+strength and their corrections were Proposed. Subsequent delivery and evidence are owned by §6.
+A1–A3 and examined fidelity/visibility strengths are preservation
 constraints. F06 is an existing resource-admission MUST gap, not evidence of false facts or a
 demonstrated partial commit. No whole-compiler acceptance follows from the review's scoped gates.
 Its [library comparison](../design_review/evidence/2026-10-17_python-fact-collection-efficiency/library-comparison.md)
@@ -170,10 +172,71 @@ includes all consumers, error paths and removal of replaced code, not an isolate
 
 ## 6. Sole disposition and current checkpoint
 
-**Current,2026-10-17: NI00–NI03 complete / focused-Tested; scope-end hygiene passed.**
+**Current,2026-10-17: PC90 source review/repairs and selected changed-route controls complete;
+PC99 handoff delivered; upper-consumer evidence incomplete, full validation pending.**
+Execution started from main `582f5d029bf959095074c60b99f7d6c11f30e98a`. The fresh independent
+[integrated review](../design_review/reviews/design_review_catalog-collection-efficiency-integrated_2026-10-17.md)
+identified IC:F01–F03, independently inspected their corrections and accepted the selected actual
+refusal/finality evidence. No new rule impact, dependency version,
+native schema/codebook or published-column change is selected by these corrections.
+
+| Integrated finding | Responsible owner / current disposition | Correction and closure boundary |
+|---|---|---|
+| [IC:F01](../design_review/reviews/design_review_catalog-collection-efficiency-integrated_2026-10-17.md#F01) | Analyzer diagnostic path; closed for bounded correction / focused-Tested | Existing cancellation check before preparation and before/after each complete Noqa channel; original operational cause and indivisible-pass limitation retained. Two revealing controls passed |
+| [IC:F02](../design_review/reviews/design_review_catalog-collection-efficiency-integrated_2026-10-17.md#F02) | Native interner/capture/call lowering; closed for bounded correction / focused-Tested | Admitted live module/key first/unique views under sole insertion owner, immutable consumer inventory, local first-retained callsite view. Five local controls passed, including actual native Pyrefly reference-only/full-base parity; no database qualification claim |
+| [IC:F03](../design_review/reviews/design_review_catalog-collection-efficiency-integrated_2026-10-17.md#F03) | Native call/ingress executor ownership; closed for selected route / focused-Tested | Both retained task routes use existing store creation executor, preserving joins/leases/recovery/Unknown. Two controls destroy submitting runtime before acknowledgement/release; actual Resource refusal reached unchanged cause/visibility/cleanup/zero-reservation assertions in2bda8e |
+
+The selected analysis/retrieval fixtures now call `Fixture::complete` after caught assertion outcomes,
+retaining the original panic and explicit native drainage. Each Catalog/Behavioral capture and analysis
+profile is independently selectable with the same fixture/settings/assertions/deadline; no combined
+test is also run. This corrects test grain without claiming a timing cause or increasing allowances.
+
+| Outcome | PC90 command / managed run | Actual boundary |
+|---|---|---|
+| passed | `cargo nextest run --release -p cpg-extract --test ruff_context --no-fail-fast`, two exact diagnostic controls; `20261017T080437.747Z-5725c4` | Boundary cancellation/error/release and preserved two-channel parity |
+| passed | `cargo nextest run --release -p cpg-extract --lib --no-fail-fast`, native-key/callsite/full-base capture selection; `20261017T080922.477Z-9cb259` | Five DB-free local controls, actual linked Pyrefly for capture parity |
+| passed | `cargo nextest run --release -p lctx-compiler-store --lib --no-fail-fast`, two cross-runtime controls; `20261017T080922.894Z-3fd8bc` | Actual submitted task/ingress joins survive destruction of submitting executor; empty batch, no database persistence claim |
+| failed | Stable fixture, `cargo nextest run --release -p cpg-extract --test extraction_syntax --test extraction_types --no-fail-fast`, initial six-case selection; `20261017T080121.505Z-d50c9d` | Exit100:4passed, Resource cleanup assertion failed, combined captures timed out360s. Actual diagnostics, Catalog/Behavioral context and qualified narrowed flow passed; failure exposed IC:F03 |
+| failed | Stable fixture, `cargo nextest run --release -p cpg-core --test compiler_analysis --no-fail-fast`, initial analysis/retrieval pair; `20261017T080121.729Z-4755a9` | Both timed out360s during compilation before intended assertions; no analysis/retrieval acceptance |
+| passed | Stable fixture, `cargo nextest run --release -p cpg-extract --test extraction_types --no-fail-fast`, four exact flow/context controls; `20261017T081134.928Z-2bda8e` | Repaired actual Resource/finality route, narrowed qualified runtime flow, Catalog selection and Behavioral dependency/MRO context; four passed |
+| passed | Stable fixture, `cargo nextest run --release -p cpg-extract --test extraction_syntax --no-fail-fast`, diagnostics and independent profile captures; `20261017T081149.787Z-03bc7b` | Three actual native controls passed with original assertions/unchanged360s per-case deadline |
+| failed | Stable fixture, `cargo nextest run --release -p cpg-core --test compiler_analysis --no-fail-fast`, independent Catalog/Behavioral Analysis and retrieval controls; `20261017T081150.024Z-50e4b4` | Exit100:3timeouts360s, all during `catalog_runtime::compile` before intended assertions. No upper-consumer acceptance. Original cancellation/recovery/Unknown diagnostics remain; elapsed timeout alone establishes no cause |
+| passed | `cargo check --release --workspace --all-targets --keep-going`; `20261017T081158.018Z-08d9e1` | Full compile of final production and independently selectable test source |
+| passed | `just clippy`; `20261017T081158.017Z-9840b4` | Full release workspace/all-target keep-going, warnings denied, entirely clear |
+| passed | `just ruff`, `just types`; `20261017T081158.018Z-afe7be`, `20261017T081158.019Z-effa7f` | Entire Python lint/warnings-inclusive Pyrefly |
+| passed | `just docs-check`, `just adr-lint`; `20261017T082042.818Z-6422a7`, `20261017T082042.816Z-b4ad19` | 488 canonical pages/zero link errors;111 ADR records. Documentation checks do not qualify product behavior |
+
+All completed PC90 runs above have confirmed host cleanup. Native finality remains a separate outcome.
+Initial failed runs retain attachments `a89faeb5-df14-4b03-9891-3719063ef156` and
+`3c9784f8-2b7e-4689-9520-bf0db3de08a2`, original Unknown and unresolved cleanup. Final upper run also retains
+`6900d42a-7d20-41e8-b1ed-51a933639d06` with native Unknown/unresolved cleanup. They are protected;
+new passing logical attempts do not release or relabel them. Initial capture evidence is held for
+`citation:catalog-collection-efficiency` in objects `bccf0a08-6b55-4682-83b9-7c2641ea99db`,
+`b6826813-4c9e-4d86-98c2-463633a2fda7`, `41ab77b5-4086-47f2-973a-ae9c4672330f` and
+`5d9f4b60-9473-42de-b4b1-fe1b43945f3f`. No target regeneration, service maintenance, campaign,
+operator adoption or old-owner release occurred in PC90.
+Final native capture holds additionally retain objects `439f1b16-df9b-4b21-b82a-8dc028ba130d`,
+`77cf01ef-aaa0-4a4f-9590-0c11d03170ff`, `5d545fb3-6c01-42d2-a4ed-6400f7ff245f`,
+`ff52b5a1-1ee6-4eda-b6f2-eb9b5850eaea`, `611e1dae-4aeb-4009-b7b2-4bcc4ecdc904` and
+`f69e3acb-8782-4e6e-b93e-1002476de5dc` for the same citation consumer. Local control logs/receipts
+use their existing managed-run storage owners and named citation holds; no parallel evidence folder.
+
+The independent review accepts the bounded corrected design, not the timed-out upper assertions.
+PC99 updates architecture, companions, publication current-work selection and STATUS, retaining four
+current collection documents and five consumed reference-only runtime documents. No auxiliary worktree
+was created; all edits integrate directly on main. Accepted ADR bodies remain unchanged. All source
+P/R/IR/E dispositions and paused-track obligations remain owned here or by their named paused owners.
+Before later upper validation, inspect exact request/phase and native owner evidence for50e4b4,
+settle only evidenced ownership through existing authorized routes, then select revealing current-source
+Analysis/Catalog controls. Do not infer a payload collision, increase deadlines, suppress assertions,
+reset the shared target or retag Unknown to turn this checkpoint into acceptance.
+
+### NI00–NI03 delivered checkpoint,2026-10-17
+
+**NI00–NI03 complete / focused-Tested; scope-end hygiene passed.**
 Execution baseline is main `fcf123f155ca3687f5356dfb02bcbe4bbe428b09`; native and ingress changes
 are integrated in the shared tree, with no auxiliary worktrees. [ADR-0184](../adr/0184-exact-immutable-preparation-and-ingress-reuse.md)
-records the selected physical routes. PC90/PC99 and full validation remain later scope.
+records the selected physical routes. The current PC90/PC99 checkpoint is above; full validation remains later scope.
 
 | Package | Selected decision / current evidence boundary |
 |---|---|
@@ -189,8 +252,8 @@ compacts in the original Vec backing and uses an explicit admitted path for cove
 the reviewer rechecked the fix and found no remaining material issue in this change.
 This is Interface-checked source, not native acceptance. Generated control assets now match the native authority; the schema identity
 changes despite unchanged published columns/codebooks. No speed or RSS improvement is measured.
-Scope-end full compile, strict keep-going Clippy and applicable leaves passed. PC90/PC99
-and deferred full Catalog/selected-complete/assembled acceptance remain open.
+At the NI checkpoint, scope-end full compile, strict keep-going Clippy and applicable leaves passed.
+The later PC90/PC99 outcomes are above; full Catalog/selected-complete/assembled acceptance remains open.
 
 | Outcome | Command / exact run | Scope |
 |---|---|---|
@@ -211,7 +274,7 @@ and deferred full Catalog/selected-complete/assembled acceptance remain open.
 | passed | `just deps`; `20261017T073551.437Z-bf7a8c` | Exact dependency/fork family policy, bans/sources, no unused direct dependencies and Hakari consistency |
 | passed | `just docs-check`, `just adr-lint`; `20261017T073922.442Z-551b23`, `20261017T073922.630Z-ca24e0` | 487 canonical pages/zero link errors;111 ADR records and governed owner references |
 | passed | `just turn-end`; `20261017T073909.439Z-e13b60` | Scope-end ADR index/Hakari/formatting; final compile and strict Clippy follow this source |
-| not_run | Full Catalog, selected-complete, old provider timeout matrix, assembled qualification, embedding/submitted MCP runtime, real-library/operator adoption | Outside this NI00–NI03 slice; remaining PC90/PC99 and §7 boundaries are unchanged |
+| not_run | Full Catalog, selected-complete, old provider timeout matrix, assembled qualification, embedding/submitted MCP runtime, real-library/operator adoption | Outside the NI00–NI03 slice; later PC90/PC99 evidence is above and §7 wider boundaries persist |
 
 Campaign install `20261017T071329.110Z-296b2a` passed; its configuration owner is
 `/home/paul/.local/state/library-context/ni00-ni03-20261017/installation.json`. The final default
@@ -424,7 +487,7 @@ their wider evidence belongs to §7's later validation scope.
 and released both attachments at07:31:48UTC. Original not_observed/Unknown remain unchanged.
 The dated observations below are historical and do not prohibit borrowing the checked successor.
 
-**Current selected-run addition, 2026-10-17:** read-only service observation before the focused
+**Historical selected-run addition, 2026-10-17:** read-only service observation before the focused
 native command found the installed default ready with maintenance off and the same installation,
 project generation and server below. Fresh ordinary logical attempt
 `d3666ab1-9574-4ec2-883c-4911a5b137bd` ran on that target; no installation, regeneration,
@@ -503,6 +566,16 @@ source and select evidence deliberately; this table does not authorize a campaig
 | Rust lexical/serving | Selected-corpus access/scoring, corruption and cold reconstruction; embedding/submitted MCP exclusions remain |
 | Development | Cancellation/discovery, complete safety inventory, source observations and channel loss |
 | Assembled and full Catalog | Final integrated acceptance/shared-contract obligations and any separately authorized real-library run, planned after implementation |
+
+Before resuming paused tracks, reconcile their assumptions with the delivered source; this is
+handoff scope, not authorization to restart those tracks:
+
+| Paused owner | Required reconciliation on resumption |
+|---|---|
+| [Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint) | Admission-alias native assertion; recursive/mutation/cancellation evidence and compact/linked composition against demand-shaped acquisition and shared preparation; analyzer/epoch controls and FastMCP V03–V05 remain outstanding |
+| [Persisted execution §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) / SA9 | Interrupted genuine A/B backup/restore, serving epochs, original SA-F02 interruption gap and current-source assembled acceptance remain independent; collection controls do not close them |
+| [Older efficiency §4](efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint) | Replace eager/singleton/per-window-assurance/ordinary-intent assumptions with ADR-0178–0184 before selecting current controls; numerical/retirement, ANN/history, default-profile and X01/X02 scope stays separate |
+| Storage/build/installer owners | BC3, SM8 and unrelated installer executable-observation/recovery obligations remain with their existing owners; no cache purge, adoption or automation activation follows from this phase |
 
 User2026-10-17 deferred this timing; required shared model/receipt/trust/transport acceptance remains
 an explicit later obligation. Finishing this phase means **functional implementation complete with

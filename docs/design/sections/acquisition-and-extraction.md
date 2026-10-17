@@ -362,12 +362,22 @@ an indivisible upstream call. String-annotation nodes retain their distinct orig
 **Implemented / focused-Tested, 2026-10-17:** an admitted prepared view shares native
 Locator, Stylist and Indexer between the contextual observer and both diagnostic computations.
 The observer keeps its empty-rule configuration and stopping statistics; Noqa-enabled and disabled
-diagnostics remain separate complete computations. Preparation ends after contextual collection.
+diagnostics remain separate complete computations. The existing provider cancellation owner is
+checked before preparation and before/after each diagnostic channel; refusal prevents the next
+channel and returns no partial diagnostic success. Each native diagnostic traversal, like the
+initial parser call, remains indivisible and must drain before cancellation can return.
+Preparation ends after contextual collection.
 The immutable fork and aggregate patch are attributed through [pins](../../pins.md). Declarations,
 parameters, formal links and calls move into one charged retained inventory for calls/types; other
 syntax ends with emission. Canonical and flow adapters share one exhaustive latest-family kind
 mapping. Embedded Pyrefly Ruff remains nominally separate. Original-token flow renaming retains its
 recovery-aware parse because canonical tokens end in the preceding provider phase.
+
+**Implemented / focused-Tested,2026-10-17 (IC:F02):** native symbol candidates are a charged derived index maintained by the session's sole interner,
+including reference-only symbols. Capture lowering requires one exact candidate; call owners retain
+the first candidate in native identity order. Reinsertion, payload collision and ambiguity remain
+distinct. Each call lowering also prepares a borrowed first-retained canonical site lookup; absent
+syntax retains the native site fallback. Neither lookup changes full capture-base eligibility.
 
 > Decision: ADR-0183
 

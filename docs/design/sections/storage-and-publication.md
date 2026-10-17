@@ -337,15 +337,17 @@ Same-era resume retains authority; post-cut maintenance successors reconcile pre
 only durable remaining scope, preserving original cutoffs and completed pages. Indexed live-state
 observation precedes drained-maintenance history collection. Referenced attempts, unresolved work,
 necessary outcomes, guards and watermarks remain protected; age or a resolved flag is insufficient.
-**Accepted target, Proposed implementation2026-10-11:** ordinary effects use64 versioned write
+**Accepted installation-era target,2026-10-11; current implementation/acceptance belongs to the
+[paused efficiency owner](../../plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint):** ordinary effects use64 versioned write
 stripes and exact owner/object/history-target/lineage guards. Admission and era transitions write
 all stripes atomically; a dedicated gate retains global cold-backup coordination. Installation
 operation owners use UUID identity/local epochs, while actual ordinal consumers retain monotone
 allocation. Exact incarnation/phase and predecessor tombstone revision replace cross-owner scalar
 authorization together in a closed, actually drained native-format transition. All hold, outcome,
 contribution/binding/cleanup and successor incidence partners write the collector's exact predicate
-guard. Current global coordination remains until the complete migration and race controls pass;
-finite engine conflict evidence does not establish protocol acceptance.
+guard. This installation-era contract is distinct from the implemented attempt-level stripes below.
+Collection-phase controls and finite engine conflict evidence do not establish the older track's
+remaining migration and race acceptance; its current disposition stays with that owner.
 
 **Implemented / integrated functional acceptance pending, 2026-10-16 (ADR-0178).** Each attempt owns a
 complete versioned64-stripe admission domain, distinct from installation-era admission. Ordinary
@@ -366,7 +368,14 @@ Invocation-local writers reuse original owner issuance while checking each windo
 and current eligibility. Receiving and preserving reads carry complete operation-held protection
 under controlled writes; independent semantic admission remains strict. Privileged direct edits
 require quiescence and rebuilding affected state. Native prerequisite controls passed before route
-replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
+replacement; the [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns production-route and enclosing functional acceptance.
+
+**Implemented / focused-Tested,2026-10-17 (IC:F03); wider integrated acceptance pending:**
+registered native calls and accepted ingress drivers execute on the store owner's captured runtime,
+as retained native readers already do. The submitting provider bridge may cancel admission and
+drain its request tasks independently; ending that bridge cannot destroy accepted descendant work.
+Existing call joins, ingress acknowledgements and mutation leases still govern finality. A runtime
+handle is not an owning runtime: the actual store executor must stay alive through its complete drain.
 
 **Implemented / focused-Tested,2026-10-17 (ADR-0184); integrated acceptance pending.** Ordinary attempt
 `FOR UPDATE` reads remain necessary optimistic commit-time protection on the pinned RocksDB
@@ -392,7 +401,7 @@ invalidates the stale locked read. History collection retains the exact effect-p
 `RetainCaller` can establish retention and therefore keeps its stripe write, as do ordinary apply,
 reconciliation, cleanup and real lifecycle cuts. Failed or unknown release retains its actual
 pending recipient until checked settlement. Generation replacement still requires authenticated
-client/executor quiescence. The runtime coordinator owns the revealing native control and enclosing
+client/executor quiescence. The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the revealing native control and enclosing
 acceptance; no ordinary-success deferral or settlement grouping is selected.
 
 **Implemented / Interface-checked, functional acceptance pending, 2026-10-16.** A native audit pin protects an
@@ -402,7 +411,7 @@ audit pin. Preserving scopes reuse that checked context through the same actual 
 pool and open source; closing rejects reuse before remote release acknowledges. Constructor capture,
 local leases and allocation identity alone supply no authority. Fresh view-specific and independent
 semantic admission checks remain strict; receiving still earns its final native CAS. Arbitrary live
-administrative edits require quiescence/rebuild. The runtime coordinator owns actual acceptance; no measured speed claim follows from this target.
+administrative edits require quiescence/rebuild. The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns actual acceptance; no measured speed claim follows from this target.
 
 > Decision: ADR-0181, ADR-0178
 
@@ -726,7 +735,7 @@ in the same transaction. Pin release preserves its released fence and actual sel
 set. Native scratch grows with the existing bounded page; no host cache, larger allowance or page
 limit change is introduced. Existing wire preflight remains, without a native peak-memory claim.
 Late failures must roll back predicates, complete cuts, nominations and deletion together. The
-runtime coordinator owns current source and actual rollback/overlap/enclosing acceptance evidence.
+[collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns current source and actual rollback/overlap/enclosing acceptance evidence.
 
 **Implemented / focused-Tested, integrated acceptance pending, 2026-10-17 UTC:** immutable install
 uses the same scalar-lock/bulk-write pattern for actual changed predicates and qualifying physical
@@ -734,7 +743,7 @@ guards. Equal replay still requires declared-target admission; new-holder incide
 retirement. Context-free attempt endpoints retain complete cuts. First guard creation, deferred
 qualification, full-byte collision and parent checks retain their meaning; late failure rolls back
 all rows, holds, revisions and participation. Expanded windows are bounded by complete prepared
-packet admission, not a presumed 128-hold limit. The runtime coordinator owns the exact target and
+packet admission, not a presumed 128-hold limit. The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the exact target and
 14-control evidence; native peak memory and enclosing concurrency acceptance remain unqualified.
 
 **Implemented / functional verification in progress, 2026-10-16:** explicit project regeneration

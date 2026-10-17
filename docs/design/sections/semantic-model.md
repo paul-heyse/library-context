@@ -126,7 +126,7 @@ runtime shutdown destroys the task before its first poll.
 Tracing, retry admission and exact native recovery scope are rebound inside each task. ProducingScope
 remains attached to actual ports rather than the stage that must close those ports. Current-thread
 correctness does not promise CPU overlap. Earlier unspawned composition receipts remain historical;
-current-source compile/functional and enclosing acceptance belong to the runtime coordinator.
+current-source compile/functional and enclosing acceptance belong to the [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
 
 **Collection refinement implemented / focused-Tested,2026-10-17; native acceptance incomplete.** Exact canonical input can prepare both the
 existing model attacher and a charged adapter row view through one guarded declared read.
@@ -630,7 +630,7 @@ Prepare all read partitions before mutable production; each read root mutates on
 order. Physical roots keep full literals, expressions retain Virtual/opaque rules, and unchanged
 class support may share across distinct field names. Native emission and partially produced roots
 remain terminal. Existing finite kernels, Summary meanings and analytical products are unchanged.
-The [runtime coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 owns functional/native acceptance; no performance gain is measured.
 
 > Decision: ADR-0180

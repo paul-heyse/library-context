@@ -6,7 +6,7 @@ current disposition and execution state. This document develops **TF00–TF03**,
 review **P:F02, P:F03, P:F05, P:F06 and P:I04**. `P` means the
 [Python fact-collection target review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md),
 not the runtime review's similarly numbered findings. Package descriptions below are requirements,
-not a second status ledger. TF00–TF03 execution is authorized; coordinator §6 owns current evidence.
+not a second status ledger. TF00–TF03 are implemented / focused-Tested, 2026-10-17; coordinator §6 owns current evidence.
 Actual evidence and operation limits are recorded by the coordinator.
 
 ## 1. Scope and assessed foundations
@@ -149,6 +149,9 @@ usable partial result. The upstream observer's `StopReason::Cancelled` is the st
 the provider owner decides attempt failure. Existing observational row/work limits and unsupported
 syntax continue to expose their contextual incompleteness. Requested diagnostics retain their
 own completeness and two suppression channels; this package does not fuse the Checker runs.
+PC90's IC:F01 correction checks the same operation owner before preparation and before/after
+each diagnostic channel, so cancellation cannot start the next abandoned traversal. A single
+native diagnostic traversal remains indivisible; cancellation never returns partial successful diagnostics.
 
 `cpg-flow::visit_modules` receives the same operation check, attempt budget and a native-token
 registration closure. It owns `FlowDb`, obtains `salsa::Database::cancellation_token()` for the
@@ -374,7 +377,8 @@ consumers and remove redundant copies/preparation. No benchmark campaign is a co
 
 ## 7. Verification, rule changes and handoff
 
-All implementation controls below are **planned / not_run** by this plan author. During TF00–TF02,
+The controls below were **planned / not_run at authoring**; coordinator §6 owns subsequent
+implementation receipts and their limits. During TF00–TF02,
 compile touched crates and run narrow revealing controls, using existing release defaults until
 the current profile owner changes them. Suitable command shapes are `cargo check -p cpg-flow
 -p cpg-extract`, `cargo nextest run --release -p cpg-flow --lib settings_tests`, and selected

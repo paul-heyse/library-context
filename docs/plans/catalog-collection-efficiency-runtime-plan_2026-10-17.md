@@ -155,13 +155,14 @@ campaign through its owner. Original historical Unknowns remain unchanged; a com
 whole-target discard may acknowledge their ownership separately. No default mutation precedes
 that pre-cutover evidence, and unknown drainage still blocks destructive action.
 
-DB-free investigation and implementation can proceed while native ownership is unresolved. Before
-native effects, read the coordinator's protected checkpoint and the current existing owner/target.
-The later attachment `a5bd9a10-6a7f-437a-8245-275f9837f0f2` has no observed native completion or
-discard acknowledgement at the transferred checkpoint. Earlier target replacements or host exit
-do not settle it. Establish exact authenticated completion or use only an explicitly authorized
-recovery/discard route; otherwise report the affected native control blocked and preserve the owner.
-This plan's authoring performs none of those operations.
+**Delivered,2026-10-17:** coordinator §6 records campaign controls, exact default regeneration,
+final-target controls and authenticated campaign disposal. Attachments `a5bd9a10-6a7f-437a-8245-275f9837f0f2`
+and `d3666ab1-9574-4ec2-883c-4911a5b137bd` were separately discard-acknowledged and released;
+their original not_observed/Unknown outcomes remain unchanged. The unacknowledged attachment
+described at authoring is a historical observation, not a current borrowing prohibition.
+Before further native effects, refresh the existing owner/target and readiness. DB-free work
+remains independent; no fresh campaign or regeneration is required for PC90 merely because
+historical workloads failed. Unknown ownership still requires an evidenced recovery/discard route.
 
 Use current installed readiness and fixture owners, no operator inspection/adoption or scratch
 fallback. Do not assume the last documented generation is live. Refresh affected binaries after

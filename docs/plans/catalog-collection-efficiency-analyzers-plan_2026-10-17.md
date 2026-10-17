@@ -5,7 +5,7 @@ collection work for the [collection coordinator](catalog-collection-efficiency-p
 The coordinator's [§6](catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 is the sole owner of finding disposition and current execution state;
 this document defines packages and their completion evidence, without a second progress ledger.
-PA00–PA05 execution is authorized; the coordinator records evidence and remaining scope.
+PA00–PA05 are implemented / focused-Tested, 2026-10-17; the coordinator records evidence and remaining scope.
 Plan approval and focused controls do not qualify the whole compiler.
 
 The source is the [Python fact-collection target review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md)
@@ -65,7 +65,7 @@ source/context matching, native candidate attribution, shared validators and com
 provide guarantees that an optimization must continue to consume. They are not incidental repeated
 checks to delete merely because inputs are immutable elsewhere.
 
-| Current surface | Existing behavior and target responsibility |
+| Authoring-baseline surface | Behavior at authoring and target responsibility |
 |---|---|
 | `cpg-extract/src/pyrefly_stage.rs::session`, `run_wave` | One captured input, shared available-CPU analysis pool, ordered root extraction and selected dependency waves. Default requirement is Exports; roots/selected waves request Everything. Keep that composition unless PA04 qualifies a replacement. |
 | `pyrefly_stage.rs::definitions`, `calls`, `types` | Definitions and calls each create a resolver, answers context and captured-variable collection; types creates another compatible resolver/context. PA01 shares compatible root preparation inside the exact module transaction. |
@@ -101,7 +101,7 @@ framework now.
 
 ## 3. Preserved contracts and physical target
 
-**Proposed contract-preserving corrections.** An index is a derived physical view over an exact
+**Selected contract-preserving corrections (implemented; current evidence in coordinator §6).** An index is a derived physical view over an exact
 module/context inventory, never a new identity or semantic authority. Use borrowed row references
 or stable vector positions where suitable. Keys include all coordinates the old predicate used;
 source/context may be supplied by a validated owning scope rather than repeated in every key.
@@ -143,7 +143,8 @@ does not cover every typed/support/coverage row.
 
 ## 4. Work packages and decisions
 
-All packages are **Proposed**. Logical dependencies below identify usable capabilities, not
+The following requirements describe the delivered packages; current disposition and evidence are
+owned by coordinator §6. Logical dependencies below identify usable capabilities, not
 whole-document barriers. Most share `pyrefly_stage.rs`, so ready work still requires coordinated
 edits. PA00 and PA01 can be implemented independently; PA03 consumes PA00's indexed type views;
 PA04 consumes PA01's separated preparation and collectors. Investigations can inspect source
@@ -162,7 +163,7 @@ earlier but cannot migrate consumers against an unimplemented lifetime contract.
 
 ### PA00 — Exact correspondence and type lookup indexes
 
-**Proposed required correction.** Prepare declaration-by-name-occurrence, parameter-by-declaration
+**Selected required correction, implemented.** Prepare declaration-by-name-occurrence, parameter-by-declaration
 and ordinal, formal-by-parameter, annotation-key and Arguments-by-parent/kind views at their actual
 immutable module lifetime. Prefer native exact-key lookup where the locked API can answer the
 same availability question; otherwise prepare one borrowed key inventory. Confirm whether a native
@@ -196,7 +197,7 @@ No timing threshold or benchmark campaign is needed to establish removal of repe
 
 ### PA01 — One module-local Pysa preparation
 
-**Proposed required correction.** Establish a lexical preparation scope around root extraction:
+**Selected required correction, implemented.** Establish a lexical preparation scope around root extraction:
 borrow the installed reporter's `module_ids`, create one `PysaResolver` and `ModuleAnswersContext`,
 and collect captures once for definitions and calls. A closure or ordinary borrowed helper is
 sufficient; avoid a self-referential stored object just to hold `ModuleContext` and its resolver.
@@ -462,6 +463,7 @@ operator's explicit decision and existing ADR/owner route before dependent work.
 **Authoring evidence, 2026-10-17:** repository/fork source and current owners inspected;
 create-plan, design-review/profile, efficient-architecture guidance and matching analyzer skill
 consulted. No production implementation, compile/test/probe, service operation, formatter or
-benchmark ran in this delegated authoring scope. All implementation packages and predicted
-benefits remain Proposed. Refer to the coordinator §6 for the current checkpoint and sole
+benchmark ran in this delegated authoring scope. Packages were Proposed at that authoring checkpoint;
+later delivery and focused evidence are recorded in coordinator §6. Predicted performance benefits
+remain unmeasured. Refer to the coordinator §6 for the current checkpoint and sole
 finding disposition; this section records only this document's evidence boundary.
