@@ -1358,7 +1358,7 @@ impl PreparedEdges {
             &mut pending,
             &mut discovery_charge,
             Some((&mut adjacency, &mut adjacency_charge)),
-            DiscoveryRead { budget, cancellation, capture: capture.as_deref_mut() },
+            DiscoveryRead { budget, cancellation, capture },
         )
         .await?;
         drop(pending);
