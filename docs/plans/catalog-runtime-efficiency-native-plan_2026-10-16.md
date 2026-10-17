@@ -139,6 +139,14 @@ quiescence/rebuild rather than quietly remaining a supported live mutation route
 documentation and controls deliberately when their promised administrative-mutation scope changes.
 Foreign/imported corruption and ordinary protocol violations remain strict admission failures.
 
+**Accepted refinement, 2026-10-16 (ADR-0181):** generation and validity context can be retained
+after one successful post-pin native comparison through the actual audit pin's protected lifetime.
+Authorized invalidation requires admission cut plus drainage and refuses the live pin. Preserve
+exact client/target/pool and source admission/closing checks; constructor context alone is insufficient.
+Fresh selector and semantic earning remain independent, and receiving retains its final CAS.
+Implementation must deliberately replace raw-live-admin-tamper expectations with controlled-write,
+post-pin race and closing/release controls. No arbitrary native Resource retry or timeout change follows.
+
 ### Receiving protection
 
 A receiving operation consumes an exact source capability and complete manifest/closure. Accumulate

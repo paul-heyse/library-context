@@ -342,6 +342,25 @@ are unchanged and actual rerun is pending. Source inspection also exposed redund
 attempt cuts within cleanup registration/pages and repeated nomination/incidence object touches.
 RN02 correction and affected acceptance are open. These are demonstrated unnecessary work,
 not a claim that they alone caused every timeout; no deadline or concurrency change is selected.
+Cleanup coalescing `6040916e` is independently source-accepted: retain the required initial full
+origin cut, reuse wrapper-protected origin/lineage, and cut distinct hold targets once before
+nomination. New actual same/foreign/overlap controls remain not_run. An inspected failure's body
+reached drainage after roughly312 seconds; cleanup then crossed the360-second boundary, so a
+cleanup-only diagnosis is rejected. Its254 input-provider acquisitions included210 distinct
+views and44 exact repeats; repeats took36ms in that observation, while first acquisitions took
+about87 seconds. Existing same-view and contributor audit caches work; unnecessary fresh view
+redeclaration was separate. `37c6ebcc` retains acknowledged declaration provenance inline in
+already admitted mapping storage, with exact descriptor/mapping/context/pool checks and strict
+fresh native selection. Independent source review accepts the corrected ownership; a revealing
+first-mint/full-pool control and actual acceptance remain pending. The original separately charged
+receipt design was rejected for introducing optional working-set pressure.
+Independent design advice accepts [ADR-0181](../adr/0181-checked-audit-pin-context.md) within
+RN03/approved RC03: one successful post-pin generation/validity check can remain valid through the
+actual live audit pin. Native admission/drainage excludes supported invalidators; closing, source,
+client/target/pool and pin checks remain mandatory. Constructor capture alone is insufficient.
+Fresh selector and semantic earning and independent receiving CAS remain strict. Implementation
+is isolated in the owned `runtime-context-pin` worktree; source review, merge, affected validation,
+full current compile/Clippy and final handback remain open.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 Current service status observed23 protected attachments rather than the inherited16; all remain
