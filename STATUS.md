@@ -1,7 +1,7 @@
 # Status
 _Updated 2026-10-17 UTC under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog runtime efficiency stopped at operator-requested closeout, 2026-10-17 UTC; partial implementation from `1f8a5537`.**
-[Coordinator §6](docs/plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns runtime F01–F09 and all remaining prior efficiency scope.
+**Python fact-collection target review, 2026-10-17:** [principal review](docs/design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md) is Revise at source/Interface-checked strength: six execution findings and five qualified investigations, with same-fact preservation and latest-upstream Pyrefly comparison. Recommendations remain Proposed/unscheduled; no product builds/tests/probes or service operations ran. Existing implementation tracks and native obligations remain paused below.
+**Catalog runtime efficiency stopped at operator-requested closeout, 2026-10-17 UTC; partial implementation from `1f8a5537`.** [Coordinator §6](docs/plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns runtime F01–F09 and all remaining prior efficiency scope.
 RC01–RC05 and controlled-write mutation scope were operator-approved; safety/ADR/consumer gates remain.
 The previous five efficiency plans are superseded for execution; immutable historical citations retain their records.
 [Completion §2](docs/plans/catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations) retains inherited receipts/attachment identities; coordinator §6 records current discard acknowledgements.
