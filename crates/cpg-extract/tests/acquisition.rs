@@ -246,9 +246,14 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
                 "acquisition fixture setup attempt abandonment",
                 native.abandon().await,
             );
-            let join = completion.is_satisfied();
+            let result = lctx_model::domain::completion::complete(Err(error), completion);
+            let join = result
+                .as_ref()
+                .err()
+                .is_none_or(ModelError::permits_storage_cleanup);
             drop(native);
             drop(captured);
+            let mut completion = lctx_model::domain::completion::Completion::default();
             if join {
                 completion.step(
                     "acquisition fixture setup SDK connection completion",
@@ -256,7 +261,7 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
                 );
             }
             drop(connection);
-            return lctx_model::domain::completion::complete(Err(error), completion)
+            return lctx_model::domain::completion::complete(result, completion)
                 .map_err(|e| e.to_string());
         }
     };
@@ -293,10 +298,17 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
         "acquisition fixture attempt abandonment and session invalidation",
         native.abandon().await,
     );
-    let join = completion.is_satisfied();
+    // Operation diagnostics remain failures even when native owners conclusively
+    // finalized; only uncertainty prevents joining the SDK engine.
+    let result = lctx_model::domain::completion::complete(result, completion);
+    let join = result
+        .as_ref()
+        .err()
+        .is_none_or(ModelError::permits_storage_cleanup);
     drop(workspace);
     drop(native);
     drop(captured);
+    let mut completion = lctx_model::domain::completion::Completion::default();
     if join {
         completion.step(
             "acquisition fixture SDK connection completion",

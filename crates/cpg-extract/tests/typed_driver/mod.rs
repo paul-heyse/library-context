@@ -341,11 +341,16 @@ pub async fn run_profile_with_budget<I: Inspector>(
                 "provider fixture setup attempt abandonment",
                 native.abandon().await,
             );
-            let join = completion.is_satisfied();
+            let result = lctx_model::domain::completion::complete(Err(error), completion);
+            let join = result
+                .as_ref()
+                .err()
+                .is_none_or(ModelError::permits_storage_cleanup);
             drop(native);
             drop(captured);
             drop(providers);
             drop(inspect);
+            let mut completion = lctx_model::domain::completion::Completion::default();
             if join {
                 completion.step(
                     "provider fixture setup SDK connection completion",
@@ -353,7 +358,7 @@ pub async fn run_profile_with_budget<I: Inspector>(
                 );
             }
             drop(connection);
-            return lctx_model::domain::completion::complete(Err(error), completion);
+            return lctx_model::domain::completion::complete(result, completion);
         }
     };
     let result = async {
@@ -368,11 +373,18 @@ pub async fn run_profile_with_budget<I: Inspector>(
         "provider fixture attempt abandonment and session invalidation",
         native.abandon().await,
     );
-    let join = completion.is_satisfied();
+    // Acknowledged operation refusals still fail the caller, but do not prevent
+    // joining an SDK engine whose actual owners have conclusive finality.
+    let result = lctx_model::domain::completion::complete(result, completion);
+    let join = result
+        .as_ref()
+        .err()
+        .is_none_or(ModelError::permits_storage_cleanup);
     drop(workspace);
     drop(native);
     drop(captured);
     drop(inspect);
+    let mut completion = lctx_model::domain::completion::Completion::default();
     if join {
         completion.step(
             "provider fixture SDK connection completion",
