@@ -496,8 +496,32 @@ nomination item insertion and exact hold-ID deletion in the same transaction. No
 FOR UPDATE, page-size/thread cap, new lifecycle framework or deferred ordinary success is selected.
 The initial source count was approximately 10H record statements plus the complete origin cut for
 cleanup, and approximately 5H for pin release (H at most 128); these are lowering counts, not measured
-server times or proof of exclusive timeout attribution. Implementation and affected controls remain
-open. Full current compile/strict Clippy and native refresh will follow the stable integrated source.
+server times or proof of exclusive timeout attribution. Bulk source `a9a6db1a` is implemented and independently source-accepted: cleanup now uses shared
+scalar-lock/bulk-increment lowering with complete nomination prechecks and bulk item insertion;
+pin release shares that lowering and exact hold-ID deletion. New arrays remain bounded native
+scratch, not a host cache; wire admission does not measure native peak memory. Required physical
+writes and full attempt cuts remain. Source dispatch is approximately 5H for cleanup and 2H for pin
+release plus fixed bulk statements/cuts; no numerical latency or memory benefit is claimed.
+
+`cf9b97ef` extends the ordinary terminal-release control with actual stopped issuance, unchanged
+durable recipient/reference and separately signal-enrolled parent recovery. The original scope
+stays stopped and refuses new production. Earlier caller retention is released while production
+is still open; the successor only settles existing durable metadata and drains its owner.
+Initial full compile `20261017T025517.952Z-1ea6e1` and focused native
+`20261017T025517.691Z-c66542` **failed during build**, no tests executed: two test result reads
+requested unsupported SDK `Object` decoding. `967cf1eb` uses supported `Value` decoding and strictly
+requires its Object variant, preserving assertions. The failed build fixture's actual attachment
+`a39f6f76-0832-41c5-91d9-448dd322c7b3` was released by its owner; no native effect or target
+replacement is inferred. Current-source focused rerun `20261017T025811.881Z-15636d` **passed** all five native controls,
+with enclosing fixture and host cleanup confirmed. Full workspace/all-target keep-going compile
+`20261017T025812.226Z-7e9480` and strict Clippy `20261017T025941.048Z-1c2a1b` **passed**, without
+warnings/errors and with host cleanup confirmed. Independent source review accepts the bulk lowering
+and stopped-release control through `967cf1eb`. Root `just turn-end` passed at functional slice
+completion; Hakari was unchanged. Native refresh and outstanding selected-complete functional
+acceptance follow the formatted source on the unchanged successor target. The five-control pass
+does not establish that the earlier normal-concurrency failures are resolved.
+
+
 
 
 

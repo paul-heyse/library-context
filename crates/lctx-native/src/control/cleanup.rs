@@ -483,14 +483,22 @@ mod cleanup_origin_controls {
             .bind(("job",job.clone())).bind(("owner",RecordId::new("native_attempt",attempt.hex()))).await.unwrap().check().unwrap();
         (0..3).map(|index| response.take(index).unwrap()).collect()
     }
-    async fn cleanup_predicate_snapshot(client: &Surreal<Client>, bindings: &Variables) -> Vec<Object> {
+    async fn cleanup_predicate_snapshot(
+        client: &Surreal<Client>,
+        bindings: &Variables,
+    ) -> Vec<Object> {
         let mut response = client.query("LET $targets=array::distinct(array::concat(array::flatten($n09_holds.map(|$row| fn::native_incidence_targets($row))),fn::native_incidence_targets($cleanup_observed),[$owner,$n09_job],$n09_roots.map(|$root| $root.item))); LET $ids=$targets.filter(|$target| $target!=NONE).map(|$target| type::record('native_predicate',[$target])); SELECT * FROM $ids ORDER BY id")
             .bind(bindings.clone()).await.unwrap().check().unwrap();
         response.take(2).unwrap()
     }
     async fn object_predicate(client: &Surreal<Client>, target: &RecordId) -> Vec<Object> {
-        let mut response = client.query("LET $id=type::record('native_predicate',[$target]); SELECT * FROM $id")
-            .bind(("target", target.clone())).await.unwrap().check().unwrap();
+        let mut response = client
+            .query("LET $id=type::record('native_predicate',[$target]); SELECT * FROM $id")
+            .bind(("target", target.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
         response.take(1).unwrap()
     }
     async fn stripe_revisions(client: &Surreal<Client>, attempt: ContentHash) -> Vec<i64> {

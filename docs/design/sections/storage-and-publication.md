@@ -368,7 +368,7 @@ under controlled writes; independent semantic admission remains strict. Privileg
 require quiescence and rebuilding affected state. Native prerequisite controls passed before route
 replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
 
-**Implemented / native verification pending, 2026-10-17 UTC:** terminal `ReleaseRecovery` settlement
+**Implemented / focused-Tested, integrated acceptance pending, 2026-10-17 UTC:** terminal `ReleaseRecovery` settlement
 is a monotone deletion after durable exact terminal knowledge. It retains the same transactional
 installation/stripe schema, generation, era and watermark checks and exact effect/reference
 predicate writes, while omitting only the installation-stripe revision increment. A release that
@@ -702,6 +702,16 @@ they include the pin because its release fence committed in an earlier transacti
 cuts remain complete. The actual three-hold control passed with exact predicate/64-stripe deltas,
 peer preservation, EOF, SDK joining and zero reservations.
 The efficiency coordinator owns actual stripe/root-set/peer/rollback receipts and wider acceptance.
+
+**Implemented / focused-Tested, integrated acceptance pending, 2026-10-17 UTC:** cleanup and pin-release
+pages share retirement's scalar-lock/bulk-write pattern. Complete distinct attempt cuts remain
+separate; ordinary predicate rows retain exact locked reads and revision bounds before one bulk
+increment. Cleanup validates every root/job/item before bulk item creation and exact hold deletion
+in the same transaction. Pin release preserves its released fence and actual selected owner hold
+set. Native scratch grows with the existing bounded page; no host cache, larger allowance or page
+limit change is introduced. Existing wire preflight remains, without a native peak-memory claim.
+Late failures must roll back predicates, complete cuts, nominations and deletion together. The
+runtime coordinator owns current source and actual rollback/overlap/enclosing acceptance evidence.
 
 **Implemented / functional verification in progress, 2026-10-16:** explicit project regeneration
 requires the exact installation ID, both main/validation scopes, actual root/namespace inventory,

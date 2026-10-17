@@ -644,7 +644,7 @@ pub async fn release_pin_checked(
         bindings.insert("holds", holds);
         // The fence committed separately: this page still touches the pin, once,
         // along with every exact hold/object target before any deletion commits.
-        effect(client,None,&pin_release_page_sql(),bindings).await?;
+        effect(client, None, &pin_release_page_sql(), bindings).await?;
     }
     Ok(())
 }
