@@ -1675,7 +1675,9 @@ impl Iterator for NativeBatches {
     fn next(&mut self) -> Option<Self::Item> {
         // Genuine synchronous provider callbacks run on their existing blocking owner. Tokio
         // compiler code uses next_async; no sleeping poll loop or blocking_recv is required.
-        futures::executor::block_on(self.next_async())
+        // This independent executor cannot replenish an enclosing Tokio task's budget.
+        // Exclude only the synchronous channel handoff; the driver remains cooperative.
+        futures::executor::block_on(tokio::task::unconstrained(self.next_async()))
     }
 }
 
@@ -4191,6 +4193,50 @@ mod tests {
         assert!(next.unwrap().is_err());
         assert_eq!(budget.reserved(), 0);
         assert!(reader.next_async().await.is_none());
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn sync_native_batches_progress_with_order_errors_eof_and_release() {
+        for emit_error in [false, true] {
+            let budget = ResourceBudget::fixed(1 << 20).unwrap();
+            let (sender, receiver) = tokio::sync::mpsc::channel(1);
+            let producer_budget = budget.clone();
+            let producer = std::thread::spawn(move || {
+                for index in 0..512 {
+                    let batch = Package::encode(&[Package {
+                        name: format!("handoff-{index}"),
+                    }]).unwrap();
+                    let charge = producer_budget.reserve(
+                        "sync-handoff-control", lctx_model::domain::logical_batch_bytes(&batch).unwrap(),
+                    ).unwrap();
+                    sender.blocking_send(Ok((batch, charge))).unwrap();
+                }
+                if emit_error {
+                    sender.blocking_send(Err(ModelError::Schema("native batch handoff refusal"))).unwrap();
+                }
+            });
+            let mut reader = NativeBatches {
+                receiver,
+                cancellation: Cancellation::default(),
+                charge: None,
+                done: false,
+                _execution: None,
+            };
+            // Consume a wide synchronous provider stream without yielding the enclosing
+            // Tokio task; each actual batch retains its handoff reservation until next().
+            for index in 0..512 {
+                let batch = reader.next().unwrap().unwrap();
+                assert_eq!(Package::decode(&batch).unwrap()[0].name, format!("handoff-{index}"));
+                assert!(budget.reserved() > 0);
+            }
+            if emit_error {
+                assert!(matches!(reader.next(), Some(Err(ModelError::Schema("native batch handoff refusal")))));
+            }
+            assert!(reader.next().is_none());
+            assert!(reader.next().is_none());
+            producer.join().unwrap();
+            drop(reader);
+            assert_eq!(budget.reserved(), 0);
+        }
     }
     #[tokio::test]
     async fn completed_inventory_preserves_roles_and_actual_epochs() {
