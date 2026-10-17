@@ -3615,6 +3615,30 @@ mod tests {
                     .await
                     .is_err()
             );
+            // Earn a genuine source context, then transfer exact contributor
+            // protection before independently dropping that source and its pin.
+            let handoff_audit = InstallationAudit::new(client.clone(), &budget).await.unwrap();
+            let selected = std::sync::Arc::new(crate::installed_view::select_live_view_scoped(
+                client.clone(), store.attempt(), view, &mappings, &budget, &handoff_audit,
+            ).await.unwrap());
+            assert!(selected.earned_source().unwrap().has_checked_context_lifetime(), "actual source selection earned Some checked lifetime");
+            let source_pin = std::sync::Arc::downgrade(&handoff_audit.pin);
+            let receiver_pin = crate::control::ReaderPin::acquire(client.clone(), &[]).await.unwrap();
+            let received = crate::installed_view::receiving::protect_receiving_views(
+                std::slice::from_ref(&selected), &receiver_pin, &reader, &budget,
+            ).await.unwrap();
+            let received_view = received.views()[0].clone();
+            assert!(!received_view.earned_source().unwrap().has_checked_context_lifetime(), "receiving pin cannot inherit source context provenance");
+            handoff_audit.close().await.unwrap();
+            drop(selected);
+            drop(handoff_audit);
+            assert!(source_pin.upgrade().is_none(), "receiving preparation retains no source pin or context owner");
+            received_view.ensure_borrowed_current(&reader, &budget).await.unwrap();
+            received_view.ensure_current(&reader, &budget).await.unwrap();
+            assert!(received.ensure_for(&received_view, &client, &budget).unwrap());
+            drop(received_view);
+            drop(received);
+            receiver_pin.release().await.unwrap();
             audit.close().await.unwrap();
             assert!(audit.protected_source(&client, &budget).await.is_err());
             assert!(
@@ -7208,12 +7232,17 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             let foreign_reader = NativeReader::private(std::sync::Arc::new(surrealdb::Surreal::init())).with_budget(&budget);
             assert!(lifetime.check(&foreign_reader, &budget).is_err());
             foreign_reader.close().await.unwrap();
-            let guard = format!("BEGIN; LET $__effect=NONE; {} CANCEL;", crate::control::drained_predicate_for_control());
+            let own_pin = RecordId::new("native_pin", audit.pin.identity.hex());
+            let mut live = client.query("SELECT VALUE released FROM ONLY $pin").bind(("pin", own_pin.clone())).await.unwrap().check().unwrap();
+            assert!(!live.take::<bool>(0).unwrap(), "this audit owns an actual live native pin");
+            let guard = format!("BEGIN; IF {} {{ THROW 'native installation live pins remain'; }}; CANCEL;", crate::control::live_pin_drain_predicate_for_control());
             let blocked = client.query(guard).await.unwrap().check().unwrap_err();
-            assert!(blocked.to_string().contains("native installation borrowers remain"), "production drained guard must exclude an actual live audit pin: {blocked}");
+            assert!(blocked.to_string().contains("native installation live pins remain"), "production live-pin clause itself must exclude the checked lifetime, independently of attempts: {blocked}");
             audit.pin.ensure_live().unwrap();
             if !drift {
                 audit.close().await.unwrap();
+                let mut released = client.query("SELECT VALUE released FROM ONLY $pin").bind(("pin", own_pin)).await.unwrap().check().unwrap();
+                assert!(released.take::<bool>(0).unwrap(), "this audit's exact pin is released regardless of other parallel pins");
                 assert!(lifetime.check(&reader, &budget).is_err(), "released pin cannot retain checked context");
                 assert!(ordinary.check(&reader, &audit, &budget).await.is_err());
                 return;

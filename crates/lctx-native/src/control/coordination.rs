@@ -53,7 +53,20 @@ pub(super) fn attempt_stripe_ids(attempt: &RecordId) -> Vec<RecordId> {
 // partner for close/open/cut, including an uncommitted apply that arrived before the cut.
 pub(super) const ERA_GUARD: &str = "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=9 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; }; UPDATE $__stripe SET revision+=1 RETURN NONE;";
 pub(super) const ALL_STRIPES_GUARD: &str = "IF array::len($__stripes)!=64 { THROW 'native stripe set width'; }; FOR $__stripe_id IN $__stripes { LET $__state=SELECT * FROM ONLY $__stripe_id FOR UPDATE; IF $__state=NONE OR $__state.format!=1 OR $__state.generation!=$__generation OR $__state.era!=$__era OR $__state.closed_through!=$__installation.closed_through OR $__state.admission_open!=$__installation.admission_open OR $__state.revision>=9223372036854775807 { THROW 'native all-stripe authority'; }; UPDATE $__stripe_id SET revision+=1 RETURN NONE; };";
-pub(super) const DRAINED_PREDICATE: &str = "IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen','closing'] LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='registering' LIMIT 1)>0 { THROW 'native installation borrowers remain'; };";
+// One literal serves the actual production drain guard and its isolated native
+// control, so unrelated attempt/effect borrowers cannot mask pin exclusion.
+macro_rules! live_pin_drain_predicate {
+    () => { "array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0" };
+}
+pub(super) const DRAINED_PREDICATE: &str = concat!(
+    "IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen','closing'] LIMIT 1)>0 OR ",
+    live_pin_drain_predicate!(),
+    " OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='registering' LIMIT 1)>0 { THROW 'native installation borrowers remain'; };"
+);
+#[cfg(test)]
+pub(super) fn live_pin_drain_predicate_for_control() -> &'static str {
+    live_pin_drain_predicate!()
+}
 
 /// Size the complete lowered query with the pinned native protobuf codec. Context
 /// uses the maximum encoded widths of UUID/timeout/batch fields, so this is a wire

@@ -32,6 +32,10 @@ pub struct EarnedContributionSet {
     pub(super) _charge: StateCharge,
 }
 impl EarnedContributionSet {
+    #[cfg(test)]
+    pub(super) fn has_checked_context_lifetime(&self) -> bool {
+        self.context_lifetime.is_some()
+    }
     pub fn owner(&self) -> &RecordId {
         &self.owner
     }
