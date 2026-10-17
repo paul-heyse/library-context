@@ -658,8 +658,7 @@ mod tests {
                     Err(ModelError::Conflict("late source EOF failure"))
                 } else { Ok(()) };
                 let finalization = async {
-                    let mut completion = Completion::default();
-                    completion.remote = RemoteState::Unknown;
+                    let mut completion = Completion { remote: RemoteState::Unknown, ..Completion::default() };
                     completion.step(failed_step, Err(ModelError::Conflict("lost source acknowledgement")));
                     completion
                 };
