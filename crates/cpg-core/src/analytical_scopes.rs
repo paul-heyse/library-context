@@ -296,8 +296,10 @@ mod controls {
         )
         .await
         .unwrap();
+        // Closure acquisition retains its preparation owner. The separate small budget
+        // bounds selected rich hydration, which must exclude unrelated source payload.
         let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();
-        let grain = prepared.grain(frame.id(), &tiny).await.unwrap();
+        let grain = prepared.grain(frame.id(), &budget).await.unwrap();
         let table = inputs
             .iter()
             .position(|input| input.type_id() == TypeId::of::<Occurrence>())

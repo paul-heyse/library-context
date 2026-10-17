@@ -545,8 +545,10 @@ mod summary_scope_controls {
         let scopes = SummaryScopes::from_tables(inputs.clone(), tables, &session, &budget, &model)
             .await
             .unwrap();
+        // The prepared closure retains its actual owner pool. The separate small
+        // budget bounds selected typed properties and excludes unrelated rich payload.
         let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();
-        let grain = scopes.frame(run.id(), &tiny).await.unwrap();
+        let grain = scopes.frame(run.id(), &budget).await.unwrap();
         async fn selected<R: Record>(
             grain: &PreparedClosure,
             inputs: &[ValidationInput],

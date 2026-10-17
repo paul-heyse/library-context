@@ -1275,8 +1275,21 @@ mod controls {
             assert!(absent.source.bindings.event_alternatives.is_empty());
             assert!(window.enriched_data(3, &budget, &cancelled).is_err());
         }
-        assert_eq!(budget.reserved(), retained);
+        // First event/owner discovery earns source-owned compact adjacency. Repeating
+        // both requests releases their grain state and reuses that preparation exactly.
+        let earned = budget.reserved();
+        assert!(earned > retained);
+        for scope in [
+            prepared.scope(event.id(), &budget).await.unwrap(),
+            prepared.owner_scope(owner.id(), &budget).await.unwrap(),
+        ] {
+            drop(scope);
+        }
+        assert_eq!(budget.reserved(), earned);
+        let last_borrower = prepared.scope(event.id(), &budget).await.unwrap();
         drop(prepared);
+        assert!(budget.reserved() > 0);
+        drop(last_borrower);
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]

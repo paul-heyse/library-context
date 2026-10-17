@@ -619,8 +619,17 @@ mod controls {
         assert!(occurrences.iter().all(|row| row.structural_path.len() < 4));
         drop(occurrences);
         drop(scope);
-        assert_eq!(budget.reserved(), retained);
+        // First discovery earns compact adjacency in the prepared source, rather than
+        // the short-lived selected grain. Repeating that grain must reuse it exactly.
+        let earned = budget.reserved();
+        assert!(earned > retained);
+        let repeated = prepared.statement(statement.id(), &budget).await.unwrap();
+        drop(repeated);
+        assert_eq!(budget.reserved(), earned);
+        let last_borrower = prepared.statement(statement.id(), &budget).await.unwrap();
         drop(prepared);
+        assert!(budget.reserved() > 0);
+        drop(last_borrower);
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
@@ -658,8 +667,17 @@ mod controls {
         drop(placements);
         drop(occurrences);
         drop(scope);
-        assert_eq!(budget.reserved(), retained);
+        // The prepared source owns newly earned adjacency through its last borrower.
+        // A repeated body releases all per-grain state without another retained index.
+        let earned = budget.reserved();
+        assert!(earned > retained);
+        let repeated = prepared.body(callable.id(), &budget).await.unwrap();
+        drop(repeated);
+        assert_eq!(budget.reserved(), earned);
+        let last_borrower = prepared.body(callable.id(), &budget).await.unwrap();
         drop(prepared);
+        assert!(budget.reserved() > 0);
+        drop(last_borrower);
         assert_eq!(budget.reserved(), 0);
     }
 }

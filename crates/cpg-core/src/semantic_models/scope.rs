@@ -794,6 +794,8 @@ mod model_scope_controls {
             ModelScopes::from_tables(inputs.clone(), tables, &session, &parsed, &budget, &model)
                 .await
                 .unwrap();
+        // Prepared acquisition belongs to `budget`. This separate ceiling bounds
+        // selected catalog/symbol/artifact hydration, including the absence cases.
         let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();
         let cast=parsed.catalog().models().iter().find(|compiled|matches!(&compiled.model().target,models::Target::Stdlib{callable,..}if callable=="cast")).unwrap();
         {
@@ -985,7 +987,7 @@ mod model_scope_controls {
             .selected(
                 ProductionScope::Target(cast.declaration().id()),
                 run.id(),
-                &tiny,
+                &budget,
             )
             .await
             .unwrap();
@@ -1037,7 +1039,7 @@ mod model_scope_controls {
             .selected(
                 ProductionScope::Target(absent.declaration().id()),
                 run.id(),
-                &tiny,
+                &budget,
             )
             .await
             .unwrap();

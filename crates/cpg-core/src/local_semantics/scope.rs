@@ -450,9 +450,11 @@ mod local_source_scope_controls {
         let scopes = LocalScopes::from_tables(inputs.clone(), tables, &session, &budget, &model)
             .await
             .unwrap();
+        // Reuse compact closure preparation in its actual owner pool; independently
+        // bound the selected rich typed data below without admitting foreign payload.
         let tiny = resources::ResourceBudget::fixed(96 << 10).unwrap();
         let grain = scopes
-            .source(artifact.id(), nominal(3), &tiny)
+            .source(artifact.id(), nominal(3), &budget)
             .await
             .unwrap();
         let table = inputs
