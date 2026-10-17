@@ -41,6 +41,7 @@ impl StageExecution {
         )?;
         Ok(StageDrainSnapshot { tasks: registry.tasks.clone().into_iter(), _charge: charge })
     }
+    #[inline(never)]
     pub(super) fn spawn<T: Send + 'static>(
         &self,
         cancellation: super::Cancellation,
@@ -65,6 +66,10 @@ impl StageExecution {
             "compiler producer result delivery", size_of::<T>().saturating_add(256),
         )?);
         let receiver_charge = delivery_charge.clone();
+        // Retain the concrete body allowance above, then erase before composing task-local
+        // recovery/retry, tracing and runtime futures. Those wrappers otherwise move the
+        // complete producer state repeatedly on the coordinator's stack at launch.
+        let work: BoxFuture<'static, Result<T, ModelError>> = work.boxed();
         let context = lctx_tracing::Context::current();
         let retry = lctx_native::control::capture_retry_cancellation();
         let recovery = lctx_native::control::capture_recovery_scope();
@@ -225,6 +230,64 @@ mod tests {
         }).unwrap().await.is_err());
         assert!(!entered.load(Ordering::Acquire));
         for join in tasks.seal().unwrap() { join.await.unwrap(); }
+    }
+
+    #[tokio::test]
+    async fn large_producer_body_is_refused_before_launch() {
+        let budget = ResourceBudget::fixed(48 << 10).unwrap();
+        let tasks = StageExecution::new(&budget);
+        let entered = Arc::new(AtomicBool::new(false));
+        let observed = entered.clone();
+        let payload = std::hint::black_box([7_u8; 64 << 10]);
+        let result = tasks.spawn(super::super::Cancellation::default(), async move {
+            observed.store(true, Ordering::Release);
+            tokio::task::yield_now().await;
+            Ok(std::hint::black_box(payload).iter().map(|byte| u64::from(*byte)).sum::<u64>())
+        });
+        assert!(matches!(result, Err(ModelError::Resource { owner: "compiler producer task", .. })));
+        assert!(!entered.load(Ordering::Acquire));
+        assert!(tasks.seal().unwrap().is_empty());
+        drop(tasks);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn large_producer_body_stays_charged_through_owned_cleanup() {
+        const BODY_BYTES: usize = 128 << 10;
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let tasks = StageExecution::new(&budget);
+        let (entered, entering) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let (cleanup, cleaning) = tokio::sync::oneshot::channel();
+        let (finish, finished) = tokio::sync::oneshot::channel();
+        let completed = Arc::new(AtomicBool::new(false));
+        let observed = completed.clone();
+        let payload = std::hint::black_box([7_u8; BODY_BYTES]);
+        let result = tasks.spawn(super::super::Cancellation::default(), async move {
+            entered.send(()).unwrap();
+            released.await.map_err(ModelError::codec)?;
+            cleanup.send(()).unwrap();
+            finished.await.map_err(ModelError::codec)?;
+            let checksum = std::hint::black_box(payload).iter().map(|byte| u64::from(*byte)).sum::<u64>();
+            assert_eq!(checksum, 7 * BODY_BYTES as u64);
+            observed.store(true, Ordering::Release);
+            Ok(checksum)
+        }).unwrap();
+        entering.await.unwrap();
+        assert!(budget.reserved() >= BODY_BYTES);
+        drop(result);
+        release.send(()).unwrap();
+        cleaning.await.unwrap();
+        assert!(!completed.load(Ordering::Acquire));
+        assert!(budget.reserved() >= BODY_BYTES,
+            "dropping coordinator delivery cannot release a producer still cleaning up");
+        finish.send(()).unwrap();
+        for join in tasks.seal().unwrap() { join.await.unwrap(); }
+        assert!(completed.load(Ordering::Acquire));
+        assert!(budget.reserved() < BODY_BYTES,
+            "the concrete body allocation is released after actual task finality");
+        drop(tasks);
+        assert_eq!(budget.reserved(), 0);
     }
 
     #[tokio::test]
