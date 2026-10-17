@@ -524,6 +524,28 @@ Outstanding selected-complete acceptance `20261017T030304.383Z-d28970` is runnin
 normal parallelism and original runtime exclusions. The five-control pass
 does not establish that the earlier normal-concurrency failures are resolved.
 
+Rerun `d28970` was stopped at 03:17:41 UTC after the next material source correction was selected;
+exit 137 and host cleanup confirmed at 03:17:47 UTC are separate from native finality. Extraction
+recorded 150 starts, 90 passes and 59 failures, including 26 timeouts and cancellation; its boundary
+is interrupted. Attachment `c1e9254f-9a4f-451f-848a-d716d5898f51` remains protected. Later boundaries
+are not_run. The new first timeout was still emitting Pyrefly immutable windows at the deadline;
+other bodies passed providers and were acquiring completed inputs. Immutable-install retries
+(`7243deb…`) dominate those retained examples. The cleanup/settlement corrections remain
+focused-Tested; this evidence does not establish enclosing closure or numerical benefit.
+
+Source cross-check confirms ordinary immutable installation already writes one admitted attempt
+stripe and skips full context-attempt cuts; no correction is selected for that disproved hypothesis.
+The remaining immutable-install metadata path nevertheless dispatches separate predicate read/UPSERT
+and deferred physical-guard read/UPDATE operations per actual changed target. RN02 now selects the
+existing scalar-lock/bulk-write pattern for that exact changed write set, preserving declared-target
+foreign-attempt validation, context omission, context-free complete cuts, every classification and
+phase/MAX/collision check, and new-hold retirement exclusion. Row/hold insertion is already bulk.
+Expanded windows are bounded by their actual complete prepared packet, not an assumed 128 holds.
+This stored-definition refinement requires regenerated native assets, a current installer and
+RE80 target replacement after authenticated drainage before new acceptance. No new campaign,
+striping protocol, lifecycle framework, deadline increase or concurrency cap is selected.
+
+
 
 
 
