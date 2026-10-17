@@ -1,10 +1,29 @@
 //! Canonical typed algorithm output with charged retained state.
 use crate::domain::{
     charged::{ChargedMap, StateCharge},
+    batching::TransferLimits,
     resources::ResourceBudget,
     *,
 };
 
+/// Canonical validated rows and their transferred pool reservation. Only model
+/// canonical owners can construct this carrier; no mutable raw-row escape is exposed.
+pub struct CanonicalBatch<R: Record> {
+    rows: Vec<R>,
+    charge: StateCharge,
+}
+impl<R: Record> CanonicalBatch<R> {
+    pub fn into_batch(self, model: &ValidatedModel, budget: &ResourceBudget, limits: TransferLimits) -> Result<Batch<R>, ModelError> {
+        if !self.charge.budget().is_some_and(|source| source.shares_pool(budget)) {
+            return Err(ModelError::Conflict("canonical batch foreign receiving pool"));
+        }
+        if self.rows.len() > limits.rows || self.rows.iter().any(|row| row.row_bytes() > limits.max_row)
+            || (self.rows.len() > 1 && self.rows.iter().fold(0usize, |sum, row| sum.saturating_add(row.row_bytes())) > limits.bytes) {
+            return Err(ModelError::Schema("canonical output transfer bounds"));
+        }
+        Batch::from_canonical(model, self.rows, Box::new(self.charge))
+    }
+}
 pub struct Rows<R: Record> {
     rows: ChargedMap<Id<R>, R>,
     charge: StateCharge,
@@ -164,6 +183,24 @@ impl<R: Record> Rows<R> {
             charge: StateCharge::new(budget, R::NAME),
         }
     }
+    /// Move the next canonical bounded prefix, including its heap reservations. The
+    /// destination vector is admitted before allocation; removing the source map entry
+    /// releases only its obsolete node, never the rich payload being transferred.
+    pub fn append_owned(&mut self, other: &mut Self) -> Result<(), ModelError> {
+        while let Some(id) = other.rows.first_key_value().map(|(id, _)| *id) {
+            if let Some(previous) = self.rows.get(&id) {
+                if previous != other.rows.get(&id).expect("observed canonical row") { return Err(ModelError::Conflict(R::NAME)); }
+                drop(other.rows.remove(&mut other.charge, &id)?);
+            } else {
+                let row = other.rows.remove(&mut other.charge, &id)?.expect("observed canonical row");
+                self.rows.insert_owned(&mut self.charge, id, row)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn take_batch(&mut self, max_rows: usize, max_bytes: usize) -> Result<Option<CanonicalBatch<R>>, ModelError> {
+        take_canonical_batch(&mut self.rows, &mut self.charge, max_rows, max_bytes)
+    }
     pub fn view(&self) -> RowsView<'_, R> {
         self.into()
     }
@@ -234,6 +271,44 @@ impl<R: Record> Rows<R> {
     }
 }
 
+/// Charged vocabulary maps do not carry Rows' insertion validation contract. Check
+/// only the prefix that will actually move before granting the canonical carrier.
+pub(crate) fn take_checked_batch<R: Record>(rows: &mut ChargedMap<Id<R>, R>, charge: &mut StateCharge, max_rows: usize, max_bytes: usize) -> Result<Option<CanonicalBatch<R>>, ModelError> {
+    let mut bytes = 0usize;
+    for (ordinal, (key, row)) in rows.iter().take(max_rows).enumerate() {
+        let next = row.row_bytes();
+        if ordinal != 0 && bytes.saturating_add(next) > max_bytes { break; }
+        row.validate()?;
+        if row.id() != *key { return Err(ModelError::Conflict("canonical vocabulary nominal key")); }
+        bytes = bytes.saturating_add(next);
+    }
+    take_canonical_batch(rows, charge, max_rows, max_bytes)
+}
+/// Consume one canonical charged map prefix, shared by normalized and vocabulary output.
+pub(crate) fn take_canonical_batch<R: Record>(rows: &mut ChargedMap<Id<R>, R>, charge: &mut StateCharge, max_rows: usize, max_bytes: usize) -> Result<Option<CanonicalBatch<R>>, ModelError> {
+        if rows.is_empty() { return Ok(None); }
+        if max_rows == 0 || max_bytes == 0 { return Err(ModelError::Schema("canonical output batch bounds")); }
+        let mut count = 0usize;
+        let mut bytes = 0usize;
+        for row in rows.values().take(max_rows) {
+            let next = row.row_bytes();
+            if count != 0 && bytes.saturating_add(next) > max_bytes { break; }
+            count += 1;
+            bytes = bytes.saturating_add(next);
+        }
+        let budget = charge.budget().expect("rows budget");
+        let mut receiving = StateCharge::new(budget, "canonical output transfer");
+        receiving.grow(count.checked_mul(size_of::<R>()).ok_or(ModelError::Schema("canonical output size"))?)?;
+        let mut owned = Vec::with_capacity(count);
+        for _ in 0..count {
+            let id = *rows.first_key_value().expect("canonical prefix").0;
+            let row = rows.remove(charge, &id)?.expect("canonical prefix");
+            owned.push(row.into_inner(&mut receiving)?);
+        }
+        Ok(Some(CanonicalBatch { rows: owned, charge: receiving }))
+
+}
+
 #[cfg(test)]
 mod required_controls {
     use super::*;
@@ -244,6 +319,58 @@ mod required_controls {
         #[model(key)]
         key: String,
         value: String,
+    }
+    #[test]
+    fn consuming_batches_move_heap_backing_in_order_and_keep_it_charged() {
+        let budget = ResourceBudget::fixed(3 << 20).unwrap();
+        let mut rows = Rows::new(&budget);
+        let mut pointers = std::collections::BTreeMap::new();
+        for key in ["gamma", "alpha", "beta"] {
+            let row = Row { key: key.into(), value: "x".repeat(512 << 10) };
+            pointers.insert(row.id(), row.value.as_ptr() as usize);
+            rows.insert(row).unwrap();
+        }
+        let first = rows.take_batch(2, usize::MAX).unwrap().unwrap();
+        assert_eq!(first.rows.len(), 2);
+        assert_eq!(rows.len(), 1);
+        assert!(first.rows.windows(2).all(|pair| pair[0].id() < pair[1].id()));
+        for row in &first.rows { assert_eq!(row.value.as_ptr() as usize, pointers[&row.id()]); }
+        assert!(budget.reserved() >= 3 * (512 << 10));
+        drop(rows);
+        assert!(budget.reserved() >= 2 * (512 << 10));
+        drop(first);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn consuming_batch_refuses_before_mutation_and_rejects_a_foreign_pool() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut rows = Rows::new(&budget);
+        let row = Row { key: "key".into(), value: "payload".into() };
+        rows.insert(row.clone()).unwrap();
+        let held = budget.reserve("canonical transfer refusal control", budget.limit() - budget.reserved()).unwrap();
+        assert!(matches!(rows.take_batch(1, usize::MAX), Err(ModelError::Resource { .. })));
+        assert_eq!(rows.get(row.id()), Some(&row));
+        drop(held);
+        let batch = rows.take_batch(1, usize::MAX).unwrap().unwrap();
+        let foreign = ResourceBudget::fixed(1 << 20).unwrap();
+        assert!(matches!(batch.into_batch(&crate::domain::model().unwrap(), &foreign, TransferLimits::default()), Err(ModelError::Conflict("canonical batch foreign receiving pool"))));
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+        assert_eq!(foreign.reserved(), 0);
+    }
+    #[test]
+    fn consuming_append_refuses_conflicts_and_deduplicates_equal_rows() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut first = Rows::new(&budget);
+        let mut second = Rows::new(&budget);
+        let row = Row { key: "same".into(), value: "first".into() };
+        first.insert(row.clone()).unwrap(); second.insert(row.clone()).unwrap();
+        first.append_owned(&mut second).unwrap();
+        assert_eq!(first.len(), 1); assert!(second.is_empty());
+        second.insert(Row { value: "conflicting".into(), ..row }).unwrap();
+        assert!(matches!(first.append_owned(&mut second), Err(ModelError::Conflict("required_rows_control"))));
+        assert_eq!(second.len(), 1);
+        drop((first, second)); assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn selected_views_preserve_order_identity_cardinality_and_missing_domains() {

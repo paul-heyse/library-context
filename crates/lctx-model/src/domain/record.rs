@@ -693,7 +693,7 @@ impl<R: Record> Batch<R> {
     pub fn with_reservation(
         model: &ValidatedModel,
         mut rows: Vec<R>,
-        mut reservation: Box<dyn Reservation>,
+        reservation: Box<dyn Reservation>,
     ) -> Result<Self, ModelError> {
         model.require::<R>()?;
         for row in &rows {
@@ -711,6 +711,11 @@ impl<R: Record> Batch<R> {
         if conflict {
             return Err(ModelError::Conflict(R::NAME));
         }
+        Self::from_canonical(model, rows, reservation)
+    }
+    /// Only the model's validated canonical carrier bypasses validation and sorting.
+    pub(crate) fn from_canonical(model: &ValidatedModel, rows: Vec<R>, mut reservation: Box<dyn Reservation>) -> Result<Self, ModelError> {
+        model.require::<R>()?;
         let held = rows_bytes(&rows, rows.capacity())?;
         let overflow = || ModelError::Invalid(format!("{} encoding size overflow", R::NAME));
         let variable = rows

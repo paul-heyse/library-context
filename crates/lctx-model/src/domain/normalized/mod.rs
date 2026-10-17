@@ -31,7 +31,7 @@ pub(crate) mod rows;
 pub mod signature_applicability;
 pub mod symbolic_fields;
 use super::*;
-pub use rows::{Rows, RowsView};
+pub use rows::{CanonicalBatch, Rows, RowsView};
 pub(crate) use rows::{copy_selected_rows, visit_ordered_port_ids, visit_selected_ids};
 
 /// Normalized owners reconstruct the captured facts universe. Later vocabulary cannot enlarge it.
