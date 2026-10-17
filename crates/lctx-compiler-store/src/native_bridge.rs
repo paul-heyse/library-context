@@ -110,7 +110,10 @@ impl NativeBridge {
     ) -> Result<T, ModelError> {
         // Only genuinely synchronous provider callbacks use this entry point. Async
         // compiler consumers await call_async/call_boxed_async instead.
-        futures::executor::block_on(self.call_boxed_async(future))
+        // This independent blocking executor cannot yield the enclosing Tokio task to
+        // replenish its cooperative budget. Exclude only the channel handoff from that
+        // inherited budget; submitted work still runs cooperatively on the actor runtime.
+        futures::executor::block_on(tokio::task::unconstrained(self.call_boxed_async(future)))
     }
     #[cfg(test)]
     pub fn call_async<T: Send + 'static>(
@@ -167,7 +170,8 @@ impl NativeBridge {
         .await
     }
     fn submit(&self, request: Request) -> Result<(), ModelError> {
-        futures::executor::block_on(self.submit_async(request))
+        // Synchronous launch has the same independent-executor boundary as call_boxed.
+        futures::executor::block_on(tokio::task::unconstrained(self.submit_async(request)))
     }
     async fn submit_async(&self, request: Request) -> Result<(), ModelError> {
         self.cancellation.check()?;
@@ -276,6 +280,25 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::time::Duration;
+    #[tokio::test(flavor = "current_thread")]
+    async fn sync_requests_and_launches_progress_in_current_thread_task() {
+        let bridge = NativeBridge::new(Cancellation::default()).unwrap();
+        // A wide synchronous producer must not depend on the enclosing async task
+        // yielding between each registration or write handoff.
+        for index in 0..512 {
+            assert_eq!(bridge.call(async move { Ok(index) }).unwrap(), index);
+        }
+        let mut acknowledged = Vec::new();
+        for index in 0..512 {
+            let (answer, received) = oneshot::channel();
+            bridge.launch(async move { answer.send(index).unwrap(); }.boxed()).unwrap();
+            acknowledged.push(received);
+        }
+        for (index, received) in acknowledged.into_iter().enumerate() {
+            assert_eq!(received.await.unwrap(), index);
+        }
+        bridge.drain().await.unwrap();
+    }
     #[tokio::test(flavor = "current_thread")]
     async fn completed_tasks_are_reaped_while_input_remains_ready() {
         let (sender, mut receiver) = mpsc::channel::<Request>(1);
