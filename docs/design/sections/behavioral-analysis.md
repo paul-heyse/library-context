@@ -153,6 +153,17 @@ silently reported as complete.
 
 ## Transfer summaries
 
+**Implemented / focused verification in progress, 2026-10-17:** caller-attempt preparation is
+SCC-local and releases after its final component borrower; shared signature ingredients survive
+later callers. Solving-only lexical/progress state releases before terminal postprocessing.
+Independent whole frames may run under joined task ownership with authentic immutable Local and
+binding authorities. SCC order, the frame-global member bound, shared-callee progress and complete
+frame publication remain unchanged. The
+[upper coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns this scoped lifetime change and its evidence; component streaming/resumability is not selected.
+
+> Decision: ADR-0187
+
 **Implemented / functional verification in progress, 2026-10-16:** one charged borrowed ordered
 invocation inventory supplies headers, declarations, parameters, links, arguments, guards and
 residual event/seed correspondence. Immutable signature ingredients are shared lazily; caller

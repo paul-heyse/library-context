@@ -82,7 +82,10 @@ pub async fn assert_compact_owners(fixture: &Fixture, owners: &[analysis::owner:
     let sources =
         analysis::sources::CapturedSources::capture(Profile::Catalog, access.snapshots(), budget)
             .unwrap();
-    let mut coverage = workspace.coverage_admission(&sources).await.unwrap();
+    let mut coverage = workspace
+        .coverage_admission(&access, &sources)
+        .await
+        .unwrap();
     macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(
         let permit = access.read::<$ty>().unwrap();
         let mut batches = access.relation::<$ty>().unwrap().batches_async().await.unwrap();

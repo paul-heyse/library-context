@@ -5583,6 +5583,8 @@ impl NativeCompilerStore {
         budget: Option<&'a ResourceBudget>,
         writer: &'a mut crate::control::WindowWriter<'_>,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
+        let span = tracing::info_span!(target: "lctx_phase", "native_batch",
+            attempt = %self.attempt.hex(), contribution = %contribution.hex(), relation = relation.name());
         crate::control::with_retry_cancellation(self.signal_stop.clone(), async move {
             let phase = crate::phase::Phase::begin("native_batch_write");
             let result = async {
@@ -5601,7 +5603,8 @@ impl NativeCompilerStore {
                     )
                     .await;
                 let result = lease.finish_with(result);
-                if result.is_err() {
+                if let Err(error) = &result {
+                    tracing::warn!(target: "lctx_phase", error = %error, "native batch refused before cancellation");
                     self.fail();
                 }
                 result
@@ -5610,6 +5613,7 @@ impl NativeCompilerStore {
             phase.finish_result(&result);
             result
         })
+        .with_tracing_span(span)
         .boxed()
     }
     async fn write_batch_inner(

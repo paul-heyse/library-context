@@ -177,7 +177,7 @@ pub fn verify(
 pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 2,
+        revision: 3,
         name: "catalog_evidence_invocation_domain",
         inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
             analysis::owner::AnalysisOwner::SourceCalls,

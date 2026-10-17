@@ -15,6 +15,13 @@ impl CatalogData {
         pub fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if relation==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn validation_inputs()->Vec<ValidationInput> {crate::domain::normalized::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*])}
         pub fn stage_inputs()->Vec<stages::RelationUse> {vec![$(stages::RelationUse::completed::<$ty>()),*]}
+        /// Copy exact memberships from one hydrated union using the shared typed/prefix operation.
+        pub fn selected_copy<I:Iterator<Item=[u8;16]>>(&self,inputs:&[ValidationInput],
+            keys:&mut dyn FnMut(usize)->Result<I,ModelError>,budget:&ResourceBudget)->Result<Self,ModelError> {
+            let mut selected=Self::new(budget);
+            $(crate::domain::normalized::copy_selected_rows(&self.$field,&mut selected.$field,inputs,None,keys)?;)*
+            Ok(selected)
+        }
     }
 };}
 crate::catalog_inputs!(data);

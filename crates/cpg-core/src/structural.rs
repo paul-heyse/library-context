@@ -114,20 +114,24 @@ fn load<'a, 'sources, R: Record>(
 pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
-    graphs: &PreparedGraphs,
+    graphs: &Arc<PreparedGraphs>,
 ) -> Result<(), ModelError> {
-    let sources = analysis::sources::CapturedSources::capture(
-        access.profile(),
-        access.snapshots(),
+    let sources = crate::owned_work::Shared::new(
+        analysis::sources::CapturedSources::capture(
+            access.profile(),
+            access.snapshots(),
+            runtime.budget(),
+        )?,
         runtime.budget(),
     )?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let (data, context) = load_initial(&access, &session, runtime, &mut admission).await?;
 
-    let settings = context.configuration()?.clone();
+    let settings =
+        crate::owned_work::Shared::new(context.configuration()?.clone(), runtime.budget())?;
     let parents = frames::parents(&data, runtime.budget())?;
     declare_outputs(&output).await?;
     let scopes = crate::analytical_scopes::FrameScopes::prepare(
@@ -163,6 +167,10 @@ pub async fn produce(
             let window = scopes
                 .window(&access, &ids, &readers, runtime.budget(), &cancellation)
                 .await?;
+            let job_count = selected.len();
+            let mut jobs = Vec::new();
+            let mut jobs_charge =
+                charged::StateCharge::new(runtime.budget(), "prepared work transport slots");
             for (partition, core) in selected.into_iter().enumerate() {
                 let (data, mut context) = load_grain(&window, &access, partition, runtime).await?;
                 if let Some(domain) = admission.uniform_analysis(
@@ -174,15 +182,36 @@ pub async fn produce(
                 )? {
                     context.admit_compact_local(domain)?;
                 }
-                let (results, receipts, projections) = derive_parent(
-                    &data,
-                    &mut context,
-                    core,
-                    &settings,
-                    (graphs, &access),
-                    runtime,
-                    &sources,
-                )?;
+                let core = core.clone();
+                let settings = settings.clone();
+                let graphs = graphs.clone();
+                let access = access.clone();
+                let runtime = runtime.clone();
+                let sources = sources.clone();
+                let job = async move {
+                    let (results, receipts, projections) =
+                        crate::stage_runtime::borrowed_cpu(access.name(), || {
+                            derive_parent(
+                                &data,
+                                &mut context,
+                                &core,
+                                &settings,
+                                (&graphs, &access),
+                                &runtime,
+                                &sources,
+                            )
+                        })?;
+                    Ok((context, results, receipts, projections))
+                };
+                if jobs.is_empty() {
+                    jobs_charge.grow(job_count.saturating_mul(std::mem::size_of_val(&job)))?;
+                    jobs.reserve_exact(job_count);
+                }
+                jobs.push(job);
+            }
+            for (context, results, receipts, projections) in
+                crate::owned_work::ordered(runtime, jobs).await?
+            {
                 emit_results(&results, &output).await?;
                 emit_links(&context, &receipts, &projections, &output).await?;
 
@@ -191,7 +220,6 @@ pub async fn produce(
                 drop(projections);
                 drop(results);
                 drop(context);
-                drop(data);
                 tokio::task::yield_now().await;
             }
         }

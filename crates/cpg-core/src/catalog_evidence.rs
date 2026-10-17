@@ -311,16 +311,12 @@ fn publish_frames<'a, 'sources>(
         Ok(invocations)
     })
 }
-fn build_artifact(
+async fn build_artifact(
     data: EvidenceData,
     budget: resources::ResourceBudget,
-) -> BoxFuture<'static, Result<build::EvidenceOutput, ModelError>> {
-    Box::pin(async move {
-        // Move the whole charged premise owner into the worker, never an uncharged clone.
-        tokio::task::spawn_blocking(move || build::build(&data, &budget))
-            .await
-            .map_err(ModelError::codec)?
-    })
+) -> Result<build::EvidenceOutput, ModelError> {
+    // Move the whole charged premise owner into the registered worker, never an uncharged clone.
+    crate::stage_runtime::borrowed_cpu("catalog_evidence", || build::build(&data, &budget))
 }
 fn emit_artifact<'a>(
     rows: build::EvidenceOutput,
@@ -345,7 +341,7 @@ async fn artifact_batch(
     scopes: &crate::catalog_evidence_scope::EvidenceScopes,
     roots: &[crate::consumed_rows::PreparedRoot],
     invocations: &Rows<Invocation>,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
 ) -> Result<(), ModelError> {
     let selected = scopes
         .edges
@@ -360,6 +356,8 @@ async fn artifact_batch(
         &mut |_, input, batch| union.visit_input(input, batch).map(|_| ()),
     )
     .await?;
+    let mut _jobs = None;
+    let mut work = Vec::new();
     for partition in 0..roots.len() {
         runtime.cancellation().check()?;
         let data = union.selected_copy(
@@ -367,7 +365,20 @@ async fn artifact_batch(
             &mut |table| selected.keys(partition, table),
             runtime.budget(),
         )?;
-        let rows = build_artifact(data, runtime.budget().clone()).await?;
+        let future = build_artifact(data, runtime.budget().clone());
+        if work.is_empty() {
+            _jobs = Some(runtime.budget().reserve(
+                "C1 owned artifact task list",
+                roots.len() * size_of_val(&future),
+            )?);
+            work.reserve_exact(roots.len());
+        }
+        work.push(future);
+    }
+    drop(union);
+    drop(selected);
+    let results = crate::owned_work::ordered(runtime, work).await?;
+    for rows in results {
         emit_artifact(rows, output, invocations, runtime.budget()).await?;
         tokio::task::yield_now().await;
     }
@@ -376,7 +387,7 @@ async fn artifact_batch(
 pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
@@ -384,7 +395,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let inventory = inventory_phase(&access, &session, &mut admission, runtime.budget()).await?;
     let invocations =

@@ -197,7 +197,7 @@ pub async fn evaluate_base(
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
     let mut admission = lctx_native::phase::wait(
         "base_coverage_admission",
-        runtime.coverage_admission(&sources),
+        runtime.coverage_admission(&access, &sources),
     )
     .await?;
     let session = lctx_native::phase::wait("base_input_session", access.session(runtime)).await?;
@@ -685,16 +685,17 @@ use lctx_model::domain::{
 pub async fn complete_base(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-    evaluations: Option<&Produced<production::ProducedEvaluations>>,
+    evaluations: Option<&Arc<Produced<production::ProducedEvaluations>>>,
 ) -> Result<Option<Produced<execution::completion_production::ProducedBodies>>, ModelError> {
     if *definition != execution::configuration::base_completion().1 {
         return Err(ModelError::Invalid(
             "base completion definition is not bound".into(),
         ));
     }
+    let evaluation_owner = evaluations.cloned();
     let evaluations = evaluations
         .map(|owner| owner.borrow(&access, runtime))
         .transpose()?;
@@ -706,7 +707,7 @@ pub async fn complete_base(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let data = execution::completion_production::CompletedEvaluations::new(budget);
     let scopes = if profile == Profile::Behavioral {
@@ -879,9 +880,6 @@ pub async fn complete_base(
         let mut outcome = records.outcome;
         if let Some(scopes) = &scopes {
             use futures::TryStreamExt;
-            let actual = evaluations.ok_or(ModelError::Conflict(
-                "base evaluation owner authority absent",
-            ))?;
             for body in [false, true] {
                 let mut roots = crate::sql::query(&session, &scopes.roots(frame.input, body)?)
                     .await
@@ -907,45 +905,79 @@ pub async fn complete_base(
                         let window = scopes
                             .window(body, &keys, budget, &runtime.cancellation())
                             .await?;
+                        let job_count = keys.len();
+                        let mut jobs = Vec::new();
+                        let mut jobs_charge = charged::StateCharge::new(
+                            runtime.budget(),
+                            "prepared work transport slots",
+                        );
                         for (partition, id) in keys.iter().enumerate() {
                             runtime.cancellation().check()?;
                             let selected =
                                 window.data(partition, budget, &runtime.cancellation())?;
-                            let records = if body {
-                                let callable: Id<normalized::entities::CallableEntity> =
-                                    execution_scope::nominal(id)?;
-                                let owner =
-                                    normalized::entities::EntityRef::Callable { callable }.id();
-                                let (records, owner) =
+                            let id = *id;
+                            let runtime = runtime.clone();
+                            let access = access.clone();
+                            let evaluation_owner = evaluation_owner.clone();
+                            let invocation = invocation.clone();
+                            let definition = definition.clone();
+                            let job = async move {
+                                let actual = evaluation_owner
+                                    .as_ref()
+                                    .ok_or(ModelError::Conflict(
+                                        "base evaluation owner authority absent",
+                                    ))?
+                                    .borrow(&access, &runtime)?;
+                                crate::stage_runtime::borrowed_cpu(access.name(), || {
+                                    if body {
+                                        let callable: Id<normalized::entities::CallableEntity> =
+                                            execution_scope::nominal(&id)?;
+                                        let owner =
+                                            normalized::entities::EntityRef::Callable { callable }
+                                                .id();
+                                        let (records, owner) =
                                     execution::completion_production::complete_body_produced(
                                         &selected,
                                         &invocation,
-                                        definition,
+                                        &definition,
                                         profile,
-                                        budget,
+                                        runtime.budget(),
                                         actual,
                                         owner,
                                     )?;
+                                        Ok((records, Some(owner)))
+                                    } else {
+                                        let statement: Id<source::Occurrence> =
+                                            execution_scope::nominal(&id)?;
+                                        let (records, _) =
+                                    execution::completion_production::complete_statement_produced(
+                                        &selected,
+                                        &invocation,
+                                        &definition,
+                                        profile,
+                                        runtime.budget(),
+                                        actual,
+                                        statement,
+                                    )?;
+                                        Ok((records, None))
+                                    }
+                                })
+                            };
+                            if jobs.is_empty() {
+                                jobs_charge
+                                    .grow(job_count.saturating_mul(std::mem::size_of_val(&job)))?;
+                                jobs.reserve_exact(job_count);
+                            }
+                            jobs.push(job);
+                        }
+                        for (records, owner) in crate::owned_work::ordered(runtime, jobs).await? {
+                            if let Some(owner) = owner {
                                 produced
                                     .as_mut()
                                     .expect("actual frame owner")
                                     .append(owner)?;
-                                records
-                            } else {
-                                let statement: Id<source::Occurrence> =
-                                    execution_scope::nominal(id)?;
-                                let (records, _) =
-                                    execution::completion_production::complete_statement_produced(
-                                        &selected,
-                                        &invocation,
-                                        definition,
-                                        profile,
-                                        budget,
-                                        actual,
-                                        statement,
-                                    )?;
-                                records
-                            };
+                            }
+
                             let add = |left: i64, right: i64| {
                                 left.checked_add(right).ok_or_else(|| {
                                     ModelError::Invalid(
@@ -1093,7 +1125,7 @@ pub async fn prepare_source_calls(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let mut data = SourceCallData::new(budget);
     let scopes = if profile == Profile::Behavioral {
@@ -1468,7 +1500,7 @@ pub async fn enrich(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let mut data = EnrichedData::new(budget);
     let scopes = if profile == Profile::Behavioral {

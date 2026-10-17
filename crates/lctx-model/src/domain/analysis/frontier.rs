@@ -107,9 +107,9 @@ impl<I: Record, O: Record, C: Record> OwnerRows<I, O, C> {
 }
 macro_rules! data{($($field:ident:$variant:ident:$owner:ident=>[$($method:ident),*],)*)=>{
  pub struct FrontierData{pub runs:Rows<ProviderRun>,pub inputs:Rows<InputRevision>,pub definitions:Rows<analysis::AnalysisDefinition>,pub analysis:Rows<AnalysisAssessment>,pub analysis_members:Rows<AnalysisMember>,frontier:analysis::expected::FrontierIndex,$($field:OwnerRows<analysis::$owner::AnalysisInvocation,analysis::$owner::AnalysisOutcome,analysis::$owner::AnalysisCoverage>,)*}
- impl FrontierData{pub fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.frontier.admit_uniform_owner(owner)}pub fn new(profile:Profile,b:&ResourceBudget)->Self{Self{runs:Rows::new(b),inputs:Rows::new(b),definitions:Rows::new(b),analysis:Rows::new(b),analysis_members:Rows::new(b),frontier:analysis::expected::FrontierIndex::new(profile,b),$($field:OwnerRows::new(b),)*}}
+ impl FrontierData{pub fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.frontier.admit_uniform_owner(owner)}pub fn new(profile:Profile,b:&ResourceBudget)->Self{let mut frontier=analysis::expected::FrontierIndex::new(profile,b);frontier.coalesce_selected_copies();Self{runs:Rows::new(b),inputs:Rows::new(b),definitions:Rows::new(b),analysis:Rows::new(b),analysis_members:Rows::new(b),frontier,$($field:OwnerRows::new(b),)*}}
  pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.frontier.visit(n,b)?;if n==ProviderRun::NAME{self.runs.decode(b)?;}if n==InputRevision::NAME{self.inputs.decode(b)?;}if n==analysis::AnalysisDefinition::NAME{self.definitions.decode(b)?;}if n==AnalysisAssessment::NAME{self.analysis.decode(b)?;}if n==AnalysisMember::NAME{self.analysis_members.decode(b)?;}$ (self.$field.visit(n,b)?;)*Ok(())}
- pub fn inputs(target:Target)->Vec<ValidationInput>{let mut out=vec![ValidationInput::of::<ProviderRun>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])];$(if owner_required(target,stringify!($owner)){out.extend([ValidationInput::of::<analysis::$owner::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::$owner::AnalysisOutcome>(&["id"]),ValidationInput::of::<analysis::$owner::AnalysisCoverage>(&["id"])]);$(out.extend(analysis::expected::inputs(Method::$method));)*})*if target==Target::Catalog{out.extend([ValidationInput::of::<AnalysisAssessment>(&["id"]),ValidationInput::of::<AnalysisMember>(&["id"])]);}out.sort_by_key(|i|i.name());out.dedup_by_key(|i|i.name());out}
+ pub fn inputs(target:Target)->Vec<ValidationInput>{let mut out=vec![ValidationInput::of::<ProviderRun>(&["id"]),ValidationInput::of::<analysis::AnalysisDefinition>(&["id"])];$(if owner_required(target,stringify!($owner)){out.extend([ValidationInput::of::<analysis::$owner::AnalysisInvocation>(&["id"]),ValidationInput::of::<analysis::$owner::AnalysisOutcome>(&["id"]),ValidationInput::of::<analysis::$owner::AnalysisCoverage>(&["id"])]);$(out.extend(analysis::expected::inputs(Method::$method));)*let kind=analysis::owner::AnalysisOwner::for_family(stringify!($owner)).expect("declared frontier family");if kind.can_be_wholly_unrequested(){out.push(ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"]).at_epoch(kind.boundary().expect("compact owner publication boundary")));}})*if target==Target::Catalog{out.extend([ValidationInput::of::<AnalysisAssessment>(&["id"]),ValidationInput::of::<AnalysisMember>(&["id"])]);}out.sort_by_key(|i|(i.name(),i.prefix()));out.dedup_by_key(|i|(i.name(),i.prefix()));out}
  }};
 }
 owners!(data);
@@ -336,7 +336,7 @@ fn checks(target: Target) -> Vec<PublicationInvariant> {
         ]),
     };
     vec![PublicationInvariant {
-        revision: 1,
+        revision: 2,
         name: match target {
             Target::Analysis => "complete_analysis_frontier",
             Target::Catalog => "complete_catalog_frontier",
@@ -502,7 +502,65 @@ mod tests {
         attribution::{CoverageStatus, FactFamily, ProviderCoverage},
         normalized::coverage::{Capability, NormalizationComputation, NormalizationCoverage},
         source::CoverageScope,
+        stages::PublicationBoundary,
     };
+    #[test]
+    fn frontier_roles_retain_native_facts_and_each_required_compact_output() {
+        for target in [Target::Analysis, Target::Catalog] {
+            let inputs = FrontierData::inputs(target);
+            let actual = inputs
+                .iter()
+                .filter(|input| input.name() == uniform_outcome::UniformNotRequested::NAME)
+                .map(ValidationInput::prefix)
+                .collect::<std::collections::BTreeSet<_>>();
+            let mut expected = std::collections::BTreeSet::from([Some(PublicationBoundary::Facts)]);
+            expected.extend(
+                analysis::owner::AnalysisOwner::ALL
+                    .into_iter()
+                    .filter(|owner| owner.can_be_wholly_unrequested())
+                    .map(|owner| owner.boundary()),
+            );
+            assert_eq!(actual, expected);
+        }
+    }
+    #[test]
+    fn frontier_compact_copies_preserve_present_empty_domain_and_missing_result() {
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let (input, context) = uniform_outcome::test_support::input_context();
+        let kind = analysis::owner::AnalysisOwner::Local;
+        let fixture = uniform_outcome::test_support::empty_owner(kind, &input, &context, &budget);
+        let mut data = FrontierData::new(Profile::Catalog, &budget);
+        data.admit_uniform_owner(&fixture.owner).unwrap();
+        for (name, batch) in fixture
+            .batches
+            .iter()
+            .filter(|(name, _)| *name != uniform_outcome::UniformNotRequested::NAME)
+        {
+            data.visit(name, batch).unwrap();
+        }
+        assert!(
+            data.frontier
+                .uniform_analysis(kind, input.id(), context.id(), &data.definitions, &budget)
+                .unwrap()
+                .is_none()
+        );
+        let (_, compact) = fixture
+            .batches
+            .iter()
+            .find(|(name, _)| *name == uniform_outcome::UniformNotRequested::NAME)
+            .unwrap();
+        data.visit(uniform_outcome::UniformNotRequested::NAME, compact)
+            .unwrap();
+        data.visit(uniform_outcome::UniformNotRequested::NAME, compact)
+            .unwrap();
+        let present = data
+            .frontier
+            .uniform_analysis(kind, input.id(), context.id(), &data.definitions, &budget)
+            .unwrap()
+            .unwrap();
+        assert_eq!(present.members().count(), fixture.domain.members().count());
+        assert_eq!(present.members().count(), 0);
+    }
     fn nominal<T>(n: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
             _,

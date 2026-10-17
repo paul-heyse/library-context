@@ -127,20 +127,21 @@ async fn publish_ready(
     }
     Ok(())
 }
-/// Each rich render is checked and published while live; only charged compact use expectations
-/// and the Session's exact pending request chunk survive across roots in a render window.
+/// A bounded window owns independent private renders. Retention, embedding-session mutations
+/// and mandatory publications consume those charged results in canonical root order.
 pub async fn produce(
     access: CompletedInputs,
-    mut output: ProducerOutput,
-    runtime: &Workspace,
+    output: ProducerOutput,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
     embedder: Option<&dyn Embedder>,
     cache: Option<Arc<dyn embedding::cache::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
+    let output = crate::owned_work::Shared::new(output, runtime.budget())?;
     let b = runtime.budget();
     let sources =
         analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), b)?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let mut preparation =
         retrieval_preparation::Preparation::prepare(&access, runtime, model, &mut admission)
             .await?;
@@ -255,6 +256,7 @@ pub async fn produce(
         )
         .await?;
     }
+    let preparation = crate::owned_work::Shared::new(preparation, b)?;
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(b, "retrieval-native-frames");
     for run in preparation.metadata.source.facts.runs.iter() {
@@ -327,31 +329,40 @@ pub async fn produce(
                         "retrieval-render-root-window",
                         (end - start) * size_of::<[u8; 16]>(),
                     )?;
-                    let keys = (start..end)
-                        .map(|index| ids.value(index).try_into().map_err(ModelError::codec))
-                        .collect::<Result<Vec<[u8; 16]>, ModelError>>()?;
+                    let mut keys = Vec::<[u8; 16]>::with_capacity(end - start);
+                    for index in start..end {
+                        keys.push(ids.value(index).try_into().map_err(ModelError::codec)?);
+                    }
                     let window = preparation
                         .render_window(&keys, brief, b, &runtime.cancellation())
                         .await?;
-                    let mut pending = PendingUses::new(b);
+                    let mut _jobs = None;
+                    let mut work = Vec::new();
                     for (partition, root) in keys.iter().enumerate() {
-                        let rendered = window
-                            .render(partition, b, &runtime.cancellation(), runtime, &output)
-                            .await;
-                        let (render, mandatory) = match rendered {
-                            Err(ModelError::Resource { .. })
-                                if !pending.is_empty() && service.is_some() =>
-                            {
-                                let service = service.as_mut().expect("selected service");
-                                service.flush_ready().await.map_err(ModelError::codec)?;
-                                publish_ready(&mut pending, &output, service, &mut disposition)
-                                    .await?;
-                                window
-                                    .render(partition, b, &runtime.cancellation(), runtime, &output)
-                                    .await?
-                            }
-                            result => result?,
+                        let render = window.data(partition, b, &runtime.cancellation())?;
+                        let preparation = preparation.clone();
+                        let runtime = runtime.clone();
+                        let output = output.clone();
+                        let root = *root;
+                        let future = async move {
+                            preparation
+                                .render_partition(render, root, brief, &runtime, &output)
+                                .await
                         };
+                        if work.is_empty() {
+                            _jobs = Some(b.reserve(
+                                "retrieval owned partition task list",
+                                keys.len() * size_of_val(&future),
+                            )?);
+                            work.reserve_exact(keys.len());
+                        }
+                        work.push(future);
+                    }
+                    drop(window);
+                    let rendered = crate::owned_work::ordered(runtime, work).await?;
+                    let mut pending = PendingUses::new(b);
+                    for (root, rendered) in keys.iter().zip(rendered) {
+                        let (render, mandatory) = rendered.retain(runtime, &output).await?;
                         if let Some(service) = service.as_mut() {
                             for semantic in mandatory.windows.iter() {
                                 if semantic.availability
@@ -406,7 +417,7 @@ pub async fn produce(
                         }
                         async {
                             let phase = lctx_native::phase::Phase::begin("retrieval_required_publication");
-                            let result = retrieval_preparation::publish_mandatory(&mut output, &mandatory).await;
+                            let result = retrieval_preparation::publish_mandatory(&output, &mandatory).await;
                             phase.finish_result(&result);
                             result
                         }.instrument(tracing::info_span!(target:"lctx_phase", "retrieval_publication", brief, ?root)).await?;
@@ -430,7 +441,7 @@ pub async fn produce(
     }
     drop(service);
     // Move only prepared metadata into the finite frame checker, never accumulate root payloads.
-    data.render = preparation.metadata;
+    data.render = crate::owned_work::Shared::into_inner(preparation)?.metadata;
     data.verify_frames(&invocations, &outcomes, &outcomes, b)?;
     for source in data.sources.iter() {
         output.push(source.clone()).await?;
@@ -484,7 +495,9 @@ pub async fn produce(
     drop(admission);
     drop(sources);
     drop(charge);
-    output.finish(ProviderOutcome::Complete).await
+    crate::owned_work::Shared::into_inner(output)?
+        .finish(ProviderOutcome::Complete)
+        .await
 }
 
 #[cfg(test)]

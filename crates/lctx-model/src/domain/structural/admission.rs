@@ -912,7 +912,7 @@ impl InvariantCheck for SourceCheck {
 pub(crate) fn invariants() -> Vec<Invariant> {
     vec![
         Invariant {
-            revision: 2,
+            revision: 3,
             name: "structural_frame_fidelity",
             purpose: InvariantPurpose::Admission,
             inputs: uniform_outcome::AnalysisUniformConsumer::inputs(

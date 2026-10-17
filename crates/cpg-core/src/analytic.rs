@@ -4,7 +4,7 @@ use crate::{
     analysis_graphs::PreparedGraphs,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::future::BoxFuture;
+use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use lctx_model::domain::{
     analysis::{self, analytic as owner},
     analytics::{self as semantic, build, frames},
@@ -187,16 +187,16 @@ fn emit_context<'a>(
 pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
-    graphs: Option<&PreparedGraphs>,
+    graphs: Option<&Arc<PreparedGraphs>>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
         access.profile(),
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let mut data = build::Data::new(runtime.budget());
     let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
@@ -267,6 +267,10 @@ pub async fn produce(
                 ),
                 None => None,
             };
+            let job_count = selected.len();
+            let mut jobs = Vec::new();
+            let mut jobs_charge =
+                charged::StateCharge::new(runtime.budget(), "prepared work transport slots");
             for (partition, sf) in selected.into_iter().enumerate() {
                 let mut data = build::Data::new(runtime.budget());
                 if let Some(window) = &window {
@@ -356,32 +360,57 @@ pub async fn produce(
                     structural: sf.id(),
                     configuration: settings.id(),
                 };
-                let produced = if requested {
-                    let graph = graphs
-                        .ok_or(ModelError::Schema("requested analytic graph owner"))?
-                        .graph(
-                            &access,
-                            runtime,
-                            projection::normalization::ProjectionKey {
-                                input: parent.input,
-                                context: parent.context,
-                                name: projection::ProjectionName::CallableInvocation,
-                            },
-                        )?;
-                    crate::stage_runtime::borrowed_cpu(access.name(), || {
-                        build::produce(&data, &frame, &context.invocations, graph, runtime.budget())
-                    })?
-                } else {
-                    build::not_requested(
-                        &data,
-                        &frame,
-                        &context.invocations,
-                        runtime.budget(),
-                        semantic::policy::RETAINED.attributes,
-                    )?
+                let frame_key = projection::normalization::ProjectionKey {
+                    input: parent.input,
+                    context: parent.context,
+                    name: projection::ProjectionName::CallableInvocation,
                 };
-                results.extend(produced)?;
-
+                let graphs = graphs.cloned();
+                let runtime = runtime.clone();
+                let access = access.clone();
+                let job = async move {
+                    let produced = if requested {
+                        let graph = graphs
+                            .as_ref()
+                            .ok_or(ModelError::Schema("requested analytic graph owner"))?
+                            .graph(&access, &runtime, frame_key)?;
+                        let preparation =
+                            crate::stage_runtime::borrowed_cpu(access.name(), || {
+                                build::prepare(
+                                    &data,
+                                    &frame,
+                                    &context.invocations,
+                                    graph,
+                                    runtime.budget(),
+                                    semantic::policy::RETAINED.attributes,
+                                )
+                            })?;
+                        let preparation =
+                            run_techniques(preparation, &runtime, access.name()).await?;
+                        crate::stage_runtime::borrowed_cpu(access.name(), || {
+                            preparation.finish(&data)
+                        })?
+                    } else {
+                        build::not_requested(
+                            &data,
+                            &frame,
+                            &context.invocations,
+                            runtime.budget(),
+                            semantic::policy::RETAINED.attributes,
+                        )?
+                    };
+                    results.extend(produced)?;
+                    Ok((data, context, results, receipts, projections))
+                };
+                if jobs.is_empty() {
+                    jobs_charge.grow(job_count.saturating_mul(std::mem::size_of_val(&job)))?;
+                    jobs.reserve_exact(job_count);
+                }
+                jobs.push(job);
+            }
+            for (data, context, results, receipts, projections) in
+                crate::owned_work::ordered(runtime, jobs).await?
+            {
                 emit_results(&results, &output).await?;
                 emit(&results.qualifications, &output).await?;
                 if !results.qualifications.is_empty() {
@@ -443,6 +472,92 @@ pub async fn produce(
     drop(admission);
     drop(sources);
     output.finish(ProviderOutcome::Complete).await
+}
+
+/// The model owns this finite technique DAG. Private completion immediately unlocks
+/// its dependants; unrelated slow ranking/concept work is not a community barrier.
+async fn run_techniques(
+    mut preparation: build::TechniquePreparation,
+    runtime: &Arc<Workspace>,
+    name: &'static str,
+) -> Result<build::TechniquePreparation, ModelError> {
+    const TECHNIQUES: usize = 6;
+    type Delivery = BoxFuture<'static, (usize, Result<build::TechniqueOutput, ModelError>)>;
+    let _delivery = runtime.budget().reserve(
+        "analytic private technique delivery",
+        TECHNIQUES * (size_of::<Delivery>() + size_of::<Option<build::TechniqueOutput>>() + 128),
+    )?;
+    let mut pending = FuturesUnordered::<Delivery>::new();
+    let mut failures = std::collections::BTreeMap::new();
+    loop {
+        if failures.is_empty() {
+            match preparation.ready() {
+                Ok(ready) => {
+                    for job in ready {
+                        let ordinal = job.ordinal();
+                        if ordinal >= TECHNIQUES {
+                            failures.insert(
+                                ordinal,
+                                ModelError::Conflict("analytic technique ordinal"),
+                            );
+                            runtime.cancellation().cancel();
+                            break;
+                        }
+                        if let Err(error) = runtime.cancellation().check() {
+                            failures.insert(ordinal, error);
+                            break;
+                        }
+                        match runtime.spawn_stage(async move {
+                            crate::stage_runtime::borrowed_cpu(name, || job.run())
+                        }) {
+                            Ok(task) => pending.push(async move { (ordinal, task.await) }.boxed()),
+                            Err(error) => {
+                                failures.insert(ordinal, error);
+                                runtime.cancellation().cancel();
+                                break;
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    failures.insert(TECHNIQUES, error);
+                    runtime.cancellation().cancel();
+                }
+            }
+        }
+        let Some((ordinal, result)) = pending.next().await else {
+            break;
+        };
+        match result {
+            Ok(output) if failures.is_empty() => {
+                if let Err(error) = preparation.integrate(output) {
+                    failures.insert(ordinal, error);
+                    runtime.cancellation().cancel();
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                failures.insert(ordinal, error);
+                runtime.cancellation().cancel();
+            }
+        }
+    }
+    if !failures.is_empty() {
+        let primary = failures.iter()
+            .find(|(_, error)| !matches!(error, ModelError::Invalid(message) if message == "compilation cancelled"))
+            .or_else(|| failures.first_key_value())
+            .map(|(ordinal, _)| *ordinal).expect("technique failure");
+        let primary = failures
+            .remove(&primary)
+            .expect("selected technique failure");
+        let mut terminal = completion::Completion::default();
+        for (_, error) in failures {
+            terminal.step("analytic peer technique completion", Err(error));
+        }
+        return completion::complete(Err(primary), terminal);
+    }
+    runtime.cancellation().check()?;
+    Ok(preparation)
 }
 
 #[cfg(test)]

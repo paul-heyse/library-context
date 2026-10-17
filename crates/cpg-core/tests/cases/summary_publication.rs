@@ -357,7 +357,10 @@ async fn assert_catalog_compact_summary(fixture: &catalog_runtime::Fixture) {
             .unwrap();
     // This consumer obtains actual selected native owner proofs. Descriptor rows
     // alone cannot establish a compact NotRequested result.
-    let mut coverage = workspace.coverage_admission(&sources).await.unwrap();
+    let mut coverage = workspace
+        .coverage_admission(&access, &sources)
+        .await
+        .unwrap();
     macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(
         let permit = access.read::<$ty>().unwrap();
         let mut batches = access.relation::<$ty>().unwrap().batches_async().await.unwrap();

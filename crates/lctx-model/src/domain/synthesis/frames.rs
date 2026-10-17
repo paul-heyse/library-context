@@ -486,7 +486,7 @@ pub fn invariants() -> Vec<Invariant> {
     }
     let invariants = vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 2,
+        revision: 3,
         name: "synthesis_fixed_native_frames",
         inputs,
         create: std::sync::Arc::new(|b| {

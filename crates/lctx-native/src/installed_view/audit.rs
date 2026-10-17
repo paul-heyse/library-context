@@ -6,7 +6,7 @@ use crate::{
     completed_rows::{canonical_backing_endpoints, validate_state_row},
     control::ExpectedRecord,
 };
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 #[cfg(test)]
 use lctx_model::domain::recovery_closure::{RecoveryClosure, RecoveryTraversal};
 use lctx_model::domain::{
@@ -122,6 +122,76 @@ struct WorkerDrain {
         crate::acknowledged_candidates::BlockingTerminal,
         Box<dyn d::resources::Reservation>,
     )>,
+}
+/// Bounded operation-owned waiters, not another executor. `run_work` retains the
+/// actual worker, pin and capture charges if this window's waiter disappears.
+/// FuturesOrdered polls peers together but delivers failures in contributor order.
+struct ContributorWindow<'a> {
+    pending:
+        futures::stream::FuturesOrdered<futures::future::BoxFuture<'a, Result<(), ModelError>>>,
+    charge: StateCharge,
+    budget: ResourceBudget,
+}
+impl<'a> ContributorWindow<'a> {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            pending: futures::stream::FuturesOrdered::new(),
+            charge: StateCharge::new(budget, "contributor window owned waiters"),
+            budget: budget.clone(),
+        }
+    }
+    async fn push<F>(&mut self, future: F) -> Result<(), ModelError>
+    where
+        F: std::future::Future<Output = Result<(), ModelError>> + Send + 'a,
+    {
+        if self.pending.len() >= crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Limit {
+                owner: "contributor window",
+                limit: "waiters",
+                observed: self.pending.len() + 1,
+                bound: crate::loader::NATIVE_WINDOW_ROWS,
+            });
+        }
+        // The concrete future includes its owned closure/captures. ExactWork and
+        // prepared rows retain their separate deep charges; this covers the box,
+        // ordered delivery node and the small terminal result slot as well.
+        let bytes = std::mem::size_of::<F>().saturating_add(1024);
+        match self.charge.grow(bytes) {
+            Err(ModelError::Resource { .. }) if !self.pending.is_empty() => {
+                self.drain().await?;
+                self.charge.grow(bytes)?;
+            }
+            result => result?,
+        }
+        self.pending.push_back(future.boxed());
+        Ok(())
+    }
+    async fn exact_capture(
+        &mut self,
+        expected: &ExpectedRecord,
+    ) -> Result<(ContentHash, ExactWork), ModelError> {
+        match exact_work(expected, &self.budget) {
+            Err(ModelError::Resource { .. }) if !self.pending.is_empty() => {
+                // Only this known pre-launch capture reservation is retried.
+                // Dynamic native/kernel refusals surface through drain unchanged.
+                self.drain().await?;
+                exact_work(expected, &self.budget)
+            }
+            result => result,
+        }
+    }
+    async fn drain(&mut self) -> Result<(), ModelError> {
+        let mut terminal = d::completion::Completion::default();
+        while let Some(result) = self.pending.next().await {
+            terminal.step("independent contributor preparation", result);
+        }
+        self.pending = futures::stream::FuturesOrdered::new();
+        self.charge = StateCharge::new(&self.budget, "contributor window owned waiters");
+        d::completion::complete(Ok(()), terminal)
+    }
+    async fn finish(mut self) -> Result<(), ModelError> {
+        self.drain().await
+    }
 }
 #[derive(Clone)]
 pub struct InstallationAudit {
@@ -2849,69 +2919,85 @@ async fn audit_memberships_demand(
     full: bool,
 ) -> Result<(), ModelError> {
     audit.check(reader, budget)?;
-    for expected in closure.contributors.values() {
-        if let Some(cached) = audit.contributors.get(expected.record()) {
-            if cached.incarnation() != expected.incarnation() || cached.row() != expected.row() {
-                return Err(ModelError::Conflict(
-                    "reused installed contributor premise changed",
-                ));
-            }
-            audit.check(reader, budget)?;
-            continue;
-        }
-        let protected = expected.clone();
-        let (key, input) = exact_work(expected, budget)?;
-        let budget = budget.clone();
-        audit
-            .run_work((0, key), move |owner| {
-                async move {
-                    let reader = NativeReader::private(owner.client.clone()).with_budget(&budget);
-                    let result = async {
-                        let expected = worker_expected(&reader, &input, &budget).await?;
-                        let descriptor = descriptor::<CompletedContribution>(expected.row())?;
-                        let fresh = audit_one_contributor(
-                            &reader,
-                            &descriptor,
-                            &expected,
-                            &budget,
-                            &owner,
-                            full,
-                        )
-                        .await?;
-                        Ok(fresh.map(|products| (protected, products)))
-                    }
-                    .await;
-                    let mut terminal = d::completion::Completion::default();
-                    terminal.step(
-                        "complete contributor worker reader close",
-                        reader.close().await,
-                    );
-                    let prepared = d::completion::complete(result, terminal)?;
-                    owner.pin.ensure_live()?;
-                    if let Some((prepared, (membership, logical))) = prepared {
-                        owner
-                            .membership_contributors
-                            .insert(prepared.record().clone(), membership);
-                        if let Some(logical) = logical {
-                            owner
-                                .logical_contributors
-                                .insert(prepared.record().clone(), logical);
-                            owner
-                                .logical_contribution_observations
-                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        }
-                        owner
-                            .contributors
-                            .insert_arc(prepared.record().clone(), prepared);
-                        owner
-                            .contribution_observations
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    Ok(())
+    let mut contributors = closure.contributors.values().peekable();
+    while contributors.peek().is_some() {
+        let mut window = ContributorWindow::new(budget);
+        for expected in contributors
+            .by_ref()
+            .take(crate::loader::NATIVE_WINDOW_ROWS)
+        {
+            if let Some(cached) = audit.contributors.get(expected.record()) {
+                if cached.incarnation() != expected.incarnation() || cached.row() != expected.row()
+                {
+                    return Err(ModelError::Conflict(
+                        "reused installed contributor premise changed",
+                    ));
                 }
-                .boxed()
-            })
-            .await?;
+                audit.check(reader, budget)?;
+                continue;
+            }
+            let protected = expected.clone();
+            let (key, input) = window.exact_capture(expected).await?;
+            let budget = budget.clone();
+            window
+                .push(async move {
+                    audit
+                        .run_work((0, key), move |owner| {
+                            async move {
+                                let reader = NativeReader::private(owner.client.clone())
+                                    .with_budget(&budget);
+                                let result = async {
+                                    let expected =
+                                        worker_expected(&reader, &input, &budget).await?;
+                                    let descriptor =
+                                        descriptor::<CompletedContribution>(expected.row())?;
+                                    let fresh = audit_one_contributor(
+                                        &reader,
+                                        &descriptor,
+                                        &expected,
+                                        &budget,
+                                        &owner,
+                                        full,
+                                    )
+                                    .await?;
+                                    Ok(fresh.map(|products| (protected, products)))
+                                }
+                                .await;
+                                let mut terminal = d::completion::Completion::default();
+                                terminal.step(
+                                    "complete contributor worker reader close",
+                                    reader.close().await,
+                                );
+                                let prepared = d::completion::complete(result, terminal)?;
+                                owner.pin.ensure_live()?;
+                                if let Some((prepared, (membership, logical))) = prepared {
+                                    owner
+                                        .membership_contributors
+                                        .insert(prepared.record().clone(), membership);
+                                    if let Some(logical) = logical {
+                                        owner
+                                            .logical_contributors
+                                            .insert(prepared.record().clone(), logical);
+                                        owner
+                                            .logical_contribution_observations
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                    owner
+                                        .contributors
+                                        .insert_arc(prepared.record().clone(), prepared);
+                                    owner
+                                        .contribution_observations
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                Ok(())
+                            }
+                            .boxed()
+                        })
+                        .await
+                })
+                .await?;
+        }
+        window.finish().await?;
     }
     Ok(())
 }
@@ -5164,41 +5250,60 @@ async fn audit_aliases_inner(
     let mut seed_runs = Vec::new();
     let mut alias_runs = Vec::new();
     let mut run_charge = StateCharge::new(budget, "exact contributor local alias run handles");
-    for expected in closure.contributors.values() {
-        if let Some(previous) = audit.local_aliases.get(expected.record()) {
-            audit.check(_reader, budget)?;
-            run_charge
-                .grow(std::mem::size_of::<crate::ordered_rows::PreparedRows>().saturating_mul(4))?;
-            seed_runs.push(previous.0.clone());
-            alias_runs.push(previous.1.clone());
-            continue;
+    let mut contributors = closure.contributors.values().peekable();
+    while contributors.peek().is_some() {
+        let mut window = ContributorWindow::new(budget);
+        for expected in contributors
+            .by_ref()
+            .take(crate::loader::NATIVE_WINDOW_ROWS)
+        {
+            if audit.local_aliases.contains_key(expected.record()) {
+                audit.check(_reader, budget)?;
+                continue;
+            }
+            let (key, input) = window.exact_capture(expected).await?;
+            let worker_budget = budget.clone();
+            window
+                .push(async move {
+                    audit
+                        .run_work((2, key), move |owner| {
+                            async move {
+                                let reader = NativeReader::private(owner.client.clone())
+                                    .with_budget(&worker_budget);
+                                let result = async {
+                                    let expected =
+                                        worker_expected(&reader, &input, &worker_budget).await?;
+                                    prepare_local_aliases(
+                                        &reader,
+                                        &expected,
+                                        &worker_budget,
+                                        &owner,
+                                        true,
+                                    )
+                                    .await
+                                }
+                                .await;
+                                let mut terminal = Completion::default();
+                                terminal
+                                    .step("local alias worker reader close", reader.close().await);
+                                let prepared = complete(result, terminal)?;
+                                owner.pin.ensure_live()?;
+                                if let Some(prepared) = prepared {
+                                    owner.charge.grow(local_alias_cache_bytes())?;
+                                    owner.local_aliases.insert(input.record.clone(), prepared);
+                                }
+                                Ok(())
+                            }
+                            .boxed()
+                        })
+                        .await
+                })
+                .await?;
         }
-        let (key, input) = exact_work(expected, budget)?;
-        let worker_budget = budget.clone();
-        audit
-            .run_work((2, key), move |owner| {
-                async move {
-                    let reader =
-                        NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
-                    let result = async {
-                        let expected = worker_expected(&reader, &input, &worker_budget).await?;
-                        prepare_local_aliases(&reader, &expected, &worker_budget, &owner, true)
-                            .await
-                    }
-                    .await;
-                    let mut terminal = Completion::default();
-                    terminal.step("local alias worker reader close", reader.close().await);
-                    let prepared = complete(result, terminal)?;
-                    owner.pin.ensure_live()?;
-                    if let Some(prepared) = prepared {
-                        owner.charge.grow(local_alias_cache_bytes())?;
-                        owner.local_aliases.insert(input.record.clone(), prepared);
-                    }
-                    Ok(())
-                }
-                .boxed()
-            })
-            .await?;
+        window.finish().await?;
+    }
+    // Completion order does not choose union/reachability input order.
+    for expected in closure.contributors.values() {
         let previous = audit
             .local_aliases
             .get(expected.record())
@@ -6552,73 +6657,90 @@ async fn prepare_closure_in_context(
             .saturating_mul(std::mem::size_of::<LogicalContributorRows>()),
     )?;
     let mut result = Vec::with_capacity(closure.contributors.len());
+    let mut contributors = closure.contributors.values().peekable();
+    while contributors.peek().is_some() {
+        let mut window = ContributorWindow::new(budget);
+        for expected in contributors
+            .by_ref()
+            .take(crate::loader::NATIVE_WINDOW_ROWS)
+        {
+            let cached = audit
+                .contributors
+                .get(expected.record())
+                .ok_or(ModelError::Conflict(
+                    "preparation requires protected completed contributor",
+                ))?;
+            if cached.incarnation() != expected.incarnation() || cached.row() != expected.row() {
+                return Err(ModelError::Conflict(
+                    "preparation exact contributor premise",
+                ));
+            }
+            if audit.logical_contributors.contains_key(expected.record()) {
+                audit.check(reader, budget)?;
+                continue;
+            }
+            let (key, input) = window.exact_capture(expected).await?;
+            let worker_budget = budget.clone();
+            window
+                .push(async move {
+                    audit
+                        .run_work((1, key), move |owner| {
+                            async move {
+                                let reader = NativeReader::private(owner.client.clone())
+                                    .with_budget(&worker_budget);
+                                let result = async {
+                                    let expected =
+                                        worker_expected(&reader, &input, &worker_budget).await?;
+                                    if owner.logical_contributors.contains_key(expected.record()) {
+                                        return Ok(None);
+                                    }
+                                    let descriptor =
+                                        descriptor::<CompletedContribution>(expected.row())?;
+                                    let owners =
+                                        BTreeMap::from([(expected.record().clone(), descriptor)]);
+                                    let prepared = prepare_logical_contributor(
+                                        &reader,
+                                        &expected,
+                                        &owners,
+                                        &worker_budget,
+                                        &owner,
+                                    )
+                                    .await?;
+                                    worker_expected(&reader, &input, &worker_budget).await?;
+                                    owner.ensure_context(&reader, &worker_budget).await?;
+                                    owner.charge.grow(
+                                        std::mem::size_of::<(RecordId, LogicalContributorRows)>()
+                                            .saturating_mul(11)
+                                            .saturating_add(1024),
+                                    )?;
+                                    Ok(Some((expected.record().clone(), prepared)))
+                                }
+                                .await;
+                                let mut terminal = d::completion::Completion::default();
+                                terminal.step(
+                                    "logical contributor worker reader close",
+                                    reader.close().await,
+                                );
+                                let prepared = d::completion::complete(result, terminal)?;
+                                owner.pin.ensure_live()?;
+                                if let Some((record, prepared)) = prepared {
+                                    owner.logical_contributors.insert(record, prepared);
+                                    owner
+                                        .logical_contribution_observations
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                Ok(())
+                            }
+                            .boxed()
+                        })
+                        .await
+                })
+                .await?;
+        }
+        window.finish().await?;
+    }
+    // Canonical contributor order, independent of actual worker completion.
     for expected in closure.contributors.values() {
-        let cached = audit
-            .contributors
-            .get(expected.record())
-            .ok_or(ModelError::Conflict(
-                "preparation requires protected completed contributor",
-            ))?;
-        if cached.incarnation() != expected.incarnation() || cached.row() != expected.row() {
-            return Err(ModelError::Conflict(
-                "preparation exact contributor premise",
-            ));
-        }
-        if let Some(prepared) = audit.logical_contributors.get(expected.record()) {
-            audit.check(reader, budget)?;
-            result.push(prepared.as_ref().clone());
-            continue;
-        }
-        let (key, input) = exact_work(expected, budget)?;
-        let worker_budget = budget.clone();
-        audit
-            .run_work((1, key), move |owner| {
-                async move {
-                    let reader =
-                        NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
-                    let result = async {
-                        let expected = worker_expected(&reader, &input, &worker_budget).await?;
-                        if owner.logical_contributors.contains_key(expected.record()) {
-                            return Ok(None);
-                        }
-                        let descriptor = descriptor::<CompletedContribution>(expected.row())?;
-                        let owners = BTreeMap::from([(expected.record().clone(), descriptor)]);
-                        let prepared = prepare_logical_contributor(
-                            &reader,
-                            &expected,
-                            &owners,
-                            &worker_budget,
-                            &owner,
-                        )
-                        .await?;
-                        worker_expected(&reader, &input, &worker_budget).await?;
-                        owner.ensure_context(&reader, &worker_budget).await?;
-                        owner.charge.grow(
-                            std::mem::size_of::<(RecordId, LogicalContributorRows)>()
-                                .saturating_mul(11)
-                                .saturating_add(1024),
-                        )?;
-                        Ok(Some((expected.record().clone(), prepared)))
-                    }
-                    .await;
-                    let mut terminal = d::completion::Completion::default();
-                    terminal.step(
-                        "logical contributor worker reader close",
-                        reader.close().await,
-                    );
-                    let prepared = d::completion::complete(result, terminal)?;
-                    owner.pin.ensure_live()?;
-                    if let Some((record, prepared)) = prepared {
-                        owner.logical_contributors.insert(record, prepared);
-                        owner
-                            .logical_contribution_observations
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    Ok(())
-                }
-                .boxed()
-            })
-            .await?;
         result.push(
             audit
                 .logical_contributors
@@ -7578,6 +7700,206 @@ mod shared_preparation_controls {
     async fn join(audit: &InstallationAudit) {
         audit.drain_workers().await.unwrap();
         audit.closed.store(true, Ordering::Release);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn contributor_window_polls_blocked_peers_and_reports_reverse_failures_in_source_order() {
+        let audit = test_audit(1 << 20);
+        let first_release = Arc::new(tokio::sync::Semaphore::new(0));
+        let (second_done, observed) = tokio::sync::oneshot::channel();
+        let mut window = ContributorWindow::new(&audit.budget);
+        let first = audit.clone();
+        let release = first_release.clone();
+        window
+            .push(async move {
+                first
+                    .run_work((0, ContentHash([61; 32])), move |_| {
+                        async move {
+                            let _permit = release.acquire().await.unwrap();
+                            Err(ModelError::Conflict("first contributor terminal refusal"))
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+        let second = audit.clone();
+        window
+            .push(async move {
+                second
+                    .run_work((0, ContentHash([62; 32])), move |_| {
+                        async move {
+                            let _ = second_done.send(());
+                            Err(ModelError::Conflict("second contributor terminal refusal"))
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+        let finishing = tokio::spawn(async move { window.finish().await });
+        tokio::time::timeout(std::time::Duration::from_secs(30), observed)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !finishing.is_finished(),
+            "late peer failure cannot abandon accepted first worker"
+        );
+        first_release.add_permits(1);
+        let error = finishing.await.unwrap().unwrap_err();
+        let text = error.to_string();
+        assert!(
+            text.find("first contributor terminal refusal").unwrap()
+                < text.find("second contributor terminal refusal").unwrap()
+        );
+        assert!(error.permits_storage_cleanup());
+        assert!(audit.work.workers.lock().unwrap().is_empty());
+        assert!(
+            audit.work.flights.lock().unwrap().is_empty(),
+            "failed observations are never reusable"
+        );
+        join(&audit).await;
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn contributor_window_cancelled_waiter_retains_actual_capture_until_worker_drain() {
+        let audit = test_audit(1 << 20);
+        let (started, observed) = tokio::sync::oneshot::channel();
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let mut window = ContributorWindow::new(&audit.budget);
+        let owner = audit.clone();
+        let gate = release.clone();
+        let capture = audit
+            .budget
+            .reserve("contributor lifetime control", 16384)
+            .unwrap();
+        window
+            .push(async move {
+                owner
+                    .run_work((0, ContentHash([63; 32])), move |_| {
+                        async move {
+                            let _capture = capture;
+                            let _ = started.send(());
+                            let _permit = gate.acquire().await.unwrap();
+                            Ok(())
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
+            .await
+            .unwrap();
+        let waiter = tokio::spawn(async move { window.finish().await });
+        observed.await.unwrap();
+        waiter.abort();
+        let _ = waiter.await;
+        assert!(
+            audit.budget.reserved() >= 16384,
+            "capture follows actual accepted worker"
+        );
+        let closing = {
+            let audit = audit.clone();
+            tokio::spawn(async move { audit.drain_workers().await })
+        };
+        tokio::task::yield_now().await;
+        assert!(!closing.is_finished());
+        release.add_permits(1);
+        closing.await.unwrap().unwrap();
+        assert!(!audit.pin.test_uncertain());
+        audit.closed.store(true, Ordering::Release);
+        let budget = audit.budget.clone();
+        drop(audit);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn contributor_window_admission_refusal_runs_no_unadmitted_work() {
+        let audit = test_audit(1);
+        let calls = Arc::new(AtomicU64::new(0));
+        let seen = calls.clone();
+        let mut window = ContributorWindow::new(&audit.budget);
+        assert!(matches!(
+            window
+                .push(async move {
+                    seen.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                })
+                .await,
+            Err(ModelError::Resource { .. })
+        ));
+        window.finish().await.unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert!(audit.work.workers.lock().unwrap().is_empty());
+        join(&audit).await;
+        assert_eq!(audit.budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn contributor_window_known_slot_refusal_progresses_only_through_owned_results() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let count = Arc::new(AtomicU64::new(0));
+        let mut window = ContributorWindow::new(&budget);
+        let first = count.clone();
+        window
+            .push(async move {
+                first.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let second = count.clone();
+        let capture = [7_u8; 2048];
+        window
+            .push(async move {
+                std::hint::black_box(capture);
+                second.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            1,
+            "owned predecessor releases its waiter slot before admission retries"
+        );
+        window.finish().await.unwrap();
+        assert_eq!(count.load(Ordering::Relaxed), 2);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn contributor_window_dynamic_refusal_is_terminal_without_kernel_replay() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let count = Arc::new(AtomicU64::new(0));
+        let mut window = ContributorWindow::new(&budget);
+        let first = count.clone();
+        window
+            .push(async move {
+                first.fetch_add(1, Ordering::Relaxed);
+                Err(ModelError::Resource {
+                    owner: "dynamic contributor kernel",
+                    requested: 8192,
+                    used: 0,
+                    limit: 4096,
+                })
+            })
+            .await
+            .unwrap();
+        let second = count.clone();
+        let capture = [7_u8; 2048];
+        let result = window
+            .push(async move {
+                std::hint::black_box(capture);
+                second.fetch_add(100, Ordering::Relaxed);
+                Ok(())
+            })
+            .await;
+        assert!(result.is_err());
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            1,
+            "kernel refused once; unadmitted successor did not run"
+        );
+        window.finish().await.unwrap();
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn shared_exact_worker_survives_waiter_cancellation_and_distinct_keys_run_independently()

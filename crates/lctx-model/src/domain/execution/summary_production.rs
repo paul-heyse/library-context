@@ -993,26 +993,27 @@ fn call_infos(
 }
 // One invocation borrows the complete immutable source and private admission owners. Entries are
 // created only for a pair actually consumed by the existing worklist, never for a queued suffix.
-struct CallPreparation<'a> {
+struct CallPreparation<'a, 's> {
     data: &'a SummaryData,
     verified: &'a VerifiedBindings,
     discovery: &'a Discovery<'a>,
-    signatures: SignaturePreparation<'a>,
+    signatures: &'s mut SignaturePreparation<'a>,
     calls: BTreeMap<Id<CallBindingAttempt>, PreparedAttempt<'a>>,
     charge: StateCharge,
 }
-impl<'a> CallPreparation<'a> {
+impl<'a, 's> CallPreparation<'a, 's> {
     fn new(
         data: &'a SummaryData,
         verified: &'a VerifiedBindings,
         discovery: &'a Discovery<'a>,
+        signatures: &'s mut SignaturePreparation<'a>,
         budget: &ResourceBudget,
     ) -> Self {
         Self {
             data,
             verified,
             discovery,
-            signatures: SignaturePreparation::new(data, discovery, budget),
+            signatures,
             calls: BTreeMap::new(),
             charge: StateCharge::new(budget, "summary-prepared-call-slots"),
         }
@@ -1031,7 +1032,7 @@ impl<'a> CallPreparation<'a> {
                 self.verified,
                 self.discovery,
                 call,
-                &mut self.signatures,
+                self.signatures,
                 budget,
             )?;
             entry.insert(prepared);
@@ -2442,253 +2443,320 @@ fn produce_with_application(
         super::summary_exceptions::derive(data, invocation, &mut out, limits.work, budget)? as i64;
     let verified =
         verified.ok_or_else(|| invalid("requested Summary application authority absent"))?;
-    let computed_schedule;
-    let schedule = if let Some(schedule) = schedule {
-        schedule.require_graph(graph)?;
-        schedule
-    } else {
-        computed_schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
-        &computed_schedule
-    };
-    let mut discovery = Discovery::new(data, &[], budget)?;
-    let (calls, _calls) = call_infos(data, &discovery, verified, invocation, &mut out, budget)?;
-    for (index, call) in calls.iter().enumerate() {
-        discovery.callers.entry(call.owner).or_default().push(index);
-        discovery
-            .callees
-            .entry(call.callee)
-            .or_default()
-            .push(index);
-        discovery.attempts.insert(call.attempt, index);
-    }
-    let (seeds, _seeds) = data.seeds(invocation, &mut out, &discovery, budget)?;
-    let _seed_index = budget.reserve("summary-seed-index", seeds.len().saturating_mul(256))?;
-    let mut seeds_by_owner = BTreeMap::<_, Vec<_>>::new();
-    for (index, seed) in seeds.iter().enumerate() {
-        discovery.seeds.entry(seed.origin).or_insert(index);
-        seeds_by_owner
-            .entry(seed.descriptor().owner)
-            .or_default()
-            .push(index);
-    }
-    let (guards, _guards) = data.guards(budget, actual)?;
-    let mut call_preparation = CallPreparation::new(data, verified, &discovery, budget);
-    let mut vocabulary = data.vocabulary.copy(budget)?;
-    for root in out.vocabulary.roots.values() {
-        vocabulary
-            .roots
-            .insert(&mut vocabulary.charge, root.id(), root.clone())?;
-    }
-    for place in out.vocabulary.places.values() {
-        vocabulary
-            .places
-            .insert(&mut vocabulary.charge, place.id(), place.clone())?;
-    }
-    for path in out.vocabulary.paths.values() {
-        vocabulary
-            .paths
-            .insert(&mut vocabulary.charge, path.id(), path.clone())?;
-    }
-    let mut progress = Progress::new(limits, budget);
-    let _component_index = budget.reserve(
-        "summary-component-membership",
-        schedule
-            .components()
-            .iter()
-            .map(Vec::len)
-            .sum::<usize>()
-            .saturating_mul(128),
-    )?;
-    let scheduled = schedule
-        .components()
-        .iter()
-        .flatten()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    // Projection omissions remain explicit even when no component can own a seed.
-    for seed in &seeds {
-        if !scheduled.contains(&seed.descriptor().owner) {
-            let mut digest = KeySink::new("summary-missing-component");
-            seed.descriptor().owner.encode(&mut digest);
-            origin_boundary(
-                &mut out,
-                invocation,
-                digest.finish(),
-                seed,
-                obligation::ObligationKind::IncompleteDomain,
-            )?;
+    // All solving-only state ends before symbolic and terminal postprocessing. The returned
+    // condition index borrows immutable input rows, not the solving workspace.
+    let vocabulary_conditions = {
+        let computed_schedule;
+        let schedule = if let Some(schedule) = schedule {
+            schedule.require_graph(graph)?;
+            schedule
+        } else {
+            computed_schedule = super::summary_schedule::invocation_sccs(graph, budget)?;
+            &computed_schedule
+        };
+        let mut discovery = Discovery::new(data, &[], budget)?;
+        let (calls, _calls) = call_infos(data, &discovery, verified, invocation, &mut out, budget)?;
+        for (index, call) in calls.iter().enumerate() {
+            discovery.callers.entry(call.owner).or_default().push(index);
+            discovery
+                .callees
+                .entry(call.callee)
+                .or_default()
+                .push(index);
+            discovery.attempts.insert(call.attempt, index);
         }
-    }
-    for (ordinal, component) in schedule.components().iter().enumerate() {
-        let mut digest = KeySink::new("summary-scc-members");
-        for entity in component {
-            entity.encode(&mut digest);
+        let (seeds, _seeds) = data.seeds(invocation, &mut out, &discovery, budget)?;
+        let _seed_index = budget.reserve("summary-seed-index", seeds.len().saturating_mul(256))?;
+        let mut seeds_by_owner = BTreeMap::<_, Vec<_>>::new();
+        for (index, seed) in seeds.iter().enumerate() {
+            discovery.seeds.entry(seed.origin).or_insert(index);
+            seeds_by_owner
+                .entry(seed.descriptor().owner)
+                .or_default()
+                .push(index);
         }
-        let component_id = digest.finish();
-        let mut queue = summary_worklist::WorkQueue::new(limits.work, budget);
-        let mut exhausted = ExhaustedGroups::new(budget);
-        let mut processed = charged::ChargedSet::default();
-        let mut processed_charge = StateCharge::new(budget, "summary-processed-pairs");
-        let _component_seeds = budget.reserve(
-            "summary-component-seeds",
-            component
+        let (guards, _guards) = data.guards(budget, actual)?;
+        let mut signatures = SignaturePreparation::new(data, &discovery, budget);
+        let mut vocabulary = data.vocabulary.copy(budget)?;
+        for root in out.vocabulary.roots.values() {
+            vocabulary
+                .roots
+                .insert(&mut vocabulary.charge, root.id(), root.clone())?;
+        }
+        for place in out.vocabulary.places.values() {
+            vocabulary
+                .places
+                .insert(&mut vocabulary.charge, place.id(), place.clone())?;
+        }
+        for path in out.vocabulary.paths.values() {
+            vocabulary
+                .paths
+                .insert(&mut vocabulary.charge, path.id(), path.clone())?;
+        }
+        let mut progress = Progress::new(limits, budget);
+        let _component_index = budget.reserve(
+            "summary-component-membership",
+            schedule
+                .components()
                 .iter()
-                .filter_map(|owner| seeds_by_owner.get(owner))
                 .map(Vec::len)
                 .sum::<usize>()
-                .saturating_mul(size_of::<usize>()),
+                .saturating_mul(128),
         )?;
-        let mut component_seeds = component
+        let scheduled = schedule
+            .components()
             .iter()
-            .filter_map(|owner| seeds_by_owner.get(owner))
             .flatten()
             .copied()
-            .collect::<Vec<_>>();
-        component_seeds.sort_unstable();
-        for index in component_seeds {
-            let seed = &seeds[index];
-            if let summary_worklist::Admission::Refused(reason) =
-                progress.admit(seed, &vocabulary)?
-            {
-                origin_boundary(&mut out, invocation, component_id, seed, reason)?;
+            .collect::<BTreeSet<_>>();
+        // Projection omissions remain explicit even when no component can own a seed.
+        for seed in &seeds {
+            if !scheduled.contains(&seed.descriptor().owner) {
+                let mut digest = KeySink::new("summary-missing-component");
+                seed.descriptor().owner.encode(&mut digest);
+                origin_boundary(
+                    &mut out,
+                    invocation,
+                    digest.finish(),
+                    seed,
+                    obligation::ObligationKind::IncompleteDomain,
+                )?;
             }
         }
-        let _initial = budget.reserve(
-            "summary-component-initial",
-            component
+        for (ordinal, component) in schedule.components().iter().enumerate() {
+            // Attempts and mutable argument/port preparation belong to this caller SCC. The
+            // immutable callee signature cache remains available to subsequent caller SCCs.
+            let mut call_preparation =
+                CallPreparation::new(data, verified, &discovery, &mut signatures, budget);
+            let mut digest = KeySink::new("summary-scc-members");
+            for entity in component {
+                entity.encode(&mut digest);
+            }
+            let component_id = digest.finish();
+            let mut queue = summary_worklist::WorkQueue::new(limits.work, budget);
+            let mut exhausted = ExhaustedGroups::new(budget);
+            let mut processed = charged::ChargedSet::default();
+            let mut processed_charge = StateCharge::new(budget, "summary-processed-pairs");
+            let _component_seeds = budget.reserve(
+                "summary-component-seeds",
+                component
+                    .iter()
+                    .filter_map(|owner| seeds_by_owner.get(owner))
+                    .map(Vec::len)
+                    .sum::<usize>()
+                    .saturating_mul(size_of::<usize>()),
+            )?;
+            let mut component_seeds = component
+                .iter()
+                .filter_map(|owner| seeds_by_owner.get(owner))
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>();
+            component_seeds.sort_unstable();
+            for index in component_seeds {
+                let seed = &seeds[index];
+                if let summary_worklist::Admission::Refused(reason) =
+                    progress.admit(seed, &vocabulary)?
+                {
+                    origin_boundary(&mut out, invocation, component_id, seed, reason)?;
+                }
+            }
+            let _initial = budget.reserve(
+                "summary-component-initial",
+                component
+                    .iter()
+                    .filter_map(|owner| progress.by_owner.get(owner))
+                    .map(BTreeSet::len)
+                    .sum::<usize>()
+                    .saturating_mul(size_of::<ProofId>()),
+            )?;
+            let mut initial = component
                 .iter()
                 .filter_map(|owner| progress.by_owner.get(owner))
-                .map(BTreeSet::len)
-                .sum::<usize>()
-                .saturating_mul(size_of::<ProofId>()),
-        )?;
-        let mut initial = component
-            .iter()
-            .filter_map(|owner| progress.by_owner.get(owner))
-            .flatten()
-            .copied()
-            .collect::<Vec<_>>();
-        initial.sort_unstable();
-        for id in initial {
-            enqueue(
-                EnqueueContext {
-                    discovery: &discovery,
-                    data,
-                    vocabulary: &vocabulary,
-                    calls: &calls,
-                    component,
-                    component_id,
-                    invocation,
-                    progress: &progress,
-                    seeds: &seeds,
-                },
-                id,
-                &mut queue,
-                &processed,
-                &mut exhausted,
-                &mut out,
-            )?;
-        }
-        let mut closed = !out
-            .origin_boundaries
-            .iter()
-            .any(|r| r.component == component_id);
-        loop {
-            let item = match queue.pop() {
-                Ok(Some(i)) => i,
-                Ok(None) => break,
-                Err(reason) => {
-                    closed = false;
-                    for item in queue.pending() {
-                        residual(
-                            ResidualContext {
-                                discovery: &discovery,
-                                data,
-                                invocation,
-                                component: component_id,
-                                progress: &progress,
-                                seeds: &seeds,
-                            },
-                            *item,
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>();
+            initial.sort_unstable();
+            for id in initial {
+                enqueue(
+                    EnqueueContext {
+                        discovery: &discovery,
+                        data,
+                        vocabulary: &vocabulary,
+                        calls: &calls,
+                        component,
+                        component_id,
+                        invocation,
+                        progress: &progress,
+                        seeds: &seeds,
+                    },
+                    id,
+                    &mut queue,
+                    &processed,
+                    &mut exhausted,
+                    &mut out,
+                )?;
+            }
+            let mut closed = !out
+                .origin_boundaries
+                .iter()
+                .any(|r| r.component == component_id);
+            loop {
+                let item = match queue.pop() {
+                    Ok(Some(i)) => i,
+                    Ok(None) => break,
+                    Err(reason) => {
+                        closed = false;
+                        for item in queue.pending() {
+                            residual(
+                                ResidualContext {
+                                    discovery: &discovery,
+                                    data,
+                                    invocation,
+                                    component: component_id,
+                                    progress: &progress,
+                                    seeds: &seeds,
+                                },
+                                *item,
+                                reason,
+                                &mut out,
+                            )?;
+                        }
+                        break;
+                    }
+                };
+                processed.insert(&mut processed_charge, item)?;
+                match item {
+                    WorkItem::Call(attempt, caller, callee) => {
+                        if !progress.current(caller) || !progress.current(callee) {
+                            continue;
+                        }
+                        let caller = progress.branches[&caller].clone();
+                        let callee = progress.branches[&callee].clone();
+                        out.premises.insert(caller.premise.clone())?;
+                        out.premises.insert(callee.premise.clone())?;
+                        let call = discovery
+                            .attempts
+                            .get(&attempt)
+                            .map(|index| &calls[*index])
+                            .ok_or_else(|| invalid("summary queued call absent"))?;
+                        let pair = |disposition, witness, reason| PairOutcome {
+                            invocation: invocation.id(),
+                            attempt,
+                            caller_origin: caller.origin,
+                            callee_origin: callee.origin,
+                            caller: caller.premise.id(),
+                            callee: callee.premise.id(),
+                            disposition,
+                            witness,
                             reason,
-                            &mut out,
-                        )?;
-                    }
-                    break;
-                }
-            };
-            processed.insert(&mut processed_charge, item)?;
-            match item {
-                WorkItem::Call(attempt, caller, callee) => {
-                    if !progress.current(caller) || !progress.current(callee) {
-                        continue;
-                    }
-                    let caller = progress.branches[&caller].clone();
-                    let callee = progress.branches[&callee].clone();
-                    out.premises.insert(caller.premise.clone())?;
-                    out.premises.insert(callee.premise.clone())?;
-                    let call = discovery
-                        .attempts
-                        .get(&attempt)
-                        .map(|index| &calls[*index])
-                        .ok_or_else(|| invalid("summary queued call absent"))?;
-                    let pair = |disposition, witness, reason| PairOutcome {
-                        invocation: invocation.id(),
-                        attempt,
-                        caller_origin: caller.origin,
-                        callee_origin: callee.origin,
-                        caller: caller.premise.id(),
-                        callee: callee.premise.id(),
-                        disposition,
-                        witness,
-                        reason,
-                    };
-                    for result in call_preparation.get(call, budget)?.compose(
-                        &caller,
-                        &callee,
-                        &vocabulary,
-                        &guards,
-                        budget,
-                    )? {
-                        match result {
-                            CallComposition::Disjoint => {
-                                out.pair_outcomes.insert(pair(
-                                    PairDisposition::Disjoint,
-                                    None,
-                                    None,
-                                ))?;
-                            }
-                            CallComposition::Subsumed => {
-                                out.pair_outcomes.insert(pair(
-                                    PairDisposition::Subsumed,
-                                    None,
-                                    None,
-                                ))?;
-                            }
-                            CallComposition::Obligation(reason) => {
-                                out.pair_outcomes.insert(pair(
-                                    PairDisposition::Refused,
-                                    None,
-                                    Some(reason),
-                                ))?;
-                                residual(
-                                    ResidualContext {
-                                        discovery: &discovery,
-                                        data,
-                                        invocation,
-                                        component: component_id,
-                                        progress: &progress,
-                                        seeds: &seeds,
-                                    },
-                                    item,
-                                    reason,
-                                    &mut out,
-                                )?;
-                            }
-                            CallComposition::Transfer(composed) => {
-                                let cost = match ProofCost::through_call(caller.cost, callee.cost) {
-                                    Ok(c) => c,
-                                    Err(reason) => {
+                        };
+                        for result in call_preparation.get(call, budget)?.compose(
+                            &caller,
+                            &callee,
+                            &vocabulary,
+                            &guards,
+                            budget,
+                        )? {
+                            match result {
+                                CallComposition::Disjoint => {
+                                    out.pair_outcomes.insert(pair(
+                                        PairDisposition::Disjoint,
+                                        None,
+                                        None,
+                                    ))?;
+                                }
+                                CallComposition::Subsumed => {
+                                    out.pair_outcomes.insert(pair(
+                                        PairDisposition::Subsumed,
+                                        None,
+                                        None,
+                                    ))?;
+                                }
+                                CallComposition::Obligation(reason) => {
+                                    out.pair_outcomes.insert(pair(
+                                        PairDisposition::Refused,
+                                        None,
+                                        Some(reason),
+                                    ))?;
+                                    residual(
+                                        ResidualContext {
+                                            discovery: &discovery,
+                                            data,
+                                            invocation,
+                                            component: component_id,
+                                            progress: &progress,
+                                            seeds: &seeds,
+                                        },
+                                        item,
+                                        reason,
+                                        &mut out,
+                                    )?;
+                                }
+                                CallComposition::Transfer(composed) => {
+                                    let cost =
+                                        match ProofCost::through_call(caller.cost, callee.cost) {
+                                            Ok(c) => c,
+                                            Err(reason) => {
+                                                out.pair_outcomes.insert(pair(
+                                                    PairDisposition::Refused,
+                                                    None,
+                                                    Some(reason),
+                                                ))?;
+                                                residual(
+                                                    ResidualContext {
+                                                        discovery: &discovery,
+                                                        data,
+                                                        invocation,
+                                                        component: component_id,
+                                                        progress: &progress,
+                                                        seeds: &seeds,
+                                                    },
+                                                    item,
+                                                    reason,
+                                                    &mut out,
+                                                )?;
+                                                continue;
+                                            }
+                                        };
+                                    let mut evidence = vec![data.evidence(
+                                        &out,
+                                        &caller.premise,
+                                        &discovery,
+                                        budget,
+                                    )?];
+                                    if caller.premise.id() != callee.premise.id() {
+                                        evidence.push(data.evidence(
+                                            &out,
+                                            &callee.premise,
+                                            &discovery,
+                                            budget,
+                                        )?);
+                                    }
+                                    let emission = composed.emit(invocation, &evidence, budget)?;
+                                    let branch = WorkBranch {
+                                        branch: TransferBranch::new(
+                                            emission.key.clone(),
+                                            composed.qualification.clone(),
+                                            composed.condition.clone(),
+                                            budget,
+                                        )?,
+                                        premise: SummaryPremise::Witness {
+                                            witness: emission.witness.id(),
+                                        },
+                                        origin: caller.origin,
+                                        facts: emission.witness.source_facts(),
+                                        cost,
+                                    };
+                                    let admission = progress.frontier.insert(
+                                        branch.semantic(),
+                                        summary_worklist::Representative {
+                                            witness: branch.id(),
+                                            cost,
+                                        },
+                                    )?;
+                                    if let summary_worklist::Admission::Refused(reason) = admission
+                                    {
                                         out.pair_outcomes.insert(pair(
                                             PairDisposition::Refused,
                                             None,
@@ -2709,33 +2777,187 @@ fn produce_with_application(
                                         )?;
                                         continue;
                                     }
-                                };
-                                let mut evidence = vec![data.evidence(
-                                    &out,
-                                    &caller.premise,
-                                    &discovery,
-                                    budget,
-                                )?];
-                                if caller.premise.id() != callee.premise.id() {
-                                    evidence.push(data.evidence(
-                                        &out,
-                                        &callee.premise,
-                                        &discovery,
-                                        budget,
-                                    )?);
+                                    if cost.check(limits).is_err() {
+                                        out.pair_outcomes.insert(pair(
+                                            PairDisposition::Subsumed,
+                                            None,
+                                            None,
+                                        ))?;
+                                        continue;
+                                    }
+                                    // Store every admissible proof, including equal-cost evidence; reopen only semantic progress.
+                                    progress.by_owner.insert_set(
+                                        &mut progress.charge,
+                                        branch.descriptor().owner,
+                                        branch.id(),
+                                    )?;
+                                    progress.branches.insert(
+                                        &mut progress.charge,
+                                        branch.id(),
+                                        branch.clone(),
+                                    )?;
+                                    vocabulary.composition(&composed.records)?;
+                                    out.vocabulary.composition(&composed.records)?;
+                                    for premise in emission.premises {
+                                        out.premises.insert(premise)?;
+                                    }
+                                    out.witnesses.insert(emission.witness.clone())?;
+                                    out.pair_outcomes.insert(pair(
+                                        PairDisposition::Proven,
+                                        Some(emission.witness.id()),
+                                        None,
+                                    ))?;
+                                    out.keys.insert(emission.key)?;
+                                    for substitution in &composed.records.substitutions {
+                                        out.substitutions.insert(substitution.clone())?;
+                                    }
+                                    for influence in &composed.records.influences {
+                                        let q = vocabulary
+                                            .qualifications
+                                            .get(&influence.qualification)
+                                            .ok_or_else(|| {
+                                                invalid("rebased influence qualification absent")
+                                            })?;
+                                        let condition = vocabulary.diagram(q.condition, budget)?;
+                                        super::summary_control::publish(
+                                            super::summary_control::SummaryControlInputs {
+                                                invocation,
+                                                definition,
+                                                witness: &emission.witness,
+                                            },
+                                            influence,
+                                            q,
+                                            &condition,
+                                            &mut out,
+                                            budget,
+                                        )?;
+                                    }
+                                    retain_proof(&mut out, invocation, &branch)?;
+                                    if admission == summary_worklist::Admission::Advanced {
+                                        progress.index_current(&branch, &vocabulary)?;
+                                        enqueue(
+                                            EnqueueContext {
+                                                discovery: &discovery,
+                                                data,
+                                                vocabulary: &vocabulary,
+                                                calls: &calls,
+                                                component,
+                                                component_id,
+                                                invocation,
+                                                progress: &progress,
+                                                seeds: &seeds,
+                                            },
+                                            branch.id(),
+                                            &mut queue,
+                                            &processed,
+                                            &mut exhausted,
+                                            &mut out,
+                                        )?;
+                                    }
                                 }
-                                let emission = composed.emit(invocation, &evidence, budget)?;
+                            }
+                        }
+                    }
+                    WorkItem::Path(proof, _, _, _) | WorkItem::Alias(proof, _, _, _, _) => {
+                        if !progress.current(proof) {
+                            continue;
+                        }
+                        let source = progress.branches[&proof].clone();
+                        let result = match item {
+                            WorkItem::Path(_, vs, ps, step) => summary_path::derive(
+                                &data.entry,
+                                &data.path,
+                                &data.native,
+                                &vocabulary.guards(),
+                                invocation,
+                                &source,
+                                source.facts,
+                                vs,
+                                ps,
+                                step,
+                                &discovery.entry_conditions,
+                                budget,
+                            )?,
+                            WorkItem::Alias(_, vs, rs, ds, us) => super::summary_alias::derive(
+                                &data.entry,
+                                &data.native,
+                                &vocabulary.guards(),
+                                invocation,
+                                &source,
+                                source.facts,
+                                vs,
+                                rs,
+                                ds,
+                                us,
+                                &discovery.entry_conditions,
+                                budget,
+                            )?,
+                            _ => unreachable!(),
+                        };
+                        let result = match result {
+                            Ok(mut emission) => match super::summary_exceptions::filter_raise(
+                                data,
+                                &out.exception_outcomes,
+                                source.descriptor().owner,
+                                &emission,
+                                invocation.input,
+                                budget,
+                            )? {
+                                Err(reason) => Err(reason),
+                                Ok(None) => Ok(emission),
+                                Ok(Some(outcome)) => {
+                                    out.path_routes.insert(emission.route.clone())?;
+                                    emission.route =
+                                        summary_path::SummaryPathRoute::EscapingRaise {
+                                            route: emission.route.id(),
+                                            outcome,
+                                        };
+                                    emission.witness.route = emission.route.id();
+                                    Ok(emission)
+                                }
+                            },
+                            Err(reason) => Err(reason),
+                        };
+                        match result {
+                            Err(reason) => residual(
+                                ResidualContext {
+                                    discovery: &discovery,
+                                    data,
+                                    invocation,
+                                    component: component_id,
+                                    progress: &progress,
+                                    seeds: &seeds,
+                                },
+                                item,
+                                reason,
+                                &mut out,
+                            )?,
+                            Ok(emission) => {
+                                let cost = match ProofCost::through_path(source.cost) {
+                                    Ok(c) => c,
+                                    Err(reason) => {
+                                        residual(
+                                            ResidualContext {
+                                                discovery: &discovery,
+                                                data,
+                                                invocation,
+                                                component: component_id,
+                                                progress: &progress,
+                                                seeds: &seeds,
+                                            },
+                                            item,
+                                            reason,
+                                            &mut out,
+                                        )?;
+                                        continue;
+                                    }
+                                };
                                 let branch = WorkBranch {
-                                    branch: TransferBranch::new(
-                                        emission.key.clone(),
-                                        composed.qualification.clone(),
-                                        composed.condition.clone(),
-                                        budget,
-                                    )?,
-                                    premise: SummaryPremise::Witness {
+                                    branch: emission.branch.clone(),
+                                    premise: SummaryPremise::Path {
                                         witness: emission.witness.id(),
                                     },
-                                    origin: caller.origin,
+                                    origin: source.origin,
                                     facts: emission.witness.source_facts(),
                                     cost,
                                 };
@@ -2747,11 +2969,6 @@ fn produce_with_application(
                                     },
                                 )?;
                                 if let summary_worklist::Admission::Refused(reason) = admission {
-                                    out.pair_outcomes.insert(pair(
-                                        PairDisposition::Refused,
-                                        None,
-                                        Some(reason),
-                                    ))?;
                                     residual(
                                         ResidualContext {
                                             discovery: &discovery,
@@ -2768,14 +2985,8 @@ fn produce_with_application(
                                     continue;
                                 }
                                 if cost.check(limits).is_err() {
-                                    out.pair_outcomes.insert(pair(
-                                        PairDisposition::Subsumed,
-                                        None,
-                                        None,
-                                    ))?;
                                     continue;
                                 }
-                                // Store every admissible proof, including equal-cost evidence; reopen only semantic progress.
                                 progress.by_owner.insert_set(
                                     &mut progress.charge,
                                     branch.descriptor().owner,
@@ -2786,42 +2997,12 @@ fn produce_with_application(
                                     branch.id(),
                                     branch.clone(),
                                 )?;
-                                vocabulary.composition(&composed.records)?;
-                                out.vocabulary.composition(&composed.records)?;
-                                for premise in emission.premises {
-                                    out.premises.insert(premise)?;
-                                }
-                                out.witnesses.insert(emission.witness.clone())?;
-                                out.pair_outcomes.insert(pair(
-                                    PairDisposition::Proven,
-                                    Some(emission.witness.id()),
-                                    None,
-                                ))?;
-                                out.keys.insert(emission.key)?;
-                                for substitution in &composed.records.substitutions {
-                                    out.substitutions.insert(substitution.clone())?;
-                                }
-                                for influence in &composed.records.influences {
-                                    let q = vocabulary
-                                        .qualifications
-                                        .get(&influence.qualification)
-                                        .ok_or_else(|| {
-                                            invalid("rebased influence qualification absent")
-                                        })?;
-                                    let condition = vocabulary.diagram(q.condition, budget)?;
-                                    super::summary_control::publish(
-                                        super::summary_control::SummaryControlInputs {
-                                            invocation,
-                                            definition,
-                                            witness: &emission.witness,
-                                        },
-                                        influence,
-                                        q,
-                                        &condition,
-                                        &mut out,
-                                        budget,
-                                    )?;
-                                }
+                                vocabulary.path(&emission)?;
+                                out.vocabulary.path(&emission)?;
+                                out.premises.insert(emission.source)?;
+                                out.path_routes.insert(emission.route)?;
+                                out.path_witnesses.insert(emission.witness)?;
+                                out.keys.insert(branch.branch.key().clone())?;
                                 retain_proof(&mut out, invocation, &branch)?;
                                 if admission == summary_worklist::Admission::Advanced {
                                     progress.index_current(&branch, &vocabulary)?;
@@ -2848,211 +3029,43 @@ fn produce_with_application(
                         }
                     }
                 }
-                WorkItem::Path(proof, _, _, _) | WorkItem::Alias(proof, _, _, _, _) => {
-                    if !progress.current(proof) {
-                        continue;
-                    }
-                    let source = progress.branches[&proof].clone();
-                    let result = match item {
-                        WorkItem::Path(_, vs, ps, step) => summary_path::derive(
-                            &data.entry,
-                            &data.path,
-                            &data.native,
-                            &vocabulary.guards(),
-                            invocation,
-                            &source,
-                            source.facts,
-                            vs,
-                            ps,
-                            step,
-                            &discovery.entry_conditions,
-                            budget,
-                        )?,
-                        WorkItem::Alias(_, vs, rs, ds, us) => super::summary_alias::derive(
-                            &data.entry,
-                            &data.native,
-                            &vocabulary.guards(),
-                            invocation,
-                            &source,
-                            source.facts,
-                            vs,
-                            rs,
-                            ds,
-                            us,
-                            &discovery.entry_conditions,
-                            budget,
-                        )?,
-                        _ => unreachable!(),
-                    };
-                    let result = match result {
-                        Ok(mut emission) => match super::summary_exceptions::filter_raise(
-                            data,
-                            &out.exception_outcomes,
-                            source.descriptor().owner,
-                            &emission,
-                            invocation.input,
-                            budget,
-                        )? {
-                            Err(reason) => Err(reason),
-                            Ok(None) => Ok(emission),
-                            Ok(Some(outcome)) => {
-                                out.path_routes.insert(emission.route.clone())?;
-                                emission.route = summary_path::SummaryPathRoute::EscapingRaise {
-                                    route: emission.route.id(),
-                                    outcome,
-                                };
-                                emission.witness.route = emission.route.id();
-                                Ok(emission)
-                            }
-                        },
-                        Err(reason) => Err(reason),
-                    };
-                    match result {
-                        Err(reason) => residual(
-                            ResidualContext {
-                                discovery: &discovery,
-                                data,
-                                invocation,
-                                component: component_id,
-                                progress: &progress,
-                                seeds: &seeds,
-                            },
-                            item,
-                            reason,
-                            &mut out,
-                        )?,
-                        Ok(emission) => {
-                            let cost = match ProofCost::through_path(source.cost) {
-                                Ok(c) => c,
-                                Err(reason) => {
-                                    residual(
-                                        ResidualContext {
-                                            discovery: &discovery,
-                                            data,
-                                            invocation,
-                                            component: component_id,
-                                            progress: &progress,
-                                            seeds: &seeds,
-                                        },
-                                        item,
-                                        reason,
-                                        &mut out,
-                                    )?;
-                                    continue;
-                                }
-                            };
-                            let branch = WorkBranch {
-                                branch: emission.branch.clone(),
-                                premise: SummaryPremise::Path {
-                                    witness: emission.witness.id(),
-                                },
-                                origin: source.origin,
-                                facts: emission.witness.source_facts(),
-                                cost,
-                            };
-                            let admission = progress.frontier.insert(
-                                branch.semantic(),
-                                summary_worklist::Representative {
-                                    witness: branch.id(),
-                                    cost,
-                                },
-                            )?;
-                            if let summary_worklist::Admission::Refused(reason) = admission {
-                                residual(
-                                    ResidualContext {
-                                        discovery: &discovery,
-                                        data,
-                                        invocation,
-                                        component: component_id,
-                                        progress: &progress,
-                                        seeds: &seeds,
-                                    },
-                                    item,
-                                    reason,
-                                    &mut out,
-                                )?;
-                                continue;
-                            }
-                            if cost.check(limits).is_err() {
-                                continue;
-                            }
-                            progress.by_owner.insert_set(
-                                &mut progress.charge,
-                                branch.descriptor().owner,
-                                branch.id(),
-                            )?;
-                            progress.branches.insert(
-                                &mut progress.charge,
-                                branch.id(),
-                                branch.clone(),
-                            )?;
-                            vocabulary.path(&emission)?;
-                            out.vocabulary.path(&emission)?;
-                            out.premises.insert(emission.source)?;
-                            out.path_routes.insert(emission.route)?;
-                            out.path_witnesses.insert(emission.witness)?;
-                            out.keys.insert(branch.branch.key().clone())?;
-                            retain_proof(&mut out, invocation, &branch)?;
-                            if admission == summary_worklist::Admission::Advanced {
-                                progress.index_current(&branch, &vocabulary)?;
-                                enqueue(
-                                    EnqueueContext {
-                                        discovery: &discovery,
-                                        data,
-                                        vocabulary: &vocabulary,
-                                        calls: &calls,
-                                        component,
-                                        component_id,
-                                        invocation,
-                                        progress: &progress,
-                                        seeds: &seeds,
-                                    },
-                                    branch.id(),
-                                    &mut queue,
-                                    &processed,
-                                    &mut exhausted,
-                                    &mut out,
-                                )?;
-                            }
-                        }
-                    }
-                }
             }
+            publish(
+                &mut out,
+                invocation,
+                definition,
+                &progress,
+                component,
+                component_id,
+                budget,
+            )?;
+            closed &= !out.residuals.iter().any(|r| r.component == component_id)
+                && !out
+                    .origin_boundaries
+                    .iter()
+                    .any(|r| r.component == component_id);
+            let row = SummaryComponent {
+                invocation: invocation.id(),
+                members: component_id,
+                ordinal: ordinal as i64,
+                work: queue.work().into(),
+                closed,
+            };
+            for entity in component {
+                out.component_members.insert(ComponentMember {
+                    component: row.id(),
+                    entity: *entity,
+                })?;
+            }
+            run.work += i64::from(queue.work());
+            out.components.insert(row)?;
+            // Publication and its component receipt are complete; no later SCC consumes this
+            // caller's prepared arguments, mutable ports or attempt-map reservation.
+            drop(call_preparation);
         }
-        publish(
-            &mut out,
-            invocation,
-            definition,
-            &progress,
-            component,
-            component_id,
-            budget,
-        )?;
-        closed &= !out.residuals.iter().any(|r| r.component == component_id)
-            && !out
-                .origin_boundaries
-                .iter()
-                .any(|r| r.component == component_id);
-        let row = SummaryComponent {
-            invocation: invocation.id(),
-            members: component_id,
-            ordinal: ordinal as i64,
-            work: queue.work().into(),
-            closed,
-        };
-        for entity in component {
-            out.component_members.insert(ComponentMember {
-                component: row.id(),
-                entity: *entity,
-            })?;
-        }
-        run.work += i64::from(queue.work());
-        out.components.insert(row)?;
-    }
-    // No remaining pair can borrow prepared calls. Later publication and closure questions
-    // consume published outcomes and private binding authority, not parameter/port allocations.
-    drop(call_preparation);
-    let vocabulary_conditions = discovery.into_vocabulary_conditions();
+        drop(signatures);
+        discovery.into_vocabulary_conditions()
+    };
     run.components = out.components.len() as i64;
     run.proofs =
         (out.witnesses.len() + out.path_witnesses.len() + out.capture_witnesses.len()) as i64;
@@ -3970,6 +3983,60 @@ mod correspondence_controls {
         assert_eq!(budget.reserved(), 0);
     }
     #[test]
+    fn component_call_slots_release_while_shared_signatures_remain() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let mut data = SummaryData::new(&budget);
+        let verified = normalized::binding_normalization::prepare(
+            &data.bindings,
+            &data.binding_output,
+            &budget,
+        )
+        .unwrap();
+        let (selected, _) = signature(&mut data, 10);
+        let retained = budget.reserved();
+        {
+            let discovery = Discovery::new(&data, &[], &budget).unwrap();
+            let mut signatures = SignaturePreparation::new(&data, &discovery, &budget);
+            let first = signatures.get(selected.id(), &budget).unwrap();
+            let shared = budget.reserved();
+            {
+                let mut component =
+                    CallPreparation::new(&data, &verified, &discovery, &mut signatures, &budget);
+                // A selected missing attempt charges its map slot before refusing. Even
+                // this interrupted component must release its private reservation.
+                let missing = CallInfo {
+                    attempt: id(99),
+                    _event: id(98),
+                    _header: None,
+                    owner: id(97),
+                    callee: id(96),
+                    target: id(95),
+                };
+                assert!(component.get(&missing, &budget).is_err());
+                assert!(budget.reserved() > shared);
+            }
+            assert_eq!(budget.reserved(), shared);
+            // A later caller SCC retains exactly the same immutable callee preparation.
+            {
+                let component =
+                    CallPreparation::new(&data, &verified, &discovery, &mut signatures, &budget);
+                let second = component.signatures.get(selected.id(), &budget).unwrap();
+                assert!(Arc::ptr_eq(&first, &second));
+                assert_eq!(budget.reserved(), shared);
+            }
+            drop(first);
+            drop(signatures);
+            let before_terminal = budget.reserved();
+            let conditions = discovery.into_vocabulary_conditions();
+            assert!(budget.reserved() < before_terminal);
+            drop(conditions);
+        }
+        assert_eq!(budget.reserved(), retained);
+        drop(verified);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
     fn correspondence_keeps_competing_headers_declarations_and_contextual_events() {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let mut data = SummaryData::new(&budget);
@@ -4107,6 +4174,78 @@ mod exhausted_candidate_controls {
             },
             cost,
         }
+    }
+    #[test]
+    fn published_components_keep_frame_global_member_limit_and_shared_callee_progress() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let (_, definition) =
+            super::super::configuration::summaries(id(1), Default::default()).unwrap();
+        let (invocation, _) =
+            owner::AnalysisInvocation::new(id(2), id(3), definition.id(), None, []);
+        let q = AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            context: invocation.context,
+            scope: id(4),
+            condition: Diagram::always().id(),
+            modality: attribution::Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let mut data = SummaryData::new(&budget);
+        let input = place(&mut data, 5, false);
+        let output = place(&mut data, 6, false);
+        let callee = branch(
+            (id(7), input, output),
+            id(8),
+            9,
+            &q,
+            ProofCost::SOURCE,
+            &budget,
+        );
+        let later_caller = branch(
+            (id(10), input, output),
+            id(11),
+            12,
+            &q,
+            ProofCost::SOURCE,
+            &budget,
+        );
+        let mut progress = Progress::new(
+            super::super::configuration::SummaryLimits {
+                members: 1,
+                ..Default::default()
+            },
+            &budget,
+        );
+        assert_eq!(
+            progress.admit(&callee, &data.vocabulary).unwrap(),
+            summary_worklist::Admission::Advanced
+        );
+        let mut out = SummaryRecords::new(invocation.id(), &budget);
+        publish(
+            &mut out,
+            &invocation,
+            &definition,
+            &progress,
+            &[id(7)],
+            ContentHash::of(b"callee"),
+            &budget,
+        )
+        .unwrap();
+        assert!(progress.current(callee.id()));
+        assert_eq!(progress.by_owner[&id(7)].len(), 1);
+        // Publishing one SCC must not reset the frame-wide bound for a later SCC.
+        assert_eq!(
+            progress.admit(&later_caller, &data.vocabulary).unwrap(),
+            summary_worklist::Admission::Refused(obligation::ObligationKind::SummaryProofLimit)
+        );
+        assert!(progress.current(callee.id()));
+        assert_eq!(progress.branches.len(), 1);
+        drop(out);
+        drop(progress);
+        drop(later_caller);
+        drop(callee);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
     }
     /// Actual private production context; no graph service or replacement queue model.
     fn exercise(

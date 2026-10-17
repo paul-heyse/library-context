@@ -650,3 +650,95 @@ fn ambiguous_owner_views_refuse_instead_of_falling_back_to_a_unique_caller_view(
     assert!(matches!(result, Err(ModelError::Invalid(message))
         if message == "ambiguous canonical dependency view: embedding_full_values"));
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "uniform_not_requested")]
+struct CompactDescriptorProbe {
+    #[model(key)]
+    owner: ContentHash,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "closure_nominal_compact_use")]
+struct NominalCompactUseProbe {
+    #[model(key)]
+    descriptor: Id<CompactDescriptorProbe>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[model(name = "closure_qualified_compact_use", invariant_refs = compact_role_refs)]
+struct QualifiedCompactUseProbe {
+    #[model(key)]
+    descriptor: Id<CompactDescriptorProbe>,
+}
+fn compact_role_refs() -> Vec<&'static str> {
+    vec!["closure_compact_roles"]
+}
+#[test]
+fn nominal_compact_references_preserve_all_exact_declared_roles() {
+    let roles = [PublicationBoundary::Facts, PublicationBoundary::Local];
+    let model = ValidatedModel::validate(
+        vec![
+            Relation::of::<CompactDescriptorProbe>(),
+            Relation::of::<NominalCompactUseProbe>(),
+            Relation::of::<QualifiedCompactUseProbe>(),
+        ],
+        ValidationDefinitions {
+            invariants: vec![Invariant {
+                purpose: InvariantPurpose::Admission,
+                revision: 1,
+                name: "closure_compact_roles",
+                inputs: roles
+                    .into_iter()
+                    .map(|epoch| {
+                        ValidationInput::of::<CompactDescriptorProbe>(&["id"]).at_epoch(epoch)
+                    })
+                    .collect(),
+                create: std::sync::Arc::new(|_| Box::new(EpochCheck)),
+            }],
+            publication_checks: vec![],
+        },
+    )
+    .unwrap();
+    for qualified in [false, true] {
+        let mut roots = vec![if qualified {
+            ValidationInput::of::<QualifiedCompactUseProbe>(&["id"])
+        } else {
+            ValidationInput::of::<NominalCompactUseProbe>(&["id"])
+        }];
+        if !qualified {
+            roots.extend(roles.into_iter().map(|epoch| {
+                ValidationInput::of::<CompactDescriptorProbe>(&["id"]).at_epoch(epoch)
+            }));
+        }
+        let closure = DependencyClosure::build(
+            &model,
+            roots,
+            vec![],
+            &[],
+            PublicationBoundary::Structural,
+            LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+            &order(),
+        )
+        .unwrap();
+        let actual = closure
+            .grants
+            .iter()
+            .filter(|grant| grant.name() == CompactDescriptorProbe::NAME)
+            .map(|grant| grant.prefix())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            actual,
+            roles
+                .into_iter()
+                .map(Some)
+                .collect::<std::collections::BTreeSet<_>>(),
+            "qualified={qualified}"
+        );
+        assert!(
+            closure
+                .requirements
+                .iter()
+                .filter(|input| input.name() == CompactDescriptorProbe::NAME)
+                .all(|input| input.prefix().is_some())
+        );
+    }
+}

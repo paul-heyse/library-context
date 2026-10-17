@@ -415,7 +415,7 @@ pub fn invariants() -> Vec<Invariant> {
     ];
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 2,
+        revision: 3,
         name: "analytic_embedding_consumption",
         inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
             analysis::owner::AnalysisOwner::Embedding,

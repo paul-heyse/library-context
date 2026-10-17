@@ -1,5 +1,5 @@
 //! One structural decorator-head and normalized binding identity selection for all consumers.
-use super::{Rows, binding_normalization::BindingData, entities::*, links::*};
+use super::{Rows, RowsView, binding_normalization::BindingData, entities::*, links::*};
 use crate::domain::{
     charged::{ChargedVec, StateCharge},
     resources::ResourceBudget,
@@ -24,6 +24,16 @@ pub struct Inputs<'a> {
     pub candidates: &'a Rows<ReferenceEntityCandidate>,
     pub targets: &'a Rows<ReferenceEntityTarget>,
     pub resolutions: &'a Rows<lexical::LexicalResolution>,
+}
+pub struct SelectedInputs<'a> {
+    pub qualifications: RowsView<'a, assertion::AssertionQualification>,
+    pub occurrences: RowsView<'a, source::Occurrence>,
+    pub placements: RowsView<'a, syntax::SyntaxPlacement>,
+    pub references: RowsView<'a, lexical::ReferenceObservation>,
+    pub assessments: RowsView<'a, ReferenceEntityAssessment>,
+    pub candidates: RowsView<'a, ReferenceEntityCandidate>,
+    pub targets: RowsView<'a, ReferenceEntityTarget>,
+    pub resolutions: RowsView<'a, lexical::LexicalResolution>,
 }
 impl<'a> From<&'a BindingData> for Inputs<'a> {
     fn from(d: &'a BindingData) -> Self {
@@ -50,11 +60,31 @@ pub struct Output {
     pub selections: ChargedVec<Selection>,
     charge: StateCharge,
 }
-fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
+fn need<'a, R: Record>(rows: RowsView<'a, R>, id: Id<R>) -> Result<&'a R, ModelError> {
     rows.get(id)
         .ok_or_else(|| ModelError::Invalid(format!("decorator identity input absent: {}", R::NAME)))
 }
 impl Inputs<'_> {
+    pub fn select(
+        &self,
+        decorator: &syntax::DeclarationDecorator,
+        ctx: Id<attribution::AnalysisContext>,
+        budget: &ResourceBudget,
+    ) -> Result<Output, ModelError> {
+        SelectedInputs {
+            qualifications: self.qualifications.view(),
+            occurrences: self.occurrences.view(),
+            placements: self.placements.view(),
+            references: self.references.view(),
+            assessments: self.assessments.view(),
+            candidates: self.candidates.view(),
+            targets: self.targets.view(),
+            resolutions: self.resolutions.view(),
+        }
+        .select(decorator, ctx, budget)
+    }
+}
+impl SelectedInputs<'_> {
     fn exact(
         &self,
         q: Id<assertion::AssertionQualification>,

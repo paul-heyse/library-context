@@ -23,7 +23,7 @@ use lctx_model::domain::{
 use lctx_tracing::InContext;
 use std::{
     any::Any,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -58,6 +58,12 @@ struct WorkspaceExecutionOwner {
     signal: Arc<lctx_native::signal::SignalRegistration>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
 }
+struct FrozenFactsAvailability {
+    profile: Profile,
+    providers: BTreeSet<&'static str>,
+    availability: Arc<lctx_model::domain::admission::ScopedAvailability>,
+    _charge: StateCharge,
+}
 #[derive(PartialEq, Eq)]
 struct CompilationCompletion {
     frontier: lctx_model::domain::admission::Frontier,
@@ -90,6 +96,12 @@ fn capture_identity(
     }
     Ok(sink.finish())
 }
+struct CompletedOwners {
+    by_spec: BTreeMap<ContentHash, lctx_model::domain::completed::CompletedContribution>,
+    charge: StateCharge,
+    // Completed views name full contributions; duplicate handoffs name producer specs.
+    spec_by_completed: BTreeMap<ContentHash, ContentHash>,
+}
 /// The attempt owns one runtime, spill directory, buffer budget, and completed relation registry.
 pub struct Workspace {
     files: Arc<WorkspaceFiles>,
@@ -106,10 +118,7 @@ pub struct Workspace {
     bridge: Arc<crate::native_bridge::NativeBridge>,
     native_calls: Arc<crate::native_calls::NativeCalls>,
     content_frozen: AtomicBool,
-    completed_owners: Mutex<(
-        BTreeMap<ContentHash, lctx_model::domain::completed::CompletedContribution>,
-        StateCharge,
-    )>,
+    completed_owners: Mutex<CompletedOwners>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
     completed_by_producer: Mutex<BTreeMap<(&'static str, &'static str), Arc<CompletedRelation>>>,
     frozen_shared: Mutex<
@@ -128,6 +137,7 @@ pub struct Workspace {
     compilation_complete: Mutex<Option<CompilationCompletion>>,
     provider_drains: Arc<Mutex<Vec<OwnedTaskJoin>>>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
+    frozen_facts_availability: Mutex<Option<FrozenFactsAvailability>>,
 }
 impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner {
     fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion> {
@@ -303,10 +313,11 @@ impl Workspace {
                 (options.memory_bytes / 8).min(1 << 20),
             );
         let admission_memo = lctx_compiler_store::admission::AdmissionMemo::new(&budget);
-        let completed_owners = Mutex::new((
-            BTreeMap::new(),
-            StateCharge::new(&budget, "compiler-completed-owners"),
-        ));
+        let completed_owners = Mutex::new(CompletedOwners {
+            by_spec: BTreeMap::new(),
+            charge: StateCharge::new(&budget, "compiler-completed-owners"),
+            spec_by_completed: BTreeMap::new(),
+        });
         let cancellation = Cancellation::default();
         let token = cancellation.clone();
         let signal = Arc::new(lctx_native::signal::SignalRegistration::new(
@@ -371,6 +382,7 @@ impl Workspace {
             compilation_complete: Mutex::default(),
             provider_drains,
             admission_memo,
+            frozen_facts_availability: Mutex::default(),
         }))
     }
     /// Repeated attempts can reuse one model/runtime program owner while each completed source,
@@ -407,6 +419,7 @@ impl Workspace {
             transfer: _transfer,
         } = runtime.completed_inventory()?;
         let mut owners = BTreeMap::new();
+        let mut owner_identities = BTreeMap::new();
         let mut owner_charge = StateCharge::new(&self.budget, "compiler-completed-owners");
         for contribution in contributions {
             owner_charge.grow(
@@ -414,9 +427,22 @@ impl Workspace {
                     .saturating_add(lctx_native::installed_view::contribution_heap(
                         &contribution,
                     ))
-                    .saturating_add(128),
+                    .saturating_add(256),
             )?;
-            owners.insert(contribution.spec.identity()?, contribution);
+            let spec = contribution.spec.identity()?;
+            if owner_identities
+                .insert(contribution.identity()?, spec)
+                .is_some()
+            {
+                return Err(ModelError::Conflict(
+                    "duplicate restored completed contribution",
+                ));
+            }
+            if owners.insert(spec, contribution).is_some() {
+                return Err(ModelError::Conflict(
+                    "duplicate restored completed producer spec",
+                ));
+            }
         }
         let mut completed = BTreeMap::new();
         let mut frozen = BTreeMap::new();
@@ -466,7 +492,11 @@ impl Workspace {
                 completed.insert(name, source);
             }
         }
-        *self.completed_owners.lock().map_err(|_| poisoned())? = (owners, owner_charge);
+        *self.completed_owners.lock().map_err(|_| poisoned())? = CompletedOwners {
+            by_spec: owners,
+            charge: owner_charge,
+            spec_by_completed: owner_identities,
+        };
         *self.completed.lock().map_err(|_| poisoned())? = completed;
         *self.frozen_shared.lock().map_err(|_| poisoned())? = frozen;
         Ok(())
@@ -566,6 +596,17 @@ impl Workspace {
         &self,
         profile: Profile,
     ) -> Result<Arc<lctx_model::domain::admission::ScopedAvailability>, ModelError> {
+        if let Some(frozen) = &*self
+            .frozen_facts_availability
+            .lock()
+            .map_err(|_| poisoned())?
+        {
+            return if frozen.profile == profile {
+                Ok(frozen.availability.clone())
+            } else {
+                Err(ModelError::Conflict("frozen facts profile"))
+            };
+        }
         let runtime = self.admission_runtime(profile)?;
         self.bridge
             .call(async move { runtime.facts_availability_async(profile).await })
@@ -574,6 +615,17 @@ impl Workspace {
         &self,
         profile: Profile,
     ) -> Result<Arc<lctx_model::domain::admission::ScopedAvailability>, ModelError> {
+        if let Some(frozen) = &*self
+            .frozen_facts_availability
+            .lock()
+            .map_err(|_| poisoned())?
+        {
+            return if frozen.profile == profile {
+                Ok(frozen.availability.clone())
+            } else {
+                Err(ModelError::Conflict("frozen facts profile"))
+            };
+        }
         self.admission_runtime(profile)?
             .facts_availability_async(profile)
             .await
@@ -582,15 +634,16 @@ impl Workspace {
     /// Their own captured sources still reconstruct and validate scope membership.
     pub async fn coverage_admission<'a>(
         &self,
+        access: &CompletedInputs,
         sources: &'a analysis::sources::CapturedSources,
     ) -> Result<analysis::expected::CoverageAdmission<'a>, ModelError> {
         let profile = sources.profile().ok_or(ModelError::Conflict(
             "coverage admission captured profile absent",
         ))?;
-        let owners = self
-            .admission_runtime(profile)?
-            .uniform_owners_async(profile)
-            .await?;
+        if access.profile() != profile {
+            return Err(ModelError::Conflict("coverage selected profile"));
+        }
+        let owners = self.uniform_owners(access).await?;
         let mut admission = analysis::expected::CoverageAdmission::new(sources, self.budget())?;
         for owner in owners.owners() {
             admission.admit_uniform_owner(owner)?;
@@ -751,7 +804,7 @@ impl Workspace {
                 },
             )
             .collect();
-        self.admission_runtime(profile)?
+        self.selected_admission_runtime(inputs)?
             .validate_compiler_selection(profile, admission, bindings, &session, inputs)
             .await
     }
@@ -889,7 +942,18 @@ impl Workspace {
     fn admission_engine(
         &self,
     ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
-        lctx_compiler_store::admission::AdmissionRuntime::borrow_runtime(
+        self.admission_engine_for(false)
+    }
+    fn admission_engine_for(
+        &self,
+        selected: bool,
+    ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
+        let construct = if selected {
+            lctx_compiler_store::admission::AdmissionRuntime::borrow_selected_runtime
+        } else {
+            lctx_compiler_store::admission::AdmissionRuntime::borrow_runtime
+        };
+        construct(
             self.model.clone(),
             self.options,
             self.budget.clone(),
@@ -902,13 +966,272 @@ impl Workspace {
             self.execution.clone(),
         )
     }
+    /// Private assurance metadata follows exact captured roots and the authentic input
+    /// bindings of their actual producer owners, independently of later completions.
+    fn selected_admission_runtime(
+        &self,
+        inputs: &CompletedInputs,
+    ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
+        if !Arc::ptr_eq(&inputs.attempt, &self.files)
+            || inputs.model != self.model.digest()
+            || !inputs.budget.shares_pool(self.budget())
+        {
+            return Err(ModelError::Conflict("selected assurance workspace"));
+        }
+        let runtime = self.admission_engine_for(true)?;
+        let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
+        let current = self.completed.lock().map_err(|_| poisoned())?;
+        let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
+        let produced = self.completed_by_producer.lock().map_err(|_| poisoned())?;
+        let mut charge = StateCharge::new(self.budget(), "selected assurance metadata transfer");
+        let mut roots = Vec::new();
+        let mut dependencies = Vec::new();
+        let mut selected = BTreeMap::new();
+        let mut pending = Vec::new();
+        for (_, binding) in inputs.ordered_bindings() {
+            let root = lctx_model::domain::completed::CompletedBinding {
+                boundary: binding.resolved.map(|boundary| boundary.name().into()),
+                source: binding.snapshot(),
+                view: binding.source.view.clone(),
+                configuration: None,
+            };
+            if !roots.contains(&root) {
+                charge.grow(
+                    serde_json::to_vec(&root)
+                        .map_err(ModelError::codec)?
+                        .len()
+                        .saturating_mul(8)
+                        .saturating_add(1024),
+                )?;
+                pending.extend(root.view.contributions.iter().copied());
+                roots.push(root);
+            }
+        }
+        while let Some(id) = pending.pop() {
+            if selected.contains_key(&id) {
+                continue;
+            }
+            let spec = owners
+                .spec_by_completed
+                .get(&id)
+                .ok_or(ModelError::Conflict(
+                    "selected assurance authentic owner absent",
+                ))?;
+            let owner = owners.by_spec.get(spec).ok_or(ModelError::Conflict(
+                "selected assurance authentic owner correspondence absent",
+            ))?;
+            charge.grow(
+                serde_json::to_vec(owner)
+                    .map_err(ModelError::codec)?
+                    .len()
+                    .saturating_mul(4)
+                    .saturating_add(256),
+            )?;
+            selected.insert(id, owner.clone());
+            for input in &owner.spec.inputs {
+                let mut actual = frozen
+                    .iter()
+                    .filter(|(_, source)| source.snapshot() == *input)
+                    .map(|((boundary, _), source)| (Some(boundary.name().to_owned()), source))
+                    .collect::<Vec<_>>();
+                if !lctx_model::domain::stages::is_epoch_shared(input.relation())
+                    || actual.is_empty()
+                {
+                    let source = inputs
+                        .relations
+                        .values()
+                        .map(|binding| &binding.source)
+                        .chain(current.values())
+                        .chain(produced.values())
+                        .find(|source| source.snapshot() == *input)
+                        .ok_or(ModelError::Conflict(
+                            "selected assurance producer input binding absent",
+                        ))?;
+                    actual.push((None, source));
+                }
+                for (boundary, source) in actual {
+                    let binding = lctx_model::domain::completed::CompletedBinding {
+                        boundary,
+                        source: input.clone(),
+                        view: source.view.clone(),
+                        configuration: None,
+                    };
+                    if roots.contains(&binding) || dependencies.contains(&binding) {
+                        continue;
+                    }
+                    charge.grow(
+                        serde_json::to_vec(&binding)
+                            .map_err(ModelError::codec)?
+                            .len()
+                            .saturating_mul(8)
+                            .saturating_add(1024),
+                    )?;
+                    pending.extend(binding.view.contributions.iter().copied());
+                    dependencies.push(binding);
+                }
+            }
+        }
+        runtime.bind_selection_snapshot(
+            inputs.profile,
+            selected.into_values().collect(),
+            roots,
+            dependencies,
+        )?;
+        Ok(runtime)
+    }
+    pub async fn uniform_owners(
+        &self,
+        access: &CompletedInputs,
+    ) -> Result<Arc<lctx_compiler_store::admission::AdmittedUniformOwners>, ModelError> {
+        self.selected_admission_runtime(access)?
+            .uniform_owners_async(access.profile())
+            .await
+    }
+    /// Freeze exactly the provider-owned facts inventory before upper contributions can
+    /// enlarge shared metadata. The provider list is supplied by the actual facts owner.
+    pub async fn freeze_facts_availability(
+        &self,
+        profile: Profile,
+        provider_names: &BTreeSet<&'static str>,
+    ) -> Result<(), ModelError> {
+        use lctx_model::domain::{
+            attribution::{AnalysisContext, Provider, ProviderCoverage, ProviderRun, RunFamily},
+            input::{ArtifactUse, InputRevision},
+            source::{CoverageScope, SourceArtifact},
+            uniform_outcome::UniformNotRequested,
+        };
+        let _completion =
+            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
+        if let Some(frozen) = &*self
+            .frozen_facts_availability
+            .lock()
+            .map_err(|_| poisoned())?
+        {
+            return if frozen.profile == profile && frozen.providers == *provider_names {
+                Ok(())
+            } else {
+                Err(ModelError::Conflict("frozen facts provider selection"))
+            };
+        }
+        let mut relations = BTreeMap::new();
+        for name in [
+            InputRevision::NAME,
+            SourceArtifact::NAME,
+            ArtifactUse::NAME,
+            CoverageScope::NAME,
+            ProviderCoverage::NAME,
+            Provider::NAME,
+            ProviderRun::NAME,
+            RunFamily::NAME,
+            AnalysisContext::NAME,
+            UniformNotRequested::NAME,
+        ] {
+            let sources = self
+                .completed_by_producer
+                .lock()
+                .map_err(|_| poisoned())?
+                .iter()
+                .filter(|((producer, relation), _)| {
+                    *relation == name && provider_names.contains(producer)
+                })
+                .map(|(_, source)| source.clone())
+                .collect::<Vec<_>>();
+            let template = sources.first().ok_or(ModelError::Conflict(
+                "provider facts availability relation absent",
+            ))?;
+            if sources.iter().any(|source| source.profile != profile) {
+                return Err(ModelError::Conflict("provider facts availability profile"));
+            }
+            let mut source = (**template).clone();
+            if sources.len() > 1 {
+                let native = self.native.clone();
+                let relation = source.relation.clone();
+                let views = sources
+                    .iter()
+                    .map(|source| source.view.clone())
+                    .collect::<Vec<_>>();
+                let budget = self.budget.clone();
+                source.view = self
+                    .native_calls
+                    .call(async move {
+                        native
+                            .compose_completed_views(&relation, &views, &budget)
+                            .await
+                    })
+                    .await?;
+                source.rows = source.view.rows;
+                source.snapshot = analysis::sources::SourceSnapshot::of_completed_view(
+                    &source.relation,
+                    self.model.digest(),
+                    &source.view,
+                )?;
+            }
+            source._selection_charge = Some(Arc::from(
+                self.budget.reserve(
+                    "provider facts availability descriptor",
+                    size_of::<CompletedRelation>()
+                        .saturating_add(1024)
+                        .saturating_add(source.view.contributions.len().saturating_mul(96)),
+                )?,
+            ));
+            relations.insert(
+                (name, None),
+                ResolvedInput {
+                    role: relations.len(),
+                    requested: None,
+                    resolved: None,
+                    source: Arc::new(source),
+                },
+            );
+        }
+        let inputs = CompletedInputs {
+            attempt: self.files.clone(),
+            model: self.model.digest(),
+            program: ContentHash::of(b"provider-facts-availability/v1"),
+            budget: self.budget.clone(),
+            producing_scope: None,
+            prepared_session: Arc::new(tokio::sync::OnceCell::new()),
+            name: "provider-facts-availability",
+            profile,
+            relations,
+        };
+        let runtime = self.selected_admission_runtime(&inputs)?;
+        // Exact provider descriptors are now privately captured. Unrelated upper handoffs
+        // need not wait for the following native coverage proof.
+        drop(_completion);
+        let availability = runtime.facts_availability_async(profile).await?;
+        let mut charge = StateCharge::new(self.budget(), "provider facts availability owner");
+        charge.grow(
+            provider_names
+                .len()
+                .saturating_mul(size_of::<&'static str>().saturating_add(128)),
+        )?;
+        let mut frozen = self
+            .frozen_facts_availability
+            .lock()
+            .map_err(|_| poisoned())?;
+        if let Some(known) = frozen.as_ref() {
+            return if known.profile == profile && known.providers == *provider_names {
+                Ok(())
+            } else {
+                Err(ModelError::Conflict("frozen facts provider selection"))
+            };
+        }
+        *frozen = Some(FrozenFactsAvailability {
+            profile,
+            providers: provider_names.clone(),
+            availability,
+            _charge: charge,
+        });
+        Ok(())
+    }
     pub(crate) fn admission_runtime(
         &self,
         profile: Profile,
     ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
         let runtime = self.admission_engine()?;
         let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
-        let mut bytes = owners.1.reserved().saturating_mul(3);
+        let mut bytes = owners.charge.reserved().saturating_mul(3);
         let current = self.completed.lock().map_err(|_| poisoned())?;
         let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
         for source in current.values().chain(frozen.values()) {
@@ -921,7 +1244,7 @@ impl Workspace {
             );
         }
         let _transfer = self.budget.reserve("compiler-admission-handoff", bytes)?;
-        let contributions = owners.0.values().cloned().collect();
+        let contributions = owners.by_spec.values().cloned().collect();
         let mut bindings = Vec::new();
         for source in current.values() {
             bindings.push(lctx_model::domain::completed::CompletedBinding {
@@ -1046,7 +1369,7 @@ impl Workspace {
     > {
         let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
         let mut matches = owners
-            .0
+            .by_spec
             .values()
             .filter(|owner| owner.spec.producer == producer);
         let owner = matches
@@ -3154,12 +3477,13 @@ impl ProducerOutput {
             let mut handoff_charge =
                 StateCharge::new(&self.workspace.budget, "compiler completed handoff");
             let owner_key = descriptor.spec.identity()?;
+            let completed_key = descriptor.identity()?;
             // Local preparation backing drops on any failure; transfer to the persistent
             // owner happens only with the coherent handoff.
             handoff_charge.grow(
                 std::mem::size_of_val(descriptor)
                     + lctx_native::installed_view::contribution_heap(descriptor)
-                    + 128,
+                    + 256,
             )?;
             let descriptor_copy = descriptor.clone();
             handoff_charge.grow(pending.len().saturating_mul(512))?;
@@ -3296,17 +3620,19 @@ impl ProducerOutput {
                 .await;
                 self.workspace.cancellation.check()?;
                 self.workspace.writable()?;
-                if self
-                    .workspace
-                    .completed_owners
-                    .lock()
-                    .map_err(|_| poisoned())?
-                    .0
-                    .contains_key(&owner_key)
                 {
-                    return Err(ModelError::Conflict(
-                        "duplicate completed native producer handoff",
-                    ));
+                    let owners = self
+                        .workspace
+                        .completed_owners
+                        .lock()
+                        .map_err(|_| poisoned())?;
+                    if owners.by_spec.contains_key(&owner_key)
+                        || owners.spec_by_completed.contains_key(&completed_key)
+                    {
+                        return Err(ModelError::Conflict(
+                            "duplicate completed native producer handoff",
+                        ));
+                    }
                 }
                 {
                     let visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
@@ -3366,7 +3692,7 @@ impl ProducerOutput {
                 .completed_owners
                 .lock()
                 .map_err(|_| poisoned())?
-                .1
+                .charge
                 .prepare_absorb(&handoff_charge)?;
             let bindings = prepared
                 .values()
@@ -3405,8 +3731,9 @@ impl ProducerOutput {
                 .lock()
                 .map_err(|_| poisoned())?;
             let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
-            owners.1.absorb(handoff_charge)?;
-            owners.0.insert(owner_key, descriptor_copy);
+            owners.charge.absorb(handoff_charge)?;
+            owners.spec_by_completed.insert(completed_key, owner_key);
+            owners.by_spec.insert(owner_key, descriptor_copy);
             for singleton in singletons {
                 by_producer.insert((self.name, singleton.name()), singleton);
             }
@@ -4704,6 +5031,141 @@ mod tests {
         (workspace, completed)
     }
     #[tokio::test]
+    async fn selected_assurance_retains_exact_owner_closure_and_refuses_missing_input_binding() {
+        use futures::FutureExt;
+        let native = crate::test_native::store();
+        let workspace =
+            Workspace::new(model(), WorkspaceOptions::default(), native.clone()).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let first = workspace.output(
+                "selected-assurance-first",
+                Profile::Catalog,
+                ContentHash::of(b"first"),
+                workspace
+                    .inputs("selected-assurance-first", Profile::Catalog, [])
+                    .unwrap(),
+                [Package::NAME],
+            );
+            first.declare_async::<Package>().await.unwrap();
+            first.finish(ProviderOutcome::Complete).await.unwrap();
+            let captured = workspace
+                .inputs(
+                    "selected-assurance-consumer",
+                    Profile::Catalog,
+                    [Package::NAME],
+                )
+                .unwrap();
+            let selected_runtime = workspace.selected_admission_runtime(&captured).unwrap();
+            let before = selected_runtime.completed_inventory().unwrap();
+            assert_eq!(before.contributions.len(), 1);
+            assert!(
+                selected_runtime
+                    .bind_selection_snapshot(Profile::Catalog, Vec::new(), Vec::new(), Vec::new())
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("selected assurance snapshot already bound")
+            );
+            assert!(
+                selected_runtime
+                    .admit_semantics(Profile::Catalog)
+                    .await
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("selected assurance is not complete inventory authority")
+            );
+            assert!(
+                selected_runtime
+                    .install_completed(Profile::Catalog, Vec::new(), Vec::new())
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("selected assurance is not complete inventory authority")
+            );
+            assert!(
+                lctx_compiler_store::artifact::admit(
+                    &selected_runtime,
+                    lctx_model::domain::admission::Frontier::Analysis,
+                    Profile::Catalog,
+                    ContentHash::of(b"selected-read-only-control"),
+                )
+                .await
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("selected assurance is not complete inventory authority")
+            );
+            // The refused full-admission route must not freeze the native attempt;
+            // the following independent producer still completes normally.
+            let uniform_before = workspace.uniform_owners(&captured).await.unwrap();
+            let second = workspace.output(
+                "selected-assurance-second",
+                Profile::Catalog,
+                ContentHash::of(b"second"),
+                captured.clone(),
+                [Package::NAME],
+            );
+            second
+                .contribute(
+                    Batch::<Package>::new(workspace.model(), Vec::new(), workspace.budget())
+                        .unwrap(),
+                )
+                .unwrap();
+            second.finish(ProviderOutcome::Complete).await.unwrap();
+            let after = workspace
+                .selected_admission_runtime(&captured)
+                .unwrap()
+                .completed_inventory()
+                .unwrap();
+            assert_eq!(before.contributions, after.contributions);
+            assert_eq!(before.bindings, after.bindings);
+            assert!(Arc::ptr_eq(
+                &uniform_before,
+                &workspace.uniform_owners(&captured).await.unwrap()
+            ));
+            let latest = workspace
+                .inputs(
+                    "selected-assurance-latest",
+                    Profile::Catalog,
+                    [Package::NAME],
+                )
+                .unwrap();
+            let complete = workspace
+                .selected_admission_runtime(&latest)
+                .unwrap()
+                .completed_inventory()
+                .unwrap();
+            assert_eq!(complete.contributions.len(), 2);
+            assert!(
+                complete.bindings.iter().any(|binding| binding.source
+                    == captured.relations[&(Package::NAME, None)].snapshot())
+            );
+            let removed = workspace
+                .completed_by_producer
+                .lock()
+                .unwrap()
+                .remove(&("selected-assurance-first", Package::NAME))
+                .unwrap();
+            assert!(workspace.selected_admission_runtime(&latest).is_err());
+            workspace
+                .completed_by_producer
+                .lock()
+                .unwrap()
+                .insert(("selected-assurance-first", Package::NAME), removed);
+            workspace.selected_admission_runtime(&latest).unwrap();
+        })
+        .catch_unwind()
+        .await;
+        let finality = workspace.drain_report().await;
+        let abandon = native.abandon_finality_report().await;
+        lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
+        lctx_model::domain::completion::complete::<()>(Ok(()), abandon).unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+    #[tokio::test]
     async fn checked_preparation_sources_reject_foreign_context_pool_profile_epoch_and_changed_view()
      {
         use futures::FutureExt;
@@ -5300,7 +5762,7 @@ mod tests {
             .unwrap();
         assert!(contribution.spec.outputs.is_empty());
         assert!(contribution.outputs.is_empty());
-        assert_eq!(workspace.completed_owners.lock().unwrap().0.len(), 1);
+        assert_eq!(workspace.completed_owners.lock().unwrap().by_spec.len(), 1);
         assert!(
             workspace
                 .native()

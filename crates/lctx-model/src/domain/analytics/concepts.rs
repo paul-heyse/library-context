@@ -21,6 +21,8 @@ pub struct Context<O, A> {
     rows: Vec<FixedBitSet>,
     cols: Vec<FixedBitSet>,
     budget: ResourceBudget,
+    #[cfg(test)]
+    extent_calls: std::cell::Cell<usize>,
     _reservation: Box<dyn Reservation>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -100,6 +102,8 @@ impl<O: Copy + Ord, A: Copy + Ord> Context<O, A> {
             rows,
             cols,
             budget: budget.clone(),
+            #[cfg(test)]
+            extent_calls: std::cell::Cell::new(0),
             _reservation: reservation,
         })
     }
@@ -110,6 +114,8 @@ impl<O: Copy + Ord, A: Copy + Ord> Context<O, A> {
         &self.attributes
     }
     fn extent(&self, intent: &FixedBitSet) -> FixedBitSet {
+        #[cfg(test)]
+        self.extent_calls.set(self.extent_calls.get() + 1);
         debug_assert_eq!(intent.len(), self.attributes.len());
         let mut out = FixedBitSet::with_capacity(self.objects.len());
         out.insert_range(..);
@@ -155,7 +161,8 @@ impl<O: Copy + Ord, A: Copy + Ord> Context<O, A> {
         out._charge.grow(size_of::<Lattice<O, A>>())?;
         let mut basis: Vec<(FixedBitSet, FixedBitSet)> = vec![];
         let mut current = implication_closure(&FixedBitSet::with_capacity(m), &basis);
-        if self.extent(&current).count_ones(..) < min_support {
+        let mut extent = self.extent(&current);
+        if extent.count_ones(..) < min_support {
             return Ok(out);
         }
         loop {
@@ -163,7 +170,6 @@ impl<O: Copy + Ord, A: Copy + Ord> Context<O, A> {
                 out.budget_reached = true;
                 return Ok(out);
             }
-            let extent = self.extent(&current);
             let closed = self.intent(&extent);
             out.examined += 1;
             if closed == current {
@@ -211,15 +217,19 @@ impl<O: Copy + Ord, A: Copy + Ord> Context<O, A> {
                 prefix.remove_range(i..);
                 prefix.insert(i);
                 let candidate = implication_closure(&prefix, &basis);
-                if (0..i).all(|j| candidate.contains(j) == current.contains(j))
-                    && self.extent(&candidate).count_ones(..) >= min_support
-                {
-                    next = Some(candidate);
-                    break;
+                if (0..i).all(|j| candidate.contains(j) == current.contains(j)) {
+                    let candidate_extent = self.extent(&candidate);
+                    if candidate_extent.count_ones(..) >= min_support {
+                        next = Some((candidate, candidate_extent));
+                        break;
+                    }
                 }
             }
             match next {
-                Some(candidate) => current = candidate,
+                Some((candidate, candidate_extent)) => {
+                    current = candidate;
+                    extent = candidate_extent;
+                }
                 None => return Ok(out),
             }
         }
@@ -243,5 +253,42 @@ fn implication_closure(set: &FixedBitSet, basis: &[(FixedBitSet, FixedBitSet)]) 
         if !changed {
             return current;
         }
+    }
+}
+
+#[cfg(test)]
+mod extent_reuse_controls {
+    use super::*;
+    #[test]
+    fn accepted_candidate_extent_is_carried_without_changing_basis_or_prefix() {
+        let b = ResourceBudget::fixed(1 << 20).unwrap();
+        let context = Context::new(&[1, 2], &[10], &[(1, 10), (2, 10)], &b).unwrap();
+        let lattice = context.analyse(1, 16).unwrap();
+        assert_eq!(lattice.examined(), 2);
+        assert_eq!(context.extent_calls.get(), 2);
+        assert_eq!(
+            lattice.concepts(),
+            &[Concept {
+                extent: vec![1, 2],
+                intent: vec![10]
+            }]
+        );
+        assert_eq!(
+            lattice.implications(),
+            &[Implication {
+                premise: vec![],
+                conclusion: vec![10],
+                support: 2
+            }]
+        );
+        context.extent_calls.set(0);
+        let partial = context.analyse(1, 1).unwrap();
+        assert!(partial.budget_reached());
+        assert_eq!(partial.examined(), 1);
+        assert!(partial.concepts().is_empty());
+        assert_eq!(partial.implications(), lattice.implications());
+        assert_eq!(context.extent_calls.get(), 2);
+        drop((context, lattice, partial));
+        assert_eq!(b.reserved(), 0);
     }
 }

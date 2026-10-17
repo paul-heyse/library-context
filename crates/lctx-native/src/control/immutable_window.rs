@@ -1555,6 +1555,153 @@ mod tests {
         lctx_model::domain::completion::complete(result, completion).unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
+    async fn full_physical_envelopes_join_equal_frozen_successors_and_concurrent_windows() {
+        use futures::FutureExt;
+        use lctx_model::domain::{self as d, Record};
+        let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("ordinary owned fixture"),
+        ))
+        .unwrap();
+        let budget = ResourceBudget::fixed(d::resources::DEFAULT_MEMORY_BYTES).unwrap();
+        let begin = || async {
+            let factory =
+                lctx_compiler_store::compiler::recovery_factory(&config, budget.clone()).unwrap();
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(
+                &config,
+                d::admission::Frontier::Facts,
+                &factory,
+            )
+            .await
+            .unwrap()
+        };
+        let first = begin().await;
+        let second = begin().await;
+        let specification = d::completed::ContributionSpec {
+            captured_binding: None,
+            producer: "full-physical-envelope-control".into(),
+            profile: d::completed::OutputProfile::Specific(d::stages::Profile::Behavioral),
+            model: d::model().unwrap().digest(),
+            implementation: first.attempt(),
+            configuration: None,
+            inputs: vec![],
+            outputs: [
+                d::source::SourceArtifact::NAME.into(),
+                d::analytics::QualityStep::NAME.into(),
+            ]
+            .into(),
+        };
+        let contribution1 = first
+            .begin_contribution(specification.clone())
+            .await
+            .unwrap();
+        let contribution2 = second.begin_contribution(specification).await.unwrap();
+        let client = lctx_compiler_store::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            first.namespace().as_str(),
+            first.database().as_str(),
+        )
+        .await
+        .unwrap();
+        let (scope, signals) =
+            exact_control_recovery(client.clone(), "full physical equal successor control");
+        async fn freeze(
+            client: &Surreal<Client>,
+            mut window: ImmutableWindow,
+        ) -> Result<ImmutableWindow, ModelError> {
+            let mut bindings: Variables = window.bindings.into();
+            coordination::prepare_expectations(client, &mut bindings).await?;
+            window.bindings = bindings.into_iter().collect();
+            Ok(window)
+        }
+        let result = with_recovery_scope(scope.clone(), std::panic::AssertUnwindSafe(async {
+            for concurrent in [false, true] {
+                let mut nonce = KeySink::new("full-physical-envelope-control/v1");
+                first.attempt().encode(&mut nonce);
+                concurrent.encode(&mut nonce);
+                let nonce = nonce.finish();
+                let revision = d::input::InputRevision { manifest: nonce };
+                let source = d::source::SourceArtifact::from_bytes(revision.id(), format!("{}.py", nonce.hex()), b"def fresh():\n    return 7\n")?;
+                let entity = d::graph::Entity::from(source.clone());
+                let source_view = crate::codec::entity_views(std::slice::from_ref(&entity))?.remove(0);
+                let graph_row = crate::adapter::physical_row(crate::loader::entity_payload_id(&entity)?, entity.content(), serde_json::to_vec(&entity).map_err(ModelError::codec)?, Some((entity.kind() as i64, entity.subtype())), source_view)?;
+                let run = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(nonce.0[..16].iter().copied())).map_err(ModelError::codec)?;
+                let quality = d::analytics::QualityStep { run, ordinal: 0, value: d::FiniteF64::new(0.75)? };
+                let quality_view = crate::codec::views(std::slice::from_ref(&quality))?.remove(0);
+                let canonical = serde_json::to_vec(&quality_view.body).map_err(ModelError::codec)?;
+                let content = ContentHash::of(&canonical);
+                let compiler_row = crate::adapter::physical_row(crate::loader::payload_id("compiler_record", d::analytics::QualityStep::NAME, quality.id().bytes(), content)?, content, canonical, None, quality_view)?;
+                let mut rows = crate::loader::entity_endpoint_values(&entity)?;
+                rows.push(graph_row.clone());
+                rows.push(compiler_row.clone());
+                let window = |attempt, contribution: ContentHash| ImmutableWindows::new(rows.clone(), Some(attempt), Some(contribution), Some(RecordId::new("compiler_contribution", contribution.hex()))).next().unwrap();
+                // Freeze both actual creation expectations before either peer can
+                // activate the same fresh graph/compiler payload addresses.
+                let a = freeze(&client, window(first.attempt(), contribution1)?).await?;
+                let b = freeze(&client, window(second.attempt(), contribution2)?).await?;
+                if concurrent {
+                    let (a, b) = tokio::join!(install_window(&client, Some(first.attempt()), a, None), install_window(&client, Some(second.attempt()), b, None));
+                    let mut terminal = d::completion::Completion::default();
+                    terminal.step("second full-row concurrent window", b);
+                    d::completion::complete(a, terminal)?;
+                } else {
+                    install_window(&client, Some(second.attempt()), b, None).await?;
+                    install_window(&client, Some(first.attempt()), a, None).await?;
+                }
+                for expected in [&graph_row, &compiler_row] {
+                    let object = expected.as_object().ok_or(ModelError::Schema("full envelope object"))?;
+                    let Value::RecordId(id) = object.get("id").ok_or(ModelError::Schema("full envelope identity"))? else { return Err(ModelError::Schema("full envelope identity")); };
+                    let mut response = client.query("SELECT * FROM ONLY $record; SELECT VALUE owner FROM native_hold WITH INDEX object_holds WHERE object=$record ORDER BY owner").bind(("record", id.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                    let actual: Value = response.take(0).map_err(ModelError::codec)?;
+                    assert_eq!(&actual, expected, "exact complete stored envelope differs for {id:?}");
+                    if id.table.as_str() == "compiler_record" {
+                        crate::completed_rows::validate_state_row(id.table.as_str(), &actual)?;
+                        crate::completed_rows::validate_backing_batch(std::slice::from_ref(&actual), &budget)?;
+                    }
+                    let owners: Vec<RecordId> = response.take(1).map_err(ModelError::codec)?;
+                    assert_eq!(owners.len(), 2);
+                    assert!(owners.contains(&RecordId::new("compiler_contribution", contribution1.hex())));
+                    assert!(owners.contains(&RecordId::new("compiler_contribution", contribution2.hex())));
+                    let actual = actual.as_object().ok_or(ModelError::Schema("stored full envelope object"))?;
+                    let Some(Value::Object(mut body)) = actual.get("body").cloned() else { return Err(ModelError::Schema("stored full envelope body")); };
+                    body.insert("id", actual.get("semantic_key").ok_or(ModelError::Schema("stored full envelope nominal key"))?.clone());
+                    let body = Value::Object(body);
+                    if id.table.as_str() == "entity" {
+                        let Value::Bytes(canonical) = actual.get("canonical").ok_or(ModelError::Schema("stored graph canonical"))? else { return Err(ModelError::Schema("stored graph canonical")); };
+                        let cold: d::graph::Entity = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
+                        assert_eq!(cold, entity);
+                        let batch = crate::codec::decode_bodies(&d::Relation::of::<d::source::SourceArtifact>(), vec![body], &budget)?;
+                        assert_eq!(d::source::SourceArtifact::decode(&batch)?, vec![source.clone()]);
+                    } else {
+                        let batch = crate::codec::decode_bodies(&d::Relation::of::<d::analytics::QualityStep>(), vec![body], &budget)?;
+                        assert_eq!(d::analytics::QualityStep::decode(&batch)?, vec![quality.clone()]);
+                    }
+                }
+            }
+            Ok(())
+        }).catch_unwind()).await.unwrap_or_else(|panic| Err(ModelError::Cause(Box::new(d::completion::ThreadPanic::new("full physical equal successor control", panic)))));
+        let mut terminal = d::completion::Completion::default();
+        if scope.pending_count().unwrap() == 0
+            && result
+                .as_ref()
+                .err()
+                .is_none_or(ModelError::permits_storage_cleanup)
+        {
+            terminal.step(
+                "full row observer close",
+                client.invalidate().await.map_err(ModelError::codec),
+            );
+            terminal.step("first full row attempt cleanup", first.abandon().await);
+            terminal.step("second full row attempt cleanup", second.abandon().await);
+        } else {
+            terminal.local = d::completion::LocalState::Outstanding;
+            terminal.remote = d::completion::RemoteState::Unknown;
+        }
+        let observed = signals.complete(&terminal).await;
+        terminal.step("full row observer signal owner", observed);
+        d::completion::complete(result, terminal).unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
     async fn native_late_collision_rolls_back_rows_and_holds_together() {
         let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned campaign fixture"),

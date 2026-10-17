@@ -29,7 +29,8 @@ pub(super) struct Correspondence<'a> {
         BTreeMap<Id<source::Occurrence>, Vec<&'a declarations::ParameterDeclaration>>,
     entity_declarations:
         BTreeMap<Id<calls::ProviderSymbol>, Vec<&'a declarations::SymbolDeclaration>>,
-    variants: BTreeMap<CallableContext, Vec<&'a normalized::callables::SignatureVariant>>,
+    pub(super) variants:
+        BTreeMap<CallableContext, Vec<&'a normalized::callables::SignatureVariant>>,
     variant_slots: BTreeMap<
         Id<normalized::callables::SignatureVariant>,
         Vec<&'a normalized::callables::SignatureSlot>,
@@ -44,6 +45,52 @@ pub(super) struct Correspondence<'a> {
     exposure_candidates: BTreeMap<Id<PublicExposure>, Vec<&'a PublicExposureCandidate>>,
     roles: BTreeSet<(Id<input::InputRevision>, Id<source::SourceArtifact>, i16)>,
     corpus: BTreeSet<(Id<input::InputRevision>, Id<input::InputRevision>)>,
+    pub(super) owners: BTreeMap<Id<EntityRef>, Vec<&'a normalized::entities::OccurrenceOwnership>>,
+    pub(super) metadata: BTreeMap<
+        (Id<EntityRef>, Id<attribution::AnalysisContext>),
+        Vec<&'a class_metadata::ClassMetadataObservation>,
+    >,
+    pub(super) class_members: BTreeMap<
+        (Id<EntityRef>, Id<attribution::AnalysisContext>),
+        Vec<&'a class_metadata::ClassMemberObservation>,
+    >,
+    pub(super) captures: BTreeMap<
+        (Id<EntityRef>, Id<attribution::AnalysisContext>),
+        Vec<&'a captures::CaptureObservation>,
+    >,
+    pub(super) exits: BTreeMap<Id<source::Occurrence>, Vec<&'a protocols::NativeExitObservation>>,
+    pub(super) terminals:
+        BTreeMap<Id<source::Occurrence>, Vec<&'a protocols::NativeTerminalObservation>>,
+    pub(super) metadata_supports: BTreeMap<
+        Id<class_metadata::ClassMetadataObservation>,
+        Vec<&'a class_metadata::ClassMetadataSupport>,
+    >,
+    pub(super) member_supports: BTreeMap<
+        Id<class_metadata::ClassMemberObservation>,
+        Vec<&'a class_metadata::ClassMemberSupport>,
+    >,
+    pub(super) capture_supports:
+        BTreeMap<Id<captures::CaptureObservation>, Vec<&'a captures::CaptureSupport>>,
+    pub(super) exit_supports:
+        BTreeMap<Id<protocols::NativeExitObservation>, Vec<&'a protocols::NativeExitSupport>>,
+    pub(super) terminal_supports: BTreeMap<
+        Id<protocols::NativeTerminalObservation>,
+        Vec<&'a protocols::NativeTerminalSupport>,
+    >,
+    pub(super) native_signature_supports:
+        BTreeMap<Id<types::NativeSignatureObservation>, Vec<&'a types::NativeSignatureSupport>>,
+    pub(super) port_supports:
+        BTreeMap<Id<types::SignatureTypeObservation>, Vec<&'a types::SignatureTypeSupport>>,
+    pub(super) ports: BTreeMap<Id<calls::Signature>, Vec<&'a types::SignatureTypeObservation>>,
+    pub(super) references: BTreeMap<Id<source::Occurrence>, Vec<&'a lexical::ReferenceObservation>>,
+    pub(super) assessments: BTreeMap<
+        Id<lexical::ReferenceObservation>,
+        Vec<&'a normalized::links::ReferenceEntityAssessment>,
+    >,
+    pub(super) reference_candidates: BTreeMap<
+        Id<normalized::links::ReferenceEntityAssessment>,
+        Vec<&'a normalized::links::ReferenceEntityCandidate>,
+    >,
     parameter_cache: RefCell<ParameterCache>,
     class_cache: RefCell<ClassCache>,
     _charge: RefCell<charged::StateCharge>,
@@ -56,6 +103,47 @@ fn grouped<'a, K: Ord, R: Record>(
     let mut out = BTreeMap::new();
     for row in rows.iter() {
         append_group(&mut out, key(row), row, charge)?;
+    }
+    Ok(out)
+}
+type EntityContextIndex<'a, R> =
+    BTreeMap<(Id<EntityRef>, Id<attribution::AnalysisContext>), Vec<&'a R>>;
+fn attributed_grouped<'a, R: Record>(
+    rows: &'a crate::domain::normalized::Rows<R>,
+    symbol: impl Fn(&R) -> Id<calls::ProviderSymbol>,
+    resolutions: &BTreeMap<SymbolContext, Vec<&SymbolEntityResolution>>,
+    charge: &mut charged::StateCharge,
+) -> Result<EntityContextIndex<'a, R>, ModelError> {
+    let mut scratch = charged::StateCharge::new(
+        charge
+            .budget()
+            .ok_or_else(|| invalid("analytic attributed index has no budget"))?,
+        "analytic-attributed-index-scratch",
+    );
+    let symbols = grouped(rows, symbol, &mut scratch)?;
+    let mut out = BTreeMap::new();
+    for ((symbol, ctx), resolutions) in resolutions {
+        let mut entities = BTreeSet::new();
+        for row in resolutions
+            .iter()
+            .filter(|r| r.status == ResolutionStatus::Resolved)
+        {
+            if let Some(entity) = row.entity
+                && !entities.contains(&entity)
+            {
+                scratch.grow(160)?;
+                entities.insert(entity);
+            }
+        }
+        for entity in entities {
+            for row in symbols.get(symbol).into_iter().flatten() {
+                append_group(&mut out, (entity, *ctx), *row, charge)?;
+            }
+        }
+    }
+    for rows in out.values_mut() {
+        rows.sort_unstable_by_key(|r| r.id());
+        rows.dedup_by_key(|r| r.id());
     }
     Ok(out)
 }
@@ -230,7 +318,127 @@ impl<'a> Correspondence<'a> {
                 }
             }
         }
+        let owners = if concepts {
+            grouped(&d.native.owners, |r| r.entity, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let metadata = if concepts {
+            attributed_grouped(&d.class_metadata, |r| r.class, &resolutions, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let class_members = if concepts {
+            attributed_grouped(&d.class_members, |r| r.class, &resolutions, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let captures = if concepts {
+            attributed_grouped(&d.captures, |r| r.function, &resolutions, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let exits = if concepts {
+            grouped(&d.exits, |r| r.subject, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let terminals = if concepts {
+            grouped(&d.terminals, |r| r.subject, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let metadata_supports = if concepts {
+            grouped(&d.metadata_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let member_supports = if concepts {
+            grouped(&d.member_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let capture_supports = if concepts {
+            grouped(&d.capture_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let exit_supports = if concepts {
+            grouped(&d.exit_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let terminal_supports = if concepts {
+            grouped(&d.terminal_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let native_signature_supports = if concepts {
+            grouped(&d.native_signature_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let port_supports = if concepts {
+            grouped(&d.port_supports, |r| r.assertion, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let references = if concepts {
+            grouped(&d.native.references, |r| r.read, &mut charge)?
+        } else {
+            BTreeMap::new()
+        };
+        let assessments = if concepts {
+            grouped(
+                &d.native.reference_assessments,
+                |r| r.reference,
+                &mut charge,
+            )?
+        } else {
+            BTreeMap::new()
+        };
+        let reference_candidates = if concepts {
+            grouped(
+                &d.native.reference_candidates,
+                |r| r.assessment,
+                &mut charge,
+            )?
+        } else {
+            BTreeMap::new()
+        };
+        let mut ports = BTreeMap::new();
+        if concepts {
+            for row in d.native.signature_types.iter() {
+                let signature = match d.native.signature_type_subjects.get(row.subject) {
+                    Some(types::SignatureTypeSubject::Return { signature }) => Some(*signature),
+                    Some(types::SignatureTypeSubject::Parameter { parameter }) => {
+                        d.native.parameters.get(*parameter).map(|p| p.signature)
+                    }
+                    None => None,
+                };
+                if let Some(signature) = signature {
+                    append_group(&mut ports, signature, row, &mut charge)?;
+                }
+            }
+        }
         Ok(Self {
+            owners,
+            metadata,
+            class_members,
+            captures,
+            exits,
+            terminals,
+            metadata_supports,
+            member_supports,
+            capture_supports,
+            exit_supports,
+            terminal_supports,
+            native_signature_supports,
+            port_supports,
+            ports,
+            references,
+            assessments,
+            reference_candidates,
             resolutions,
             members,
             slots,
@@ -250,6 +458,119 @@ impl<'a> Correspondence<'a> {
             class_cache: RefCell::new(BTreeMap::new()),
             _charge: RefCell::new(charge),
         })
+    }
+    pub(super) fn by_entity<'b, R: Record>(
+        &self,
+        index: &'b BTreeMap<(Id<EntityRef>, Id<attribution::AnalysisContext>), Vec<&'a R>>,
+        entity: Id<EntityRef>,
+        ctx: Id<attribution::AnalysisContext>,
+    ) -> &'b [&'a R] {
+        index.get(&(entity, ctx)).map_or(&[], Vec::as_slice)
+    }
+    pub(super) fn candidates<K: Ord, R: Record>(
+        &self,
+        index: &BTreeMap<K, Vec<&'a R>>,
+        keys: impl Iterator<Item = K>,
+        charge: &mut charged::StateCharge,
+    ) -> Result<Vec<&'a R>, ModelError> {
+        let mut selected = BTreeMap::new();
+        for key in keys {
+            for row in index.get(&key).into_iter().flatten() {
+                if let std::collections::btree_map::Entry::Vacant(entry) = selected.entry(row.id())
+                {
+                    charge.grow(160)?;
+                    entry.insert(*row);
+                }
+            }
+        }
+        charge.grow(
+            selected
+                .len()
+                .checked_mul(std::mem::size_of::<&R>())
+                .ok_or_else(|| invalid("analytic candidate selection overflow"))?,
+        )?;
+        Ok(selected.into_values().collect())
+    }
+    pub(super) fn decorator(
+        &self,
+        d: &Data,
+        decorator: &syntax::DeclarationDecorator,
+        ctx: Id<attribution::AnalysisContext>,
+        b: &ResourceBudget,
+    ) -> Result<normalized::decorator_identity::Output, ModelError> {
+        let mut charge = charged::StateCharge::new(b, "analytic-decorator-candidates");
+        // Select structural possibilities only. The canonical selector retains all qualification,
+        // ambiguity and target checks, including its early returns on a malformed head.
+        let root = decorator.decorator;
+        let first = self
+            .placements
+            .get(&Some(root))
+            .map_or(&[][..], Vec::as_slice);
+        charge.grow(
+            (first.len() + 1)
+                .checked_mul(64)
+                .ok_or_else(|| invalid("decorator heads overflow"))?,
+        )?;
+        let mut parents = vec![Some(root)];
+        parents.extend(
+            first
+                .iter()
+                .filter(|p| p.field == lexical::SyntaxField::Child)
+                .map(|p| Some(p.occurrence)),
+        );
+        let placements = self.candidates(&self.placements, parents.into_iter(), &mut charge)?;
+        let placement_ids = selected_ids(
+            placements.iter().map(|r| r.id()),
+            placements.len(),
+            &mut charge,
+        )?;
+        let references = self.candidates(
+            &self.references,
+            std::iter::once(root).chain(placements.iter().map(|p| p.occurrence)),
+            &mut charge,
+        )?;
+        let reference_ids = selected_ids(
+            references.iter().map(|r| r.id()),
+            references.len(),
+            &mut charge,
+        )?;
+        let assessments = self.candidates(
+            &self.assessments,
+            references.iter().map(|r| r.id()),
+            &mut charge,
+        )?;
+        let assessment_ids = selected_ids(
+            assessments.iter().map(|r| r.id()),
+            assessments.len(),
+            &mut charge,
+        )?;
+        let candidates = self.candidates(
+            &self.reference_candidates,
+            assessments.iter().map(|r| r.id()),
+            &mut charge,
+        )?;
+        let candidate_ids = selected_ids(
+            candidates.iter().map(|r| r.id()),
+            candidates.len(),
+            &mut charge,
+        )?;
+        normalized::decorator_identity::SelectedInputs {
+            qualifications: d.native.qualifications.view(),
+            occurrences: d.native.occurrences.view(),
+            placements: normalized::RowsView::selected(&d.native.placements, &placement_ids)?,
+            references: normalized::RowsView::selected(&d.native.references, &reference_ids)?,
+            assessments: normalized::RowsView::selected(
+                &d.native.reference_assessments,
+                &assessment_ids,
+            )?,
+            candidates: normalized::RowsView::selected(
+                &d.native.reference_candidates,
+                &candidate_ids,
+            )?,
+            targets: d.native.reference_targets.view(),
+            resolutions: d.native.lexical_resolutions.view(),
+        }
+        .select(decorator, ctx, b)
     }
     fn parameter(
         &self,
@@ -383,18 +704,6 @@ impl<'a> Correspondence<'a> {
         view.callable_variants = normalized::RowsView::selected(&d.native.callable_variants, &ids)?;
         view.callable_slots = normalized::RowsView::selected(&d.native.callable_slots, &slots)?;
         Ok(normalized::parameter_correspondence::is_bound_receiver_view(&view, p, callable, ctx))
-    }
-    pub(super) fn resolves(
-        &self,
-        symbol: Id<calls::ProviderSymbol>,
-        entity: Id<EntityRef>,
-        ctx: Id<attribution::AnalysisContext>,
-    ) -> bool {
-        self.resolutions
-            .get(&(symbol, ctx))
-            .into_iter()
-            .flatten()
-            .any(|r| r.status == ResolutionStatus::Resolved && r.entity == Some(entity))
     }
 }
 fn declaration(
@@ -904,11 +1213,10 @@ fn facts(
             {
                 continue;
             }
-            let shapes = d
-                .native
+            let shapes = correspondence
                 .parameters
                 .iter()
-                .filter(|slot| correspondence.parameters.contains(&slot.id()))
+                .filter_map(|id| d.native.parameters.get(*id))
                 .filter_map(|p| d.native.shapes.get(p.shape));
             for shape in shapes {
                 if let Some(name) = &shape.name {
@@ -961,7 +1269,18 @@ fn facts(
                 }
             }
         }
-        for o in d.native.type_observations.iter() {
+        let mut selected = charged::StateCharge::new(b, "analytic-object-observations");
+        let mut subjects = vec![declaration];
+        if let Some(owners) = prep.owners.get(entity) {
+            selected.grow(
+                owners
+                    .len()
+                    .checked_mul(std::mem::size_of::<Id<source::Occurrence>>())
+                    .ok_or_else(|| invalid("analytic ownership selection overflow"))?,
+            )?;
+            subjects.extend(owners.iter().map(|o| o.occurrence));
+        }
+        for o in prep.candidates(&prep.observations, subjects.into_iter(), &mut selected)? {
             if !context(d, o.qualification, ctx)? {
                 continue;
             }
@@ -973,10 +1292,12 @@ fn facts(
             {
                 Some(Attribute::Returns { term: o.term })
             } else if o.role == types::TypeRole::Raised
-                && d.native
+                && prep
                     .owners
-                    .iter()
-                    .any(|owner| owner.occurrence == o.subject && owner.entity == *entity)
+                    .get(entity)
+                    .into_iter()
+                    .flatten()
+                    .any(|owner| owner.occurrence == o.subject)
             {
                 let values = classes(d, prep, o.term, ctx, b)?;
                 values.and_then(|c| {
@@ -1026,6 +1347,7 @@ fn facts(
             }
             super::native_attributes::decorator(
                 d,
+                prep,
                 *entity,
                 dec,
                 ctx,
@@ -1036,111 +1358,268 @@ fn facts(
         }
     }
     if rca {
-        let mut scope_charge = charged::StateCharge::new(b, "analytic-relational-scope-membership");
-        let mut scope_members = BTreeSet::new();
-        let mut frames = BTreeSet::new();
-        for frame in out.frames.iter() {
-            if !frames.contains(&frame.structural) {
-                scope_charge.grow(128 + std::mem::size_of_val(&frame.structural))?;
-                frames.insert(frame.structural);
-            }
+        relational_facts(d, objects, out, &mut facts, &mut charge, b)?;
+    }
+    Ok((facts, selections, charge))
+}
+fn relational_facts(
+    d: &Data,
+    objects: &BTreeSet<Id<EntityRef>>,
+    out: &Output,
+    facts: &mut charged::ChargedVec<Fact>,
+    charge: &mut charged::StateCharge,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let mut scope_charge = charged::StateCharge::new(b, "analytic-relational-scope-membership");
+    let mut scope_members = BTreeSet::new();
+    let mut frames = BTreeSet::new();
+    for frame in out.frames.iter() {
+        if !frames.contains(&frame.structural) {
+            scope_charge.grow(128 + std::mem::size_of_val(&frame.structural))?;
+            frames.insert(frame.structural);
         }
-        for member in d
-            .structural
-            .scope
-            .iter()
-            .filter(|member| frames.contains(&member.frame))
-        {
-            let key = (member.frame, member.entity);
-            if !scope_members.contains(&key) {
-                scope_charge.grow(128 + std::mem::size_of_val(&key))?;
-                scope_members.insert(key);
-            }
+    }
+    for member in d
+        .structural
+        .scope
+        .iter()
+        .filter(|member| frames.contains(&member.frame))
+    {
+        let key = (member.frame, member.entity);
+        if !scope_members.contains(&key) {
+            scope_charge.grow(128 + std::mem::size_of_val(&key))?;
+            scope_members.insert(key);
         }
-        for arc in out.arcs.iter().filter(|a| {
-            objects.contains(&a.source)
-                && a.source != a.target
-                && scope_members
-                    .contains(&(need(&out.frames, a.frame).unwrap().structural, a.target))
-        }) {
-            let alternative = need(&d.native.event_alternatives, arc.alternative)?;
-            facts.push(
-                &mut charge,
-                Fact {
-                    entity: arc.source,
-                    attribute: Attribute::Calls {
-                        target: arc.target,
-                        modality: need(
-                            &d.native.qualifications,
-                            need(
-                                &d.native.targets,
-                                need(&d.native.event_alternative_sources, alternative.source)?
-                                    .target(),
-                            )?
-                            .qualification,
-                        )?
-                        .modality,
-                        phase: need(
+    }
+    for arc in out.arcs.iter().filter(|a| {
+        objects.contains(&a.source)
+            && a.source != a.target
+            && scope_members.contains(&(need(&out.frames, a.frame).unwrap().structural, a.target))
+    }) {
+        let alternative = need(&d.native.event_alternatives, arc.alternative)?;
+        facts.push(
+            charge,
+            Fact {
+                entity: arc.source,
+                attribute: Attribute::Calls {
+                    target: arc.target,
+                    modality: need(
+                        &d.native.qualifications,
+                        need(
                             &d.native.targets,
                             need(&d.native.event_alternative_sources, alternative.source)?.target(),
                         )?
-                        .phase,
-                    },
-                    source: IncidenceSource::Call { arc: arc.id() },
+                        .qualification,
+                    )?
+                    .modality,
+                    phase: need(
+                        &d.native.targets,
+                        need(&d.native.event_alternative_sources, alternative.source)?.target(),
+                    )?
+                    .phase,
                 },
-            )?;
+                source: IncidenceSource::Call { arc: arc.id() },
+            },
+        )?;
+    }
+    for h in d
+        .structural
+        .handoffs
+        .iter()
+        .filter(|h| frames.contains(&h.frame))
+    {
+        let producer = need(&d.native.event_alternatives, h.producer)?;
+        let consumer = need(&d.native.event_alternatives, h.consumer)?;
+        let (Some(source), Some(target)) = (producer.entity, consumer.entity) else {
+            return Err(invalid("retained handoff endpoints absent"));
+        };
+        if source == target {
+            continue;
         }
-        for h in d
-            .structural
-            .handoffs
-            .iter()
-            .filter(|h| frames.contains(&h.frame))
-        {
-            let producer = need(&d.native.event_alternatives, h.producer)?;
-            let consumer = need(&d.native.event_alternatives, h.consumer)?;
-            let (Some(source), Some(target)) = (producer.entity, consumer.entity) else {
-                return Err(invalid("retained handoff endpoints absent"));
-            };
-            if source == target {
-                continue;
-            }
-            let p = need(
-                &d.native.targets,
-                need(&d.native.event_alternative_sources, producer.source)?.target(),
-            )?;
-            let c = need(
-                &d.native.targets,
-                need(&d.native.event_alternative_sources, consumer.source)?.target(),
-            )?;
-            for (entity, target, takes) in [(source, target, false), (target, source, true)] {
-                if objects.contains(&entity) {
-                    facts.push(
-                        &mut charge,
-                        Fact {
-                            entity,
-                            attribute: Attribute::Handoff {
-                                takes,
-                                target,
-                                producer_modality: need(&d.native.qualifications, p.qualification)?
-                                    .modality,
-                                consumer_modality: need(&d.native.qualifications, c.qualification)?
-                                    .modality,
-                                producer_phase: p.phase,
-                                consumer_phase: c.phase,
-                            },
-                            source: IncidenceSource::Handoff { occurrence: h.id() },
+        let p = need(
+            &d.native.targets,
+            need(&d.native.event_alternative_sources, producer.source)?.target(),
+        )?;
+        let c = need(
+            &d.native.targets,
+            need(&d.native.event_alternative_sources, consumer.source)?.target(),
+        )?;
+        for (entity, target, takes) in [(source, target, false), (target, source, true)] {
+            if objects.contains(&entity) {
+                facts.push(
+                    charge,
+                    Fact {
+                        entity,
+                        attribute: Attribute::Handoff {
+                            takes,
+                            target,
+                            producer_modality: need(&d.native.qualifications, p.qualification)?
+                                .modality,
+                            consumer_modality: need(&d.native.qualifications, c.qualification)?
+                                .modality,
+                            producer_phase: p.phase,
+                            consumer_phase: c.phase,
                         },
-                    )?;
-                }
+                        source: IncidenceSource::Handoff { occurrence: h.id() },
+                    },
+                )?;
             }
         }
     }
-    Ok((facts, selections, charge))
+    Ok(())
+}
+struct NamespaceGroup {
+    access: Id<source::Module>,
+    namespace: Vec<String>,
+    candidates: Vec<(Id<EntityRef>, Id<structural::PublicCandidate>)>,
+    objects: BTreeSet<Id<EntityRef>>,
+    facts: Vec<usize>,
+    selections: Vec<usize>,
+    relational: Vec<usize>,
+}
+pub(super) struct ConceptPreparation {
+    groups: Vec<NamespaceGroup>,
+    facts: charged::ChargedVec<Fact>,
+    selections: charged::ChargedVec<super::native_attributes::Selection>,
+    relational: charged::ChargedVec<Fact>,
+    _facts_charge: charged::StateCharge,
+    _relational_charge: charged::StateCharge,
+    _charge: charged::StateCharge,
+}
+impl ConceptPreparation {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one exact shared base retains selected frame/domain/context/policy and independent relational demand"
+    )]
+    pub(super) fn new(
+        d: &Data,
+        prep: &Correspondence<'_>,
+        sf: &structural::StructuralFrame,
+        public: &BTreeSet<Id<EntityRef>>,
+        out: &Output,
+        b: &ResourceBudget,
+        policy: policy::AttributePolicy,
+        rca: bool,
+    ) -> Result<Self, ModelError> {
+        let mut charge = charged::StateCharge::new(b, "analytic-concept-scopes");
+        let mut groups = BTreeMap::<
+            (Id<source::Module>, Vec<String>),
+            Vec<(Id<EntityRef>, Id<structural::PublicCandidate>)>,
+        >::new();
+        for candidate in d
+            .structural
+            .public
+            .iter()
+            .filter(|c| c.frame == sf.id() && public.contains(&c.entity))
+        {
+            let member = need(&d.members, candidate.member)?;
+            charge.grow(512 + member.path.heap_bytes())?;
+            let mut namespace = member.path.clone();
+            namespace.pop();
+            groups
+                .entry((member.access, namespace))
+                .or_default()
+                .push((candidate.entity, candidate.id()));
+        }
+        charge.grow(
+            public
+                .len()
+                .checked_mul(128)
+                .ok_or_else(|| invalid("concept selected objects overflow"))?,
+        )?;
+        let selected_objects = groups
+            .values()
+            .flat_map(|c| c.iter().map(|(e, _)| *e))
+            .collect::<BTreeSet<_>>();
+        let parent = need(&d.structural_invocations, sf.invocation)?;
+        let (facts, selections, facts_charge) = if groups.is_empty() {
+            (
+                charged::ChargedVec::default(),
+                charged::ChargedVec::default(),
+                charged::StateCharge::new(b, "analytic-concept-incidence"),
+            )
+        } else {
+            facts(
+                d,
+                prep,
+                &selected_objects,
+                parent.context,
+                false,
+                out,
+                b,
+                policy,
+            )?
+        };
+        let mut relational = charged::ChargedVec::default();
+        let mut relational_charge = charged::StateCharge::new(b, "analytic-relational-incidence");
+        if rca && !groups.is_empty() {
+            relational_facts(
+                d,
+                &selected_objects,
+                out,
+                &mut relational,
+                &mut relational_charge,
+                b,
+            )?;
+        }
+        let mut groups = groups
+            .into_iter()
+            .map(|((access, namespace), candidates)| {
+                let objects = candidates.iter().map(|(e, _)| *e).collect();
+                NamespaceGroup {
+                    access,
+                    namespace,
+                    candidates,
+                    objects,
+                    facts: vec![],
+                    selections: vec![],
+                    relational: vec![],
+                }
+            })
+            .collect::<Vec<_>>();
+        // One object-to-namespace map distributes each evidence position once; mathematical
+        // entity/attribute deduplication is deferred to the individual context, never provenance.
+        let mut destinations = BTreeMap::<Id<EntityRef>, Vec<usize>>::new();
+        for (index, group) in groups.iter().enumerate() {
+            for entity in &group.objects {
+                charge.grow(192)?;
+                destinations.entry(*entity).or_default().push(index);
+            }
+        }
+        for (index, fact) in facts.iter().enumerate() {
+            for group in destinations.get(&fact.entity).into_iter().flatten() {
+                charge.grow(2 * size_of::<usize>())?;
+                groups[*group].facts.push(index);
+            }
+        }
+        for (index, selection) in selections.iter().enumerate() {
+            for group in destinations.get(&selection.entity()).into_iter().flatten() {
+                charge.grow(2 * size_of::<usize>())?;
+                groups[*group].selections.push(index);
+            }
+        }
+        for (index, fact) in relational.iter().enumerate() {
+            for group in destinations.get(&fact.entity).into_iter().flatten() {
+                charge.grow(2 * size_of::<usize>())?;
+                groups[*group].relational.push(index);
+            }
+        }
+        Ok(Self {
+            groups,
+            facts,
+            selections,
+            relational,
+            _facts_charge: facts_charge,
+            _relational_charge: relational_charge,
+            _charge: charge,
+        })
+    }
 }
 #[allow(
     clippy::too_many_arguments,
     reason = "scoped concept publication retains exact invocation, object selectors and attribute policy"
 )]
+#[cfg(test)]
 pub(super) fn concepts(
     d: &Data,
     prep: &Correspondence<'_>,
@@ -1151,71 +1630,49 @@ pub(super) fn concepts(
     b: &ResourceBudget,
     policy: policy::AttributePolicy,
 ) -> Result<(), ModelError> {
-    let parent = need(&d.structural_invocations, sf.invocation)?;
-    let mut charge = charged::StateCharge::new(b, "analytic-concept-scopes");
-    let mut groups =
-        BTreeMap::<(Id<source::Module>, Vec<String>), Vec<&structural::PublicCandidate>>::new();
-    for c in d
-        .structural
-        .public
-        .iter()
-        .filter(|c| c.frame == sf.id() && public.contains(&c.entity))
-    {
-        let member = need(&d.members, c.member)?;
-        let mut namespace = member.path.clone();
-        namespace.pop();
-        charge.grow(512 + namespace.heap_bytes())?;
-        groups
-            .entry((member.access, namespace))
-            .or_default()
-            .push(c);
-    }
-    if groups.is_empty() {
-        result.stop = Stop::EmptyDomain;
-        return Ok(());
-    }
-    charge.grow(
-        public
-            .len()
-            .checked_mul(128)
-            .ok_or_else(|| invalid("concept selected objects overflow"))?,
-    )?;
-    let selected_objects = groups
-        .values()
-        .flat_map(|candidates| candidates.iter().map(|c| c.entity))
-        .collect::<BTreeSet<_>>();
-    let (facts, selections, _facts_charge) = facts(
+    let prepared = ConceptPreparation::new(
         d,
         prep,
-        &selected_objects,
-        parent.context,
-        result.method == analysis::AnalysisMethod::RelationalConcepts,
+        sf,
+        public,
         out,
         b,
         policy,
+        result.method == analysis::AnalysisMethod::RelationalConcepts,
     )?;
-    for ((access, namespace), candidates) in groups {
-        let _objects = b.reserve(
-            "analytic-concept-scoped-objects",
-            candidates
-                .len()
-                .checked_mul(128)
-                .ok_or_else(|| invalid("concept objects overflow"))?,
-        )?;
-        let objects = candidates.iter().map(|c| c.entity).collect::<BTreeSet<_>>();
-        let selected_facts = facts
-            .iter()
-            .filter(|fact| objects.contains(&fact.entity))
-            .count();
+    concepts_prepared(&prepared, result, out, b)
+}
+pub(super) fn concepts_prepared(
+    prepared: &ConceptPreparation,
+    result: &mut TechniqueResult,
+    out: &mut Output,
+    b: &ResourceBudget,
+) -> Result<(), ModelError> {
+    if prepared.groups.is_empty() {
+        result.stop = Stop::EmptyDomain;
+        return Ok(());
+    }
+    let rca = result.method == analysis::AnalysisMethod::RelationalConcepts;
+    for group in &prepared.groups {
+        let objects = &group.objects;
+        let facts = || {
+            group.facts.iter().map(|i| &prepared.facts[*i]).chain(
+                group
+                    .relational
+                    .iter()
+                    .filter(move |_| rca)
+                    .map(|i| &prepared.relational[*i]),
+            )
+        };
         let _context = b.reserve(
             "analytic-concept-conversion",
-            selected_facts
+            (group.facts.len() + if rca { group.relational.len() } else { 0 })
                 .checked_mul(768)
                 .ok_or_else(|| invalid("concept conversion overflow"))?,
         )?;
         let mut attributes = BTreeSet::new();
         let mut incidences = BTreeSet::new();
-        for fact in facts.iter().filter(|fact| objects.contains(&fact.entity)) {
+        for fact in facts() {
             attributes.insert(fact.attribute.id());
             incidences.insert((fact.entity, fact.attribute.id()));
         }
@@ -1230,25 +1687,22 @@ pub(super) fn concepts(
         )?;
         let scope = ConceptScope {
             result: result.id(),
-            access,
-            namespace,
+            access: group.access,
+            namespace: group.namespace.clone(),
             examined: lattice.examined() as i64,
             partial: lattice.budget_reached(),
         };
-        for selection in selections
-            .iter()
-            .filter(|selection| objects.contains(&selection.entity()))
-        {
+        for selection in group.selections.iter().map(|i| &prepared.selections[*i]) {
             selection.emit(scope.id(), out)?;
         }
-        for candidate in candidates {
+        for (entity, candidate) in &group.candidates {
             out.objects.insert(ConceptObject {
                 scope: scope.id(),
-                entity: candidate.entity,
-                candidate: candidate.id(),
+                entity: *entity,
+                candidate: *candidate,
             })?;
         }
-        for fact in facts.iter().filter(|fact| objects.contains(&fact.entity)) {
+        for fact in facts() {
             out.attributes.insert(fact.attribute.clone())?;
             out.incidence_sources.insert(fact.source.clone())?;
             out.incidences.insert(Incidence {
@@ -1496,18 +1950,61 @@ mod correspondence_tests {
                 .insert((entity, candidate.id()));
             d.structural.public.insert(candidate).unwrap();
         }
+        // Irrelevant rows are indexed structurally; their absent premise is never relied on.
+        for n in 100..150 {
+            d.native
+                .type_observations
+                .insert(types::TypeObservation {
+                    qualification: id(99),
+                    subject: id(n),
+                    role: types::TypeRole::Raised,
+                    declared: true,
+                    term: id(99),
+                })
+                .unwrap();
+        }
         let prep = Correspondence::new(&d, &b, true, true, false).unwrap();
-        concepts(
+        let mut candidate_charge = charged::StateCharge::new(&b, "test-candidates");
+        let relevant = prep
+            .candidates(
+                &prep.observations,
+                [id(10), id(11)].into_iter(),
+                &mut candidate_charge,
+            )
+            .unwrap();
+        assert_eq!(relevant.len(), 2);
+        assert_eq!(d.native.type_observations.len(), 52);
+        let prepared = ConceptPreparation::new(
             &d,
             &prep,
             &sf,
             &entities.into_iter().collect(),
-            &mut result,
-            &mut out,
+            &out,
             &b,
             policy::RETAINED.attributes,
+            true,
         )
         .unwrap();
+        assert_eq!(prepared.facts.len(), 2);
+        assert_eq!(prepared.groups.len(), 2);
+        assert_eq!(
+            prepared.groups.iter().map(|g| g.facts.len()).sum::<usize>(),
+            3
+        );
+        assert!(prepared.relational.is_empty());
+        concepts_prepared(&prepared, &mut result, &mut out, &b).unwrap();
+        let mut relational = Output::new(&b);
+        let mut relational_result = result.clone();
+        relational_result.method = analysis::AnalysisMethod::RelationalConcepts;
+        relational_result.examined = 0;
+        concepts_prepared(&prepared, &mut relational_result, &mut relational, &b).unwrap();
+        assert_eq!(relational.incidences.len(), out.incidences.len());
+        assert!(relational.incidence_sources.same(&out.incidence_sources));
+        assert_eq!(relational.objects.len(), out.objects.len());
+        assert_ne!(
+            relational.scopes.iter().next().unwrap().result,
+            out.scopes.iter().next().unwrap().result
+        );
         assert_eq!(out.scopes.len(), 2);
         assert_eq!(out.objects.len(), 3);
         assert_eq!(out.incidences.len(), 3);

@@ -209,19 +209,19 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
 pub async fn apply(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
+    bindings: Option<&Arc<crate::analysis_bindings::PreparedBindings>>,
     evaluations: Option<
-        &crate::semantic_execution::Produced<execution::production::ProducedEvaluations>,
+        &Arc<crate::semantic_execution::Produced<execution::production::ProducedEvaluations>>,
     >,
-    local: Option<&crate::local_semantics::PreparedLocal>,
+    local: Option<&Arc<crate::local_semantics::PreparedLocal>>,
 ) -> Result<(), ModelError> {
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let data = load_inputs(&access, &session, definition, &mut admission, budget).await?;
     let selected = data
@@ -229,10 +229,13 @@ pub async fn apply(
         .get(definition.parameters)
         .and_then(|row| row.model_catalog)
         .ok_or_else(|| ModelError::Invalid("Models selected catalog absent".into()))?;
-    let parsed = SelectedCatalog::read(
-        data.catalogs
-            .get(selected)
-            .ok_or(ModelError::Schema(models::ModelCatalog::NAME))?,
+    let parsed = crate::owned_work::Shared::new(
+        SelectedCatalog::read(
+            data.catalogs
+                .get(selected)
+                .ok_or(ModelError::Schema(models::ModelCatalog::NAME))?,
+            budget,
+        )?,
         budget,
     )?;
     let actual = if profile == Profile::Behavioral {
@@ -385,8 +388,10 @@ pub async fn apply(
                 definition,
                 profile,
                 catalog: &parsed,
-                verified,
-                actual: actual.as_ref(),
+                runtime,
+                bindings,
+                evaluations,
+                local,
                 frame: frame.id(),
                 budget,
                 cancellation: &cancellation,
@@ -403,9 +408,7 @@ pub async fn apply(
                 let window = scopes
                     .window(&access, &kinds, frame.id(), budget, &runtime.cancellation())
                     .await?;
-                for (partition, kind) in kinds.iter().enumerate() {
-                    let selected = window.data(partition, budget, &runtime.cancellation())?;
-                    let produced = apply_data(&application, &selected, *kind)?;
+                for produced in apply_window(&application, &window, &kinds).await? {
                     merge_run(&mut records, &produced)?;
                     publish_records(&output, &produced).await?;
                 }
@@ -528,39 +531,91 @@ fn publish_frame<'a>(
 }
 
 // Borrow only the selected model application's semantic owners, without copying rich inputs.
-struct SelectedApplication<'a, 'actual> {
+struct SelectedApplication<'a> {
     access: &'a CompletedInputs,
     output: &'a ProducerOutput,
     scopes: &'a scope::ModelScopes,
     invocation: &'a owner::AnalysisInvocation,
     definition: &'a analysis::AnalysisDefinition,
     profile: Profile,
-    catalog: &'a SelectedCatalog,
-    verified: Option<&'a normalized::binding_normalization::VerifiedBindings>,
-    actual: Option<&'a ActualInputs<'actual>>,
+    catalog: &'a Arc<crate::owned_work::Shared<SelectedCatalog>>,
+    runtime: &'a Arc<Workspace>,
+    bindings: Option<&'a Arc<crate::analysis_bindings::PreparedBindings>>,
+    evaluations: Option<
+        &'a Arc<crate::semantic_execution::Produced<execution::production::ProducedEvaluations>>,
+    >,
+    local: Option<&'a Arc<crate::local_semantics::PreparedLocal>>,
     frame: Id<attribution::ProviderRun>,
     budget: &'a resources::ResourceBudget,
     cancellation: &'a crate::workspace::Cancellation,
 }
-fn apply_data(
-    application: &SelectedApplication<'_, '_>,
-    selected: &ModelData,
-    kind: ProductionScope,
-) -> Result<ModelRecords, ModelError> {
-    apply_selected(
-        selected,
-        application.invocation,
-        application.definition,
-        application.profile,
-        application.catalog,
-        application.verified,
-        kind,
-        application.actual,
-        application.budget,
-    )
+async fn apply_window(
+    application: &SelectedApplication<'_>,
+    window: &scope::ModelWindow<'_>,
+    kinds: &[ProductionScope],
+) -> Result<crate::owned_work::OrderedResults<ModelRecords>, ModelError> {
+    let job_count = kinds.len();
+    let mut jobs = Vec::new();
+    let mut jobs_charge =
+        charged::StateCharge::new(application.budget, "prepared work transport slots");
+    for (partition, kind) in kinds.iter().copied().enumerate() {
+        let selected = window.data(partition, application.budget, application.cancellation)?;
+        let runtime = application.runtime.clone();
+        let access = application.access.clone();
+        let invocation = application.invocation.clone();
+        let definition = application.definition.clone();
+        let catalog = application.catalog.clone();
+        let bindings = application.bindings.cloned();
+        let evaluations = application.evaluations.cloned();
+        let local = application.local.cloned();
+        let profile = application.profile;
+        let job = async move {
+            let verified = bindings
+                .as_ref()
+                .map(|owner| owner.application(&access, &runtime))
+                .transpose()?;
+            let actual = if profile == Profile::Behavioral {
+                Some(ActualInputs {
+                    evaluations: evaluations
+                        .as_ref()
+                        .ok_or_else(|| {
+                            ModelError::Invalid("Models actual Base values absent".into())
+                        })?
+                        .borrow(&access, &runtime)?,
+                    local: local
+                        .as_ref()
+                        .ok_or_else(|| {
+                            ModelError::Invalid("Models actual Local values absent".into())
+                        })?
+                        .entries(&access, &runtime)?,
+                })
+            } else {
+                None
+            };
+            crate::stage_runtime::borrowed_cpu(access.name(), || {
+                apply_selected(
+                    &selected,
+                    &invocation,
+                    &definition,
+                    profile,
+                    &catalog,
+                    verified,
+                    kind,
+                    actual.as_ref(),
+                    runtime.budget(),
+                )
+            })
+        };
+        if jobs.is_empty() {
+            jobs_charge.grow(job_count.saturating_mul(std::mem::size_of_val(&job)))?;
+            jobs.reserve_exact(job_count);
+        }
+        jobs.push(job);
+    }
+    crate::owned_work::ordered(application.runtime, jobs).await
 }
 fn apply_roots<'a, R: Record>(
-    application: &'a SelectedApplication<'_, '_>,
+    application: &'a SelectedApplication<'_>,
     session: &'a datafusion::prelude::SessionContext,
     sql: String,
     kind: fn(Id<R>) -> ProductionScope,
@@ -607,10 +662,7 @@ fn apply_roots<'a, R: Record>(
                         application.cancellation,
                     )
                     .await?;
-                for (partition, kind) in kinds.iter().enumerate() {
-                    let selected =
-                        window.data(partition, application.budget, application.cancellation)?;
-                    let produced = apply_data(application, &selected, *kind)?;
+                for produced in apply_window(application, &window, &kinds).await? {
                     merge_run(records, &produced)?;
                     publish_records(application.output, &produced).await?;
                 }

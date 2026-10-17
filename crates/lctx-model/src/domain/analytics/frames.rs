@@ -204,7 +204,7 @@ pub fn invariants() -> Vec<Invariant> {
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 2,
+        revision: 3,
         name: "analytic_replay",
         inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
             analysis::owner::AnalysisOwner::Analytic,

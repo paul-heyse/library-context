@@ -341,7 +341,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let mut frames = selection::frames::Frames::new(runtime.budget());
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());

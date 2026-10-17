@@ -206,6 +206,18 @@ resolution certainty.
 
 ### §9.6 Formal and relational concept analysis
 
+**Implemented / focused-Tested for analytic preparation, 2026-10-17:** charged Correspondence indexes
+structural candidates; original consuming predicates retain contextual validation and lazy error
+timing. One compact attributed base supplies exact overlapping namespace scopes to FCA and RCA;
+RCA-only additions and method results remain separate. NextClosure/Duquenne–Guigues enumeration,
+support, examined bounds and partial meaning remain; accepted extents are carried forward instead
+of intersected twice. Finite owned frame techniques run under existing joined task ownership,
+with actual nearest/community/label dependencies and canonical numerical reduction. The
+[upper coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns focused evidence and the separate full-validation boundary; no measured speedup is claimed.
+
+> Decision: ADR-0187
+
 FCA builds a bounded typed object/attribute context using equal-length FixedBitSet domains and
 the retained closure/NextClosure kernel. An attribute states its source, interpretation,
 modality, evidence and applicability. Different evidence bases cannot merge because their labels

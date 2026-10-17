@@ -892,7 +892,7 @@ fn run_inputs() -> Vec<ValidationInput> {
 pub(crate) fn run_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
+        revision: 2,
         name: "model_inventory_replay",
         inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
             analysis::owner::AnalysisOwner::Models,

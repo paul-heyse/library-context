@@ -109,7 +109,7 @@ fn validate_diagnostic(row: &AnalysisDiagnostic) -> Result<(), ModelError> {
 pub(crate) fn invocation_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 2,
+        revision: 3,
         name: owner_table!("analysis_invocation_inputs"),
         inputs: invocation_inputs(),
         create: std::sync::Arc::new(|budget| {
@@ -124,7 +124,7 @@ pub(crate) fn invocation_invariants() -> Vec<Invariant> {
         }),
     }]
 }
-fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"]),ValidationInput::of::<ProjectionInput>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
+fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![uniform_predecessor_input(),ValidationInput::of::<SourceReceipt>(&["id"]),ValidationInput::of::<ProjectionInput>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
 struct InvocationCheck {
     uniform:charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>,uniform_outcome::UniformNotRequested>,
     uniform_owners:uniform_outcome::UniformOwners,

@@ -12,10 +12,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub(super) struct StageExecution(Mutex<Registry>);
+pub(super) struct StageExecution(Arc<Mutex<Registry>>);
 struct Registry {
     sealed: bool,
-    tasks: Vec<OwnedTaskJoin>,
+    tasks: Vec<(u64, OwnedTaskJoin)>,
+    next_id: u64,
     charge: StateCharge,
 }
 /// A snapshot keeps the allocation charge until its final joined owner is released.
@@ -37,11 +38,12 @@ impl std::ops::Deref for StageDrainSnapshot {
 }
 impl StageExecution {
     pub(super) fn new(budget: &ResourceBudget) -> Self {
-        Self(Mutex::new(Registry {
+        Self(Arc::new(Mutex::new(Registry {
             sealed: false,
             tasks: Vec::new(),
+            next_id: 0,
             charge: StateCharge::new(budget, "compiler producer joins"),
-        }))
+        })))
     }
     pub(super) fn seal(&self) -> Result<StageDrainSnapshot, ModelError> {
         let mut registry = self.0.lock().map_err(|_| poisoned())?;
@@ -58,7 +60,12 @@ impl StageExecution {
                     .saturating_mul(size_of::<OwnedTaskJoin>()),
             )?;
         Ok(StageDrainSnapshot {
-            tasks: registry.tasks.clone().into_iter(),
+            tasks: registry
+                .tasks
+                .iter()
+                .map(|(_, join)| join.clone())
+                .collect::<Vec<_>>()
+                .into_iter(),
             _charge: charge,
         })
     }
@@ -76,9 +83,13 @@ impl StageExecution {
             let additional = registry.tasks.capacity().max(4);
             registry
                 .charge
-                .grow(additional.saturating_mul(size_of::<OwnedTaskJoin>()))?;
+                .grow(additional.saturating_mul(size_of::<(u64, OwnedTaskJoin)>()))?;
             registry.tasks.reserve_exact(additional);
         }
+        let registration = registry.next_id;
+        registry.next_id = registration
+            .checked_add(1)
+            .ok_or(ModelError::Conflict("producer registration overflow"))?;
         // Charge the owned future/result channels before the runtime allocates them.
         // Producer inputs retain their separate semantic reservations.
         let task_charge = registry
@@ -139,7 +150,8 @@ impl StageExecution {
         .with_tracing_context(context)
         .boxed()
         .shared();
-        registry.tasks.push(joined.clone());
+        registry.tasks.push((registration, joined.clone()));
+        let acknowledged_registry = self.0.clone();
         // No await under the registry mutex. A racing seal sees this exact joined owner.
         drop(registry);
         let _ = launch.send(());
@@ -149,16 +161,37 @@ impl StageExecution {
             let _delivery_charge = receiver_charge;
             let result = terminal.await;
             let joined = joined.await.map_err(ModelError::SharedCause);
+            // A consumed result plus successful actual join acknowledges this exact
+            // registration. Lost waiters and failed joins remain available to drain.
+            // Capacity follows peak live work, rather than all historical grain launches.
+            let retired = if joined.is_ok() {
+                acknowledged_registry
+                    .lock()
+                    .map_err(|_| poisoned())
+                    .map(|mut registry| {
+                        if let Some(index) = registry
+                            .tasks
+                            .iter()
+                            .position(|(id, _)| *id == registration)
+                        {
+                            drop(registry.tasks.remove(index));
+                        }
+                    })
+            } else {
+                Ok(())
+            };
             match result {
                 Ok(observed) => {
                     let mut finality = lctx_model::domain::completion::Completion::default();
                     finality.step("producer task join", joined);
+                    finality.step("producer acknowledged registration retirement", retired);
                     lctx_model::domain::completion::complete(observed, finality)
                 }
                 Err(error) => {
                     // A panic before delivery has no body outcome. Keep its structured
                     // join error primary, rather than the incidental channel refusal.
                     joined?;
+                    retired?;
                     Err(ModelError::codec(error))
                 }
             }
@@ -174,6 +207,42 @@ mod tests {
         Arc,
         atomic::{AtomicBool, Ordering},
     };
+
+    #[tokio::test]
+    async fn acknowledged_windows_retire_join_metadata_without_losing_unobserved_work() {
+        let budget = ResourceBudget::fixed(8192).unwrap();
+        let tasks = StageExecution::new(&budget);
+        let cancellation = super::super::Cancellation::default();
+        let mut peak = None;
+        for _ in 0..40 {
+            let first = tasks.spawn(cancellation.clone(), async { Ok(1) }).unwrap();
+            let second = tasks.spawn(cancellation.clone(), async { Ok(2) }).unwrap();
+            assert_eq!(first.await.unwrap(), 1);
+            assert_eq!(second.await.unwrap(), 2);
+            assert!(tasks.0.lock().unwrap().tasks.is_empty());
+            let bytes = budget.reserved();
+            if let Some(expected) = peak {
+                assert_eq!(bytes, expected);
+            } else {
+                peak = Some(bytes);
+            }
+        }
+        let (release, released) = tokio::sync::oneshot::channel();
+        let waiter = tasks
+            .spawn(cancellation, async {
+                released.await.map_err(ModelError::codec)?;
+                Ok(())
+            })
+            .unwrap();
+        drop(waiter);
+        assert_eq!(tasks.0.lock().unwrap().tasks.len(), 1);
+        release.send(()).unwrap();
+        for joined in tasks.seal().unwrap() {
+            joined.await.unwrap();
+        }
+        drop(tasks);
+        assert_eq!(budget.reserved(), 0);
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn synchronous_producer_does_not_suspend_ready_sibling() {

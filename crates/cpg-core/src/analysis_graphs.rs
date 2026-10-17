@@ -79,6 +79,11 @@ fn id_literal<R>(id: Id<R>) -> datafusion::logical_expr::Expr {
 }
 
 impl PreparedGraphs {
+    /// Transfer the existing charged collection to independently owned grain borrowers.
+    pub(crate) fn into_shared(mut self) -> Result<Arc<Self>, ModelError> {
+        self._charge.grow(2 * size_of::<usize>())?;
+        Ok(Arc::new(self))
+    }
     /// Borrow normalization-owned admission, retaining only the exact graph source descriptors.
     /// Each consumer must still declare those immutable streams. Selection is explicit; missing
     /// selected snapshots refuse without rerunning predecessor admission or graph construction.

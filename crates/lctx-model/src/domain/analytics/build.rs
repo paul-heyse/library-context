@@ -491,9 +491,44 @@ fn produce_with_layer_work(
     attributes: policy::AttributePolicy,
     layer_work: u64,
 ) -> Result<Output, ModelError> {
+    if !requested(d.configuration()?) {
+        return not_requested(d, f, invocations, b, attributes);
+    }
+    let mut preparation =
+        prepare_with_layer_work(d, f, invocations, graph, b, attributes, layer_work)?;
+    loop {
+        let jobs = preparation.ready()?;
+        if jobs.is_empty() {
+            break;
+        }
+        for job in jobs {
+            preparation.integrate(job.run()?)?;
+        }
+    }
+    preparation.finish(d)
+}
+pub fn prepare(
+    d: &Data,
+    f: &AnalyticFrame,
+    invocations: &Rows<owner::Invocation>,
+    graph: &MaterializedGraph,
+    b: &ResourceBudget,
+    attributes: policy::AttributePolicy,
+) -> Result<TechniquePreparation, ModelError> {
+    prepare_with_layer_work(d, f, invocations, graph, b, attributes, MAX_WORK)
+}
+fn prepare_with_layer_work(
+    d: &Data,
+    f: &AnalyticFrame,
+    invocations: &Rows<owner::Invocation>,
+    graph: &MaterializedGraph,
+    b: &ResourceBudget,
+    attributes: policy::AttributePolicy,
+    layer_work: u64,
+) -> Result<TechniquePreparation, ModelError> {
     let s = d.configuration()?;
     if !requested(s) {
-        return not_requested(d, f, invocations, b, attributes);
+        return Err(invalid("unrequested analytic uses metadata-only producer"));
     }
     let sf = need(&d.structural.frames, f.structural)?;
     let parent = need(&d.structural_invocations, sf.invocation)?;
@@ -514,7 +549,7 @@ fn produce_with_layer_work(
         .and_then(|n| n.checked_add(d.native.terms.len().checked_mul(1024)?))
         .and_then(|n| n.checked_add(4096))
         .ok_or_else(|| invalid("analytic conversion allocation overflow"))?;
-    let mut scratch = b.reserve("analytic-conversion", reserve)?;
+    let scratch = b.reserve("analytic-conversion", reserve)?;
     let correspondence = (s.fca || s.rca || (s.communities && (s.type_layer || s.mention_layer)))
         .then(|| {
             super::attributes::Correspondence::new(
@@ -534,7 +569,7 @@ fn produce_with_layer_work(
         .iter()
         .filter(|r| r.frame == sf.id())
         .count();
-    let _universe = b.reserve(
+    let universe_charge = b.reserve(
         "analytic-universe-membership",
         scope_count
             .checked_mul(128)
@@ -613,63 +648,74 @@ fn produce_with_layer_work(
             r.status = analysis::AnalysisStatus::Partial;
         }
     }
-    let mut ranking = methods
+    let ranking = methods
         .remove(&(analysis::AnalysisMethod::PageRank as i16))
         .unwrap();
-    if ranking.selected {
-        let vertices = scope.iter().copied().collect::<Vec<_>>();
-        let pairs = out
-            .arcs
-            .iter()
-            .filter(|a| scope.contains(&a.source) && scope.contains(&a.target))
-            .map(|a| ranking::Pair {
-                source: a.source,
-                target: a.target,
-                weight: 1,
-            })
-            .collect::<Vec<_>>();
-        let r = ranking::rank(&vertices, &pairs, policy::RETAINED.ranking()?, b)?;
-        ranking.iterations = r.iterations() as i64;
-        ranking.examined = r.work() as i64;
-        ranking.residual = r.residual();
-        ranking.stop = match r.stop() {
-            ranking::Stop::Converged => Stop::Converged,
-            ranking::Stop::Empty => Stop::EmptyDomain,
-            ranking::Stop::IterationLimit => Stop::IterationLimit,
-            ranking::Stop::WorkLimit => Stop::WorkLimit,
-        };
-        if matches!(ranking.stop, Stop::IterationLimit | Stop::WorkLimit) {
-            ranking.status = analysis::AnalysisStatus::Partial;
-        }
-        for score in r.scores() {
-            out.ranks.insert(RankScore {
-                result: ranking.id(),
-                target: score.entity,
-                score: score.value,
-            })?;
-        }
-    }
-    out.results.insert(ranking)?;
-    let mut nearest = methods
+    let mut rank_charge = charged::StateCharge::new(b, "analytic-rank-job");
+    let (vertices, pairs) = if ranking.selected {
+        rank_charge.grow(
+            scope
+                .len()
+                .checked_mul(size_of::<Id<EntityRef>>())
+                .and_then(|n| {
+                    n.checked_add(out.arcs.len().checked_mul(size_of::<ranking::Pair>())?)
+                })
+                .ok_or_else(|| invalid("analytic rank job overflow"))?,
+        )?;
+        (
+            scope.iter().copied().collect::<Vec<_>>(),
+            out.arcs
+                .iter()
+                .filter(|a| scope.contains(&a.source) && scope.contains(&a.target))
+                .map(|a| ranking::Pair {
+                    source: a.source,
+                    target: a.target,
+                    weight: 1,
+                })
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        (vec![], vec![])
+    };
+    let concept_preparation = if s.fca || s.rca {
+        Some(std::sync::Arc::new(
+            super::attributes::ConceptPreparation::new(
+                d,
+                correspondence.as_ref().unwrap(),
+                sf,
+                &public,
+                &out,
+                b,
+                attributes,
+                s.rca,
+            )?,
+        ))
+    } else {
+        None
+    };
+    let nearest = methods
         .remove(&(analysis::AnalysisMethod::Neighbours as i16))
         .unwrap();
-    let layer_invocation = (s.communities && s.knn_layer)
-        .then_some(methods[&(analysis::AnalysisMethod::Communities as i16)].invocation);
-    let prepared = super::vectors::produce(
+    let communities = methods
+        .remove(&(analysis::AnalysisMethod::Communities as i16))
+        .unwrap();
+    let vectors = super::vectors::Preparation::new(
         d,
         f,
         parent,
         &public,
-        &mut nearest,
-        layer_invocation,
-        &mut out,
+        &nearest,
+        (s.communities && s.knn_layer).then_some(communities.invocation),
         b,
     )?;
-    out.results.insert(nearest)?;
-    let mut communities = methods
-        .remove(&(analysis::AnalysisMethod::Communities as i16))
-        .unwrap();
+    let base_out = out;
+    let mut out = Output::new(b);
+    // Layer preparation is semantic acquisition; every repeated correspondence cache dies here.
+    // Each pure kernel below owns compact values rather than borrowing rich native inventories.
     if communities.selected {
+        for arc in base_out.arcs.iter() {
+            out.arcs.insert(arc.clone())?;
+        }
         for arc in out
             .arcs
             .iter()
@@ -790,218 +836,515 @@ fn produce_with_layer_work(
                 work,
             )?;
         }
-        if s.knn_layer {
-            if out.layer_results.iter().any(|r| {
-                r.frame == f.id()
-                    && r.layer == Layer::Nearest
-                    && r.status == analysis::AnalysisStatus::Completed
-            }) {
-                for row in out.layer_neighbours.iter().cloned().collect::<Vec<_>>() {
-                    contribute(
-                        &mut out,
-                        f.id(),
-                        Layer::Nearest,
-                        row.query,
-                        row.target,
-                        PairSource::NearestLayer {
-                            neighbour: row.id(),
-                        },
-                    )?;
-                }
-            }
-            let r = out
-                .layer_results
-                .iter()
-                .find(|r| r.frame == f.id() && r.layer == Layer::Nearest)
-                .unwrap();
-            if r.status != analysis::AnalysisStatus::Completed {
-                communities.status = analysis::AnalysisStatus::Partial;
-                communities.stop = r.stop;
-            }
-        }
-        let layers_complete = [
-            (Layer::Invocation, true),
-            (Layer::CoUse, true),
-            (Layer::Type, s.type_layer),
-            (Layer::Mention, s.mention_layer),
-            (Layer::Nearest, s.knn_layer),
-        ]
-        .into_iter()
-        .filter(|(_, selected)| *selected)
-        .all(|(layer, _)| {
-            out.layer_results.iter().any(|r| {
-                r.frame == f.id()
-                    && r.layer == layer
-                    && r.status == analysis::AnalysisStatus::Completed
-            })
-        });
-        if !layers_complete {
-            communities.status = analysis::AnalysisStatus::Partial;
-            communities.stop = Stop::InputPartial;
-            if let Some(r) = out
-                .layer_results
-                .iter()
-                .find(|r| r.frame == f.id() && r.status != analysis::AnalysisStatus::Completed)
-            {
-                communities.stop = r.stop;
-            }
-        }
-        let _layers = b.reserve(
-            "analytic-collapsed-layer-pairs",
-            out.contributions
-                .len()
-                .checked_mul(1024)
-                .ok_or_else(|| invalid("layer pair allocation overflow"))?,
-        )?;
-        let layer_count =
-            2 + usize::from(s.type_layer) + usize::from(s.mention_layer) + usize::from(s.knn_layer);
-        let mut touched = BTreeSet::new();
-        let mut combined = BTreeMap::<(Id<EntityRef>, Id<EntityRef>), f64>::new();
-        for layer in [
-            Layer::Invocation,
-            Layer::CoUse,
-            Layer::Type,
-            Layer::Mention,
-            Layer::Nearest,
-        ] {
-            let mut counts = BTreeMap::<(Id<EntityRef>, Id<EntityRef>), u64>::new();
-            for row in out.contributions.iter().filter(|r| r.layer == layer) {
-                let v = counts.entry((row.left, row.right)).or_default();
-                *v = v
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("layer count overflow"))?;
-            }
-            let weights = communities::normalize_ordered(&scope, &counts, b)?;
-            for pair in weights.pairs() {
-                let count = counts[&(pair.left, pair.right)];
-                out.layer_pairs.insert(LayerPair {
-                    frame: f.id(),
-                    layer,
-                    left: pair.left,
-                    right: pair.right,
-                    count: count as i64,
-                    normalized_weight: pair.weight,
-                })?;
-                if layers_complete {
-                    *combined.entry((pair.left, pair.right)).or_default() +=
-                        pair.weight.get() / layer_count as f64;
-                    touched.insert(pair.left);
-                    touched.insert(pair.right);
-                }
-            }
-        }
-        if layers_complete {
-            let pairs = combined
-                .into_iter()
-                .map(|((left, right), weight)| {
-                    Ok(communities::Pair {
-                        left,
-                        right,
-                        weight: FiniteF64::new(weight)?,
-                    })
-                })
-                .collect::<Result<Vec<_>, ModelError>>()?;
-            for p in &pairs {
-                out.combined.insert(CombinedPair {
-                    frame: f.id(),
-                    left: p.left,
-                    right: p.right,
-                    weight: p.weight,
-                })?;
-            }
-            let vertices = touched.iter().copied().collect::<Vec<_>>();
-            let required = (vertices.len() as u64 + pairs.len() as u64)
-                .checked_mul(
-                    policy::RETAINED
-                        .community_work_multiplier()
-                        .ok_or_else(|| invalid("Leiden policy work overflow"))?,
-                )
-                .and_then(|n| {
-                    n.checked_add(
-                        (public.len() as u64)
-                            .checked_mul(public.len() as u64)?
-                            .checked_mul(9)?,
-                    )
-                })
-                .ok_or_else(|| invalid("Leiden work overflow"))?;
-            if required > MAX_WORK {
-                communities.status = analysis::AnalysisStatus::Partial;
-                communities.stop = Stop::WorkLimit;
-            } else {
-                let p = communities::partition(&vertices, &pairs, MAX_WORK, b)?;
-                communities.iterations = p.runs().iter().map(|r| r.iterations as i64).sum();
-                communities.examined = required as i64;
-                if communities.stop == Stop::Converged {
-                    if vertices.is_empty() {
-                        communities.stop = Stop::EmptyDomain;
-                    } else if !p.chosen() {
-                        communities.stop = Stop::DegeneratePartition;
-                    }
-                }
-                if p.runs().iter().any(|r| !r.converged) {
-                    communities.status = analysis::AnalysisStatus::Partial;
-                    if matches!(
-                        communities.stop,
-                        Stop::Converged | Stop::DegeneratePartition
-                    ) {
-                        communities.stop = Stop::IterationLimit;
-                    }
-                }
-                super::partitions::publish(&p, &communities, &public, &mut out, b)?;
-            }
-        }
-    }
-    out.results.insert(communities)?;
-    if s.knn {
-        super::vectors::labels(d, f, parent, prepared.as_ref(), &mut out, b)?;
-    }
-    for method in [
-        analysis::AnalysisMethod::Concepts,
-        analysis::AnalysisMethod::RelationalConcepts,
-    ] {
-        let mut r = methods.remove(&(method as i16)).unwrap();
-        if r.selected {
-            super::attributes::concepts(
-                d,
-                correspondence.as_ref().unwrap(),
-                sf,
-                &public,
-                &mut r,
-                &mut out,
-                b,
-                attributes,
-            )?;
-        }
-        out.results.insert(r)?;
     }
     drop(correspondence);
-    let touched = out
-        .contributions
-        .iter()
-        .flat_map(|r| [r.left, r.right])
-        .collect::<BTreeSet<_>>();
-    for entity in graph_vertices
-        .union(&scope)
-        .chain(public.iter())
-        .copied()
-        .collect::<BTreeSet<_>>()
-    {
-        out.universe.insert(UniverseMember {
-            frame: f.id(),
-            entity,
-            graph: graph_vertices.contains(&entity),
-            release_scope: scope.contains(&entity),
-            public: public.contains(&entity),
-            community_touched: touched.contains(&entity),
-            excluded_isolate: s.communities
-                && scope.contains(&entity)
-                && !touched.contains(&entity),
-        })?;
+    let owners = b.reserve(
+        "analytic-technique-owners",
+        size_of::<FramePreparation>()
+            .checked_add(size_of::<TechniquePreparation>())
+            .and_then(|n| n.checked_add(size_of::<TechniqueJob>().checked_mul(12)?))
+            .ok_or_else(|| invalid("analytic technique owners overflow"))?,
+    )?;
+    let core = std::sync::Arc::new(FramePreparation {
+        frame: f.clone(),
+        scope,
+        public,
+        graph_vertices,
+        settings: LayerSelection {
+            communities: s.communities,
+            type_layer: s.type_layer,
+            mention_layer: s.mention_layer,
+            knn_layer: s.knn_layer,
+        },
+        budget: b.clone(),
+        _scratch: scratch,
+        _universe: universe_charge,
+        _owners: owners,
+    });
+    let mut initial = vec![TechniqueJob {
+        ordinal: 0,
+        kind: TechniqueKind::Rank {
+            result: ranking,
+            vertices,
+            pairs,
+            _charge: rank_charge,
+        },
+        core: core.clone(),
+    }];
+    for (ordinal, method) in [
+        (1, analysis::AnalysisMethod::Concepts),
+        (2, analysis::AnalysisMethod::RelationalConcepts),
+    ] {
+        let result = methods.remove(&(method as i16)).unwrap();
+        initial.push(TechniqueJob {
+            ordinal,
+            kind: TechniqueKind::Concept {
+                result,
+                prepared: concept_preparation.clone(),
+            },
+            core: core.clone(),
+        });
     }
-    // Conversion scratch is charged before allocation; row inventories retain their own allowance.
-    super::conclusions::produce(d, &mut out, b)?;
-    scratch.try_resize(0)?;
-    Ok(out)
+    initial.push(TechniqueJob {
+        ordinal: 3,
+        kind: TechniqueKind::Vectors(vectors),
+        core: core.clone(),
+    });
+    let community = TechniqueJob {
+        ordinal: 4,
+        kind: TechniqueKind::Communities {
+            result: communities,
+            out,
+        },
+        core: core.clone(),
+    };
+    let labels = s.knn;
+    let waits_nearest = s.communities && s.knn_layer;
+    let mut state = TechniquePreparation {
+        core,
+        out: base_out,
+        initial,
+        community: Some(community),
+        vectors: None,
+        launched: [false; 6],
+        completed: [false; 6],
+        labels,
+        waits_nearest,
+    };
+    if !labels {
+        state.completed[5] = true;
+    }
+    Ok(state)
+}
+struct LayerSelection {
+    communities: bool,
+    type_layer: bool,
+    mention_layer: bool,
+    knn_layer: bool,
+}
+struct FramePreparation {
+    frame: AnalyticFrame,
+    scope: BTreeSet<Id<EntityRef>>,
+    public: BTreeSet<Id<EntityRef>>,
+    graph_vertices: BTreeSet<Id<EntityRef>>,
+    settings: LayerSelection,
+    budget: ResourceBudget,
+    _scratch: Box<dyn resources::Reservation>,
+    _universe: Box<dyn resources::Reservation>,
+    _owners: Box<dyn resources::Reservation>,
+}
+pub struct TechniquePreparation {
+    core: std::sync::Arc<FramePreparation>,
+    out: Output,
+    initial: Vec<TechniqueJob>,
+    community: Option<TechniqueJob>,
+    vectors: Option<std::sync::Arc<super::vectors::Prepared>>,
+    launched: [bool; 6],
+    completed: [bool; 6],
+    labels: bool,
+    waits_nearest: bool,
+}
+pub struct TechniqueJob {
+    ordinal: usize,
+    kind: TechniqueKind,
+    core: std::sync::Arc<FramePreparation>,
+}
+enum TechniqueKind {
+    Rank {
+        result: TechniqueResult,
+        vertices: Vec<Id<EntityRef>>,
+        pairs: Vec<ranking::Pair>,
+        _charge: charged::StateCharge,
+    },
+    Concept {
+        result: TechniqueResult,
+        prepared: Option<std::sync::Arc<super::attributes::ConceptPreparation>>,
+    },
+    Vectors(super::vectors::Preparation),
+    Communities {
+        result: TechniqueResult,
+        out: Output,
+    },
+    Labels {
+        out: Output,
+        vectors: std::sync::Arc<super::vectors::Prepared>,
+    },
+}
+pub struct TechniqueOutput {
+    owner: std::sync::Arc<FramePreparation>,
+    ordinal: usize,
+    out: Output,
+    vectors: Option<std::sync::Arc<super::vectors::Prepared>>,
+}
+impl TechniqueOutput {
+    pub fn ordinal(&self) -> usize {
+        self.ordinal
+    }
+}
+impl TechniqueJob {
+    pub fn ordinal(&self) -> usize {
+        self.ordinal
+    }
+    pub fn run(self) -> Result<TechniqueOutput, ModelError> {
+        let Self {
+            ordinal,
+            kind,
+            core,
+        } = self;
+        let f = &core.frame;
+        let b = &core.budget;
+        let s = &core.settings;
+        let scope = &core.scope;
+        let public = &core.public;
+        let mut vectors = None;
+        let out = match kind {
+            TechniqueKind::Rank {
+                result: mut ranking,
+                vertices,
+                pairs,
+                _charge,
+            } => {
+                let mut out = Output::new(b);
+                if ranking.selected {
+                    let r = ranking::rank(&vertices, &pairs, policy::RETAINED.ranking()?, b)?;
+                    ranking.iterations = r.iterations() as i64;
+                    ranking.examined = r.work() as i64;
+                    ranking.residual = r.residual();
+                    ranking.stop = match r.stop() {
+                        ranking::Stop::Converged => Stop::Converged,
+                        ranking::Stop::Empty => Stop::EmptyDomain,
+                        ranking::Stop::IterationLimit => Stop::IterationLimit,
+                        ranking::Stop::WorkLimit => Stop::WorkLimit,
+                    };
+                    if matches!(ranking.stop, Stop::IterationLimit | Stop::WorkLimit) {
+                        ranking.status = analysis::AnalysisStatus::Partial;
+                    }
+                    for score in r.scores() {
+                        out.ranks.insert(RankScore {
+                            result: ranking.id(),
+                            target: score.entity,
+                            score: score.value,
+                        })?;
+                    }
+                }
+                out.results.insert(ranking)?;
+                out
+            }
+            TechniqueKind::Concept {
+                mut result,
+                prepared,
+            } => {
+                let mut out = Output::new(b);
+                if result.selected {
+                    super::attributes::concepts_prepared(
+                        prepared
+                            .as_ref()
+                            .ok_or_else(|| invalid("concept preparation absent"))?,
+                        &mut result,
+                        &mut out,
+                        b,
+                    )?;
+                }
+                out.results.insert(result)?;
+                out
+            }
+            TechniqueKind::Vectors(preparation) => {
+                let computed = preparation.run()?;
+                vectors = Some(computed.prepared);
+                computed.out
+            }
+            TechniqueKind::Communities {
+                result: mut communities,
+                mut out,
+            } => {
+                if communities.selected {
+                    if s.knn_layer {
+                        if out.layer_results.iter().any(|r| {
+                            r.frame == f.id()
+                                && r.layer == Layer::Nearest
+                                && r.status == analysis::AnalysisStatus::Completed
+                        }) {
+                            for row in out.layer_neighbours.iter().cloned().collect::<Vec<_>>() {
+                                contribute(
+                                    &mut out,
+                                    f.id(),
+                                    Layer::Nearest,
+                                    row.query,
+                                    row.target,
+                                    PairSource::NearestLayer {
+                                        neighbour: row.id(),
+                                    },
+                                )?;
+                            }
+                        }
+                        let r = out
+                            .layer_results
+                            .iter()
+                            .find(|r| r.frame == f.id() && r.layer == Layer::Nearest)
+                            .unwrap();
+                        if r.status != analysis::AnalysisStatus::Completed {
+                            communities.status = analysis::AnalysisStatus::Partial;
+                            communities.stop = r.stop;
+                        }
+                    }
+                    let layers_complete = [
+                        (Layer::Invocation, true),
+                        (Layer::CoUse, true),
+                        (Layer::Type, s.type_layer),
+                        (Layer::Mention, s.mention_layer),
+                        (Layer::Nearest, s.knn_layer),
+                    ]
+                    .into_iter()
+                    .filter(|(_, selected)| *selected)
+                    .all(|(layer, _)| {
+                        out.layer_results.iter().any(|r| {
+                            r.frame == f.id()
+                                && r.layer == layer
+                                && r.status == analysis::AnalysisStatus::Completed
+                        })
+                    });
+                    if !layers_complete {
+                        communities.status = analysis::AnalysisStatus::Partial;
+                        communities.stop = Stop::InputPartial;
+                        if let Some(r) = out.layer_results.iter().find(|r| {
+                            r.frame == f.id() && r.status != analysis::AnalysisStatus::Completed
+                        }) {
+                            communities.stop = r.stop;
+                        }
+                    }
+                    let _layers = b.reserve(
+                        "analytic-collapsed-layer-pairs",
+                        out.contributions
+                            .len()
+                            .checked_mul(1024)
+                            .ok_or_else(|| invalid("layer pair allocation overflow"))?,
+                    )?;
+                    let layer_count = 2
+                        + usize::from(s.type_layer)
+                        + usize::from(s.mention_layer)
+                        + usize::from(s.knn_layer);
+                    let mut touched = BTreeSet::new();
+                    let mut combined = BTreeMap::<(Id<EntityRef>, Id<EntityRef>), f64>::new();
+                    for layer in [
+                        Layer::Invocation,
+                        Layer::CoUse,
+                        Layer::Type,
+                        Layer::Mention,
+                        Layer::Nearest,
+                    ] {
+                        let mut counts = BTreeMap::<(Id<EntityRef>, Id<EntityRef>), u64>::new();
+                        for row in out.contributions.iter().filter(|r| r.layer == layer) {
+                            let v = counts.entry((row.left, row.right)).or_default();
+                            *v = v
+                                .checked_add(1)
+                                .ok_or_else(|| invalid("layer count overflow"))?;
+                        }
+                        let weights = communities::normalize_ordered(scope, &counts, b)?;
+                        for pair in weights.pairs() {
+                            let count = counts[&(pair.left, pair.right)];
+                            out.layer_pairs.insert(LayerPair {
+                                frame: f.id(),
+                                layer,
+                                left: pair.left,
+                                right: pair.right,
+                                count: count as i64,
+                                normalized_weight: pair.weight,
+                            })?;
+                            if layers_complete {
+                                *combined.entry((pair.left, pair.right)).or_default() +=
+                                    pair.weight.get() / layer_count as f64;
+                                touched.insert(pair.left);
+                                touched.insert(pair.right);
+                            }
+                        }
+                    }
+                    if layers_complete {
+                        let pairs = combined
+                            .into_iter()
+                            .map(|((left, right), weight)| {
+                                Ok(communities::Pair {
+                                    left,
+                                    right,
+                                    weight: FiniteF64::new(weight)?,
+                                })
+                            })
+                            .collect::<Result<Vec<_>, ModelError>>()?;
+                        for p in &pairs {
+                            out.combined.insert(CombinedPair {
+                                frame: f.id(),
+                                left: p.left,
+                                right: p.right,
+                                weight: p.weight,
+                            })?;
+                        }
+                        let vertices = touched.iter().copied().collect::<Vec<_>>();
+                        let required = (vertices.len() as u64 + pairs.len() as u64)
+                            .checked_mul(
+                                policy::RETAINED
+                                    .community_work_multiplier()
+                                    .ok_or_else(|| invalid("Leiden policy work overflow"))?,
+                            )
+                            .and_then(|n| {
+                                n.checked_add(
+                                    (public.len() as u64)
+                                        .checked_mul(public.len() as u64)?
+                                        .checked_mul(9)?,
+                                )
+                            })
+                            .ok_or_else(|| invalid("Leiden work overflow"))?;
+                        if required > MAX_WORK {
+                            communities.status = analysis::AnalysisStatus::Partial;
+                            communities.stop = Stop::WorkLimit;
+                        } else {
+                            let p = communities::partition(&vertices, &pairs, MAX_WORK, b)?;
+                            communities.iterations =
+                                p.runs().iter().map(|r| r.iterations as i64).sum();
+                            communities.examined = required as i64;
+                            if communities.stop == Stop::Converged {
+                                if vertices.is_empty() {
+                                    communities.stop = Stop::EmptyDomain;
+                                } else if !p.chosen() {
+                                    communities.stop = Stop::DegeneratePartition;
+                                }
+                            }
+                            if p.runs().iter().any(|r| !r.converged) {
+                                communities.status = analysis::AnalysisStatus::Partial;
+                                if matches!(
+                                    communities.stop,
+                                    Stop::Converged | Stop::DegeneratePartition
+                                ) {
+                                    communities.stop = Stop::IterationLimit;
+                                }
+                            }
+                            super::partitions::publish(&p, &communities, public, &mut out, b)?;
+                        }
+                    }
+                }
+                out.results.insert(communities)?;
+                out
+            }
+            TechniqueKind::Labels { mut out, vectors } => {
+                super::vectors::labels(f, &vectors, &mut out, b)?;
+                out
+            }
+        };
+        Ok(TechniqueOutput {
+            owner: core,
+            ordinal,
+            out,
+            vectors,
+        })
+    }
+}
+impl TechniquePreparation {
+    pub fn ready(&mut self) -> Result<Vec<TechniqueJob>, ModelError> {
+        let mut jobs = std::mem::take(&mut self.initial);
+        if self.community.is_some() && (!self.waits_nearest || self.completed[3]) {
+            let mut community = self.community.take().unwrap();
+            if let TechniqueKind::Communities { out, .. } = &mut community.kind
+                && self.waits_nearest
+            {
+                for row in self
+                    .out
+                    .layer_results
+                    .iter()
+                    .filter(|r| r.layer == Layer::Nearest)
+                {
+                    out.layer_results.insert(row.clone())?;
+                }
+                for row in self.out.layer_neighbours.iter() {
+                    out.layer_neighbours.insert(row.clone())?;
+                }
+            }
+            jobs.push(community);
+        }
+        if self.labels && !self.launched[5] && self.completed[3] && self.completed[4] {
+            let mut out = Output::new(&self.core.budget);
+            for r in self.out.results.iter() {
+                out.results.insert(r.clone())?;
+            }
+            for r in self.out.communities.iter() {
+                out.communities.insert(r.clone())?;
+            }
+            for r in self.out.community_members.iter() {
+                out.community_members.insert(r.clone())?;
+            }
+            jobs.push(TechniqueJob {
+                ordinal: 5,
+                kind: TechniqueKind::Labels {
+                    out,
+                    vectors: self
+                        .vectors
+                        .clone()
+                        .ok_or_else(|| invalid("label vector preparation absent"))?,
+                },
+                core: self.core.clone(),
+            });
+        }
+        for job in &jobs {
+            if self.launched[job.ordinal] {
+                return Err(invalid("analytic technique launched twice"));
+            }
+            self.launched[job.ordinal] = true;
+        }
+        Ok(jobs)
+    }
+    pub fn integrate(&mut self, output: TechniqueOutput) -> Result<(), ModelError> {
+        if !std::sync::Arc::ptr_eq(&self.core, &output.owner) {
+            return Err(invalid(
+                "analytic technique completion belongs to another preparation",
+            ));
+        }
+        if !self.launched[output.ordinal] || self.completed[output.ordinal] {
+            return Err(invalid(
+                "analytic technique completion has no unique launch",
+            ));
+        }
+        self.out.extend(output.out)?;
+        if let Some(vectors) = output.vectors {
+            self.vectors = Some(vectors);
+        }
+        self.completed[output.ordinal] = true;
+        Ok(())
+    }
+    pub fn finish(self, d: &Data) -> Result<Output, ModelError> {
+        if !self.completed.into_iter().all(|done| done) {
+            return Err(invalid("analytic technique preparation unfinished"));
+        }
+        let Self { core, mut out, .. } = self;
+        let f = &core.frame;
+        let b = &core.budget;
+        let s = &core.settings;
+        let scope = &core.scope;
+        let public = &core.public;
+        let graph_vertices = &core.graph_vertices;
+        let touched = out
+            .contributions
+            .iter()
+            .flat_map(|r| [r.left, r.right])
+            .collect::<BTreeSet<_>>();
+        for entity in graph_vertices
+            .union(scope)
+            .chain(public.iter())
+            .copied()
+            .collect::<BTreeSet<_>>()
+        {
+            out.universe.insert(UniverseMember {
+                frame: f.id(),
+                entity,
+                graph: graph_vertices.contains(&entity),
+                release_scope: scope.contains(&entity),
+                public: public.contains(&entity),
+                community_touched: touched.contains(&entity),
+                excluded_isolate: s.communities
+                    && scope.contains(&entity)
+                    && !touched.contains(&entity),
+            })?;
+        }
+        // Conversion scratch is charged before allocation; row inventories retain their own allowance.
+        super::conclusions::produce(d, &mut out, b)?;
+        Ok(out)
+    }
 }
 /// Check the complete canonical grouped expansion before publishing any pair.
 /// Overflow is exhaustion of the finite policy, never malformed input.
@@ -1403,6 +1746,109 @@ mod bounded_layer_tests {
                 .unwrap();
         }
         (d, f, invocations, graph)
+    }
+    #[test]
+    fn finite_jobs_are_owned_and_dependency_ready_without_result_order_semantics() {
+        fn send_sync<T: Send + Sync>() {}
+        send_sync::<TechniqueJob>();
+        send_sync::<TechniqueOutput>();
+        send_sync::<TechniquePreparation>();
+        let b = ResourceBudget::fixed(32 << 20).unwrap();
+        let (d, f, invocations, graph) = fixture(&b, &[&[10, 11], &[12, 13]], true);
+        let expected = produce(&d, &f, &invocations, &graph, &b).unwrap();
+        let mut preparation = prepare(
+            &d,
+            &f,
+            &invocations,
+            &graph,
+            &b,
+            policy::RETAINED.attributes,
+        )
+        .unwrap();
+        let initial = preparation.ready().unwrap();
+        assert_eq!(
+            initial
+                .iter()
+                .map(TechniqueJob::ordinal)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
+        assert!(preparation.ready().unwrap().is_empty());
+        // Reverse arrival changes neither dependency selection nor canonical rows.
+        for job in initial.into_iter().rev() {
+            preparation.integrate(job.run().unwrap()).unwrap();
+        }
+        let community = preparation.ready().unwrap();
+        assert_eq!(
+            community
+                .iter()
+                .map(TechniqueJob::ordinal)
+                .collect::<Vec<_>>(),
+            vec![4]
+        );
+        for job in community {
+            preparation.integrate(job.run().unwrap()).unwrap();
+        }
+        assert!(preparation.ready().unwrap().is_empty());
+        let actual = preparation.finish(&d).unwrap();
+        actual.matches(&expected).unwrap();
+        drop((actual, expected, d, invocations, graph));
+        assert_eq!(b.reserved(), 0);
+    }
+    #[test]
+    fn finite_technique_completion_refuses_another_preparation_before_integration() {
+        let b = ResourceBudget::fixed(16 << 20).unwrap();
+        let (d, f, invocations, graph) = fixture(&b, &[], false);
+        let mut first = prepare(
+            &d,
+            &f,
+            &invocations,
+            &graph,
+            &b,
+            policy::RETAINED.attributes,
+        )
+        .unwrap();
+        let mut second = prepare(
+            &d,
+            &f,
+            &invocations,
+            &graph,
+            &b,
+            policy::RETAINED.attributes,
+        )
+        .unwrap();
+        let mut accepted = first.ready().unwrap();
+        let mut other = second.ready().unwrap();
+        let foreign = other.remove(0).run().unwrap();
+        assert!(first.integrate(foreign).is_err());
+        assert!(first.out.results.is_empty());
+        let actual = accepted.remove(0).run().unwrap();
+        first.integrate(actual).unwrap();
+        assert_eq!(first.out.results.len(), 1);
+        drop((first, second, accepted, other, d, invocations, graph));
+        assert_eq!(b.reserved(), 0);
+    }
+    #[test]
+    fn communities_without_nearest_are_ready_with_other_independent_techniques() {
+        let b = ResourceBudget::fixed(16 << 20).unwrap();
+        let (d, f, invocations, graph) = fixture(&b, &[], false);
+        let mut preparation = prepare(
+            &d,
+            &f,
+            &invocations,
+            &graph,
+            &b,
+            policy::RETAINED.attributes,
+        )
+        .unwrap();
+        let jobs = preparation.ready().unwrap();
+        assert_eq!(
+            jobs.iter().map(TechniqueJob::ordinal).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3, 4]
+        );
+        assert!(preparation.finish(&d).is_err());
+        drop((jobs, d, invocations, graph));
+        assert_eq!(b.reserved(), 0);
     }
     #[test]
     fn aggregate_clique_work_is_checked_complete_and_order_independent() {

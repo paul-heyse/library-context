@@ -269,7 +269,7 @@ pub struct RenderWindow<'a> {
     columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
 }
 impl RenderWindow<'_> {
-    fn data(
+    pub(super) fn data(
         &self,
         partition: usize,
         budget: &resources::ResourceBudget,
@@ -300,45 +300,34 @@ impl RenderWindow<'_> {
         }
         Ok(data)
     }
-    pub async fn render(
-        &self,
-        partition: usize,
-        budget: &resources::ResourceBudget,
-        cancellation: &crate::workspace::Cancellation,
+}
+/// Private pure rendering result; retention remains with the canonical integrator.
+pub(super) struct RenderedPartition {
+    data: Data,
+    rows: Output,
+    domain: ContentHash,
+    reused: bool,
+    retention_phase: &'static str,
+}
+impl RenderedPartition {
+    pub async fn retain(
+        self,
         runtime: &Workspace,
         output: &ProducerOutput,
     ) -> Result<(Data, Output), ModelError> {
-        let access = self
-            .preparation
-            .captured_access
-            .as_ref()
-            .ok_or(ModelError::Conflict("E0 completed input owner absent"))?;
-        let data = self.data(partition, budget, cancellation)?;
-        let key = self.keys[partition];
-        if self.brief {
-            self.preparation
-                .finish_brief(
-                    crate::retrieval::nominal(&key)?,
-                    data,
-                    budget,
-                    runtime,
-                    output,
-                )
-                .await
-        } else {
-            self.preparation
-                .finish_root(
-                    access,
-                    crate::retrieval::nominal(&key)?,
-                    data,
-                    budget,
-                    runtime,
-                    output,
-                )
-                .await
+        if !self.reused
+            && let Some((request, _hold)) =
+                crate::retrieval_products::request(&self.data, output, self.domain, runtime)?
+        {
+            let phase = lctx_native::phase::Phase::begin(self.retention_phase);
+            let result = crate::retrieval_products::retain(&request, &self.rows, runtime).await;
+            phase.finish_result(&result);
+            result?;
         }
+        Ok((self.data, self.rows))
     }
 }
+
 #[derive(Clone, Copy)]
 struct WindowSelection<'a> {
     grains: &'a [WindowGrain],
@@ -1097,6 +1086,40 @@ impl Preparation {
         .await?;
         Ok(())
     }
+    pub(super) async fn render_partition(
+        &self,
+        data: Data,
+        key: [u8; 16],
+        brief: bool,
+        runtime: &Workspace,
+        output: &ProducerOutput,
+    ) -> Result<RenderedPartition, ModelError> {
+        runtime.cancellation().check()?;
+        let access = self
+            .captured_access
+            .as_ref()
+            .ok_or(ModelError::Conflict("E0 completed input owner absent"))?;
+        if brief {
+            self.finish_brief(
+                crate::retrieval::nominal(&key)?,
+                data,
+                runtime.budget(),
+                runtime,
+                output,
+            )
+            .await
+        } else {
+            self.finish_root(
+                access,
+                crate::retrieval::nominal(&key)?,
+                data,
+                runtime.budget(),
+                runtime,
+                output,
+            )
+            .await
+        }
+    }
     #[tracing::instrument(skip_all, target="lctx_phase", fields(root=?id))]
     async fn finish_root(
         &self,
@@ -1106,7 +1129,7 @@ impl Preparation {
         budget: &resources::ResourceBudget,
         runtime: &Workspace,
         output: &ProducerOutput,
-    ) -> Result<(Data, Output), ModelError> {
+    ) -> Result<RenderedPartition, ModelError> {
         let root = build::need(&data.evidence.roots, id)?;
         let mut parents = self
             .metadata
@@ -1155,26 +1178,23 @@ impl Preparation {
         drop(request);
         let reused = hit.is_some();
         let phase = lctx_native::phase::Phase::begin("retrieval_root_render_verify");
-        let rendered = (|| {
+        let rendered = crate::stage_runtime::borrowed_cpu("retrieval", || {
             let rows = match hit {
                 Some(rows) => rows,
                 None => build::root(&data, id, budget)?,
             };
             rows.verify_completion(&data, budget)?;
             Ok::<_, ModelError>(rows)
-        })();
+        });
         phase.finish_result(&rendered);
         let rows = rendered?;
-        if !reused
-            && let Some((request, _hold)) =
-                crate::retrieval_products::request(&data, output, domain, runtime)?
-        {
-            let phase = lctx_native::phase::Phase::begin("retrieval_root_optional_retention");
-            let result = crate::retrieval_products::retain(&request, &rows, runtime).await;
-            phase.finish_result(&result);
-            result?;
-        }
-        Ok((data, rows))
+        Ok(RenderedPartition {
+            data,
+            rows,
+            domain,
+            reused,
+            retention_phase: "retrieval_root_optional_retention",
+        })
     }
     #[tracing::instrument(skip_all, target="lctx_phase", fields(brief=?id))]
     async fn finish_brief(
@@ -1184,7 +1204,7 @@ impl Preparation {
         budget: &resources::ResourceBudget,
         runtime: &Workspace,
         output: &ProducerOutput,
-    ) -> Result<(Data, Output), ModelError> {
+    ) -> Result<RenderedPartition, ModelError> {
         if data.synthesis.briefs.len() != 1 || data.synthesis.briefs.get(id).is_none() {
             return Err(build::invalid("E0 brief grain membership differs"));
         }
@@ -1204,7 +1224,7 @@ impl Preparation {
         drop(request);
         let reused = hit.is_some();
         let phase = lctx_native::phase::Phase::begin("retrieval_brief_render_verify");
-        let rendered = (|| {
+        let rendered = crate::stage_runtime::borrowed_cpu("retrieval", || {
             let rows = match hit {
                 Some(rows) => rows,
                 None => {
@@ -1215,24 +1235,21 @@ impl Preparation {
             };
             rows.verify_completion(&data, budget)?;
             Ok::<_, ModelError>(rows)
-        })();
+        });
         phase.finish_result(&rendered);
         let rows = rendered?;
-        if !reused
-            && let Some((request, _hold)) =
-                crate::retrieval_products::request(&data, output, domain, runtime)?
-        {
-            let phase = lctx_native::phase::Phase::begin("retrieval_brief_optional_retention");
-            let result = crate::retrieval_products::retain(&request, &rows, runtime).await;
-            phase.finish_result(&result);
-            result?;
-        }
-        Ok((data, rows))
+        Ok(RenderedPartition {
+            data,
+            rows,
+            domain,
+            reused,
+            retention_phase: "retrieval_brief_optional_retention",
+        })
     }
 }
 /// Append one rendered grain to the stage's already declared publications.
 pub fn publish_mandatory<'a>(
-    output: &'a mut ProducerOutput,
+    output: &'a ProducerOutput,
     rows: &'a Output,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
@@ -1694,14 +1711,26 @@ mod controls {
                 brief: false,
                 columns,
             };
-            for partition in 0..2 {
-                let mut selected = window
-                    .data(
-                        partition,
-                        &budget,
-                        &crate::workspace::Cancellation::default(),
-                    )
-                    .unwrap();
+            assert!(
+                window
+                    .data(2, &budget, &crate::workspace::Cancellation::default())
+                    .is_err()
+            );
+            let private = (0..2)
+                .map(|partition| {
+                    window
+                        .data(
+                            partition,
+                            &budget,
+                            &crate::workspace::Cancellation::default(),
+                        )
+                        .unwrap()
+                })
+                .collect::<Vec<_>>();
+            drop(window);
+            // Registered render workers own decoded partitions, rather than
+            // borrowing a coordinator window that cancellation can release.
+            for mut selected in private {
                 for chunk in expected.facts.chunks.iter() {
                     selected.facts.chunks.insert_borrowed(chunk).unwrap();
                 }
@@ -1710,11 +1739,6 @@ mod controls {
                     .matches(&oracle)
                     .unwrap();
             }
-            assert!(
-                window
-                    .data(2, &budget, &crate::workspace::Cancellation::default())
-                    .is_err()
-            );
         }
         assert_eq!(actual_rows.units.len(), 1);
         drop(actual_rows);

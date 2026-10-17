@@ -340,7 +340,7 @@ pub(crate) fn invariants() -> Vec<Invariant> {
     inputs.dedup_by_key(|i| (i.name(), i.prefix()));
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
+        revision: 2,
         name: "structural_replay",
         inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
             analysis::owner::AnalysisOwner::Local,

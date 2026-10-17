@@ -792,7 +792,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = runtime.coverage_admission(&captured).await?;
+    let mut admission = runtime.coverage_admission(&access, &captured).await?;
     let mut data = Data::new(runtime.budget());
     let session = access.session(runtime).await?;
     let topology = synthesis::production::topology_inputs();

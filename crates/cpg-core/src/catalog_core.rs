@@ -96,7 +96,7 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
 pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
     let sources = analysis::sources::CapturedSources::capture(
@@ -104,7 +104,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
+    let mut admission = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let metadata = load_metadata(&access, &session, runtime, &mut admission).await?;
     let (expected_parameters, definition) = build::definition();
@@ -215,44 +215,89 @@ pub async fn produce(
             .ok_or(ModelError::Schema("C0 slot root identity"))?;
         for start in (0..batch.num_rows()).step_by(32) {
             runtime.cancellation().check()?;
-            let keys = (start..(start + 32).min(batch.num_rows()))
-                .map(|index| {
-                    format!(
-                        "X'{}'",
-                        ids.value(index)
-                            .iter()
-                            .map(|byte| format!("{byte:02x}"))
-                            .collect::<String>()
-                    )
-                })
-                .collect::<Vec<_>>();
-            let predicate = format!("id IN ({})", keys.join(","));
-            let scope = scopes
+            let end = (start + 32).min(batch.num_rows());
+            let _keys = runtime.budget().reserve(
+                "C0 owned public window keys",
+                (end - start) * size_of::<crate::consumed_rows::PreparedRoot>(),
+            )?;
+            let mut keys = Vec::with_capacity(end - start);
+            for index in start..end {
+                keys.push(crate::consumed_rows::PreparedRoot {
+                    table: scopes.root,
+                    key: ids.value(index).try_into().map_err(ModelError::codec)?,
+                    kind: crate::consumed_rows::PreparedRootKind::Physical,
+                });
+            }
+            let selected = scopes
                 .edges
-                .grain(scopes.root, &predicate, runtime.budget())
+                .batch_with_cancellation(&keys, runtime.budget(), &runtime.cancellation())
                 .await?;
-            let data = load_scope(&scopes, &scope, &access, runtime).await?;
-            drop(scope);
+            let mut union = CatalogData::new(runtime.budget());
+            crate::scoped_batch::hydrate_union(
+                &selected,
+                &scopes.inputs,
+                runtime.budget(),
+                &runtime.cancellation(),
+                &mut |_, input, batch| union.visit(input.name(), batch).map(|_| ()),
+            )
+            .await?;
             let mut domain = KeySink::new("catalog-root-window-domain/v1");
+            let _domain = runtime.budget().reserve("C0 root domain encoding", 256)?;
             for key in &keys {
-                key.encode(&mut domain);
+                format!(
+                    "X'{}'",
+                    key.key
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                )
+                .encode(&mut domain);
             }
             let domain = domain.finish();
+            drop(_domain);
             let mut product_window =
-                crate::catalog_products::ProductWindow::new(&data, &output, domain, runtime)?;
+                crate::catalog_products::ProductWindow::new(&union, &output, domain, runtime)?;
             let hit = product_window.lookup(runtime).await?;
             let reused = hit.is_some();
-            let (data, rows, mut product_window) = if let Some(rows) = hit {
-                (data, rows, product_window)
-            } else {
-                let budget = runtime.budget().clone();
-                tokio::task::spawn_blocking(move || {
-                    let rows = product_window.compute(|| build::build(&data, &budget))?;
-                    Ok::<_, ModelError>((data, rows, product_window))
-                })
-                .await
-                .map_err(ModelError::codec)??
+            let rows = match hit {
+                Some(rows) => rows,
+                None => {
+                    let mut _jobs = None;
+                    let mut work = Vec::new();
+                    for partition in 0..keys.len() {
+                        let data = selected_partition(
+                            &union,
+                            &scopes.inputs,
+                            &selected,
+                            partition,
+                            runtime.budget(),
+                        )?;
+                        let budget = runtime.budget().clone();
+                        let future = async move {
+                            crate::stage_runtime::borrowed_cpu("catalog_core", || {
+                                build::build(&data, &budget)
+                            })
+                        };
+                        if work.is_empty() {
+                            _jobs = Some(runtime.budget().reserve(
+                                "C0 owned window task list",
+                                keys.len() * size_of_val(&future),
+                            )?);
+                            work.reserve_exact(keys.len());
+                        }
+                        work.push(future);
+                    }
+                    let results = crate::owned_work::ordered(runtime, work).await?;
+                    let mut merged = build::CatalogOutput::new(runtime.budget());
+                    for rows in results {
+                        macro_rules! merge {($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter() {merged.$field.insert_borrowed(row)?;})*};}
+                        lctx_model::catalog_outputs!(merge);
+                    }
+                    merged
+                }
             };
+            drop(selected);
+            let data = union;
             // Bind only semantic payload rows from the cache. The current invocation frame
             // and all exact receipts above belong to this attempt and are never replayed.
             let links = product_window.compute(|| {
@@ -283,60 +328,15 @@ pub async fn produce(
     output.finish(ProviderOutcome::Complete).await
 }
 
-type ScopedLoader = for<'a> fn(
-    &'a crate::catalog_core_scope::CatalogScopes,
-    &'a crate::consumed_rows::PreparedClosure,
-    &'a CompletedInputs,
-    &'a mut crate::consumed_rows::ConsumedInputs,
-    &'a mut CatalogData,
-) -> BoxFuture<'a, Result<(), ModelError>>;
-fn load_record<'a, R: Record>(
-    scopes: &'a crate::catalog_core_scope::CatalogScopes,
-    scope: &'a crate::consumed_rows::PreparedClosure,
-    access: &'a CompletedInputs,
-    consumed: &'a mut crate::consumed_rows::ConsumedInputs,
-    data: &'a mut CatalogData,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    Box::pin(async move {
-        while let Some((input, permit)) = consumed.next::<R>(access)? {
-            let table = scopes
-                .inputs
-                .iter()
-                .position(|candidate| {
-                    candidate.type_id() == input.type_id() && candidate.prefix() == input.prefix()
-                })
-                .ok_or(ModelError::Conflict("C0 scoped input declaration"))?;
-            crate::consumed_rows::stream_query_at(
-                &permit,
-                &input,
-                access,
-                scope.session(),
-                &scope.select(table)?,
-                |_, batch| {
-                    data.visit(input.name(), batch)?;
-                    Ok(())
-                },
-            )
-            .await?;
-        }
-        Ok(())
-    })
-}
-fn load_scope<'a>(
-    scopes: &'a crate::catalog_core_scope::CatalogScopes,
-    scope: &'a crate::consumed_rows::PreparedClosure,
-    access: &'a CompletedInputs,
-    runtime: &'a Workspace,
-) -> BoxFuture<'a, Result<CatalogData, ModelError>> {
-    Box::pin(async move {
-        let mut data = CatalogData::new(runtime.budget());
-        let mut consumed =
-            crate::consumed_rows::ConsumedInputs::new(scopes.inputs.clone(), runtime.budget())?;
-        macro_rules! read {($($field:ident:$ty:ty,)*)=>{{const LOADERS:&[ScopedLoader]=&[$(load_record::<$ty>,)*];for load in LOADERS{load(scopes,scope,access,&mut consumed,&mut data).await?;}}};}
-        lctx_model::catalog_inputs!(read);
-        consumed.finish(access.name())?;
-        Ok(data)
-    })
+/// Copy a single exact public-root partition from the once-hydrated owning window.
+pub(super) fn selected_partition(
+    union: &CatalogData,
+    inputs: &[ValidationInput],
+    selected: &crate::consumed_rows::PreparedRootBatch,
+    partition: usize,
+    budget: &resources::ResourceBudget,
+) -> Result<CatalogData, ModelError> {
+    union.selected_copy(inputs, &mut |table| selected.keys(partition, table), budget)
 }
 type Emitter = for<'a> fn(
     &'a build::CatalogOutput,

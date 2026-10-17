@@ -44,9 +44,13 @@ impl AnalysisUniformConsumer {
                         AnalysisOwner::Enriched | AnalysisOwner::Models | AnalysisOwner::Summary
                     ))
         }));
-        // Consumer inventory carries no epoch authority. Only an admitted same-kind
-        // owner plus independent domain reconstruction can resolve a compact premise.
-        inputs.push(ValidationInput::of::<UniformNotRequested>(&["id"]));
+        // The same-kind compact result is available at its own publication boundary,
+        // independently of the checkpoint its producer consumed. Exact selection still
+        // grants no validity without the admitted owner and domain reconstruction.
+        inputs.push(
+            ValidationInput::of::<UniformNotRequested>(&["id"])
+                .at_epoch(kind.boundary().expect("compact owner publication boundary")),
+        );
         let mut seen = std::collections::BTreeSet::new();
         inputs.retain(|input| seen.insert((input.name(), input.prefix())));
         inputs
@@ -959,6 +963,46 @@ pub(crate) mod test_support {
 mod controls {
     use super::*;
     use crate::domain::{analysis::sources::SourceSnapshot, completed::*, stages::*};
+    #[test]
+    fn compact_consumers_retain_current_owner_roles_and_nested_epochs() {
+        for owner in AnalysisOwner::ALL
+            .into_iter()
+            .filter(|owner| owner.can_be_wholly_unrequested())
+        {
+            let inputs = AnalysisUniformConsumer::inputs(owner, vec![]);
+            let compact = inputs
+                .iter()
+                .filter(|input| input.name() == UniformNotRequested::NAME)
+                .collect::<Vec<_>>();
+            assert_eq!(compact.len(), 1);
+            assert_eq!(compact[0].prefix(), owner.boundary());
+        }
+        let inputs = AnalysisUniformConsumer::inputs(
+            AnalysisOwner::SourceCalls,
+            AnalysisUniformConsumer::inputs(AnalysisOwner::Local, vec![]),
+        );
+        let roles = inputs
+            .iter()
+            .filter(|input| input.name() == UniformNotRequested::NAME)
+            .map(ValidationInput::prefix)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            roles,
+            [
+                Some(PublicationBoundary::Local),
+                Some(PublicationBoundary::SourceCall)
+            ]
+            .into()
+        );
+        assert_ne!(
+            AnalysisOwner::Local.boundary(),
+            Some(AnalysisOwner::Local.uniform_checkpoint())
+        );
+        assert_eq!(
+            AnalysisOwner::Summary.boundary(),
+            Some(PublicationBoundary::Summary)
+        );
+    }
     fn visit<R: Record>(inputs: &mut AnalysisUniformInputs, rows: &[R]) {
         inputs.visit(R::NAME, &R::encode(rows).unwrap()).unwrap();
     }
@@ -1408,7 +1452,7 @@ mod controls {
             .into_iter()
             .find(|input| input.name() == UniformNotRequested::NAME)
             .unwrap();
-        assert_eq!(uniform.prefix(), None);
+        assert_eq!(uniform.prefix(), Some(PublicationBoundary::Local));
         assert!(
             !f.stage
                 .inputs

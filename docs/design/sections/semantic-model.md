@@ -62,6 +62,18 @@ from this architectural decision.
 
 ## §15.1 Layers, owners and mechanisms
 
+**Implemented / focused verification in progress,2026-10-17 (ADR-0187).** Model declarations and
+authentic selected assurance govern dependency-ready consumers across phase labels. Selected-only
+runtime scope cannot acquire whole-artifact authority. Independent private jobs retain actual
+charged owners and joined finality; canonical domain integration and final admission remain.
+Compact metadata retains distinct model-owned roles: native availability at Facts, each analysis
+family's predecessor checkpoint, and a completed compact owner's own boundary. Required frontier
+inputs retain every exact relation/epoch pair. Nominal compact references retain their explicit
+dependency role set; this grants no merged epoch, and ambiguous unqualified consumption refuses.
+The upper execution coordinator owns current functional evidence and its limits.
+
+> Decision: ADR-0187
+
 **Implemented / focused-Tested, 2026-10-17 (ADR-0186).** Production consumers declare sufficient metadata separately from semantic/receiving dependencies. Operation-local compatible preparation retains exact immutable input protection and charges; each owner constructs fresh domains, ordered sources and outcomes. Native inventory may consume model-owned compact properties only after matching actual checked semantic authority to its complete dependency closure. Independent receiving remains rich and authoritative. Owning indexed windows bind exact full/property schemas and actual filtered partitions to retained backing; body order, negative domains and Summary semantics remain unchanged. The [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns UC01–UC05 evidence and remaining qualification.
 
 > Decision: ADR-0186
@@ -946,6 +958,10 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 <a id="section-15-11"></a>
 
 ## §15.11 Compilation and physical realization
+
+**Implemented / integrated functional acceptance blocked,2026-10-17 (ADR-0187).** Complete selected prerequisite readiness replaces broad execution phase barriers. Private checked inputs retain exact dependency/qualification inventories and provider-only facts coverage; final coherent admission and ordered publication remain. Existing joined task owners execute independent typed grains with canonical integration. Analytic indexes and shared incidence remove repeated work; Summary releases dead solving preparation while retaining SCC/global frontier semantics.
+
+> Decision: ADR-0187
 
 **Implemented / focused-Tested, 2026-10-17 (ADR-0186).** Common uniform metadata and compatible authored fragments live with actual selected upper consumers and surviving borrowers. C0 metadata avoids discarded rich inputs. Native inventory reuses exact checked normalized predicates while preserving semantic dependency declarations and independent receiving. Retrieval, Completion and frame adapters use bounded shared acquisition plus exact indexed partitions, retaining the existing window policy and ordered semantic integration. Wider overlap remains separately owned by US02.
 

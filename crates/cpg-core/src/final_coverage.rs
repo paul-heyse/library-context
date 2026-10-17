@@ -34,10 +34,7 @@ pub async fn produce(
     let mut data = FrontierData::new(access.profile(), budget);
     // Frontier inputs include both native-family and analysis-owner declarations.
     // Facts availability deliberately admits only the native-family subset.
-    let owners = runtime
-        .admission_runtime(access.profile())?
-        .uniform_owners_async(access.profile())
-        .await?;
+    let owners = runtime.uniform_owners(&access).await?;
     for owner in owners.owners() {
         data.admit_uniform_owner(owner)?;
     }

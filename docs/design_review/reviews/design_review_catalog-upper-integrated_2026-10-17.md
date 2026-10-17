@@ -1,0 +1,234 @@
+# Catalog upper execution — integrated target assessment
+
+**Accept for the inspected source scope / Interface-checked, 2026-10-17.** The remaining upper-execution implementation has a credible route from exact completed prerequisites to privately computed, canonically integrated results. Analytic preparation stays model-owned; early assurance retains authentic producer dependencies; concurrency uses existing joined execution owners. Two material lifetime regressions and three selected-assurance defects exposed during integrated review/functional feedback were corrected and independently reinspected. Final current-source functional verification, including the genuine Summary route, is pending and belongs to the coordinator; this decision establishes neither a passing compilation nor full Catalog qualification.
+
+## 1. Scope and evidence
+
+| Field | Assessment |
+|---|---|
+| Subject / baseline | Uncommitted UA01–UA04/US01/US02 integration over `1c3f65aa4a448eec3bb8c33a179e2ab24e9ef800`, including F01–F05, the lower-frontier clarification, immutable selected authority, named `CompletedOwners`, compact-role/frontier corrections and the subsequent ordinary nominal compact-FK closure correction inspected while coordinator run `7cb884` was pending |
+| Standard | Core/template 3.3; efficient-architecture heuristics 1.0; code-intelligence profile 1.5; library-context binding |
+| Tier / purpose | Design / target; independent assessment of the assembled changed boundary |
+| Reviewer / date | Delegated independent design reviewer, 2026-10-17 |
+| Functional intent | Compile pinned library code and original evidence into attributed catalog/analysis/retrieval content while preserving complete negative domains, explicit uncertainty and coherent final admission |
+| Workload premise | Many public/evidence roots, overlapping namespaces, several frames and independently ready providers; sparse and skewed windows; concurrent upper consumers sharing a finite attempt budget. The existing finite windows remain execution units; a large indivisible body/frame can still refuse honestly |
+| Coverage | Changed model analytic correspondence/incidence/technique/vector/concept paths; Summary solving lifetime; compiler readiness, selected assurance, provider availability and preparation retirement; native contributor fanout; C0/C1, retrieval, Completion, Models, Structural, Analytic and Summary adapters; their decisive adjacent owners |
+| Evidence strength | Source/type/interface inspection and qualitative scenarios. Test bodies were inspected as proposed controls; their presence is not a pass |
+
+The [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns current delivery and finding dispositions. ADR-0187 and the current architectural sections explain the implementation's decisions; they are context, not acceptance criteria. The functional target and loaded standard govern this judgment.
+
+Full Catalog/real-library execution, assembled qualification, embedding inference, submitted MCP runtime, historical native finality and operator adoption are excluded from this source decision. Existing protected Unknowns remain unresolved at their existing owners. No service operations, builds, tests, formatting or commits were performed by this reviewer.
+
+## 2. Responsibilities and semantic authority
+
+| Owner | Governing responsibility | Derived realization and consumer boundary |
+|---|---|---|
+| `lctx-model::domain::dependency_closure` and `stages::Schedule` | Complete typed prerequisites, exact epoch roles, invariant and assembly dependencies | Compiler planning consumes model closure; `Schedule::ready` checks the actual prerequisite set rather than a phase label |
+| `Workspace` / compiler-store admission | Exact immutable selected roots, authentic contribution owners and producer-input qualification; independent semantic assurance | Selected metadata is a private assurance snapshot, not extra physical read grants or a restored complete publication inventory |
+| Model analytic owners | Contextual correspondence, attributed incidence, scope/method identity, fixed policy and partial meanings | Structural candidate indexes, one shared FCA/RCA base and finite owned technique jobs; adapters select execution placement |
+| Model Summary owner | SCC/fixpoint/proof semantics and frame-global progress/member admission | Per-caller-SCC call preparation, shared callee signatures and independent whole-frame jobs |
+| Workspace/native execution owners | Accepted task/worker joins, charged input/result backing and failure settlement | Private finite windows; canonical integration through the existing output owner; no second pool or durable scheduler |
+| Catalog/retrieval adapters | Exact root acquisition, original evidence, publication and embedding-session effects | Pure partition work is private; cache retention, actual-owner append and mandatory output publication stay with the canonical integrator |
+
+### Fact and fidelity boundary
+
+| Phenomenon | Authority / fidelity / identity | Coverage and consumers |
+|---|---|---|
+| Native assertion, support and contextual resolution | Provider-attributed original model records; indexes retain nominal row IDs and plural candidates | Exact qualification/context checks remain at the consuming operation; indexing does not certify a candidate |
+| Concept incidence | Derived entity/attribute relationship with separately retained `IncidenceSource` | Objects are scoped by exact access-module/namespace membership; shared preparation does not merge method results or provenance |
+| Ranking/community/neighbour result | Analytic method, invocation, retained settings and diagnostics | Heuristic meaning remains distinct from structural facts and behavioral proof |
+| Summary result | Derived under the existing runtime model, conditions, proof identity and SCC semantics | Partial/refused/unknown outcomes remain explicit; complete-frame publication remains required |
+| Provider availability / compact unrequested owner | Exact provider contribution descriptors and qualified owner inputs | Provider-only facts checkpoint cannot grow with upper completion; empty, unavailable and NotRequested are not interchangeable |
+
+No additional semantic classifier, provider policy, graph meaning or published schema was introduced by the inspected integration.
+
+## 3. Readiness and assurance composition
+
+`compilation.rs` expands non-provider consuming declarations with the model's inferred ordinary-fact requirements, retaining the explicit Catalog ty-flow absence exception. The unified worklist at `compilation.rs` then launches only stages whose complete `Schedule` prerequisites hold. Private receiver/event/binding authority accompanies actual producer completion rather than being inferred from aggregate visibility. The former separate Facts/Normalized/upper execution loops are removed.
+
+The final source also routes the no-`PreparedCompilation` Normalized endpoint through `lower_schedule`, which uses the same complete-assurance expansion and model-discovered publication groups before effects. Facts remains provider-only. The earlier branch already received direct and attached-invariant owner prerequisites from `Schedule::build`; bypassing the expansion was a route-consistency gap, not evidence that those prerequisites were absent. This review did not establish a distinct wrong-output case for that earlier branch and does not invent a separate finding for it.
+
+The retained ordering has a concrete purpose. Coverage waits for the actual provider set and its availability checkpoint; shared vocabulary and whole publication prefixes still freeze only after their declared contributors and preceding prefix obligations complete (`compilation.rs`). Final compilation admission remains after all scheduled stages. These dependencies protect exact complete views; this is not a claim that every producer can overlap or that phase removal changes every critical path.
+
+`workspace.rs` builds selected assurance from captured root views, their actual contributor descriptors and recursively required producer input bindings. Shared inputs preserve their genuine matching frozen epochs. Missing owner or input binding refuses. `AdmissionRuntime::bind_selection_snapshot` (`admission.rs`) checks profile/model, view-output correspondence and complete producer-input bindings while retaining dependencies separately from consumer roots. Later unrelated workspace completions cannot widen the captured roots.
+
+Selected versus complete inventory authority is now immutable at runtime construction. A selected runtime accepts one snapshot initialization, including empty or failed initialization, and cannot install/restore a complete inventory, freeze native content, earn whole semantic/frontier evidence or import detached content. The refusal precedes effects; ordinary artifact admission uses a separately constructed complete runtime. F03 records why later inventory comparison alone was insufficient.
+
+Selected contributor lookup now explicitly translates the full completed-contribution identity in a view to the producer-spec identity used by Workspace's duplicate-handoff registry. A charged correspondence index is constructed once at live handoff or restoration under the existing owner mutex; lookup does not confuse the two digest domains or rehash every descriptor per consumer. F04 records the actual selected-path refusal that exposed this distinction. Both identities remain unique on restoration, and the original producer-spec duplicate handoff check is preserved.
+
+The final source also declares the compact relation's distinct temporal roles explicitly: native availability at Facts, each analysis family's predecessor checkpoint, and completed same-kind compact output at that owner's publication boundary. Global frontier inputs retain the native role and required compact-output roles with `(relation, prefix)` deduplication. Ordinary nominal compact foreign keys retain all their explicitly required companion roles as separate dependencies; they do not select an epoch for an unqualified consuming read. Selected identical copies coalesce in the frontier's existing index; missing compact output remains different from a present admitted empty domain. F05 records the genuine Summary and subsequent Schedule failures that exposed incomplete role declarations/composition. Neither selection nor validation substitutes an arbitrary available epoch.
+
+Provider availability is frozen from `completed_by_producer` filtered by the actual provider names (`workspace.rs`). The availability operation consumes that bound inventory rather than querying a later global native contribution list. Compact-owner memoization includes actual compact views, their contribution identities and exact qualification bindings (`admission/uniform.rs`); ordinary invariant reuse also includes the admitted uniform identity. Unrelated roots need not invalidate an unchanged compact owner, but changed qualification cannot reuse it. These are complementary validity scopes, not independent authorities.
+
+## 4. Analytic and Summary operations
+
+The extended `Correspondence` indexes ownership, observations, metadata/member/capture candidates, signature ports, supports and decorator structure. Its consumers still invoke canonical contextual selection and exactness operations. Decorator selection uses the same model-owned selector over selected `RowsView` inputs; an argument reference cannot become the decorator head merely because it shares a spelling. The mutable parameter/class caches remain local to preparation and do not cross task boundaries.
+
+`ConceptPreparation` (`analytics/attributes.rs`) constructs the exact selected object/context/policy base once, distributes evidence positions to namespace groups, and keeps relational additions separate. Each method constructs its own context and publishes independent result/scope IDs. Mathematical incidence deduplication does not discard original evidence sources. An entity exposed in two namespaces appears in both groups without turning referenced entities into new roots.
+
+The model's `TechniquePreparation` (`analytics/build.rs`) owns readiness, foreign-completion rejection and final completeness. Rank, concept and vector jobs own compact inputs. Community work waits only for the selected nearest layer; labels retain their vector/community dependencies. `cpg-core::analytic::run_techniques` observes private completion to unlock dependants without a whole-wave rank/concept barrier. Numerical loops and retained parameters stay unchanged; canonical record integration is separate from execution arrival.
+
+| Analysis question | Universe and method | Limits, output and evidence |
+|---|---|---|
+| Which objects share attributes? | Exact public access-module/namespace objects; attributed common base; FCA or RCA-specific incidence | Existing support/enumeration bound and explicit partial status; source-linked incidences, concepts and implication records |
+| Which entities rank/group or neighbour one another? | Existing declared projection and public/vector selection; fixed numerical policy and separate nearest-layer demand | Existing method diagnostics and unavailable outcomes; label selectors retain admitted declarations beyond the public-neighbour subset |
+| What follows under the Summary model? | Complete selected frame and canonical callee-first SCC schedule; unchanged semantic worklist | Frame-global progress/member limit and proof identity; independent frame output integrated in canonical order |
+
+The local concept change carries an accepted candidate's extent into the next iteration instead of recomputing it. It does not replace the enumeration/basis algorithm or change the bounded prefix. Retaining that algorithm is supported: the pinned fcars 0.2.2 capability supplies unordered concept sets, not this complete support/implication/ordered-partial contract. A future replacement remains eligible if it establishes those semantics and a stronger complete execution route.
+
+Namespace contexts remain serial **within each FCA/RCA technique** (`attributes.rs`); frames and the two independent techniques can overlap. This is a concrete transient-working-set boundary: one namespace's conversion sets, bit-matrix `Context` and `Lattice` live at a time and drop before the next namespace, while charged published rows accumulate as required. Launching every namespace inside already overlapping frames/methods would multiply those transient allocations without an admitted namespace-headroom contract. Retaining this boundary is proportionate; it is neither a claim of semantic dependence nor a new worker cap. Revisit when a bounded owned namespace launch/result contract can preserve actual conversion headroom and deterministic error/output order with a material benefit. This route is deliberately not described as fully parallel.
+
+Summary now scopes `CallPreparation` to the current caller SCC while borrowing shared immutable signature preparation (`summary_production.rs`). Frame-global `Progress`, downstream callee proofs and member admission survive component publication. Solving-only maps end before symbolic/terminal postprocessing (`summary_production.rs`). Independent whole frames may overlap; SCCs within a frame retain their real semantic dependencies. No streaming prefix, resumable proof store or new recursive algorithm is implied.
+
+## 5. Owned execution and realistic scenarios
+
+`owned_work::ordered` supplies charged ordinal slots, actual registered tasks, canonical reduction and complete failure drainage. Typed payload owners retain their deep backing charges; shallow task slots do not claim to estimate arbitrary kernel memory. A dynamically refused kernel fails rather than being replayed. Known native capture/waiter reservation refusal may progress through already owned contributor work before retrying that particular allowance; arbitrary Resource errors are not retry policy.
+
+**Additional last-use refinement, Interface-checked, 2026-10-17:** on the first observed peer failure, `ordered` now clears previously delivered successful payloads immediately. They cannot be integrated or returned after failure, and their workers have already joined. Releasing their deep charges can restore headroom for remaining accepted workers' completion/drain; any genuinely shared backing remains protected by its live borrowers. Ordinal slot backing stays charged, all accepted joins still drain, and structured failure ordering remains unchanged. This is a narrow failure-tail capacity improvement, not evidence of a publication error or a new independent blocking finding. The new `failed_window_releases_delivered_payload_before_a_gated_peer_drains` control admits all peers, collects a success before exposing failure, checks its Drop/charge release while another peer remains gated, then finishes drainage. Its source is revealing; functional execution remains pending.
+
+| Route | Inspected execution and integration |
+|---|---|
+| Native membership / logical / alias contributors | `ContributorWindow`, `audit.rs`; existing `run_work` owns actual workers, pin and captures. Canonical contributor order determines reduction and union inputs |
+| C0 / C1 | `catalog_core.rs`, `catalog_evidence.rs`; once-hydrated exact unions feed private root/artifact owners; one output owner merges/emits semantic rows |
+| Retrieval | `retrieval.rs` and `RenderedPartition`; exact private rendering precedes ordered retention, embedding-session mutation and mandatory publication |
+| Completion / Models | `semantic_execution.rs`, `semantic_models.rs`; immutable authentic evaluation/binding/Local borrows; whole ordered bodies remain intact; actual-owner append and run folds are ordered |
+| Structural / Analytic / Summary | `structural.rs`, `analytic.rs`, `semantic_summaries.rs`; exact complete frames and shared graph/semantic owners; independent jobs return private typed records |
+
+These routes share the attempt resource pool and existing runtime placement. Existing windows bound simultaneous grain ownership; required whole bodies/frames remain indivisible. Retaining multiple private results until a finite window succeeds increases simultaneous input/output state compared with scalar emission, but purchases independent progress and avoids admitting a sibling success after a private failure. Charged typed owners, finite acquisition windows and release of completed registrations/dead preparation make this a credible qualitative tradeoff. Representative whole-library capacity and latency remain unmeasured.
+
+| Scenario / change kind | Architectural judgment |
+|---|---|
+| Add an attributed analytic observation family / domain extension | Model relation, consuming predicate and corresponding index change together. Its source/qualification remains explicit; adapters need no independent classification rule |
+| Replace execution placement / mechanism substitution | Owned model jobs and canonical integration remain the contract; the workspace/native join owner must preserve actual finality and charged lifetime. Another scheduler/cache framework has no demonstrated benefit |
+| Grow the number of bounded windows / growth | F01 correction prevents acknowledged historical grains from accumulating live registry entries. Remaining capacity follows peak live registrations |
+| Shared callees, recursive SCCs or exhausted Summary bounds / domain behavior | Per-SCC attempt scratch may release, while shared signatures and frame-global progress preserve later consumers and the existing partial/refusal contract |
+| Block a peer; fail later; drop a waiter / failure | Independent registered peers can progress; private success is not integrated after observed failure; accepted tasks drain. Dropped delivery preserves actual join ownership |
+| Empty/sparse input or overlapping roots / instance and composition | Exact membership/namespace/prefix owners determine the universe. Empty output grants no missing provider or coverage premise; evidence-only support does not become another analysis root |
+
+## 6. Independent gates and foundations
+
+| Gate | Verdict at source strength | Reason / boundary |
+|---|---|---|
+| G1 Authority | Pass | Model-owned requirements, predicates, policy and identities govern the new indexes and jobs |
+| G2 Semantic fidelity | Pass | Exact epoch/context roles, separate FCA/RCA outcomes and explicit unavailable/partial distinctions survive |
+| G3 Validity | Pass for corrected source | Missing authentic dependencies, foreign technique results and incomplete preparation refuse before use/publication; F04/F05 correct rejection of valid contribution identities and genuine temporal roles; focused current-source repetition remains pending |
+| G4 Hidden behavior | Pass | Captured provider inputs and private pure kernels remain separate from explicit native/cache/publication effects |
+| G5 Consistency/recovery | Pass for changed source contracts | Joined ownership, private results, failure drainage, immutable selected/full authority and final complete admission remain explicit after F01–F03 corrections. Historical native Unknowns are outside this verdict |
+| G6 Transformation/reuse | Pass for corrected source | Indexed candidates retain consuming checks; exact incidence sources, distinct spec/completed identity mapping, qualified compact temporal roles and complete qualification keys govern reuse; numerical/SCC/basis semantics remain |
+| G7 Truthful claims | Pass for this review | Implemented/interface-checked source is distinguished from pending functional execution and unmeasured benefit |
+| G8 Library leverage | Pass | Existing Tokio/futures, indexed native/Arrow acquisition, petgraph/model kernels and bitsets are composed; no generic scheduler or replacement solver is invented |
+| CI-G1 Fidelity | Pass | Provider attribution, typed relations, heuristic meanings and model/unknown boundaries remain distinct |
+| CI-G2 Evidence closure | Pass for inspected construction | Exact captured roots and original source-linked incidence/publication contracts survive. Submitted serving runtime is excluded |
+| CI-G3 Evaluation integrity | Not applicable | No evaluator, oracle population, gold input or protected-data use changes |
+
+FP-01–FP-06 and the applicable DP-01–DP-12/DP-18–DP-24 obligations are satisfied for these inspected responsibilities and scenarios. FP-07/A4 is satisfied after the two lifetime corrections: necessary work follows selected roots/indexes, independent execution preserves canonical integration, and dead preparation/task history no longer enlarges the upper working set. This is a qualitative source assessment, not a claim that protective refusal alone establishes capacity or that every wider compiler cost is settled.
+
+## 7. Findings surfaced and corrected during review
+
+<a id="F01"></a>
+### F01 — Completed grain joins accumulated as compilation history
+
+**Source-established defect, correction Interface-checked, 2026-10-17.** The initial integration sent every root/frame/technique through `Workspace::spawn_stage`, but its registry retained every completed shared join until workspace destruction. Repeated finite windows therefore accumulated historical metadata and charge proportional to total grains despite having already awaited actual terminality. This violated FP-07/A4 and DP-20's combined-lifetime intent; it did not by itself establish false publication.
+
+The corrected `workspace/stage_execution.rs` registers an exact monotonic ID and retires that registration only after delivery has been observed and the actual join succeeded. Lost waiters and failed joins remain available to the authentic drain; existing snapshot clones retain their own joins. Charged registry capacity follows peak live work. No native-cleanup fact is inferred from task acknowledgment.
+
+Closure at this review's source boundary is the inspected retirement/ownership path. The proposed repeated-window and lost-waiter controls at `stage_execution.rs` still require coordinator execution. Current disposition belongs to [coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
+
+<a id="F02"></a>
+### F02 — Unified readiness retained dead normalization authority through upper work
+
+**Source-established defect, correction Interface-checked, 2026-10-17.** The initial unified driver retained receiver/event coordinator Arcs after their Events/Bindings borrowers ended, and retained Catalog's unused binding application. Unlike the previous phase-boundary drops, this kept `ProducedNormalization` descriptors and the charged receiver/event proof maps live through all upper work. A library with many calls consequently paid for dead lower state alongside the upper kernels. This was a separate FP-07/A4 lifetime defect, not another manifestation of F01's registration history.
+
+The corrected driver clones receiver authority only into Events/Bindings and event authority only into Bindings. `normalization_authority_needs` and `compilation.rs` release coordinator owners once their last actual consumer has launched; running futures retain their own Arcs. Remaining upper `Needs` releases an unused binding application, including Catalog. Frame/global semantic progress and published premises are unaffected.
+
+The borrower trace and corrected releases settle the source diagnosis. The new helper control is proposed functional evidence until run. Current disposition belongs to [coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
+
+<a id="F03"></a>
+### F03 — A selected assurance runtime could enter whole-artifact effects
+
+**Source-established defect, correction Interface-checked, 2026-10-17.** A follow-up implementation review identified that the public selected-snapshot binder returned the same runtime capability used by whole-artifact admission. `artifact::prepare_full_admission` invokes `freeze_for_admission`, whose native content freeze precedes the inventory comparison that would eventually reject partial metadata. A caller could therefore freeze an active native attempt through a partial assurance runtime despite lacking complete inventory authority. Detached readmission likewise needed rejection before its first import. Actual Workspace selected consumers were private validation paths, but their current usage did not make the public capability safe. This was an FP-04/FP-05, A2 and G3/G5 authority/effect-ordering defect, distinct from the lifetime findings.
+
+The corrected `AdmissionRuntime` has immutable selected-only scope, established by `borrow_selected_runtime` through the shared constructor. Full constructors cannot bind a selected snapshot. A selected binder claims initialization once before validation/installation; concurrent, repeated, empty and failed binding cannot promote or rebind the owner. `require_complete_inventory` guards installation, restoration, native freeze and whole semantic/frontier operations; detached readmission checks it before import (`artifact.rs::readmit_detached`). Workspace selected assurance uses the selected constructor, while ordinary artifact admission uses the full constructor. Exact selected validation, facts availability and compact-owner assurance remain available.
+
+The immutable scope and pre-effect guards settle the source defect without a new scheduler or lifecycle framework. A new genuine Workspace control attempts selected artifact admission, checks refusal, then completes another producer to challenge premature freezing; it also challenges repeated binding. This is proposed functional evidence until executed by the coordinator. Current disposition belongs to [coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
+
+<a id="F04"></a>
+### F04 — Selected assurance looked up a completed ID in a producer-spec registry
+
+**Source-established functional defect, correction Interface-checked, 2026-10-17.** The coordinator's genuine selected native control reported `selected assurance authentic owner absent`, prompting this follow-up. Independent source inspection confirmed that `CompletedView::contributions` names `CompletedContribution::identity`, which incorporates the producer spec, assurance, outcome and completed output content (`completed.rs`). Workspace's existing `completed_owners` registry instead keys descriptors by `ContributionSpec::identity`, the duplicate producer-handoff domain. The new selected traversal directly used the former ID to index the latter map. A genuine valid completed view consequently refused before selected assurance could run. Earlier source acceptance missed this identity-domain mismatch; it did not establish a passing native route. This violates DP-02/DP-04/DP-08 and G3/G6 for the affected selected operation, independently of F03's authority boundary.
+
+The correction retains the producer-spec registry and its duplicate-handoff semantics, adding a charged full-completed-ID-to-spec-ID correspondence under the same existing mutex. Live handoff computes both identities once, checks both for duplicates before publication and installs descriptor/index coherently. Restoration builds private maps, rejects duplicate completed IDs and duplicate specs before replacing Workspace state. Selected traversal follows the correspondence to the authentic descriptor; it does not weaken missing-owner or dependency qualification, reinterpret the full ID as a spec ID, or repeatedly hash the complete registry for each consumer.
+
+The inspected correspondence, handoff, restoration and selected lookup settle the source correction. The coordinator must repeat the actual selected native control and affected current-source checks; preceding pure controls and compilation receipts do not qualify this repaired runtime path. The reported initial runtime failure is attributed coordinator feedback, not a reviewer-executed result. Actual run receipts and current disposition belong to [coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
+
+<a id="F05"></a>
+### F05 — Compact semantic roles were unqualified across genuine publication epochs
+
+**Source-established functional/model defect, correction Interface-checked, 2026-10-17.** After the completed-ID correction, coordinator run `20261017T120935.720Z-b1d446` reached the genuine Summary route and reported `checked admission input epoch is ambiguous` after `local_analysis_invocation_inputs`. This was reported as a semantic refusal rather than a timeout; native cleanup evidence remains coordinator-owned. Independent inspection confirmed that family invocation and coverage invariants requested unqualified `UniformNotRequested` while the exact selected closure legitimately contained several epochs. An outer Summary consumer can require both its Model checkpoint and a nested Local family's Facts checkpoint. The runtime correctly refused to guess, but the model had omitted the role needed to execute a valid selected operation. This violates FP-04/A2, DP-02/DP-08 and G3/G6; it is not a reason to weaken ambiguity rejection.
+
+The corrected declarations distinguish three operations, rather than applying one epoch everywhere:
+
+| Operation | Qualified compact role | Governing authority |
+|---|---|---|
+| Family invocation / coverage checks | That family's predecessor checkpoint; Local Facts, Base Local, Summary Model, Retrieval Synthesis | Macro-owned family prefix resolves `AnalysisOwner::for_family`; the existing `uniform_checkpoint` also governs ordinary producer declarations |
+| Native expected-domain availability | Facts, only when the method needs native families | `analysis::expected::inputs` and its native scope contract |
+| Same-kind completed compact-result reconstruction | That owner's output boundary; Local Local, Base BaseEvaluation, Summary Summary | `AnalysisUniformConsumer::inputs`, `AnalysisOwner::boundary`, admitted same-kind owner and independent actual-domain reconstruction |
+
+`FrontierData::inputs` now includes Facts plus the required compact owners' output boundaries and deduplicates exact `(relation, prefix)` roles. Its existing `FrontierIndex` enables selected-copy coalescing for those declared overlapping views. It still requires the actual compact descriptor: an admitted empty Local domain is `Some(empty)` only when the descriptor is supplied; its absence remains `None`. This preserves native-provider coverage separately from completed analysis outcomes and avoids letting name-only deduplication erase a role.
+
+The subsequent production Schedule control `d26369` exposed another part of the same role-composition defect before native execution: `ambiguous canonical dependency view: uniform_not_requested` for Catalog/Analysis/requested=false. Initial source acceptance had missed this closure step. `DependencyClosure::build` required exactly one companion epoch for every ordinary foreign key. Multiple compact roles can be legitimate, and the nominal `family::InvocationSource::UniformAnalysis` relation itself has no attached invocation invariant; the operation-specific family checkpoint invariant belongs to `AnalysisInvocation`. Its bare foreign key therefore reached the caller's several explicitly declared compact roles and refused.
+
+The corrected closure distinguishes dependency inclusion from consuming-view resolution. For an ordinary relation's nominal `UniformNotRequested` foreign key, it enqueues each exact role from attached invariants when present, otherwise each exact caller-declared role. Requirements and grants retain separate `(relation, epoch)` identities. The family invocation invariant still validates the referenced descriptor's allowed predecessor family, authentic owner and input/context at its specifically qualified checkpoint. Including supporting nominal membership dependencies neither merges epochs nor grants an unqualified read authority. The change is confined to this compact nominal foreign key: shared-parent epoch propagation, the existing no-role checkpoint fallback, direct root resolution and canonical nonUniform single-view refusal remain unchanged. In particular, embedding-value dependencies cannot use this rule to guess among several physical value views.
+
+Final compiler assurance expansion consumes these model-owned requirements without substituting a consumer's outer checkpoint for a nested family's role. Owner declaration's existing checkpoint canonicalization is followed by this complete exact requirement closure; global frontier declarations retain their own explicit roles. Runtime `ValidationInputs::validation_source` / `validation_table` still reject unqualified ambiguity and missing explicit epochs. No first/latest fallback or per-invariant store-side role registry was added.
+
+Invocation/coverage invariant revisions advance to 3/2; affected direct compact-consumer invariants and complete-frontier checks also revise their contracts. The macro helper uses the actual declared family prefix, not a table-name suffix. Finite controls contain hand-stated epoch cases, nested Local/SourceCall result roles, native Facts demand, final schedule closure and missing-versus-present-empty frontier cases. The production Schedule control checks every attached invariant's qualified compact inputs and specifically Summary's Facts/Model pair across actual profiles/frontiers. New dependency-closure controls require both Facts/Local roles for bare and attached nominal compact references; existing nonUniform ambiguity controls remain. These sources are revealing but are not functional passes. The inspected role definitions and corrected exact-grant composition settle the source correction; the repaired production Schedule, final genuine Summary execution and affected current-source checks remain pending. Both reported failures are attributed coordinator feedback rather than reviewer-executed results. Current receipts and disposition belong to [coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
+
+## 8. Library fit and alternatives
+
+Cargo.lock resolves the relevant workspace profiles at Tokio 1.53.2, futures 0.3.34, fixedbitset 0.5.7 and fcars 0.2.2. Other transitive versions are not treated as interchangeable. The selected fixedbitset/rust-reasoning references and exact local Tokio/futures sources were inspected; no dependency change or external documentation lookup was needed for this code review.
+
+FuturesOrdered polls peer operations while yielding in insertion order; FuturesUnordered exposes completion so a semantic dependant can become ready without waiting for unrelated jobs. Neither supplies semantic authority or actual worker drainage. The existing workspace/native registered owners fill those gaps. Tokio's borrowed blocking placement keeps synchronous code inside its owning task; it is not cancellation of a running kernel. This is a smaller complete composition than introducing another executor or using a join combinator whose result delivery loses the existing ownership contracts.
+
+The simplest serial alternative has lower transient private-result state, but retains the diagnosed independent-work barriers. Unchecked parallel work discards required budget/finality semantics. The selected bounded private work retains actual typed charges and canonical integration, with the F01/F02 corrections limiting its lifetime. Indexed correspondence/shared incidence remove work before concurrency attempts to overlap what remains. The retained concept and Summary algorithms avoid substituting a narrower library capability for a richer required contract.
+
+## 9. Verification and uncertainty
+
+| Item | Outcome / evidence |
+|---|---|
+| Source, types, current owner documents, exact relevant pinned interfaces | Inspected, 2026-10-17; Interface-checked architectural evidence |
+| `git diff --check` before review publication | Passed; whitespace inspection only |
+| Builds, focused pure/native functional controls, Clippy and non-functional leaves | **not_run by reviewer**; coordinator execution pending at publication |
+| Whole Catalog, qualify, real-library capacity/latency, embedding inference, submitted MCP runtime | **not_run / excluded** from this endpoint and decision |
+| Protected historical native obligations | Unresolved at their existing owners; no cleanup or finality inference from this review |
+
+The new control sources cover finite-job ownership/dependencies, extent carry, shared namespace incidence, vector label/public-domain separation, Summary last-use/global-bound cases, contributor failure/refusal/lost-waiter behavior and task registration retirement. They are useful revealing shapes, not substitute runtime evidence. Focused native adapter generation and the retained original integration controls remain the coordinator's functional obligations; an inspected or mocked route is never a persistence pass.
+
+No material source uncertainty presently changes the selected correction or architecture decision. Runtime races, actual native behavior, whole-workload capacity and the historical timeout cause remain distinct unestablished claims. Reopen this review if functional execution exposes a missing prerequisite, lost join, changed evidence universe, dynamic retry or a working-set shape the inspected ownership cannot support.
+
+## 10. Preservation and delivery obligations
+
+Retain the delivered UN/UC trust transitions: independent receiving, full-demand versus compact membership separation, exact byte/original observations, typed reducible-page retry, complete payload agreement, qualified sufficient properties and exact indexed windows. This review follows the new consumers into those boundaries; it does not reissue or enlarge their earlier functional receipts.
+
+Retain complete body/frame semantics, original incidence multiplicity, fixed numerical reduction, frame-global Summary progress and final admission. Root owns functional execution, documentation checks/formatting and delivery. No evidence folder, new lifecycle registry, background service or proof machinery is required by this assessment.
+
+## 11. Rule impacts and disposition
+
+**Additional required rule impacts: none.** The selected readiness and owned-execution direction corresponds to the existing RC01/RC08 implementation decision context; F01–F05 correct its realization without changing the supported universe or published row schema. F03 enforces the already intended distinction between selected assurance and complete artifact authority; it does not grant another publication capability. F04 preserves the distinct spec/completed identity definitions and duplicate-handoff semantics. F05 completes missing role qualification using existing owner checkpoint/output and native Facts meanings, with explicit invariant revisions; it does not relax ambiguity refusal or introduce another semantic policy owner. Accepted ADR text is not evidence of these corrections and was not edited by the reviewer.
+
+Original F10–F13, R01 and investigation decisions retain their stable source IDs and sole disposition owner in [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint). This review's F01–F05 are separate local IDs, linked there for delivery; the descriptions above are dated observations, not a competing execution ledger. Functional completion or full-track closure cannot be inferred from the review decision.
+
+## 12. Architectural judgment and bounded decision
+
+| Judgment | Verdict | Basis |
+|---|---|---|
+| A1 Localize change | Satisfied | Analytic/Summary meaning, selected assurance and physical execution have coherent owners; the two lifetime repairs remain local to their actual owners |
+| A2 Encode domain meaning explicitly | Satisfied | Model operations govern attribution, scopes, dependencies, method readiness, completeness and partial outcomes; selected descriptors do not grant unchecked semantic authority |
+| A3 Extend through composition | Satisfied | Existing immutable preparation, indexed acquisition, model jobs and joined runtime owners compose without a universal DAG engine, new pool or duplicate classifier |
+| A4 Fit execution to workload | Satisfied for inspected growth/failure scenarios after correction | Repeated searches/base construction and unjustified execution loops are removed; finite private results and real joins retain canonical semantics; historical joins and dead lower proof maps release |
+
+**Bounded decision: Accept for the identified final UA/US source, at Interface-checked strength, with affected current-source functional verification pending.** No material source finding remains open after the inspected F01–F05 corrections. This accepts the selected architecture and corrected source routes; it does not promote test-source presence, accepted decisions, earlier source acceptance or earlier receipts into current functional results. In particular, genuine selected and Summary runtime outcomes and current-source checks must establish functional closure; the final Summary rerun is explicitly pending at this source freeze.
+
+**Enclosing architecture: not newly qualified.** Whole Catalog/Behavioral/native acceptance, representative capacity/benefit measurements, submitted serving and historical Unknown settlement remain outside this decision. The coordinator must publish the actual focused outcomes and their limits before claiming this execution endpoint complete.
+
+**Coordinator runtime boundary,2026-10-17, after the source assessment:** full workspace compile and strict keep-going Clippy passed; selected-assurance, contributor and fresh full-envelope native controls passed. Genuine Summary run `0439a4` failed during SourceArtifact acquisition on native immutable-address collision before Summary assertions. The exact differing row/field and cause are unestablished; protected native Unknown remains. This does not revise the source review into a functional acceptance or establish a source diagnosis. [Coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the exact receipts, unresolved gate and proposed maintenance comparison.

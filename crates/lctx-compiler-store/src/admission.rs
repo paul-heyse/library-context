@@ -286,6 +286,11 @@ pub struct AdmissionRuntime {
     frozen_shared: Mutex<BTreeMap<(PublicationBoundary, &'static str), Arc<ExactRelation>>>,
     owners: Mutex<(BTreeMap<ContentHash, CompletedContribution>, StateCharge)>,
     bindings_charge: Mutex<StateCharge>,
+    // A live selected assurance snapshot retains exact producer dependency bindings without
+    // pretending that those bindings constitute a complete restored publication inventory.
+    selected_dependencies: Mutex<Vec<CompletedBinding>>,
+    selected_only: bool,
+    selection_bound: AtomicBool,
     memo: Arc<AdmissionMemo>,
 }
 impl AdmissionRuntime {
@@ -381,6 +386,9 @@ impl AdmissionRuntime {
             completed: Mutex::default(),
             frozen_shared: Mutex::default(),
             owners,
+            selected_dependencies: Mutex::default(),
+            selected_only: false,
+            selection_bound: AtomicBool::new(false),
             memo,
         }))
     }
@@ -400,6 +408,69 @@ impl AdmissionRuntime {
         config: SessionConfig,
         runtime: Arc<datafusion::execution::runtime_env::RuntimeEnv>,
         execution: Arc<dyn ExecutionOwner>,
+    ) -> Result<Arc<Self>, ModelError> {
+        Self::borrow_runtime_for(
+            model,
+            options,
+            budget,
+            native,
+            cancellation,
+            calls,
+            memo,
+            config,
+            runtime,
+            execution,
+            false,
+        )
+    }
+    /// Construct a private selected read/assurance owner. It can never acquire whole
+    /// inventory installation, restoration, freezing or publication authority.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Selected assurance borrows the same independent runtime services as full admission"
+    )]
+    pub fn borrow_selected_runtime(
+        model: Arc<ValidatedModel>,
+        options: AdmissionOptions,
+        budget: ResourceBudget,
+        native: Arc<NativeCompilerStore>,
+        cancellation: Cancellation,
+        calls: Arc<crate::native_calls::NativeCalls>,
+        memo: Arc<AdmissionMemo>,
+        config: SessionConfig,
+        runtime: Arc<datafusion::execution::runtime_env::RuntimeEnv>,
+        execution: Arc<dyn ExecutionOwner>,
+    ) -> Result<Arc<Self>, ModelError> {
+        Self::borrow_runtime_for(
+            model,
+            options,
+            budget,
+            native,
+            cancellation,
+            calls,
+            memo,
+            config,
+            runtime,
+            execution,
+            true,
+        )
+    }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Immutable inventory scope is fixed while composing independent runtime services"
+    )]
+    fn borrow_runtime_for(
+        model: Arc<ValidatedModel>,
+        options: AdmissionOptions,
+        budget: ResourceBudget,
+        native: Arc<NativeCompilerStore>,
+        cancellation: Cancellation,
+        calls: Arc<crate::native_calls::NativeCalls>,
+        memo: Arc<AdmissionMemo>,
+        config: SessionConfig,
+        runtime: Arc<datafusion::execution::runtime_env::RuntimeEnv>,
+        execution: Arc<dyn ExecutionOwner>,
+        selected_only: bool,
     ) -> Result<Arc<Self>, ModelError> {
         if options.memory_bytes != budget.limit()
             || options.memory_bytes == 0
@@ -430,6 +501,9 @@ impl AdmissionRuntime {
             frozen_shared: Mutex::default(),
             owners,
             bindings_charge,
+            selected_dependencies: Mutex::default(),
+            selected_only,
+            selection_bound: AtomicBool::new(false),
             memo,
         }))
     }
@@ -452,12 +526,137 @@ impl AdmissionRuntime {
             transfer,
         })
     }
+    pub(crate) fn require_complete_inventory(&self) -> Result<(), ModelError> {
+        if self.selected_only {
+            return Err(ModelError::Conflict(
+                "selected assurance is not complete inventory authority",
+            ));
+        }
+        Ok(())
+    }
+    /// Bind an immutable live consumer snapshot. Unlike restoration, this inventory is
+    /// intentionally only the selected roots and their authentic producer dependencies.
+    pub fn bind_selection_snapshot(
+        &self,
+        profile: Profile,
+        contributions: Vec<CompletedContribution>,
+        roots: Vec<CompletedBinding>,
+        dependencies: Vec<CompletedBinding>,
+    ) -> Result<(), ModelError> {
+        if !self.selected_only {
+            return Err(ModelError::Conflict(
+                "selected snapshot requires selected inventory authority",
+            ));
+        }
+        // Claim initialization before validating or installing any metadata. Even an
+        // empty or failed snapshot cannot be rebound, and concurrent binders cannot race.
+        if self.selection_bound.swap(true, Ordering::AcqRel) {
+            return Err(ModelError::Conflict(
+                "selected assurance snapshot already bound",
+            ));
+        }
+        if !self.completed.lock().map_err(|_| poisoned())?.is_empty()
+            || !self
+                .frozen_shared
+                .lock()
+                .map_err(|_| poisoned())?
+                .is_empty()
+            || !self.owners.lock().map_err(|_| poisoned())?.0.is_empty()
+        {
+            return Err(ModelError::Conflict(
+                "selected assurance requires empty runtime",
+            ));
+        }
+        let mut charge = StateCharge::new(self.budget(), "selected assurance owners");
+        let mut owners = BTreeMap::new();
+        for owner in contributions {
+            owner.spec.validate_profile(profile)?;
+            if owner.spec.model != self.model.digest() {
+                return Err(ModelError::Conflict("selected assurance owner model"));
+            }
+            charge.grow(
+                serde_json::to_vec(&owner)
+                    .map_err(ModelError::codec)?
+                    .len()
+                    .saturating_mul(4)
+                    .saturating_add(256),
+            )?;
+            if owners.insert(owner.identity()?, owner).is_some() {
+                return Err(ModelError::Conflict("duplicate selected assurance owner"));
+            }
+        }
+        let mut binding_charge = StateCharge::new(self.budget(), "selected assurance bindings");
+        for binding in roots.iter().chain(&dependencies) {
+            binding_charge.grow(
+                serde_json::to_vec(binding)
+                    .map_err(ModelError::codec)?
+                    .len()
+                    .saturating_mul(8)
+                    .saturating_add(1024),
+            )?;
+            self.exact(binding.clone())?;
+            for id in &binding.view.contributions {
+                let owner = owners
+                    .get(id)
+                    .ok_or(ModelError::Conflict("selected assurance view owner absent"))?;
+                if !owner.outputs.contains_key(&binding.view.relation) {
+                    return Err(ModelError::Conflict(
+                        "selected assurance view output absent",
+                    ));
+                }
+            }
+        }
+        for owner in owners.values() {
+            for input in &owner.spec.inputs {
+                if !roots
+                    .iter()
+                    .chain(&dependencies)
+                    .any(|binding| binding.source == *input)
+                {
+                    return Err(ModelError::Conflict(
+                        "selected assurance producer input binding absent",
+                    ));
+                }
+            }
+        }
+        let mut completed = BTreeMap::new();
+        let mut frozen = BTreeMap::new();
+        for binding in roots {
+            let boundary = binding
+                .boundary
+                .as_ref()
+                .map(|name| {
+                    PublicationBoundary::ALL
+                        .into_iter()
+                        .find(|boundary| boundary.name() == name)
+                        .ok_or(ModelError::Schema("selected assurance boundary"))
+                })
+                .transpose()?;
+            let source = self.exact(binding)?;
+            if let Some(boundary) = boundary {
+                if frozen.insert((boundary, source.name()), source).is_some() {
+                    return Err(ModelError::Conflict("duplicate selected assurance epoch"));
+                }
+            } else if completed.insert(source.name(), source).is_some() {
+                return Err(ModelError::Conflict(
+                    "duplicate selected assurance current relation",
+                ));
+            }
+        }
+        *self.owners.lock().map_err(|_| poisoned())? = (owners, charge);
+        *self.bindings_charge.lock().map_err(|_| poisoned())? = binding_charge;
+        *self.completed.lock().map_err(|_| poisoned())? = completed;
+        *self.frozen_shared.lock().map_err(|_| poisoned())? = frozen;
+        *self.selected_dependencies.lock().map_err(|_| poisoned())? = dependencies;
+        Ok(())
+    }
     pub fn install_completed(
         &self,
         profile: Profile,
         contributions: Vec<CompletedContribution>,
         bindings: Vec<CompletedBinding>,
     ) -> Result<(), ModelError> {
+        self.require_complete_inventory()?;
         if !self.completed.lock().map_err(|_| poisoned())?.is_empty()
             || !self
                 .frozen_shared
@@ -586,6 +785,7 @@ impl AdmissionRuntime {
         }))
     }
     pub async fn restore(&self, profile: Profile) -> Result<(), ModelError> {
+        self.require_complete_inventory()?;
         self.install_completed(
             profile,
             self.native.contributions(&self.budget).await?,
@@ -593,6 +793,7 @@ impl AdmissionRuntime {
         )
     }
     pub(crate) async fn freeze_for_admission(&self) -> Result<(), ModelError> {
+        self.require_complete_inventory()?;
         self.cancellation.check()?;
         let descriptor_bytes = self.owners.lock().map_err(|_| poisoned())?.1.reserved();
         let bindings = self.bindings()?;
@@ -657,6 +858,16 @@ impl AdmissionRuntime {
                 view: source.view.clone(),
                 configuration: None,
             });
+        }
+        for binding in self
+            .selected_dependencies
+            .lock()
+            .map_err(|_| poisoned())?
+            .iter()
+        {
+            if !result.contains(binding) {
+                result.push(binding.clone());
+            }
         }
         Ok(result)
     }
@@ -853,6 +1064,7 @@ impl AdmissionRuntime {
         profile: Profile,
     ) -> BoxFuture<'a, Result<CheckedSemanticScope, ModelError>> {
         Box::pin(async move {
+            self.require_complete_inventory()?;
             let relations = self.completed_relations()?;
             let mut inputs = self.inputs(relations.iter().map(|r| r.name()))?;
             self.bind_admission_epochs(&mut inputs)?;
@@ -1110,13 +1322,9 @@ impl AdmissionRuntime {
             )
             .await?;
         let compact_authority = uniform_source.view().contributions.clone();
-        let native = self.native.clone();
-        let budget = self.budget.clone();
-        let contributions = self
-            .native_calls
-            .call(async move { native.contributions(&budget).await })
-            .await?;
-        let _descriptors = self.facts_descriptor_charge(&contributions)?;
+        let inventory = self.completed_inventory()?;
+        let contributions = &inventory.contributions;
+        let _descriptors = self.facts_descriptor_charge(contributions)?;
         let value = self.availability_from_rows(
             profile,
             scopes,
@@ -1129,7 +1337,7 @@ impl AdmissionRuntime {
                 runs: &runs,
                 families: &families,
                 contexts: &contexts,
-                contributions: &contributions,
+                contributions,
                 authority: &authority,
                 bound_sources: &bound_sources,
             },
@@ -1343,7 +1551,13 @@ impl AdmissionRuntime {
             for invariant in checks {
                 tracing::info!(target:"lctx_phase", invariant=invariant.name, "semantic check selected");
                 let premise = if inputs.companions.is_empty() {
-                    self.validation_premise(&invariant, selected, &unrequested, profile)?
+                    self.validation_premise(
+                        &invariant,
+                        selected,
+                        &unrequested,
+                        profile,
+                        uniform.identity(),
+                    )?
                 } else {
                     None
                 };
@@ -2082,16 +2296,18 @@ impl AdmissionRuntime {
         selected: Option<&ValidationInputs>,
         unrequested: &std::collections::BTreeSet<&'static str>,
         profile: Profile,
+        uniform: ContentHash,
     ) -> Result<Option<ContentHash>, ModelError> {
         use lctx_model::domain::Key;
         let Some(factory) = self.model.factory_contract(invariant.identity()) else {
             return Ok(None);
         };
-        let mut sink = lctx_model::domain::KeySink::new("compiler-checked-premises/v2");
+        let mut sink = lctx_model::domain::KeySink::new("compiler-checked-premises/v3");
         self.model.digest().encode(&mut sink);
         invariant.digest().encode(&mut sink);
         factory.identity()?.encode(&mut sink);
         profile.name().to_string().encode(&mut sink);
+        uniform.encode(&mut sink);
         for input in &invariant.inputs {
             if unrequested.contains(input.name()) {
                 sink.part(b"unrequested", input.name().as_bytes());
@@ -2152,6 +2368,7 @@ impl AdmissionRuntime {
         frontier: lctx_model::domain::admission::Frontier,
         profile: Profile,
     ) -> Result<CheckedFrontier, ModelError> {
+        self.require_complete_inventory()?;
         use lctx_model::domain::artifact_admission::{
             Execution, SelectedInput, ValidationExecution, frontier_checks,
         };

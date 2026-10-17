@@ -363,9 +363,10 @@ pub fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
     ];
     if contract.needs_native() {
         inputs.push(ValidationInput::of::<ProviderCoverage>(&["id"]));
-        inputs.push(ValidationInput::of::<uniform_outcome::UniformNotRequested>(
-            &["id"],
-        ));
+        inputs.push(
+            ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
+        );
     }
     if method == AnalysisMethod::AnalyticEmbedding {
         inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&[
@@ -1233,6 +1234,29 @@ mod tests {
         input::{ManifestEntry, SourceRole},
         normalized::coverage::EvidenceAvailability,
     };
+    #[test]
+    fn native_expected_availability_selects_facts_independently_of_analysis_results() {
+        let mut checked = 0;
+        for owner in crate::domain::analysis::owner::AnalysisOwner::ALL {
+            for &(method, _) in owner.methods() {
+                let contract = method_contract(method).unwrap();
+                let selected = inputs(method);
+                let compact = selected
+                    .iter()
+                    .filter(|input| input.name() == uniform_outcome::UniformNotRequested::NAME)
+                    .collect::<Vec<_>>();
+                assert_eq!(compact.len(), usize::from(contract.needs_native()));
+                for input in compact {
+                    assert_eq!(
+                        input.prefix(),
+                        Some(crate::domain::stages::PublicationBoundary::Facts)
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 1);
+    }
     #[test]
     fn artifact_property_admission_preserves_classifier_refuses_duplicates_and_releases_state() {
         use arrow_array::{ArrayRef, RecordBatch, StringArray};

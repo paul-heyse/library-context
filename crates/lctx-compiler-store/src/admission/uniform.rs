@@ -5,10 +5,14 @@ use lctx_model::domain::uniform_outcome::{
     AnalysisUniformInputs, UniformKind, UniformNotRequested, ValidatedUniformOwner,
 };
 pub struct AdmittedUniformOwners {
+    identity: ContentHash,
     owners: lctx_model::domain::charged::ChargedVec<ValidatedUniformOwner>,
     _charge: StateCharge,
 }
 impl AdmittedUniformOwners {
+    pub fn identity(&self) -> ContentHash {
+        self.identity
+    }
     pub fn owners(&self) -> &[ValidatedUniformOwner] {
         &self.owners
     }
@@ -90,16 +94,67 @@ impl AdmissionRuntime {
         profile: Profile,
     ) -> BoxFuture<'_, Result<Arc<AdmittedUniformOwners>, ModelError>> {
         Box::pin(async move {
+            self.cancellation.check()?;
             let mut charge = StateCharge::new(self.budget(), "selected compact producer owners");
-            let source = self
+            let mut sources = Vec::new();
+            for source in self
                 .completed
                 .lock()
                 .map_err(|_| poisoned())?
-                .get(UniformNotRequested::NAME)
-                .cloned();
-            let key = source
-                .as_ref()
-                .map(|source| (profile, source.view_identity()));
+                .values()
+                .chain(self.frozen_shared.lock().map_err(|_| poisoned())?.values())
+                .filter(|source| source.name() == UniformNotRequested::NAME)
+            {
+                if !sources
+                    .iter()
+                    .any(|known: &Arc<ExactRelation>| known.view() == source.view())
+                {
+                    charge.grow(size_of::<Arc<ExactRelation>>() + 128)?;
+                    sources.push(source.clone());
+                }
+            }
+            let CompletedInventory {
+                contributions: completed,
+                bindings,
+                transfer: _transfer,
+            } = self.completed_inventory()?;
+            // Only actual compact contributors and their exact qualification inputs
+            // affect this semantic owner. Unrelated consumer roots do not inhibit reuse.
+            sources.sort_by_key(|source| source.view_identity());
+            let mut digest = lctx_model::domain::KeySink::new("selected-uniform-owners/v3");
+            for source in sources.iter().filter(|source| source.view().rows != 0) {
+                digest.part(b"compact", &source.view_identity().0);
+            }
+            for owner in &completed {
+                let id = owner.identity()?;
+                if !sources.iter().any(|source| {
+                    source.view().rows != 0 && source.view().contributions.contains(&id)
+                }) {
+                    continue;
+                }
+                digest.part(b"owner", &id.0);
+                for input in &owner.spec.inputs {
+                    let mut found = false;
+                    for binding in bindings.iter().filter(|binding| binding.source == *input) {
+                        digest.part(
+                            b"qualification-binding",
+                            &serde_json::to_vec(binding).map_err(ModelError::codec)?,
+                        );
+                        found = true;
+                    }
+                    if !found {
+                        return Err(ModelError::Conflict(
+                            "compact owner qualification input binding absent",
+                        ));
+                    }
+                }
+            }
+            let identity = if sources.iter().all(|source| source.view().rows == 0) {
+                ContentHash::of(b"empty-admitted-uniform-owners/v1")
+            } else {
+                digest.finish()
+            };
+            let key = Some((profile, identity));
             if let Some(key) = key
                 && let Some((known, owners)) = &*self.memo.uniform.lock().map_err(|_| poisoned())?
                 && *known == key
@@ -107,18 +162,18 @@ impl AdmissionRuntime {
                 return Ok(owners.clone());
             }
             let mut owners = lctx_model::domain::charged::ChargedVec::default();
-            if let Some(source) = source
-                && source.view().rows != 0
-            {
+            for source in sources.iter().filter(|source| source.view().rows != 0) {
+                let mut seen = lctx_model::domain::charged::ChargedSet::default();
+                let mut seen_charge =
+                    StateCharge::new(self.budget(), "selected compact row identities");
                 let (rows, _rows) = self
-                    .coverage_rows_async::<UniformNotRequested>(&source)
+                    .coverage_rows_async::<UniformNotRequested>(source)
                     .await?;
-                let CompletedInventory {
-                    contributions: completed,
-                    bindings,
-                    transfer: _transfer,
-                } = self.completed_inventory()?;
                 for row in rows {
+                    if seen.contains(&row.id()) {
+                        return Err(ModelError::Conflict("duplicate selected compact outcome"));
+                    }
+                    seen.insert(&mut seen_charge, row.id())?;
                     let mut matching = completed.iter().filter(|owner| {
                         owner.spec.producer == row.owner
                             && owner.identity().is_ok_and(|identity| {
@@ -143,30 +198,52 @@ impl AdmissionRuntime {
                             )?
                         }
                         UniformKind::AnalysisOwner => {
+                            let mut owner_binding_charge = StateCharge::new(
+                                self.budget(),
+                                "compact owner qualification binding selection",
+                            );
+                            let mut owner_bindings = Vec::new();
+                            for binding in bindings
+                                .iter()
+                                .filter(|binding| owner.spec.inputs.contains(&binding.source))
+                            {
+                                owner_binding_charge.grow(
+                                    serde_json::to_vec(binding)
+                                        .map_err(ModelError::codec)?
+                                        .len()
+                                        .saturating_mul(8)
+                                        .saturating_add(1024),
+                                )?;
+                                owner_bindings.push(binding.clone());
+                            }
                             let inputs = self
-                                .analysis_uniform_inputs(owner, &bindings, profile)
+                                .analysis_uniform_inputs(owner, &owner_bindings, profile)
                                 .await?;
                             ValidatedUniformOwner::validate_analysis_binding(
                                 owner,
                                 &row,
                                 profile,
                                 self.model(),
-                                &bindings,
+                                &owner_bindings,
                                 &inputs,
                                 self.budget(),
                             )?
                         }
                     };
-                    if owners
+                    if let Some(prior) = owners
                         .iter()
-                        .any(|prior: &ValidatedUniformOwner| prior.descriptor().id() == row.id())
+                        .find(|prior: &&ValidatedUniformOwner| prior.descriptor().id() == row.id())
                     {
-                        return Err(ModelError::Conflict("duplicate selected compact outcome"));
+                        if prior.descriptor() != &row {
+                            return Err(ModelError::Conflict("duplicate selected compact outcome"));
+                        }
+                    } else {
+                        owners.push(&mut charge, owner)?;
                     }
-                    owners.push(&mut charge, owner)?;
                 }
             }
             let owners = Arc::new(AdmittedUniformOwners {
+                identity,
                 owners,
                 _charge: charge,
             });

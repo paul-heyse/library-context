@@ -197,7 +197,7 @@ pub fn invariants() -> Vec<Invariant> {
     ]);
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 3,
+        revision: 4,
         name: "catalog_selection_invocation_domain",
         inputs,
         create: std::sync::Arc::new(|b| {

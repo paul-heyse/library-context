@@ -426,7 +426,23 @@ impl PreparedCompilation {
         providers: &[Box<dyn ProviderStage<ProducerOutput>>],
         profile: Profile,
     ) -> Result<Schedule, ModelError> {
-        let mut declarations: Vec<_> = providers.iter().map(|p| p.declaration(profile)).collect();
+        self.schedule_declarations(
+            model,
+            providers.iter().map(|p| p.declaration(profile)).collect(),
+            profile,
+        )
+    }
+    fn schedule_declarations(
+        &self,
+        model: &ValidatedModel,
+        provider_declarations: Vec<Stage>,
+        profile: Profile,
+    ) -> Result<Schedule, ModelError> {
+        let provider_names = provider_declarations
+            .iter()
+            .map(|stage| stage.name)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut declarations = provider_declarations;
         declarations.extend(Normalization::ALL.map(|s| s.declaration(profile)));
         let bindings: Vec<_> = UpperStage::ALL
             .into_iter()
@@ -435,9 +451,7 @@ impl PreparedCompilation {
         let facts = declarations
             .iter()
             .filter(|s| {
-                providers
-                    .iter()
-                    .any(|p| p.declaration(profile).name == s.name)
+                provider_names.contains(s.name)
                     && s.profiles.contains(&profile)
                     && s.outputs.iter().any(|r| is_vocabulary(r.name()))
             })
@@ -454,11 +468,90 @@ impl PreparedCompilation {
             }
             declarations.push(declaration);
         }
+        let declarations =
+            complete_assurance_declarations(model, declarations, &provider_names, profile, &order)?;
         let schedule =
             Schedule::build_with_publications(model, declarations, &[], profile, groups)?;
         validate_upper_dependencies(&schedule)?;
         Ok(schedule)
     }
+}
+
+/// An early consumer cannot rely on the former whole-facts checkpoint for inferred
+/// ordinary premises. Explicit Catalog ty-flow absence remains the model's sole exception.
+fn complete_assurance_declarations(
+    model: &ValidatedModel,
+    mut stages: Vec<Stage>,
+    providers: &std::collections::BTreeSet<&'static str>,
+    profile: Profile,
+    order: &PublicationOrder,
+) -> Result<Vec<Stage>, ModelError> {
+    let available = stages
+        .iter()
+        .filter(|stage| stage.profiles.contains(&profile))
+        .flat_map(|stage| stage.outputs.iter().chain(&stage.contributes))
+        .map(|relation| relation.name())
+        .collect::<std::collections::BTreeSet<_>>();
+    let absent_flow = producer_contract::facts::ty_flow()
+        .outputs
+        .iter()
+        .filter(|r| !is_vocabulary(r.name()))
+        .map(|relation| relation.name())
+        .collect::<std::collections::BTreeSet<_>>();
+    for stage in &mut stages {
+        if providers.contains(stage.name)
+            || !stage.profiles.contains(&profile)
+            || stage.inputs.is_empty()
+        {
+            continue;
+        }
+        let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &stage.inputs)?;
+        let mut grants = dependency_closure::DependencyClosure::grants(
+            model,
+            roots,
+            stage.inputs.clone(),
+            &stage.outputs,
+            PublicationBoundary::Facts,
+            dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+            order,
+        )?;
+        grants.retain(|grant| {
+            available.contains(grant.name())
+                || !(profile == Profile::Catalog && absent_flow.contains(grant.name()))
+        });
+        stage.inputs = grants;
+    }
+    Ok(stages)
+}
+
+/// The lower endpoint uses the same complete prerequisites as cumulative compilation.
+/// Schedule owns publication-group discovery; the second static pass adds assurance ports
+/// before any effects, without copying that model policy into the compiler adapter.
+fn lower_schedule(
+    model: &ValidatedModel,
+    mut declarations: Vec<Stage>,
+    profile: Profile,
+    frontier: Frontier,
+) -> Result<Schedule, ModelError> {
+    if frontier != Frontier::Normalized {
+        return Schedule::build(model, declarations, &[], profile);
+    }
+    let providers = declarations.iter().map(|stage| stage.name).collect();
+    declarations.extend(Normalization::ALL.map(|stage| stage.declaration(profile)));
+    let planned = Schedule::build(model, declarations.clone(), &[], profile)?;
+    let groups = planned
+        .publication_groups()
+        .iter()
+        .map(|group| PublicationGroup::new(group.epoch, group.stages.clone()))
+        .collect();
+    let declarations = complete_assurance_declarations(
+        model,
+        declarations,
+        &providers,
+        profile,
+        planned.publication_order(),
+    )?;
+    Schedule::build_with_publications(model, declarations, &[], profile, groups)
 }
 
 /// Reject a Catalog-only producer for an Analysis binding before any attempt is opened.
@@ -827,7 +920,8 @@ impl UpperTask {
                                     .ok_or(ModelError::Conflict("normalized authority absent"))?,
                                 model,
                             )
-                            .await?,
+                            .await?
+                            .into_shared()?,
                     ),
                     None => None,
                 };
@@ -931,7 +1025,7 @@ impl UpperTask {
                             workspace,
                             model,
                             prepared.definition(AnalysisMethod::Completion)?,
-                            shared.evaluations.as_deref(),
+                            shared.evaluations.as_ref(),
                         )
                         .await?;
                         result_preparation = value
@@ -976,9 +1070,9 @@ impl UpperTask {
                             workspace,
                             model,
                             prepared.definition(AnalysisMethod::Models)?,
-                            shared.bindings.as_deref(),
-                            shared.evaluations.as_deref(),
-                            shared.local.as_deref(),
+                            shared.bindings.as_ref(),
+                            shared.evaluations.as_ref(),
+                            shared.local.as_ref(),
                         )
                         .await?;
                     }
@@ -990,8 +1084,8 @@ impl UpperTask {
                             model,
                             prepared.definition(AnalysisMethod::Summaries)?,
                             graphs.as_ref(),
-                            shared.bindings.as_deref(),
-                            shared.local.as_deref(),
+                            shared.bindings.as_ref(),
+                            shared.local.as_ref(),
                         )
                         .await?;
                     }
@@ -1160,7 +1254,13 @@ async fn compile_driver(
         workspace.native().set_frontier(frontier)?;
         let model = workspace.model();
         let capture_identity = workspace.captures(&captured)?;
-        let providers = providers.unwrap_or_else(|| facts::providers(configuration));
+        let providers = facts::PreparedProviders::new(
+            workspace,
+            &captured,
+            profile,
+            providers.unwrap_or_else(|| facts::providers(configuration)),
+            Default::default(),
+        )?;
         // Plan every declaration before running native effects. The schedule is static dependency
         // metadata only; completed streams, not execution grants, supply runtime inputs.
         let schedule = if let Some(prepared) = prepared.as_ref() {
@@ -1168,281 +1268,38 @@ async fn compile_driver(
                 return Err(ModelError::Invalid("prepared frontier differs".into()));
             }
             prepared.configuration.check_budget(workspace.budget())?;
-            prepared.schedule(model, &providers, profile)?
+            prepared.schedule_declarations(model, providers.declarations().to_vec(), profile)?
         } else {
             if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
                 return Err(ModelError::Invalid(
                     "upper compilation needs prepared configuration".into(),
                 ));
             }
-            let mut declarations: Vec<_> =
-                providers.iter().map(|p| p.declaration(profile)).collect();
-            if frontier == Frontier::Normalized {
-                declarations.extend(Normalization::ALL.map(|s| s.declaration(profile)));
-            }
-            Schedule::build(model, declarations, &[], profile)?
+            lower_schedule(model, providers.declarations().to_vec(), profile, frontier)?
         };
-        let fact_names: std::collections::BTreeSet<_> = providers
+        let fact_names = providers
+            .declarations()
             .iter()
-            .map(|p| p.declaration(profile).name)
-            .collect();
+            .map(|stage| stage.name)
+            .collect::<std::collections::BTreeSet<_>>();
         Ok::<_, ModelError>((model, capture_identity, providers, schedule, fact_names))
     })();
     setup_phase.finish_result(&setup);
     let (model, capture_identity, providers, schedule, fact_names) = setup?;
     let schedule = workspace.install_membership_demand(schedule)?;
 
-    let providers_phase = Phase::begin("providers");
-    let providers_result = async {
-        facts::compile_facts(workspace, &captured, profile, providers, Default::default()).await?;
-        drop(captured);
-        workspace.facts_availability_async(profile).await?;
-        Ok::<(), ModelError>(())
-    }
-    .await;
-    providers_phase.finish_result(&providers_result);
-    providers_result?;
-
-    let mut completed = schedule
-        .stages()
-        .iter()
-        .filter(|stage| fact_names.contains(stage.name))
-        .map(|stage| stage.name)
-        .collect();
-    let mut frozen = Default::default();
-    freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
-    for name in &completed {
-        workspace.membership_stage_completed(name)?;
-    }
-    let mut binding_application = None;
-    let mut receiver_authority: Option<
-        Arc<crate::normalize::ProducedNormalization<normalized::receiver::VerifiedReceivers>>,
-    > = None;
-    let mut event_authority: Option<
-        Arc<
-            crate::normalize::ProducedNormalization<
-                normalized::event_normalization::VerifiedEvents,
-            >,
-        >,
-    > = None;
+    drop(captured);
+    let mut providers = Some(providers);
+    let mut completed = std::collections::BTreeSet::new();
+    let mut started = std::collections::BTreeSet::new();
+    let mut frozen = std::collections::BTreeSet::new();
+    let mut facts_ready = false;
+    let mut receiver_authority = None;
+    let mut event_authority = None;
+    let mut binding_application: Option<Box<normalized::binding_normalization::VerifiedBindings>> =
+        None;
+    let mut bindings = None;
     let mut products = reuse::SelectedBindings::new(workspace.budget())?;
-    let mut started = completed.clone();
-    let mut pending = FuturesUnordered::new();
-    let mut ready = ReadyStages::new(schedule.stages().len(), workspace.budget())?;
-    let mut failure = None;
-    loop {
-        if let Some(error) = failure.take() {
-            return settle_upper_pending(
-                &workspace.cancellation(),
-                &mut pending,
-                &mut ready,
-                error,
-            )
-            .await;
-        }
-        if ready.rows.is_empty() {
-            for declaration in schedule.stages() {
-                let Some(normalization) = Normalization::ALL
-                    .into_iter()
-                    .find(|n| n.declaration(profile).name == declaration.name)
-                else {
-                    continue;
-                };
-                if started.contains(declaration.name) {
-                    continue;
-                }
-                let launch = coordinate_with_pending(
-                    async {
-                        if !schedule.ready(declaration.name, &completed)? {
-                            return Ok(None);
-                        }
-                        let selected = workspace
-                            .bind_scheduled_inputs(&schedule, declaration)
-                            .await?;
-                        let access =
-                            workspace.stage_inputs_selected(declaration, &selected, profile)?;
-                        let output = workspace.producer(declaration, profile, access);
-                        let access = output.bound_inputs()?;
-                        let product = output.product_request()?;
-                        products.bind_selected(
-                            &product,
-                            &selected_product_dependencies(
-                                workspace,
-                                declaration,
-                                &selected,
-                                &product,
-                            )?,
-                        )?;
-                        Ok::<_, ModelError>(Some((access, output)))
-                    },
-                    &workspace.cancellation(),
-                    &mut pending,
-                    &mut ready,
-                )
-                .await;
-                let (access, output) = match launch {
-                    Ok(Some(value)) => value,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        workspace.cancellation().cancel();
-                        failure = Some(error);
-                        break;
-                    }
-                };
-                started.insert(declaration.name);
-                let receiver = receiver_authority.clone();
-                let event = event_authority.clone();
-                let stage_owner = workspace.clone();
-                let workspace = workspace.clone();
-                let model = model.clone();
-                let declaration = declaration.clone();
-                let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
-                let task = stage_owner.spawn_stage(
-                    async move {
-                        let phase = Phase::begin(declaration.name);
-                        let result = async {
-                            let preparation = match normalization {
-                                Normalization::Receivers => StagePreparation::Receivers(Arc::new(
-                                    crate::normalize::receivers_produced(
-                                        access, output, &workspace, &model,
-                                    )
-                                    .await?,
-                                )),
-                                Normalization::Events => StagePreparation::Events(Arc::new(
-                                    crate::normalize::events_produced(
-                                        access,
-                                        output,
-                                        &workspace,
-                                        &model,
-                                        receiver.as_deref().ok_or(ModelError::Conflict(
-                                            "receiver owner authority absent",
-                                        ))?,
-                                    )
-                                    .await?,
-                                )),
-                                Normalization::Bindings => {
-                                    StagePreparation::BindingApplication(Box::new(
-                                        crate::normalize::bindings_prepared(
-                                            access,
-                                            output,
-                                            &workspace,
-                                            &model,
-                                            receiver.as_deref().ok_or(ModelError::Conflict(
-                                                "receiver owner authority absent",
-                                            ))?,
-                                            event.as_deref().ok_or(ModelError::Conflict(
-                                                "event owner authority absent",
-                                            ))?,
-                                        )
-                                        .await?,
-                                    ))
-                                }
-                                _ => {
-                                    normalization
-                                        .run(access, output, &workspace, &model)
-                                        .await?;
-                                    StagePreparation::None
-                                }
-                            };
-                            StageResult::completed(&workspace, declaration.name, preparation)
-                        }
-                        .await;
-                        phase.finish_result(&result);
-                        result
-                    }
-                    .with_tracing_span(producer_span),
-                );
-                match task {
-                    Ok(task) => pending.push(task),
-                    Err(error) => {
-                        failure = Some(error);
-                        break;
-                    }
-                }
-            }
-        }
-        if failure.is_some() {
-            continue;
-        }
-        let result = match ready.rows.pop_front() {
-            Some(result) => Ok(result),
-            None => match pending.next().await {
-                Some(result) => result,
-                None => break,
-            },
-        };
-        let accepted = match result {
-            Ok(result) if failure.is_none() => {
-                async {
-                    if result.owner.spec.producer != result.name {
-                        return Err(ModelError::Conflict("terminal stage owner differs"));
-                    }
-                    match result.preparation {
-                        StagePreparation::Receivers(value) => receiver_authority = Some(value),
-                        StagePreparation::Events(value) => event_authority = Some(value),
-                        StagePreparation::BindingApplication(value) => {
-                            binding_application = Some(value)
-                        }
-                        StagePreparation::None => {}
-                        _ => {
-                            return Err(ModelError::Conflict(
-                                "normalization returned upper preparation",
-                            ));
-                        }
-                    }
-                    completed.insert(result.name);
-                    coordinate_with_pending(
-                        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen),
-                        &workspace.cancellation(),
-                        &mut pending,
-                        &mut ready,
-                    )
-                    .await?;
-                    workspace.membership_stage_completed(result.name)?;
-                    Ok(())
-                }
-                .await
-            }
-            Ok(_) => Ok(()),
-            Err(error) => Err(error),
-        };
-        if let Err(error) = accepted {
-            workspace.cancellation().cancel();
-            failure = Some(error);
-        }
-    }
-    if Normalization::ALL
-        .into_iter()
-        .filter(|n| {
-            schedule
-                .stages()
-                .iter()
-                .any(|s| s.name == n.declaration(profile).name)
-        })
-        .any(|n| !completed.contains(n.declaration(profile).name))
-    {
-        return Err(ModelError::Conflict(
-            "normalization readiness made no progress",
-        ));
-    }
-    drop(event_authority);
-    drop(receiver_authority);
-    // Source owners are admitted once while the normalized dependency set is immutable.
-    // Prepared consumer authorities project this lifetime; upper stages do not replay owners.
-    let normalized_authority = if prepared.is_some() {
-        let phase = Phase::begin("normalized_admission");
-        let authority = workspace.admit_semantics(profile).await;
-        phase.finish_result(&authority);
-        Some(authority?)
-    } else {
-        None
-    };
-    let mut bindings = match (binding_application, normalized_authority.as_ref()) {
-        (Some(application), Some(authority)) if profile == Profile::Behavioral => Some(Arc::new(
-            crate::analysis_bindings::PreparedBindings::new(*application, authority)?,
-        )),
-        _ => None,
-    };
     let analytics_requested = prepared
         .as_ref()
         .is_some_and(|p| analytics::build::requested(p.settings()));
@@ -1458,13 +1315,14 @@ async fn compile_driver(
         .any(|binding| {
             prepared
                 .as_ref()
-                .is_some_and(|prepared| uniform::unrequested(binding, profile, prepared))
+                .is_some_and(|p| uniform::unrequested(binding, profile, p))
         }) {
         Some(Arc::new(uniform::Preparation::new(workspace.budget())?))
     } else {
         None
     };
     let mut pending = FuturesUnordered::new();
+    let mut ready = ReadyStages::new(schedule.stages().len(), workspace.budget())?;
     let mut failure = None;
     loop {
         if let Some(error) = failure.take() {
@@ -1476,101 +1334,294 @@ async fn compile_driver(
             )
             .await;
         }
+        if !facts_ready && fact_names.is_subset(&completed) {
+            let checked = coordinate_with_pending(
+                workspace.freeze_facts_availability(profile, &fact_names),
+                &workspace.cancellation(),
+                &mut pending,
+                &mut ready,
+            )
+            .await;
+            if let Err(error) = checked {
+                failure = Some(error);
+                continue;
+            }
+            facts_ready = true;
+            providers.take();
+        }
         if ready.rows.is_empty() {
             for declaration in schedule.stages() {
-                if started.contains(declaration.name) {
+                if started.contains(declaration.name)
+                    || !schedule.ready(declaration.name, &completed)?
+                {
                     continue;
                 }
-                let launch = coordinate_with_pending(
-                    async {
-                        if !schedule.ready(declaration.name, &completed)? {
-                            return Ok(None);
+                if fact_names.contains(declaration.name) {
+                    let launched = coordinate_with_pending(
+                        async {
+                            let selected = workspace
+                                .bind_scheduled_inputs(&schedule, declaration)
+                                .await?;
+                            let work = providers
+                                .as_mut()
+                                .ok_or(ModelError::Conflict(
+                                    "provider setup retired before completion",
+                                ))?
+                                .take(workspace.clone(), selected)?;
+                            let owner = workspace.clone();
+                            let name = declaration.name;
+                            workspace.spawn_stage(async move {
+                                work.await?;
+                                StageResult::completed(&owner, name, StagePreparation::None)
+                            })
+                        },
+                        &workspace.cancellation(),
+                        &mut pending,
+                        &mut ready,
+                    )
+                    .await;
+                    match launched {
+                        Ok(task) => {
+                            started.insert(declaration.name);
+                            pending.push(task);
                         }
-                        let binding = UpperStage::resolve(declaration.name)?;
-                        let prepared = prepared
-                            .clone()
-                            .ok_or(ModelError::Conflict("missing upper configuration"))?;
-                        let selected = workspace
-                            .bind_scheduled_inputs(&schedule, declaration)
-                            .await?;
-                        let access =
-                            workspace.stage_inputs_selected(declaration, &selected, profile)?;
-                        let output = workspace.producer(declaration, profile, access);
-                        let access = output.bound_inputs()?;
-                        let product = output.product_request()?;
-                        let selected_dependencies = selected_product_dependencies(
-                            workspace,
-                            declaration,
-                            &selected,
-                            &product,
-                        )?;
-                        products.bind_selected(&product, &selected_dependencies)?;
-                        let needs =
-                            preparation::Needs::remaining([binding], profile, analytics_requested);
-                        let shared = UpperPreparation {
-                            uniform: uniform::unrequested(binding, profile, &prepared)
-                                .then(|| uniform.as_ref().cloned())
-                                .flatten(),
-                            bindings: needs.bindings.then(|| bindings.clone()).flatten(),
-                            local: needs.local.then(|| local.clone()).flatten(),
-                            evaluations: needs.evaluations.then(|| evaluations.clone()).flatten(),
-                            completed_bodies: needs
-                                .bodies
-                                .then(|| completed_bodies.clone())
-                                .flatten(),
-                            source_calls: needs
-                                .source_calls
-                                .then(|| source_calls.clone())
-                                .flatten(),
-                            graphs: if needs.graphs.is_empty() {
-                                None
-                            } else {
-                                graphs.select(binding.graphs(profile))?
-                            },
-                        };
-                        Ok::<_, ModelError>(Some(UpperTask {
-                            workspace: workspace.clone(),
-                            model: model.clone(),
-                            declaration: declaration.clone(),
-                            binding,
-                            access,
-                            output,
-                            profile,
-                            prepared,
-                            embedder: embedder.clone(),
-                            cache: cache.clone(),
-                            checked: normalized_authority.clone(),
-                            shared,
-                            selected_dependencies: selected_dependencies.len(),
-                        }))
-                    },
-                    &workspace.cancellation(),
-                    &mut pending,
-                    &mut ready,
-                )
-                .await;
-                match launch {
-                    Ok(Some(task)) => {
-                        started.insert(declaration.name);
-                        let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
-                        match workspace.spawn_stage(task.run().with_tracing_span(producer_span)) {
-                            Ok(task) => pending.push(task),
-                            Err(error) => {
-                                failure = Some(error);
-                                break;
-                            }
+                        Err(error) => {
+                            failure = Some(error);
+                            break;
                         }
                     }
-                    Ok(None) => {}
-                    Err(error) => {
-                        workspace.cancellation().cancel();
-                        failure = Some(error);
-                        break;
+                } else if let Some(normalization) = Normalization::ALL
+                    .into_iter()
+                    .find(|n| n.declaration(profile).name == declaration.name)
+                {
+                    if matches!(normalization, Normalization::Coverage) && !facts_ready {
+                        continue;
+                    }
+                    let launch = coordinate_with_pending(
+                        async {
+                            let selected = workspace
+                                .bind_scheduled_inputs(&schedule, declaration)
+                                .await?;
+                            let access =
+                                workspace.stage_inputs_selected(declaration, &selected, profile)?;
+                            let output = workspace.producer(declaration, profile, access);
+                            let access = output.bound_inputs()?;
+                            let product = output.product_request()?;
+                            products.bind_selected(
+                                &product,
+                                &selected_product_dependencies(
+                                    workspace,
+                                    declaration,
+                                    &selected,
+                                    &product,
+                                )?,
+                            )?;
+                            Ok::<_, ModelError>((access, output))
+                        },
+                        &workspace.cancellation(),
+                        &mut pending,
+                        &mut ready,
+                    )
+                    .await;
+                    let (access, output) = match launch {
+                        Ok(value) => value,
+                        Err(error) => {
+                            failure = Some(error);
+                            break;
+                        }
+                    };
+                    started.insert(declaration.name);
+                    let receiver = matches!(
+                        normalization,
+                        Normalization::Events | Normalization::Bindings
+                    )
+                    .then(|| receiver_authority.clone())
+                    .flatten();
+                    let event = matches!(normalization, Normalization::Bindings)
+                        .then(|| event_authority.clone())
+                        .flatten();
+                    let stage_owner = workspace.clone();
+                    let workspace = workspace.clone();
+                    let model = model.clone();
+                    let declaration = declaration.clone();
+                    let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
+                    let task = stage_owner.spawn_stage(
+                        async move {
+                            let phase = Phase::begin(declaration.name);
+                            let result = async {
+                                let preparation = match normalization {
+                                    Normalization::Receivers => {
+                                        StagePreparation::Receivers(Arc::new(
+                                            crate::normalize::receivers_produced(
+                                                access, output, &workspace, &model,
+                                            )
+                                            .await?,
+                                        ))
+                                    }
+                                    Normalization::Events => StagePreparation::Events(Arc::new(
+                                        crate::normalize::events_produced(
+                                            access,
+                                            output,
+                                            &workspace,
+                                            &model,
+                                            receiver.as_deref().ok_or(ModelError::Conflict(
+                                                "receiver owner authority absent",
+                                            ))?,
+                                        )
+                                        .await?,
+                                    )),
+                                    Normalization::Bindings => {
+                                        StagePreparation::BindingApplication(Box::new(
+                                            crate::normalize::bindings_prepared(
+                                                access,
+                                                output,
+                                                &workspace,
+                                                &model,
+                                                receiver.as_deref().ok_or(ModelError::Conflict(
+                                                    "receiver owner authority absent",
+                                                ))?,
+                                                event.as_deref().ok_or(ModelError::Conflict(
+                                                    "event owner authority absent",
+                                                ))?,
+                                            )
+                                            .await?,
+                                        ))
+                                    }
+                                    _ => {
+                                        normalization
+                                            .run(access, output, &workspace, &model)
+                                            .await?;
+                                        StagePreparation::None
+                                    }
+                                };
+                                StageResult::completed(&workspace, declaration.name, preparation)
+                            }
+                            .await;
+                            phase.finish_result(&result);
+                            result
+                        }
+                        .with_tracing_span(producer_span),
+                    );
+                    match task {
+                        Ok(task) => pending.push(task),
+                        Err(error) => {
+                            failure = Some(error);
+                            break;
+                        }
+                    }
+                } else {
+                    let launch = coordinate_with_pending(
+                        async {
+                            let binding = UpperStage::resolve(declaration.name)?;
+                            let prepared = prepared
+                                .clone()
+                                .ok_or(ModelError::Conflict("missing upper configuration"))?;
+                            let selected = workspace
+                                .bind_scheduled_inputs(&schedule, declaration)
+                                .await?;
+                            let access =
+                                workspace.stage_inputs_selected(declaration, &selected, profile)?;
+                            let output = workspace.producer(declaration, profile, access);
+                            let access = output.bound_inputs()?;
+                            let product = output.product_request()?;
+                            let selected_dependencies = selected_product_dependencies(
+                                workspace,
+                                declaration,
+                                &selected,
+                                &product,
+                            )?;
+                            products.bind_selected(&product, &selected_dependencies)?;
+                            let checked = if declaration.inputs.is_empty() {
+                                None
+                            } else {
+                                Some(workspace.checked_inputs(&access).await?)
+                            };
+                            let needs = preparation::Needs::remaining(
+                                [binding],
+                                profile,
+                                analytics_requested,
+                            );
+                            if needs.bindings && bindings.is_none() {
+                                let application = binding_application
+                                    .take()
+                                    .ok_or(ModelError::Conflict("binding owner not completed"))?;
+                                bindings = Some(Arc::new(
+                                    crate::analysis_bindings::PreparedBindings::new(
+                                        *application,
+                                        checked.as_ref().ok_or(ModelError::Conflict(
+                                            "selected binding authority absent",
+                                        ))?,
+                                    )?,
+                                ));
+                            }
+                            let shared = UpperPreparation {
+                                uniform: uniform::unrequested(binding, profile, &prepared)
+                                    .then(|| uniform.as_ref().cloned())
+                                    .flatten(),
+                                bindings: needs.bindings.then(|| bindings.clone()).flatten(),
+                                local: needs.local.then(|| local.clone()).flatten(),
+                                evaluations: needs
+                                    .evaluations
+                                    .then(|| evaluations.clone())
+                                    .flatten(),
+                                completed_bodies: needs
+                                    .bodies
+                                    .then(|| completed_bodies.clone())
+                                    .flatten(),
+                                source_calls: needs
+                                    .source_calls
+                                    .then(|| source_calls.clone())
+                                    .flatten(),
+                                graphs: if needs.graphs.is_empty() {
+                                    None
+                                } else {
+                                    graphs.select(binding.graphs(profile))?
+                                },
+                            };
+                            Ok::<_, ModelError>(Some(UpperTask {
+                                workspace: workspace.clone(),
+                                model: model.clone(),
+                                declaration: declaration.clone(),
+                                binding,
+                                access,
+                                output,
+                                profile,
+                                prepared,
+                                embedder: embedder.clone(),
+                                cache: cache.clone(),
+                                checked,
+                                shared,
+                                selected_dependencies: selected_dependencies.len(),
+                            }))
+                        },
+                        &workspace.cancellation(),
+                        &mut pending,
+                        &mut ready,
+                    )
+                    .await;
+                    match launch {
+                        Ok(Some(task)) => {
+                            started.insert(declaration.name);
+                            let span = tracing::info_span!(target:"lctx_phase","compiler_producer",producer=declaration.name,attempt=%workspace.native().attempt().hex());
+                            match workspace.spawn_stage(task.run().with_tracing_span(span)) {
+                                Ok(task) => pending.push(task),
+                                Err(error) => {
+                                    failure = Some(error);
+                                    break;
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            failure = Some(error);
+                            break;
+                        }
                     }
                 }
             }
         }
         if failure.is_some() {
+            workspace.cancellation().cancel();
             continue;
         }
         let result = match ready.rows.pop_front() {
@@ -1581,22 +1632,22 @@ async fn compile_driver(
             },
         };
         let accepted = match result {
-            Ok(result) if failure.is_none() => {
+            Ok(result) => {
                 async {
                     if result.owner.spec.producer != result.name {
-                        return Err(ModelError::Conflict("terminal upper stage owner differs"));
+                        return Err(ModelError::Conflict("terminal stage owner differs"));
                     }
                     match result.preparation {
+                        StagePreparation::Receivers(value) => receiver_authority = Some(value),
+                        StagePreparation::Events(value) => event_authority = Some(value),
+                        StagePreparation::BindingApplication(value) => {
+                            binding_application = Some(value)
+                        }
                         StagePreparation::Local(value) => local = Some(value),
                         StagePreparation::Evaluations(value) => evaluations = Some(value),
                         StagePreparation::Bodies(value) => completed_bodies = Some(value),
                         StagePreparation::SourceCalls(value) => source_calls = Some(value),
                         StagePreparation::None => {}
-                        _ => {
-                            return Err(ModelError::Conflict(
-                                "upper stage returned normalization preparation",
-                            ));
-                        }
                     }
                     completed.insert(result.name);
                     coordinate_with_pending(
@@ -1611,24 +1662,27 @@ async fn compile_driver(
                 }
                 .await
             }
-            Ok(_) => Ok(()),
             Err(error) => Err(error),
         };
         if let Err(error) = accepted {
             workspace.cancellation().cancel();
             failure = Some(error);
         }
-        // Completed membership, rather than list position or launch order, retires demand.
-        // This includes every running task and every remaining selected cache/optional branch.
-        let needs = preparation::Needs::remaining(
-            schedule
-                .stages()
-                .iter()
-                .filter(|stage| !completed.contains(stage.name))
-                .filter_map(|stage| UpperStage::resolve(stage.name).ok()),
-            profile,
-            analytics_requested,
-        );
+        let remaining = schedule
+            .stages()
+            .iter()
+            .filter(|stage| !completed.contains(stage.name))
+            .filter_map(|stage| UpperStage::resolve(stage.name).ok());
+        let needs = preparation::Needs::remaining(remaining, profile, analytics_requested);
+        // Actual running consumers own their Arc clones. Coordinator authority is needed only
+        // until the last normalization consumer has launched, never through upper publication.
+        let pending_normalizations = Normalization::ALL
+            .into_iter()
+            .filter(|stage| !started.contains(stage.declaration(profile).name));
+        let (receiver_needed, event_needed) = normalization_authority_needs(pending_normalizations);
+        preparation::release_unused(&mut receiver_authority, receiver_needed);
+        preparation::release_unused(&mut event_authority, event_needed);
+        preparation::release_unused(&mut binding_application, needs.bindings);
         graphs.retain(&needs.graphs);
         preparation::release_unused(&mut bindings, needs.bindings);
         preparation::release_unused(&mut local, needs.local);
@@ -1643,7 +1697,7 @@ async fn compile_driver(
             .any(|binding| {
                 prepared
                     .as_ref()
-                    .is_some_and(|prepared| uniform::unrequested(binding, profile, prepared))
+                    .is_some_and(|p| uniform::unrequested(binding, profile, p))
             });
         preparation::release_unused(&mut uniform, uniform_needed);
     }
@@ -1672,10 +1726,41 @@ async fn compile_driver(
     result
 }
 
+fn normalization_authority_needs(stages: impl IntoIterator<Item = Normalization>) -> (bool, bool) {
+    let mut receivers = false;
+    let mut events = false;
+    for stage in stages {
+        receivers |= matches!(stage, Normalization::Events | Normalization::Bindings);
+        events |= matches!(stage, Normalization::Bindings);
+    }
+    (receivers, events)
+}
+
 #[cfg(test)]
 mod upper_completion_controls {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn normalization_authorities_follow_actual_remaining_consumers() {
+        assert_eq!(
+            normalization_authority_needs([Normalization::Events, Normalization::Bindings]),
+            (true, true)
+        );
+        assert_eq!(
+            normalization_authority_needs([Normalization::Events]),
+            (true, false)
+        );
+        assert_eq!(
+            normalization_authority_needs([Normalization::Bindings]),
+            (true, true)
+        );
+        assert_eq!(
+            normalization_authority_needs([Normalization::Coverage]),
+            (false, false)
+        );
+        assert_eq!(normalization_authority_needs([]), (false, false));
+    }
 
     struct OwnedPreparation {
         _charge: Box<dyn resources::Reservation>,
@@ -2236,5 +2321,143 @@ mod publication_tests {
                 .unwrap()
                 < structural
         );
+    }
+}
+
+#[cfg(test)]
+mod readiness_declaration_controls {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn settings(requested: bool) -> AnalyticsConfiguration {
+        AnalyticsConfiguration {
+            module_prefixes: vec!["cases".into()],
+            public_roots: vec!["cases".into()],
+            configured_seeds: vec![],
+            depth: 2,
+            vertices: 512,
+            arcs: 2048,
+            witnesses: 3,
+            brief_budget: 8,
+            communities: requested,
+            pagerank: requested,
+            fca: requested,
+            rca: requested,
+            type_layer: requested,
+            mention_layer: requested,
+            knn: false,
+            knn_layer: false,
+        }
+    }
+
+    #[test]
+    fn production_schedules_close_exact_assurance_dependencies_for_every_profile_and_frontier() {
+        let model = model().unwrap();
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let catalog = models::Catalog::parse(
+            "external.toml",
+            include_str!("../../lctx-model/models/external.toml"),
+        )
+        .unwrap();
+        for profile in Profile::ALL {
+            for frontier in [
+                Frontier::Facts,
+                Frontier::Normalized,
+                Frontier::Analysis,
+                Frontier::Catalog,
+            ] {
+                for requested in [false, true] {
+                    let providers =
+                        facts::providers(ContentHash::of(b"readiness-declaration-control"));
+                    let schedule = if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
+                        let prepared = PreparedCompilation::new(
+                            frontier,
+                            settings(requested),
+                            &catalog,
+                            None,
+                            &budget,
+                        )
+                        .unwrap();
+                        prepared.schedule(&model, &providers, profile)
+                    } else {
+                        let declarations = providers
+                            .iter()
+                            .map(|provider| provider.declaration(profile))
+                            .collect::<Vec<_>>();
+                        lower_schedule(&model, declarations, profile, frontier)
+                    }
+                    .unwrap_or_else(|error| {
+                        panic!("{profile:?}/{frontier:?}/requested={requested}: {error}")
+                    });
+                    let names = schedule
+                        .stages()
+                        .iter()
+                        .map(|stage| stage.name)
+                        .collect::<BTreeSet<_>>();
+                    for stage in schedule.stages() {
+                        for selection in schedule.selections(stage.name).unwrap() {
+                            assert_eq!(stage.inputs[selection.role].name(), selection.relation);
+                            assert!(!selection.producers.is_empty());
+                            assert!(
+                                selection
+                                    .producers
+                                    .iter()
+                                    .all(|producer| names.contains(producer))
+                            );
+                        }
+                    }
+                    if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
+                        for stage in schedule.stages().iter().filter(|stage| {
+                            !providers
+                                .iter()
+                                .any(|provider| provider.declaration(profile).name == stage.name)
+                        }) {
+                            for input in &stage.inputs {
+                                for id in model.relation(input.name()).unwrap().invariant_refs() {
+                                    for premise in &model.invariant(id).unwrap().inputs {
+                                        if premise.name() == lctx_model::domain::uniform_outcome::UniformNotRequested::NAME
+                                            && premise.prefix().is_some() {
+                                            assert!(stage.inputs.iter().any(|role| role.name() == premise.name() && role.prefix() == premise.prefix()),
+                                                "{} lost {} compact role {:?} required by {}", stage.name, input.name(), premise.prefix(), id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if profile == Profile::Behavioral {
+                            let summary = schedule
+                                .stages()
+                                .iter()
+                                .find(|stage| stage.name == UpperStage::Summary.name())
+                                .unwrap();
+                            for epoch in [PublicationBoundary::Facts, PublicationBoundary::Model] {
+                                assert!(summary.inputs.iter().any(|role| role.name() == lctx_model::domain::uniform_outcome::UniformNotRequested::NAME && role.prefix() == Some(epoch)));
+                            }
+                        }
+                        for group in analysis::preparation::ConfigurationGroup::ALL {
+                            assert!(
+                                schedule.ready(group.name(), &BTreeSet::new()).unwrap(),
+                                "input-free configuration must not wait for provider completion"
+                            );
+                        }
+                    }
+                    let mut completed = BTreeSet::new();
+                    while completed.len() != schedule.stages().len() {
+                        let ready = schedule
+                            .stages()
+                            .iter()
+                            .filter(|stage| !completed.contains(stage.name))
+                            .filter(|stage| schedule.ready(stage.name, &completed).unwrap())
+                            .map(|stage| stage.name)
+                            .collect::<Vec<_>>();
+                        assert!(
+                            !ready.is_empty(),
+                            "actual model declarations must reach every selected stage"
+                        );
+                        completed.extend(ready);
+                    }
+                }
+            }
+        }
     }
 }

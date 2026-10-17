@@ -110,20 +110,15 @@ pub(super) fn metadata(
     };
     for class in type_classes.iter().copied() {
         let mut found = false;
-        for m in d
-            .class_metadata
-            .iter()
-            .filter(|m| prep.resolves(m.class, class, ctx))
-        {
+        for m in prep.by_entity(&prep.metadata, class, ctx) {
             if need(&d.native.qualifications, m.qualification)?.context != ctx {
                 continue;
             }
             found = true;
-            let supports = d
+            let supports = prep
                 .metadata_supports
-                .iter()
-                .filter(|s| s.assertion == m.id())
-                .collect::<Vec<_>>();
+                .get(&m.id())
+                .map_or(&[][..], Vec::as_slice);
             let status =
                 if !exact(d, observation.qualification, ctx)? || !exact(d, m.qualification, ctx)? {
                     MetadataSelectionStatus::QualifiedUncertainty
@@ -228,21 +223,13 @@ pub(super) fn metadata(
         if !exact(d, observation.qualification, ctx)? {
             continue;
         }
-        for member in d
-            .class_members
-            .iter()
-            .filter(|m| prep.resolves(m.class, class, ctx))
-        {
+        for member in prep.by_entity(&prep.class_members, class, ctx) {
             if !exact(d, member.qualification, ctx)?
                 || classes(d, prep, member.term, ctx, budget)?.is_none()
             {
                 continue;
             }
-            for support in d
-                .member_supports
-                .iter()
-                .filter(|s| s.assertion == member.id())
-            {
+            for support in prep.member_supports.get(&member.id()).into_iter().flatten() {
                 facts.push(
                     charge,
                     Fact {
@@ -270,8 +257,13 @@ pub(super) fn metadata(
 }
 /// Only the exact decorator head is selected. References in decorator-call arguments do not
 /// describe the decorator, and spelling is never a shared attribute identity.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "canonical indexed selection keeps selected entity/context and independent charged provenance outputs explicit"
+)]
 pub(super) fn decorator(
     d: &Data,
+    prep: &Correspondence<'_>,
     entity: Id<EntityRef>,
     decorator: &syntax::DeclarationDecorator,
     ctx: Id<attribution::AnalysisContext>,
@@ -279,7 +271,8 @@ pub(super) fn decorator(
     selections: &mut ChargedVec<Selection>,
     charge: &mut StateCharge,
 ) -> Result<(), ModelError> {
-    let selected = normalized::decorator_identity::Inputs::from(&d.native).select(
+    let selected = prep.decorator(
+        d,
         decorator,
         ctx,
         charge.budget().ok_or_else(|| {
@@ -338,9 +331,13 @@ pub(super) fn variants(
     let EntityRef::Callable { callable } = need(&d.native.refs, entity)? else {
         return Ok(());
     };
-    for variant in d.native.callable_variants.iter().filter(|v| {
-        v.callable == Some(*callable) && v.context == ctx && policy.signature_roles.native(v.role)
-    }) {
+    for variant in prep
+        .variants
+        .get(&(*callable, ctx))
+        .into_iter()
+        .flatten()
+        .filter(|v| policy.signature_roles.native(v.role))
+    {
         let Some(native) = variant.native else {
             continue;
         };
@@ -348,10 +345,11 @@ pub(super) fn variants(
         if !exact(d, native.qualification, ctx)? {
             continue;
         }
-        for support in d
+        for support in prep
             .native_signature_supports
-            .iter()
-            .filter(|s| s.assertion == native.id())
+            .get(&native.id())
+            .into_iter()
+            .flatten()
         {
             facts.push(
                 charge,
@@ -391,7 +389,7 @@ pub(super) fn variants(
                 },
             )?;
         }
-        for port in d.native.signature_types.iter() {
+        for port in prep.ports.get(&variant.signature).into_iter().flatten() {
             if !exact(d, port.qualification, ctx)? || classes(d, prep, port.term, ctx, b)?.is_none()
             {
                 continue;
@@ -426,7 +424,7 @@ pub(super) fn variants(
                 _ => None,
             };
             if let Some(attribute) = attribute {
-                for support in d.port_supports.iter().filter(|s| s.assertion == port.id()) {
+                for support in prep.port_supports.get(&port.id()).into_iter().flatten() {
                     facts.push(
                         charge,
                         Fact {
@@ -456,18 +454,19 @@ pub(super) fn dependence(
     facts: &mut ChargedVec<Fact>,
     charge: &mut StateCharge,
 ) -> Result<(), ModelError> {
-    for capture in d
-        .captures
-        .iter()
-        .filter(|c| prep.resolves(c.function, entity, ctx))
-    {
+    let b = charge
+        .budget()
+        .ok_or_else(|| ModelError::Invalid("analytic dependence has no budget".into()))?;
+    let mut candidates = StateCharge::new(b, "analytic-dependence-candidates");
+    for capture in prep.by_entity(&prep.captures, entity, ctx) {
         if !exact(d, capture.qualification, ctx)? {
             continue;
         }
-        for support in d
+        for support in prep
             .capture_supports
-            .iter()
-            .filter(|s| s.assertion == capture.id())
+            .get(&capture.id())
+            .into_iter()
+            .flatten()
         {
             facts.push(
                 charge,
@@ -488,17 +487,18 @@ pub(super) fn dependence(
             )?;
         }
     }
-    let owned = |subject| {
-        d.native
-            .owners
-            .iter()
-            .any(|o| o.occurrence == subject && o.entity == entity)
+    let subjects = || {
+        prep.owners
+            .get(&entity)
+            .into_iter()
+            .flatten()
+            .map(|o| o.occurrence)
     };
-    for exit in d.exits.iter().filter(|e| owned(e.subject)) {
+    for exit in prep.candidates(&prep.exits, subjects(), &mut candidates)? {
         if !exact(d, exit.qualification, ctx)? {
             continue;
         }
-        for support in d.exit_supports.iter().filter(|s| s.assertion == exit.id()) {
+        for support in prep.exit_supports.get(&exit.id()).into_iter().flatten() {
             facts.push(
                 charge,
                 Fact {
@@ -520,14 +520,15 @@ pub(super) fn dependence(
             )?;
         }
     }
-    for terminal in d.terminals.iter().filter(|t| owned(t.subject)) {
+    for terminal in prep.candidates(&prep.terminals, subjects(), &mut candidates)? {
         if !exact(d, terminal.qualification, ctx)? {
             continue;
         }
-        for support in d
+        for support in prep
             .terminal_supports
-            .iter()
-            .filter(|s| s.assertion == terminal.id())
+            .get(&terminal.id())
+            .into_iter()
+            .flatten()
         {
             facts.push(
                 charge,
@@ -813,8 +814,10 @@ mod tests {
             let mut facts = ChargedVec::default();
             let mut selections = ChargedVec::default();
             let mut charge = StateCharge::new(&b, "decorator-test");
+            let prep = Correspondence::new(d, &b, true, true, false).unwrap();
             decorator(
                 d,
+                &prep,
                 entity,
                 dec,
                 id(1),

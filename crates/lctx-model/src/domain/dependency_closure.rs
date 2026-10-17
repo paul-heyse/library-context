@@ -196,6 +196,20 @@ impl DependencyClosure {
                     continue;
                 }
                 let mut target_input = ValidationInput::of_relation(relation(target)?, &["id"]);
+                if target == super::uniform_outcome::UniformNotRequested::NAME
+                    && !is_epoch_shared(input.name())
+                    && let Some(views) = owner_views
+                        .get(target)
+                        .or_else(|| declared_views.get(target))
+                {
+                    // A nominal compact descriptor can refer to any explicitly required
+                    // owner/native role. Preserve those dependencies separately; this is
+                    // not resolution of an unqualified consumer read or a merged epoch.
+                    for epoch in views {
+                        pending.push(resolve(target_input.clone().at_epoch(*epoch))?);
+                    }
+                    continue;
+                }
                 if is_epoch_shared(target) && !is_vocabulary(target) {
                     let epoch = if is_epoch_shared(input.name()) && !is_vocabulary(input.name()) {
                         input.prefix().expect("resolved canonical parent view")

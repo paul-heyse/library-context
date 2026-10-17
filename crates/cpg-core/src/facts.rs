@@ -10,6 +10,73 @@ use lctx_model::domain::{
 use lctx_tracing::InContext;
 use std::{collections::BTreeSet, sync::Arc};
 
+/// Capture-bound setup for cumulative readiness; the standalone route shares `run_provider`.
+/// Offered providers keep no executing work; launched futures own actual capture guards.
+pub(crate) struct PreparedProviders {
+    offered: std::collections::BTreeMap<&'static str, Box<dyn ProviderStage<ProducerOutput>>>,
+    declarations: Vec<lctx_model::domain::stages::Stage>,
+    guard: bundle::CapturedTreeRunGuard,
+    profile: Profile,
+    limits: TransferLimits,
+}
+impl PreparedProviders {
+    pub(crate) fn new(
+        workspace: &Workspace,
+        captured: &Arc<CapturedInputs>,
+        profile: Profile,
+        providers: Vec<Box<dyn ProviderStage<ProducerOutput>>>,
+        limits: TransferLimits,
+    ) -> Result<Self, ModelError> {
+        bundle::refuse_ambient(std::env::vars_os())?;
+        captured.config().check_profile(profile)?;
+        captured.config().check_budget(workspace.budget())?;
+        let guard = bundle::CapturedTreeRunGuard::open(captured.clone())?;
+        let sources = cpg_extract::contracts::captured_sources(captured)?;
+        let mut offered = std::collections::BTreeMap::new();
+        let mut declarations = Vec::new();
+        for provider in providers
+            .into_iter()
+            .filter(|p| p.declaration(profile).profiles.contains(&profile))
+        {
+            let declaration = cpg_extract::contracts::bind_stage_with_sources(
+                provider.declaration(profile),
+                captured,
+                &sources,
+            )?;
+            if offered.insert(declaration.name, provider).is_some() {
+                return Err(ModelError::Conflict("duplicate captured provider"));
+            }
+            declarations.push(declaration);
+        }
+        Ok(Self {
+            offered,
+            declarations,
+            guard,
+            profile,
+            limits,
+        })
+    }
+    pub(crate) fn declarations(&self) -> &[lctx_model::domain::stages::Stage] {
+        &self.declarations
+    }
+    pub(crate) fn take(
+        &mut self,
+        workspace: Arc<Workspace>,
+        declaration: lctx_model::domain::stages::Stage,
+    ) -> Result<BoxFuture<'static, Result<(), ModelError>>, ModelError> {
+        let provider = self
+            .offered
+            .remove(declaration.name)
+            .ok_or(ModelError::Conflict(
+                "captured provider absent or already started",
+            ))?;
+        let guard = self.guard.clone();
+        let profile = self.profile;
+        let limits = self.limits;
+        Ok(async move {run_provider(&workspace,provider,declaration,profile,guard,limits).await}.boxed())
+    }
+}
+
 /// Run the production facts providers, accepting their enumeration in any order. Dependency
 /// ordering is computed from declarations; runtime reads bind exact persisted completed inputs.
 pub async fn compile_facts(

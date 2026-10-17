@@ -272,6 +272,48 @@ mod controls {
         let data = load(&scope, &inputs, &budget).await;
         let grouped = catalog::build::build(&data, &budget).unwrap();
         grouped.matches(&expected).unwrap();
+        let roots = names
+            .iter()
+            .map(|name| crate::consumed_rows::PreparedRoot {
+                table: prepared.root,
+                key: *name.id().bytes(),
+                kind: crate::consumed_rows::PreparedRootKind::Physical,
+            })
+            .collect::<Vec<_>>();
+        let selected = prepared
+            .edges
+            .batch_with_cancellation(&roots, &budget, &crate::workspace::Cancellation::default())
+            .await
+            .unwrap();
+        let mut union = CatalogData::new(&budget);
+        crate::scoped_batch::hydrate_union(
+            &selected,
+            &inputs,
+            &budget,
+            &crate::workspace::Cancellation::default(),
+            &mut |_, input, batch| union.visit(input.name(), batch).map(|_| ()),
+        )
+        .await
+        .unwrap();
+        let mut partitioned = catalog::build::CatalogOutput::new(&budget);
+        // Deliberately complete partitions in reverse order. The independent whole
+        // builder above fixes expected semantics, not this copy implementation.
+        for partition in (0..roots.len()).rev() {
+            let selected_data = crate::catalog_core::selected_partition(
+                &union, &inputs, &selected, partition, &budget,
+            )
+            .unwrap();
+            assert_eq!(selected_data.artifacts.len(), 1);
+            assert_eq!(selected_data.names.len(), 1);
+            assert_eq!(selected_data.exposures.len(), 2);
+            let rows = catalog::build::build(&selected_data, &budget).unwrap();
+            macro_rules! merge{($($field:ident:$ty:ty,)*)=>{$(for row in rows.$field.iter(){partitioned.$field.insert(row.clone()).unwrap();})*};}
+            lctx_model::catalog_outputs!(merge);
+        }
+        partitioned.matches(&expected).unwrap();
+        drop(partitioned);
+        drop(union);
+        drop(selected);
         drop(grouped);
         drop(data);
         drop(scope);

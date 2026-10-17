@@ -172,7 +172,7 @@ impl AnalysisOwner {
                     | Self::Summary
             )
     }
-    fn uniform_checkpoint(self) -> PublicationBoundary {
+    pub(crate) fn uniform_checkpoint(self) -> PublicationBoundary {
         match self {
             Self::Local | Self::CatalogCore => PublicationBoundary::Facts,
             Self::Base => PublicationBoundary::Local,
@@ -444,6 +444,44 @@ pub fn validate_selected_roles(
 #[cfg(test)]
 mod controls {
     use super::*;
+    #[test]
+    fn family_invariants_retain_the_producer_compact_checkpoint() {
+        for (owner, expected) in [
+            (AnalysisOwner::Local, PublicationBoundary::Facts),
+            (AnalysisOwner::Base, PublicationBoundary::Local),
+            (AnalysisOwner::Summary, PublicationBoundary::Model),
+            (AnalysisOwner::Retrieval, PublicationBoundary::Synthesis),
+        ] {
+            assert_eq!(owner.uniform_checkpoint(), expected);
+        }
+        let model = crate::domain::model().unwrap();
+        let mut families = std::collections::BTreeMap::new();
+        for invariant in model.invariants() {
+            let Some(family) = invariant
+                .name
+                .strip_suffix("_analysis_invocation_inputs")
+                .or_else(|| invariant.name.strip_suffix("_analysis_coverage_membership"))
+            else {
+                continue;
+            };
+            let owner = AnalysisOwner::for_family(family).unwrap();
+            let compact = invariant
+                .inputs
+                .iter()
+                .filter(|input| input.name() == uniform_outcome::UniformNotRequested::NAME)
+                .collect::<Vec<_>>();
+            assert_eq!(compact.len(), 1, "{}", invariant.name);
+            assert_eq!(
+                compact[0].prefix(),
+                Some(owner.uniform_checkpoint()),
+                "{}",
+                invariant.name
+            );
+            *families.entry(family).or_insert(0) += 1;
+        }
+        assert_eq!(families.len(), AnalysisOwner::ALL.len());
+        assert!(families.values().all(|checks| *checks == 2));
+    }
     #[test]
     fn compact_catalog_inputs_retain_domain_and_config_without_execution_predecessors() {
         let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();

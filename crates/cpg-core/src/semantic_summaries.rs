@@ -127,36 +127,16 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
 pub async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
-    runtime: &Workspace,
+    runtime: &Arc<Workspace>,
     _model: &Arc<ValidatedModel>,
     definition: &analysis::AnalysisDefinition,
-    graphs: Option<&PreparedGraphs>,
-    bindings: Option<&crate::analysis_bindings::PreparedBindings>,
-    local: Option<&crate::local_semantics::PreparedLocal>,
+    graphs: Option<&Arc<PreparedGraphs>>,
+    bindings: Option<&Arc<crate::analysis_bindings::PreparedBindings>>,
+    local: Option<&Arc<crate::local_semantics::PreparedLocal>>,
 ) -> Result<(), ModelError> {
-    let application = if access.profile() == Profile::Behavioral {
-        Some(
-            bindings
-                .ok_or_else(|| {
-                    ModelError::Invalid("normalized application authority absent".into())
-                })?
-                .application(&access, runtime)?,
-        )
-    } else {
-        None
-    };
-    let actual = if access.profile() == Profile::Behavioral {
-        Some(
-            local
-                .ok_or_else(|| ModelError::Invalid("Summary actual Local owner absent".into()))?
-                .guards(&access, runtime)?,
-        )
-    } else {
-        None
-    };
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut coverage = runtime.coverage_admission(&sources).await?;
+    let mut coverage = runtime.coverage_admission(&access, &sources).await?;
     let session = access.session(runtime).await?;
     let data = load_inputs(&access, &session, &mut coverage, budget).await?;
     let scopes = if access.profile() == Profile::Behavioral {
@@ -199,34 +179,16 @@ pub async fn produce(
                 ),
                 None => None,
             };
+            let job_count = window_runs.len();
+            let mut jobs = Vec::new();
+            let mut jobs_charge =
+                charged::StateCharge::new(runtime.budget(), "prepared work transport slots");
             for (partition, run) in window_runs.into_iter().enumerate() {
                 let parents = summary_replay::parents(&data, run.input, run.context, budget)?;
                 let key = projection::normalization::ProjectionKey {
                     input: run.input,
                     context: run.context,
                     name: projection::ProjectionName::CallableInvocation,
-                };
-                let graph = if access.profile() == Profile::Behavioral {
-                    Some(
-                        graphs
-                            .ok_or_else(|| {
-                                ModelError::Invalid("requested Summary graph absent".into())
-                            })?
-                            .graph(&access, runtime, key)?,
-                    )
-                } else {
-                    None
-                };
-                let schedule = if access.profile() == Profile::Behavioral {
-                    Some(
-                        graphs
-                            .ok_or_else(|| {
-                                ModelError::Invalid("requested Summary graph absent".into())
-                            })?
-                            .schedule(&access, runtime, key)?,
-                    )
-                } else {
-                    None
                 };
                 let (invocation, inputs, receipts, projections) =
                     owner::AnalysisInvocation::admitted(
@@ -236,7 +198,7 @@ pub async fn produce(
                         None,
                         parents.iter().map(Record::id),
                         &sources,
-                        graph.map(|_| {
+                        (access.profile() == Profile::Behavioral).then(|| {
                             analysis::ProjectionDefinition::builtin(
                                 projection::ProjectionName::CallableInvocation,
                             )
@@ -265,27 +227,92 @@ pub async fn produce(
                 } else {
                     None
                 };
-                let frame_data = match access.profile() {
-                    Profile::Behavioral => selected.as_ref().ok_or_else(|| {
-                        ModelError::Invalid("Summary selected frame absent".into())
-                    })?,
-                    Profile::Catalog => &data,
-                };
-                let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
-                    execution::summary_production::produce_prepared_scheduled(
-                        frame_data,
+                let catalog_result = if access.profile() == Profile::Catalog {
+                    Some(execution::summary_production::produce(
+                        &data,
                         &invocation,
                         definition,
                         access.profile(),
-                        graph,
+                        None,
                         budget,
-                        application,
-                        actual,
-                        schedule,
-                    )
-                })?;
-                drop(selected);
-                tokio::task::yield_now().await;
+                    )?)
+                } else {
+                    None
+                };
+                let access = access.clone();
+                let runtime = runtime.clone();
+                let graphs = graphs.cloned();
+                let bindings = bindings.cloned();
+                let local = local.cloned();
+                let definition = definition.clone();
+                let job = async move {
+                    let result = if let Some(result) = catalog_result {
+                        result
+                    } else {
+                        let frame_data = selected.as_ref().ok_or_else(|| {
+                            ModelError::Invalid("Summary selected frame absent".into())
+                        })?;
+                        let application = bindings
+                            .as_ref()
+                            .ok_or_else(|| {
+                                ModelError::Invalid(
+                                    "normalized application authority absent".into(),
+                                )
+                            })?
+                            .application(&access, &runtime)?;
+                        let actual = local
+                            .as_ref()
+                            .ok_or_else(|| {
+                                ModelError::Invalid("Summary actual Local owner absent".into())
+                            })?
+                            .guards(&access, &runtime)?;
+                        let graphs = graphs.as_ref().ok_or_else(|| {
+                            ModelError::Invalid("requested Summary graph absent".into())
+                        })?;
+                        let graph = graphs.graph(&access, &runtime, key)?;
+                        let schedule = graphs.schedule(&access, &runtime, key)?;
+                        crate::stage_runtime::borrowed_cpu(access.name(), || {
+                            execution::summary_production::produce_prepared_scheduled(
+                                frame_data,
+                                &invocation,
+                                &definition,
+                                access.profile(),
+                                Some(graph),
+                                runtime.budget(),
+                                Some(application),
+                                Some(actual),
+                                Some(schedule),
+                            )
+                        })?
+                    };
+                    Ok((
+                        result,
+                        coverage,
+                        invocation,
+                        parents,
+                        inputs,
+                        receipts,
+                        projections,
+                        _frame,
+                    ))
+                };
+                if jobs.is_empty() {
+                    jobs_charge.grow(job_count.saturating_mul(std::mem::size_of_val(&job)))?;
+                    jobs.reserve_exact(job_count);
+                }
+                jobs.push(job);
+            }
+            for (
+                mut result,
+                coverage,
+                invocation,
+                parents,
+                inputs,
+                receipts,
+                projections,
+                _frame,
+            ) in crate::owned_work::ordered(runtime, jobs).await?
+            {
                 let mut actual_coverage = normalized::Rows::new(budget);
                 let mut actual_premises = normalized::Rows::new(budget);
                 for scope in coverage.scopes() {

@@ -978,6 +978,7 @@ async fn readmit_detached(
     runtime: &Arc<AdmissionRuntime>,
     receipt: &ArtifactExportReceipt,
 ) -> Result<(), ModelError> {
+    runtime.require_complete_inventory()?;
     for (file, entities) in [("entities.arrow", true), ("assertions.arrow", false)] {
         let reader = datafusion::arrow::ipc::reader::FileReader::try_new(
             File::open(path.join(file)).map_err(ModelError::codec)?,

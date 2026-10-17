@@ -90,6 +90,10 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Implemented / integrated functional acceptance blocked,2026-10-17 (ADR-0187).** Selected assurance uses authentic exact contributor and producer-input bindings without installing a partial inventory or widening physical read grants. Provider-only availability is frozen before later upper contributions; joined private work retains its actual inputs, deep results and cleanup obligations through its final borrower.
+
+> Decision: ADR-0187
+
 **Implemented / focused-Tested, 2026-10-17 (ADR-0186).** Consumer sufficient properties are reusable only under actual checked immutable source, context, epoch and resource ownership. Nominal completed-input metadata is not semantic authority. Compact native inventory consumption preserves independent receiving validation; preparation and selected-window indexes retain their protected backing until the last borrower finishes. No new persisted proof flag or canonical store is introduced.
 
 > Decision: ADR-0186
