@@ -365,7 +365,9 @@ async fn native_terminal_release_preserves_stripe_checks_without_an_ordinary_rev
                 .bind(("effect", RecordId::new("native_effect", request.operation.hex())))
                 .bind(("reference", envelope.outcome_reference.clone())).await.map_err(ModelError::codec)?
                 .check().map_err(ModelError::codec)?;
-            let outcome: Object = response.take(0).map_err(ModelError::codec)?;
+            let Value::Object(outcome) = response.take::<Value>(0).map_err(ModelError::codec)? else {
+                return Err(ModelError::Schema("native terminal settlement outcome object"));
+            };
             assert_eq!(int_field(&outcome, "revision")?, 1, "settlement leaves the original outcome unchanged");
             assert_eq!(hash_field(&outcome, "request")?, request.request);
             let reference: Value = response.take(1).map_err(ModelError::codec)?;
@@ -429,7 +431,9 @@ async fn native_terminal_release_preserves_stripe_checks_without_an_ordinary_rev
             .bind(("effect", RecordId::new("native_effect", request.operation.hex())))
             .bind(("reference", envelope.outcome_reference)).await.map_err(ModelError::codec)?
             .check().map_err(ModelError::codec)?;
-        let outcome: Object = response.take(0).map_err(ModelError::codec)?;
+        let Value::Object(outcome) = response.take::<Value>(0).map_err(ModelError::codec)? else {
+            return Err(ModelError::Schema("native recovered terminal outcome object"));
+        };
         assert_eq!(int_field(&outcome, "revision")?, 1);
         assert_eq!(hash_field(&outcome, "request")?, request.request);
         assert_eq!(response.take::<Value>(1).map_err(ModelError::codec)?, Value::None);
