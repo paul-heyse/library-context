@@ -6,7 +6,7 @@ The [coordinator](catalog-upper-execution-plan_2026-10-17.md) owns shared contra
 rule directions, dependencies and the sole §6 disposition ledger. This document does not
 supersede existing plans or own their unresolved native obligations.
 
-The [coordinator’s current checkpoint](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the subsequent corrections and the2026-10-17 functional audit at `160c5254`. The audit traced UN01–UN05 through actual native/compiler/publisher callers and found no remaining native-package implementation gap. The pending native Summary journey is a separate cross-track confirmation; FA01/FA02 in the compiler failure paths precede it. Earlier focused receipts retain their original scope.
+The [coordinator’s current checkpoint](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the subsequent corrections and the2026-10-17 functional audit at `160c5254`. UN01–UN05 production callers remain implemented/focused-Tested. FA01–FA04 and the accepted ingress tracing context are now corrected and independently source-accepted. Actual ordinary Summary and the4096-row persistent write control pass; recursive Summary reaches output publication but times out before its oracle. UE90 owns the new Proposed installed-function lookup/incidence preparation investigation, its required schema/service cutover and unchanged recursive acceptance gate. No shared function was mutated, and eight unresolved native attachments remain protected. This does not reopen delivered UN01–UN05 or turn a physical-write control into semantic acceptance.
 
 ## 1. Basis and foundation assessment
 
