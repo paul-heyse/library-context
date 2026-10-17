@@ -103,7 +103,7 @@ owners retain actual captured frame/source/definition/configuration premises and
 domains, rather than requested Behavioral computation dependencies. Private stage results and shared
 preparation remain bound to exact consumer authority and the last running/remaining borrower.
 
-**Accepted target / implementation in progress,2026-10-16 (ADR-0179).** Independently scheduled
+**Implemented / integrated functional acceptance pending,2026-10-16 (ADR-0179).** Independently scheduled
 producer tasks retain their actual joins under WorkspaceExecutionOwner; coordinator futures receive
 terminal results and retain ordered integration. A stage may progress during another stage's borrowed
 CPU work. Launch registration precedes execution, cancellation seals/drains all actual stages before
@@ -946,7 +946,7 @@ completed-view membership resolves selected keys without global nominal lookup. 
 backing inventory includes originals, projection chunks and nongraph intermediates. View-local
 conflicting payloads are refused; independent cold reconstruction compares complete envelopes.
 
-**Accepted native refinement / implementation in progress, 2026-10-16 (ADR-0178).** Exact
+**Implemented native refinement / integrated functional acceptance pending, 2026-10-16 (ADR-0178).** Exact
 attempt effect participants share one operation stripe per bounded window; complete eligibility cuts
 fence delayed atomic apply across freeze, admission, close and maintenance. Protected recovery
 belongs to source finalization, with durable exact pending requests and committed knowledge retained

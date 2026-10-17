@@ -347,7 +347,7 @@ contribution/binding/cleanup and successor incidence partners write the collecto
 guard. Current global coordination remains until the complete migration and race controls pass;
 finite engine conflict evidence does not establish protocol acceptance.
 
-**Accepted target / implementation in progress, 2026-10-16 (ADR-0178).** Each attempt owns a
+**Implemented / integrated functional acceptance pending, 2026-10-16 (ADR-0178).** Each attempt owns a
 complete versioned64-stripe admission domain, distinct from installation-era admission. Ordinary
 atomic effects validate exact durable participant context and write one stripe per window;
 freeze, close, semantic admission and maintenance eligibility cuts validate/write every stripe.
@@ -368,7 +368,7 @@ under controlled writes; independent semantic admission remains strict. Privileg
 require quiescence and rebuilding affected state. Native prerequisite controls passed before route
 replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
 
-**Accepted target, 2026-10-16 (ADR-0177); implementation/functional acceptance pending.** Native
+**Implemented, 2026-10-16 (ADR-0177); integrated functional acceptance pending.** Native
 worker and phase tracing contexts compose through the shared `lctx-tracing` leaf. Both polling and
 destruction enter the span's actual dispatcher; phase drop leaves unmatched starts incomplete.
 Tracing does not confer recovery authority or establish request/session/host finality.
