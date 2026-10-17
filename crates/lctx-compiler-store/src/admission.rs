@@ -57,6 +57,9 @@ struct CancellationState {
 #[derive(Clone, Default)]
 pub struct Cancellation(Arc<CancellationState>);
 impl Cancellation {
+    pub fn shares_owner(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub fn cancel(&self) {
         self.0.cancelled.store(true, Ordering::Release);
         self.0.native_retry.cancel();
@@ -167,12 +170,12 @@ pub(crate) struct CheckedSemanticScope {
     bindings: ContentHash,
     _charge: StateCharge,
     // Actual private checks and their charged native backing survive the assembly borrower.
-    scoped: Vec<Arc<scoped::ExecutedScopedCheck>>,
+    scoped: Vec<Arc<scoped::ExecutedCheck>>,
 }
 type SemanticEvidence = (
     Vec<lctx_model::domain::artifact_admission::ValidationExecution>,
     StateCharge,
-    Vec<Arc<scoped::ExecutedScopedCheck>>,
+    Vec<Arc<scoped::ExecutedCheck>>,
 );
 impl CheckedSemanticScope {
     pub(crate) fn into_evidence(
@@ -1597,20 +1600,13 @@ impl AdmissionRuntime {
                 } else {
                     session
                 };
-                if !is_scoped
-                    && !earn
-                    && let Some(premise) = premise
-                    && self
-                        .memo
-                        .checked
-                        .lock()
-                        .map_err(|_| poisoned())?
-                        .0
-                        .contains(&premise)
-                {
-                    continue;
-                }
-                let scoped = if is_scoped && let Some(inventory) = &scoped_inventory {
+                let private_whole = !is_scoped
+                    && reference_owner.is_some()
+                    && self.private_whole_eligible(
+                        &invariant, &inputs, &unrequested, uniform.owners().is_empty(),
+                    );
+                let mut scoped = if (is_scoped || private_whole)
+                    && let Some(inventory) = &scoped_inventory {
                     self.scoped_premise(
                         &invariant,
                         &inputs,
@@ -1637,6 +1633,21 @@ impl AdmissionRuntime {
                         )?);
                         scoped_borrowers.push(executed);
                     }
+                    continue;
+                }
+                if private_whole && let Some(prepared) = scoped.take() {
+                    let executed = self.execute_private_whole(
+                        prepared, &invariant, &inputs, reference_session,
+                    ).await?;
+                    if earn {
+                        evidence.push(self.execution_evidence(
+                            &invariant, Execution::WholeInput, &inputs, &unrequested,
+                            &mut evidence_charge,
+                        )?);
+                        if let Some(executed) = &executed { scoped_borrowers.push(executed.clone()); }
+                    }
+                    if let Some(executed) = executed { scoped_attempt.retain(executed)?; }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 let execution_scope = check.execution_scope();
@@ -2148,7 +2159,7 @@ impl AdmissionRuntime {
                     continue;
                 }
                 if external.is_none()
-                    && self
+                    && !matches!(self
                         .validate_durable_whole(
                             &invariant,
                             &inputs,
@@ -2157,8 +2168,9 @@ impl AdmissionRuntime {
                             uniform.owners(),
                             session,
                             planner,
+                            None,
                         )
-                        .await?
+                        .await?, durable::WholeExecution::Unsupported)
                 {
                     if earn {
                         evidence.push(self.execution_evidence(

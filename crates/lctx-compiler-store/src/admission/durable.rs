@@ -2,6 +2,10 @@
 use super::*;
 use lctx_model::domain::{self as d, checked_admission::FixedValidationDriver};
 use lctx_native::control::validation_premise::{PendingValidation, SelectedInput};
+pub(super) enum WholeExecution {
+    Unsupported,
+    Completed(Option<d::checked_admission::CheckedValidationPremise>),
+}
 impl AdmissionRuntime {
     // Called only after every specialized scope branch has selected its genuine
     // grouped kernel. Unsupported premises still execute that ordinary kernel.
@@ -18,7 +22,8 @@ impl AdmissionRuntime {
         uniform: &'a [d::uniform_outcome::ValidatedUniformOwner],
         session: &'a SessionContext,
         planner: &'a dyn ValidationPlanner,
-    ) -> BoxFuture<'a, Result<bool, ModelError>> {
+        prepared_caps: Option<&'a [Arc<lctx_native::installed_view::HeldInstalledView>]>,
+    ) -> BoxFuture<'a, Result<WholeExecution, ModelError>> {
         Box::pin(async move {
             // Generated scoped checks retain their nominal identity while narrowing the
             // ordered premise domain. The fixed driver resolves the registered full factory,
@@ -36,7 +41,7 @@ impl AdmissionRuntime {
                         || inputs.validation_source(input).is_err()
                 })
             {
-                return Ok(false);
+                return Ok(WholeExecution::Unsupported);
             }
             let mut sources = Vec::with_capacity(invariant.inputs.len());
             for input in &invariant.inputs {
@@ -56,12 +61,15 @@ impl AdmissionRuntime {
                 if caps.contains_key(&selected.view.identity) {
                     continue;
                 }
-                let native = self.native.clone();
-                let view = selected.view.clone();
-                let budget = self.budget.clone();
-                let cap = self
-                    .native_call(async move { native.installed_view(&view, &budget).await })
-                    .await?;
+                let cap = if let Some(prepared) = prepared_caps {
+                    prepared.iter().find(|cap| cap.completion().view == selected.view)
+                        .cloned().ok_or(ModelError::Conflict("prepared whole capability correspondence"))?
+                } else {
+                    let native = self.native.clone();
+                    let view = selected.view.clone();
+                    let budget = self.budget.clone();
+                    self.native_call(async move { native.installed_view(&view, &budget).await }).await?
+                };
                 caps.insert(view_identity(&cap), cap);
             }
             if uniform.iter().any(|owner| {
@@ -72,7 +80,7 @@ impl AdmissionRuntime {
                         .any(|mapping| mapping.logical == owner.contribution())
                 })
             }) {
-                return Ok(false);
+                return Ok(WholeExecution::Unsupported);
             }
             let mut driver = FixedValidationDriver::invariant(
                 &self.model,
@@ -97,13 +105,13 @@ impl AdmissionRuntime {
                 ),
             )
             .await?;
-            let result: Result<(), ModelError> = async {
+            let result: Result<Option<d::checked_admission::CheckedValidationPremise>, ModelError> = async {
                 if pending.lookup().await? {
                     tracing::debug!(
                         invariant = invariant.name,
                         "reused exact durable native validation premise"
                     );
-                    return Ok(());
+                    return Ok(None);
                 }
                 for (index, input) in invariant.inputs.iter().enumerate() {
                     let order = input
@@ -142,7 +150,7 @@ impl AdmissionRuntime {
                     invariant = invariant.name,
                     "persisted executed native validation premise"
                 );
-                Ok(())
+                Ok(Some(proof))
             }
             .await;
             if result
@@ -152,14 +160,14 @@ impl AdmissionRuntime {
             {
                 // PendingValidation owns the exact reader and physical caps; its drop
                 // preserves them on unknown execution instead of attempting cleanup.
-                return result.map(|_| true);
+                return result.map(WholeExecution::Completed);
             }
             let mut terminal = d::completion::Completion::default();
             terminal.step(
                 "durable validation native scope close",
                 pending.close().await,
             );
-            d::completion::complete(result, terminal).map(|_| true)
+            d::completion::complete(result, terminal).map(WholeExecution::Completed)
         })
     }
 }

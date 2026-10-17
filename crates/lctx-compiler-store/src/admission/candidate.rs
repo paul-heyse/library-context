@@ -229,13 +229,22 @@ async fn captured_table<R: Record>(
         ));
     }
     let mut protected = Vec::new();
-    for row in expected.into_values() {
-        if owner.verify_captured_row(&row, budget).await? {
-            protected.push(row);
-        } else if acquisition {
-            return Err(ModelError::Conflict(
-                "candidate acquisition typed inventory missing backing",
-            ));
+    let mut rows = expected.into_values();
+    loop {
+        let batch = rows.by_ref().take(32).collect::<Vec<_>>();
+        if batch.is_empty() { break; }
+        let present = owner.verify_captured_rows(&batch, budget).await?;
+        if present.len() != batch.len() {
+            return Err(ModelError::Conflict("candidate typed correspondence length"));
+        }
+        for (row, exists) in batch.into_iter().zip(present) {
+            if exists {
+                protected.push(row);
+            } else if acquisition {
+                return Err(ModelError::Conflict(
+                    "candidate acquisition typed inventory missing backing",
+                ));
+            }
         }
     }
     let batch = R::encode(&protected)?;

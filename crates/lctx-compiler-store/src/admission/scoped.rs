@@ -1,5 +1,5 @@
-//! Private executed grouped checks within one live admission operation. There is no
-//! serialized authority and no route through the whole-input replay proof driver.
+//! Private executed checks within one live admission operation. Whole-input owners
+//! additionally retain the opaque fixed driver's completed ledger over exact native input.
 use super::*;
 use lctx_model::domain::{HeapSize, artifact_admission::Execution};
 use std::sync::Weak;
@@ -71,14 +71,15 @@ impl Operation {
 }
 /// Kept crate-private so only the successful specialized production branch can
 /// construct it. Weak operation links avoid an execution-owner -> memo -> owner cycle.
-pub(crate) struct ExecutedScopedCheck {
+pub(crate) struct ExecutedCheck {
     premise: ScopedPremise,
     operation: Operation,
     caps: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
     execution: Execution,
+    _whole: Option<lctx_model::domain::checked_admission::CheckedValidationPremise>,
     _charge: StateCharge,
 }
-impl ExecutedScopedCheck {
+impl ExecutedCheck {
     pub(super) fn execution(&self) -> Execution {
         self.execution
     }
@@ -95,24 +96,57 @@ impl PreparedScopedCheck {
         self,
         execution: Execution,
         cancellation: &Cancellation,
-    ) -> Result<Arc<ExecutedScopedCheck>, ModelError> {
+    ) -> Result<Arc<ExecutedCheck>, ModelError> {
         cancellation.check()?;
         if execution == Execution::WholeInput {
             return Err(ModelError::Conflict(
                 "whole-input result is not scoped evidence",
             ));
         }
-        Ok(Arc::new(ExecutedScopedCheck {
+        Ok(Arc::new(ExecutedCheck {
             premise: self.premise,
             operation: self.operation,
             caps: self.caps,
             execution,
+            _whole: None,
+            _charge: self.charge,
+        }))
+    }
+    fn finish_whole(
+        self,
+        proof: lctx_model::domain::checked_admission::CheckedValidationPremise,
+        cancellation: &Cancellation,
+    ) -> Result<Arc<ExecutedCheck>, ModelError> {
+        cancellation.check()?;
+        let data = proof.data();
+        if data.model != self.premise.model
+            || data.name != self.premise.name
+            || data.revision != self.premise.revision
+            || data.definition != self.premise.definition
+            || data.factory != self.premise.factory
+            || data.inputs.len() != self.premise.inputs.len()
+            || data.inputs.iter().zip(&self.premise.inputs).any(|(actual, role)| {
+                role.selected.as_ref().is_none_or(|(resolved, _, source)| {
+                    actual.source != *source
+                        || actual.requested != role.requested
+                        || actual.resolved != *resolved
+                })
+            })
+        {
+            return Err(ModelError::Conflict("private whole execution ledger/context"));
+        }
+        Ok(Arc::new(ExecutedCheck {
+            premise: self.premise,
+            operation: self.operation,
+            caps: self.caps,
+            execution: Execution::WholeInput,
+            _whole: Some(proof),
             _charge: self.charge,
         }))
     }
 }
 pub(super) struct ScopedChecks {
-    entries: Mutex<(Vec<Arc<ExecutedScopedCheck>>, StateCharge)>,
+    entries: Mutex<(Vec<Arc<ExecutedCheck>>, StateCharge)>,
     invalidated: AtomicBool,
     budget: ResourceBudget,
     #[cfg(test)]
@@ -156,13 +190,13 @@ impl ScopedChecks {
 /// invalidates earlier reuse for this operation. Existing borrowers keep their charge.
 pub(super) struct ScopedAttempt<'a> {
     cache: &'a ScopedChecks,
-    pending: Vec<Arc<ExecutedScopedCheck>>,
+    pending: Vec<Arc<ExecutedCheck>>,
     charge: StateCharge,
     complete: bool,
 }
 impl ScopedAttempt<'_> {
-    pub(super) fn retain(&mut self, check: Arc<ExecutedScopedCheck>) -> Result<(), ModelError> {
-        self.charge.grow(size_of::<Arc<ExecutedScopedCheck>>())?;
+    pub(super) fn retain(&mut self, check: Arc<ExecutedCheck>) -> Result<(), ModelError> {
+        self.charge.grow(size_of::<Arc<ExecutedCheck>>())?;
         self.pending.reserve_exact(1);
         self.pending.push(check);
         #[cfg(test)]
@@ -178,7 +212,7 @@ impl ScopedAttempt<'_> {
                         && prior.operation.native.ptr_eq(&check.operation.native)
                         && prior.operation.calls.ptr_eq(&check.operation.calls)
                 }) {
-                    entries.1.grow(size_of::<Arc<ExecutedScopedCheck>>())?;
+                    entries.1.grow(size_of::<Arc<ExecutedCheck>>())?;
                     entries.0.reserve_exact(1);
                     entries.0.push(check.clone());
                 }
@@ -193,7 +227,9 @@ impl Drop for ScopedAttempt<'_> {
         if !self.complete {
             self.cache.invalidated.store(true, Ordering::Release);
             if let Ok(mut entries) = self.cache.entries.lock() {
-                entries.0.clear();
+                entries.0 = Vec::new();
+                let bytes = entries.1.reserved();
+                entries.1.release(bytes);
             }
         }
     }
@@ -202,6 +238,7 @@ impl Drop for ScopedAttempt<'_> {
 /// then each check looks up only its actual declared contributors.
 pub(super) struct ScopedInventory {
     owners: BTreeMap<ContentHash, CompletedContribution>,
+    caps: tokio::sync::Mutex<(BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>, StateCharge)>,
     _transfer: Box<dyn Reservation>,
     _charge: StateCharge,
 }
@@ -218,6 +255,7 @@ impl AdmissionRuntime {
         }
         Ok(ScopedInventory {
             owners,
+            caps: tokio::sync::Mutex::new((BTreeMap::new(), StateCharge::new(self.budget(), "shared admission capability slots"))),
             _transfer: inventory.transfer,
             _charge: charge,
         })
@@ -251,7 +289,7 @@ impl AdmissionRuntime {
         self.cancellation.check()?;
         self.native.check()?;
         let mut charge = StateCharge::new(self.budget(), "private executed scoped check");
-        charge.grow(size_of::<ExecutedScopedCheck>().saturating_add(1024))?;
+        charge.grow(size_of::<ExecutedCheck>().saturating_add(1024))?;
         let mut roles = Vec::new();
         let mut views = BTreeMap::new();
         for input in &invariant.inputs {
@@ -312,12 +350,21 @@ impl AdmissionRuntime {
         let mut caps = Vec::new();
         for view in views.into_values() {
             charge.grow(size_of::<Arc<lctx_native::installed_view::HeldInstalledView>>())?;
-            let native = self.native.clone();
-            let budget = self.budget.clone();
-            caps.push(
-                self.native_call(async move { native.installed_view(&view, &budget).await })
-                    .await?,
-            );
+            let mut acquired = inventory.caps.lock().await;
+            let cap = if let Some(cap) = acquired.0.get(&view.identity) {
+                cap.clone()
+            } else {
+                acquired.1.grow(128)?;
+                let native = self.native.clone();
+                let budget = self.budget.clone();
+                let identity = view.identity;
+                let cap = self.native_call(async move {
+                    native.installed_view(&view, &budget).await
+                }).await?;
+                acquired.0.insert(identity, cap.clone());
+                cap
+            };
+            caps.push(cap);
         }
         self.cancellation.check()?;
         Ok(Some(PreparedScopedCheck {
@@ -337,10 +384,48 @@ impl AdmissionRuntime {
             charge,
         }))
     }
+    pub(super) fn private_whole_eligible(
+        &self,
+        invariant: &lctx_model::domain::Invariant,
+        inputs: &ValidationInputs,
+        unrequested: &BTreeSet<&'static str>,
+        uniform_empty: bool,
+    ) -> bool {
+        uniform_empty
+            && inputs.companions.is_empty()
+            && !invariant.inputs.is_empty()
+            && self.model.factory_contract(invariant.identity())
+                .is_some_and(|factory| factory.definition == invariant.digest())
+            && invariant.inputs.iter().all(|input| {
+                !unrequested.contains(input.name())
+                    && input.name() != lctx_model::domain::artifact::ArtifactChunk::NAME
+                    && inputs.validation_source(input).is_ok()
+            })
+    }
+    pub(super) async fn execute_private_whole(
+        &self,
+        prepared: PreparedScopedCheck,
+        invariant: &lctx_model::domain::Invariant,
+        inputs: &ValidationInputs,
+        native_session: &SessionContext,
+    ) -> Result<Option<Arc<ExecutedCheck>>, ModelError> {
+        // Keep the existing durable native comparison/receipt capability. A durable hit
+        // remains valid ordinary assurance, but only an actually completed fixed driver
+        // creates a new private executed owner in this operation.
+        match self.validate_durable_whole(invariant, inputs, &BTreeSet::new(),
+            prepared.premise.profile, &[], native_session, inputs, Some(&prepared.caps)).await? {
+            super::durable::WholeExecution::Unsupported => Err(ModelError::Conflict("eligible private whole driver unsupported")),
+            super::durable::WholeExecution::Completed(None) => Ok(None),
+            super::durable::WholeExecution::Completed(Some(proof)) => {
+                self.native.check()?;
+                prepared.finish_whole(proof, &self.cancellation).map(Some)
+            }
+        }
+    }
     pub(super) async fn reuse_scoped(
         &self,
         prepared: &PreparedScopedCheck,
-    ) -> Result<Option<Arc<ExecutedScopedCheck>>, ModelError> {
+    ) -> Result<Option<Arc<ExecutedCheck>>, ModelError> {
         self.cancellation.check()?;
         self.native.check()?;
         if self.memo.scoped.invalidated.load(Ordering::Acquire) {
@@ -565,12 +650,14 @@ mod controls {
         rows: usize,
         finished: Arc<AtomicUsize>,
         rejected: Arc<AtomicUsize>,
+        whole: bool,
     }
     impl InvariantCheck for Check {
         fn scoped_uniform_independent(&self) -> bool {
             true
         }
         fn execution_scope(&self) -> Option<d::execution::fidelity::ExecutionScope> {
+            if self.whole { return None; }
             Some(d::execution::fidelity::ExecutionScope {
                 root: self.root.clone(),
                 memberships: vec![],
@@ -611,6 +698,11 @@ mod controls {
         rejected: &Arc<AtomicUsize>,
         changed_factory: bool,
     ) -> Arc<ValidatedModel> {
+        model_mode(finished, rejected, changed_factory, false)
+    }
+    fn model_mode(
+        finished: &Arc<AtomicUsize>, rejected: &Arc<AtomicUsize>, changed_factory: bool, whole: bool,
+    ) -> Arc<ValidatedModel> {
         let checks = [
             (
                 "input_manifest_membership",
@@ -636,6 +728,7 @@ mod controls {
                         rows: 0,
                         finished: finished.clone(),
                         rejected: rejected.clone(),
+                        whole,
                     })
                 }),
             }
@@ -656,7 +749,7 @@ mod controls {
         for check in checks {
             let mut implementation = d::KeySink::new("private-scoped-control-factory/v1");
             implementation.part(b"source", include_bytes!("scoped.rs"));
-            implementation.part(b"variant", &[u8::from(changed_factory)]);
+            implementation.part(b"variant", &[u8::from(changed_factory), u8::from(whole)]);
             model
                 .register_factory(check.identity(), implementation.finish(), vec![])
                 .unwrap();
@@ -878,6 +971,73 @@ mod controls {
     }
     /// Requires the explicitly owned native campaign config. It never installs,
     /// repairs, restarts or falls back from the selected target.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn whole_native_reuse_requires_actual_input_and_successful_attempt() {
+        let config = lctx_native::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("explicit validation target"),
+        )).unwrap();
+        for bad_native in [false, true] {
+            let budget = ResourceBudget::fixed(256 << 20).unwrap();
+            let native = NativeCompilerStore::begin(
+                &config, d::admission::Frontier::Facts,
+                &crate::compiler::recovery_factory(&config, budget.clone()).unwrap(),
+            ).await.unwrap();
+            let cancellation = Cancellation::default();
+            let calls = Arc::new(crate::native_calls::NativeCalls::new(native.clone(), cancellation.clone(), &budget));
+            let memo = AdmissionMemo::new(&budget);
+            let finished = Arc::new(AtomicUsize::new(0));
+            let rejected = Arc::new(AtomicUsize::new(0));
+            let mut runtimes = Vec::new();
+            let result = std::panic::AssertUnwindSafe(async {
+                let model = model_mode(&finished, &rejected, false, true);
+                let (owner, bindings) = seed(&native, &model, &budget, bad_native, true).await;
+                let runtime = runtime(model, &native, &budget, &memo, &cancellation, &calls, vec![owner], bindings, &mut runtimes);
+                for binding in runtime.bindings().unwrap() { native.bind(binding).await.unwrap(); }
+                if bad_native {
+                    // A finite external planner can report a valid row while the selected native
+                    // source is invalid. That successful prefix must never earn private authority.
+                    let inputs = runtime.inputs([InputRevision::NAME]).unwrap();
+                    let session = SessionContext::new();
+                    session.register_batch(InputRevision::NAME,
+                        InputRevision::encode(&[InputRevision::from_entries(vec![]).unwrap()]).unwrap()).unwrap();
+                    let bindings = inputs.relations.values().map(|input| SelectedBinding {
+                        role: input.role, requested: input.requested, resolved: input.resolved,
+                        binding: CompletedBinding { boundary: None, configuration: None,
+                            source: input.snapshot.clone(), view: input.view.clone() },
+                    }).collect();
+                    runtime.validate_compiler_selection(Profile::Catalog, true, bindings, &session, &inputs).await.unwrap();
+                    assert!(memo.scoped.entries.lock().unwrap().0.is_empty());
+                } else {
+                    early(&runtime).await;
+                    assert!(memo.scoped.entries.lock().unwrap().0.iter().any(|check| check._whole.is_some()));
+                }
+                runtime.freeze_for_admission().await.unwrap();
+                let actual = runtime.execute_semantics(Profile::Catalog).await;
+                if bad_native {
+                    assert!(actual.is_err(), "actual invalid native manifest must refuse");
+                    assert_eq!(rejected.load(Ordering::SeqCst), 1);
+                    assert!(memo.scoped.invalidated.load(Ordering::Acquire));
+                    assert!(memo.scoped.entries.lock().unwrap().0.is_empty());
+                } else {
+                    let scope = actual.unwrap();
+                    assert!(scope.invariants.iter().all(|check| check.execution == Execution::WholeInput));
+                    assert_eq!(finished.load(Ordering::SeqCst), 2, "one reused original check and one newly applicable empty-input check");
+                    assert_eq!(memo.scoped.reuses.load(Ordering::SeqCst), 1);
+                    assert_eq!(rejected.load(Ordering::SeqCst), 0);
+                }
+            }).catch_unwind().await;
+            let mut terminal = drain_controls(&native, &calls, &runtimes).await;
+            finish_control_signals(&runtimes, &mut terminal).await;
+            calls.append_operation_failures(&mut terminal);
+            native.append_operation_failures(&mut terminal);
+            let cleanup = d::completion::complete(Ok(()), terminal);
+            if let Err(panic) = result {
+                if let Err(error) = cleanup { eprintln!("whole native cleanup: {error:#?}"); }
+                std::panic::resume_unwind(panic);
+            }
+            cleanup.unwrap();
+        }
+    }
     #[tokio::test(flavor = "multi_thread")]
     async fn scoped_native_check_executes_once_through_final_freeze_and_new_applicability() {
         let config = lctx_native::RuntimeConfig::read(std::path::Path::new(

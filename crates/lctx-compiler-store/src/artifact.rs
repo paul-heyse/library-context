@@ -1495,7 +1495,7 @@ pub(crate) struct ArtifactAdmission {
     model: Arc<lctx_model::domain::ValidatedModel>,
     evidence: lctx_model::domain::artifact_admission::ArtifactAdmissionEvidence,
     _charges: Vec<StateCharge>,
-    _scoped: Vec<Arc<crate::admission::scoped::ExecutedScopedCheck>>,
+    _scoped: Vec<Arc<crate::admission::scoped::ExecutedCheck>>,
 }
 impl ArtifactAdmission {
     pub(crate) fn physical(&self) -> &lctx_native::completed_state::NativeCompletedState {
