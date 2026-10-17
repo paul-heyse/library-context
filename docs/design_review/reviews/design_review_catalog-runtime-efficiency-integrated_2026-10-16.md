@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: assembled target review
 
-**Revise bounded for F03, Interface-checked, 2026-10-16; latest inspected bridge correction `e6dcefc8`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 assessment in §12 requires the remaining synchronous batch adapter correction and functional acceptance. Earlier scoped acceptances retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Accept scoped, Interface-checked, 2026-10-16; latest source reassessment `2dbc6b0e`, including `f8f44159`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; functional acceptance remains pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
@@ -374,3 +374,33 @@ with repeated synchronous requests, launches and batches, then establish actual 
 retained cancellation/error behavior. Actual CallScope acceptance remains required. These are
 functional controls, not timing benchmarks or authority to increase timeouts, stacks or concurrency
 limits. No new executor or diagnostic platform is proposed.
+
+
+### F03 final source reassessment: `2dbc6b0e`
+
+**Accept scoped, Interface-checked, 2026-10-16, including fixture `f8f44159`.** The three synchronous
+compiler/provider handoff adapters now exclude only their channel polls from an enclosing Tokio
+cooperative budget that the independent blocking executor cannot replenish. Submitted native
+operations and asynchronous consumers retain ordinary scheduling, cancellation, ownership and
+finality. `NativeBatches::next_async`, its driver and reservation ownership are unchanged.
+
+The new batch control exercises512 actual charged transfers from an independent producer in each
+natural-EOF and typed-error variant. It checks order, held transfer charge, original error delivery,
+repeated EOF, producer join and final zero charge. The bridge control independently exercises512
+requests and512 launches. The bounded sweep of `cpg-core/src`, `cpg-extract/src` and
+`lctx-compiler-store/src` found no fourth susceptible production adapter; remaining blocking-entry
+matches drive an owned runtime or belong to test-only controls. This is scoped coverage, not a
+whole-codebase absence claim.
+
+The CallScope fixture supplies original chunks matching both declared artifacts (`b"call"` and
+`b"foreign"`) through the actual native writer. This satisfies strict original-byte readback while
+preserving selected-data, malformed-context, unchanged hydration ceiling and explicit teardown
+assertions. Its prior fast failure exposed a fixture prerequisite; it did not justify weakening
+native readback or relying on shared warm content.
+
+The source remedy for F03 is complete within this inspected scope. Actual batch/CallScope controls
+and final-source acceptance remain coordinator-owned; the reviewer's builds/tests/services were
+**not_run**. The coordinator's bridge regression pass remains separately scoped execution evidence.
+This assessment attributes neither all historical timeouts nor numerical performance changes to
+F03. No semantic rule change is required. A1–A4 and the earlier scoped core/profile judgments are
+source-supported through this reassessment, with actual enclosing functional acceptance still open.

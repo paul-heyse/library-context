@@ -14,7 +14,9 @@ prefix publication. Stage joins precede provider-descendant discovery and native
 late producer cannot register work after its owner has declared drainage. Producer bodies are
 charged before boxing, then composed through small execution wrappers. Explicit future-before-grant
 destruction covers even never-polled runtime shutdown; queued result delivery retains its separate
-reservation. Actual normalized-frontier rerun must still establish stack-overflow closure.
+reservation. Actual normalized-frontier admission/export has passed at its recorded scope; enclosing acceptance
+remains open. Synchronous bridge and batch handoffs exclude only their channel polling from an
+inherited Tokio cooperative budget; async consumers and native actors retain ordinary scheduling.
 [ADR-0179](../adr/0179-joined-owned-producer-execution.md) and the semantic owner govern the
 changed placement; native capabilities retain [ADR-0178](../adr/0178-atomic-bounded-native-effects.md).
 The [integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)

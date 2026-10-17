@@ -424,7 +424,10 @@ teardown/zero-charge assertions; actual rerun `20261017T015747.544Z-bdd652` **fa
 completion, before scoped semantic assertions. Its fixture omitted original chunks for its two
 source records; `f8f44159` declares/supplies both streams without weakening readback. Attachment
 `25cd9e0a-d4c5-4285-a4bb-d90bfb8b7277` retains native Unknown after the assertion panic. The same
-synchronous batch-iterator boundary is being corrected. All three later native attachments remain
+synchronous batch-iterator boundary is corrected by `2dbc6b0e`; independent source review accepts
+all three adapters and both fixture corrections. Combined actual CallScope, wide-batch and producer
+controls `20261017T020628.411Z-ee130a` and refreshed full keep-going compile
+`20261017T020628.756Z-06e795` are running. All three later native attachments remain
 protected; fresh full compile/strict Clippy and final enclosing acceptance remain required.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
@@ -444,7 +447,7 @@ deletion or rewritten Unknown follows from host exit or these retained counts.
 | [R:F07](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F07) | open; publisher/RP01 | Exact source finalized before carrier; failed finalization retains Unknown and unpublished output |
 | [R:F08](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F08) | open; Base/RA00 | Shared discovery/typed support preserves root universes, once-only effects and singleton feasibility |
 | [R:F09](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09) | implemented/focused-Tested; Summary/RA01–RA02; integrated acceptance open | Exact endpoint/support factoring preserves necessary output; ordinary/recursive consumers must reach their assertions |
-| [I:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03) | bridge implemented/focused-Tested; batch adapter in progress; compiler-store/cpg-core/CX01/RE90 | Repeated synchronous handoffs progress under inherited Tokio context; async/native fairness, cancellation, actual drainage and CallScope semantic assertions remain |
+| [I:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03) | bridge implemented/focused-Tested; batch implemented/Interface-checked; integrated acceptance open; compiler-store/cpg-core/CX01/RE90 | Repeated synchronous handoffs progress under inherited Tokio context; async/native fairness, cancellation, actual drainage and CallScope semantic assertions remain |
 
 The following E obligations are transferred with their implemented or decided baseline, **not
 promoted to enclosing verified closure**. RE90 owns remaining verification and any scope-owned
