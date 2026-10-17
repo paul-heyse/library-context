@@ -156,7 +156,10 @@ async fn incidence_snapshot(client: &Surreal<Client>, records: Vec<RecordId>, ow
     let mut response = client.query("LET $predicates=$records.map(|$record| type::record('native_predicate',[$record])); RETURN {records:(SELECT * FROM $records ORDER BY id),guards:(SELECT * FROM $guards ORDER BY id),predicates:(SELECT * FROM $predicates ORDER BY id),stripes:(SELECT * FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$owner ORDER BY slot)}")
         .bind(("records", records)).bind(("guards", guards)).bind(("owner", owner.clone()))
         .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    response.take(1).map_err(ModelError::codec)
+    let Value::Object(snapshot) = response.take::<Value>(1).map_err(ModelError::codec)? else {
+        return Err(ModelError::Schema("native incidence snapshot object"));
+    };
+    Ok(snapshot)
 }
 
 #[tokio::test(flavor = "multi_thread")]
