@@ -226,6 +226,16 @@ outcomes; broad purge, shared reset and operator adoption remain unauthorized.
 Run revealing pre-cutover controls, perform any required state replacement, and only then RE90's
 final acceptance. A later target-state mutation invalidates the affected acceptance boundary.
 
+The later stale-binary acceptance run was stopped after material source repairs. Approved exact
+default replacement `20261017T012711.701Z-53365f` **passed** on 2026-10-17, with authenticated
+shutdown/discard and host cleanup confirmed. Current generation is
+`c3ff2d7df87dadc02167479b95fd5fcbd4ac6e9590a2a3f619fd87e77251aa4b`; journal
+`f49200d7cfcfd9194f4ef583c3416b82938c4bf1c96df6e21a906f684873e2d7` retains the operation and
+separate discard acknowledgements for `2faec210-e023-4b36-b2e0-b76f1f2911d4` and
+`4f3b2fcf-9059-42a1-89c5-ef23484bce10`. Original failure/Unknown observations remain unchanged.
+Main/validation checks and admission reopening passed. RE90 must qualify this current target;
+predecessor passes remain dated at their own scopes.
+
 ## 6. RE90 — Integrated functional acceptance
 
 First review the integrated implementation and accumulated findings against the target and its

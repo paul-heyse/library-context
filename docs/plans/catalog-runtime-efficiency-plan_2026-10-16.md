@@ -380,8 +380,12 @@ actual normalized-frontier rerun remains mandatory, with attribution reopened if
 Neither stack overrides nor timeout/concurrency changes are selected.
 Post-cancellation default attachments `2faec210-e023-4b36-b2e0-b76f1f2911d4` and
 `4f3b2fcf-9059-42a1-89c5-ef23484bce10` retain native obligations. Exact default regeneration
-`20261017T012711.701Z-53365f` is in progress through the approved RE80 authenticated
-shutdown/discard route; no new campaign is created. Original outcomes remain unchanged.
+`20261017T012711.701Z-53365f` **passed**, host cleanup confirmed, through the approved RE80
+authenticated shutdown/discard route. Generation is
+`c3ff2d7df87dadc02167479b95fd5fcbd4ac6e9590a2a3f619fd87e77251aa4b`, journal
+`f49200d7cfcfd9194f4ef583c3416b82938c4bf1c96df6e21a906f684873e2d7`, same pinned peer. Both
+attachments are released with separate `installation-discard.json` acknowledgements; original
+Unknowns remain unchanged. Main/validation check/open passed; no new campaign was created.
 Service-free producer launch controls `20261017T012336.994Z-c33c29` are building; source edits
 during that build require a stable-source rerun before final acceptance.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
