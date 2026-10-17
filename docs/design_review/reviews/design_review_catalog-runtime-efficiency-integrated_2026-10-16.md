@@ -585,3 +585,59 @@ expanded-packet, retirement-race and normal-concurrency cases are not qualified 
 source-inspected controls. Builds, tests, services and database queries were **not_run by this
 reviewer**; asset regeneration, target replacement and actual run outcomes remain coordinator-owned.
 Additional rule impacts: none. No new finding ID or enclosing qualification is introduced.
+
+## 17. Focused native evidence and current closeout boundary
+
+**Focused Tested, 2026-10-17 UTC; enclosing acceptance open.** Inspection of the coordinator's
+recorded commands, native logs and JUnit results establishes the bounded evidence below. The
+reviewer ran no builds, tests, database queries or services. Earlier source judgments retain their
+named baselines; these receipts do not convert them into whole-scope qualification.
+
+| Recorded run | Command / boundary | Outcome |
+|---|---|---|
+| `20261017T032530.263Z-cbb117` | Release Nextest, `lctx-native --lib`, `grouped_immutable_and_hold_sql_parses_with_actual_schema` and `attempt_participant_lock_uses_record_parameter_not_field_idiom` | **passed**, 2 pure parser controls |
+| `20261017T032530.032Z-17dc1c` | `cargo build --release --locked -p lctx -p lctx-surreal-dev --bins` | **passed**, current CLI/generator build |
+| `20261017T033310.209Z-d3d723` | `target/release/lctx-surreal-dev generate` | **passed**; generated immutable definition committed as `adb4fa42` |
+| `20261017T033334.019Z-0fed8e` | `just service regenerate 58abe9ea-2088-4109-95ab-8440a3749c51 --project-scopes main,validation`, with recorded installer/server-generation bindings | **passed**; exact default replacement, not enclosing functional acceptance |
+| `20261017T033508.854Z-86ace9` | `just fixture -- cargo nextest run --release --locked -p lctx-native --lib --no-fail-fast --no-tests=fail -E FILTER`, selection detailed below | **passed**, 14 controls, 355 skipped; enclosing fixture exit 0 and host cleanup confirmed with no survivors |
+| `20261017T033417.562Z-980709` | `cargo check --release --workspace --all-targets --locked` | **passed** before formatting |
+| `20261017T033441.565Z-94b3ea` | `cargo clippy --release --workspace --all-targets --locked --keep-going -- -D warnings` | **passed**, no warnings, before formatting |
+
+Exact default replacement reports generation
+`2389e630fda629da1b2383d2223ffa246b5cf70ada22e38ebc116e93781576a8` and regeneration journal
+`89b0589b1c68de18a7a7da8ef38a57c34dd16a79f4a27386b791f61c60621958`. The coordinator separately
+validated disposal of the `c1e` target; that disposal observation leaves original Unknown outcomes
+unchanged. It is not evidence of success for those original operations.
+
+`86ace9` used native Nextest run `ac2c11b7-d850-41d0-8fed-4e6017ca642b`. Its `native.log` records
+the 14-pass summary; the timestamped JUnit cases identify the actual executed selection, excluding
+the skipped entries also present in that file. The filter selected all six
+`control::immutable_incidence_controls` controls:
+
+- `immutable_bulk_incidence_preserves_equal_replay_new_holders_and_context_free_attempt_cuts`;
+- `immutable_bulk_incidence_tail_maxima_and_collision_roll_back_every_address`;
+- `equal_foreign_attempt_hold_refuses_without_incidence_mutation`;
+- `equal_foreign_attempt_immutable_row_refuses_without_incidence_mutation`;
+- `immutable_insert_into_active_absent_guard_advances_its_revision`;
+- `reused_window_writer_refuses_after_complete_owner_cut`.
+
+It also passed `native_grouped_window_mixed_rows_relations_and_repeated_blob_parent` and
+`frozen_immutable_creation_joins_only_equal_planned_successor_and_keeps_holds_atomic`, all five
+`cleanup_origin_controls` cases (successor terminal ownership, same-incarnation independent holder,
+distinct origin/owner cuts, pin-page exhausted-predicate rollback, and atomic nomination refusals),
+and `native_terminal_release_preserves_stripe_checks_without_an_ordinary_revision_write`.
+The record/log/JUnit paths are beneath `build/runs/20261017T033508.854Z-86ace9`; native evidence is
+in `verify-evidence/ae6b470b89074734a51b214c76e2c38a/`. This covers the new immutable controls and
+preserved equal/foreign/incarnation/parent semantics, plus the selected cleanup/pin/terminal-release
+interactions. It does not establish maximum expanded-packet memory, concurrent retirement commit
+orders or the remaining RE90 journeys.
+
+The subsequently inspected `0a4da0f3` changes formatting in the immutable-incidence controls only;
+production definitions and assertions are unchanged. The recorded executions/checks precede that
+formatting commit, rather than constituting a new post-format run. The actual resource envelope,
+deadlines and concurrency policy remain unchanged; no speed or timeout-remedy claim is supported.
+
+**Current closeout:** the operator requested no further acceptance work. The coordinator reports
+cancellation of renewed enclosing run `5c35a2`; this subsection claims no terminal/cleanup outcome
+for that cancellation. Renewed enclosing acceptance, broader concurrency closure and remaining
+runtime obligations stay open under the coordinator. No new run was launched for this closeout.
