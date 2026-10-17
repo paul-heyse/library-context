@@ -406,9 +406,23 @@ receiving selection, checked live-pin context/closing, genuine independent recei
 observations and interrupted close. Full keep-going workspace check
 `20261017T013311.050Z-c10f51` **failed** only on the two pre-correction test errors. Corrected full
 workspace/all-target check `20261017T013844.714Z-6714a5` **passed**, no emitted warnings and host
-cleanup confirmed. Strict full keep-going Clippy `20261017T014217.304Z-8e0fab` is running. Actual
-normalized-frontier, provider Resource-negative and compiler scope/borrower controls
-`20261017T014030.401Z-a8ba5a` are building; actual overflow/zero-charge closure remains pending.
+cleanup confirmed. Strict full keep-going Clippy `20261017T014217.304Z-8e0fab` **passed** with `-D warnings`, host
+cleanup confirmed; both full checks precede the subsequent bridge correction below. Actual
+normalized-frontier, provider Resource-negative and scope/borrower run
+`20261017T014030.401Z-a8ba5a` ran15:14 **passed**,1 CallScope **timed out**; enclosing fixture
+**failed**, retaining `f339481b-bb73-44a9-adc4-922c69b01b3c`. Normalized admission/export and the
+strict zero-charge assertions were reached and passed; this does not close enclosing acceptance.
+Bounded client probe `20261017T015345.341Z-504076` retained
+`de405073-4543-4c72-8fc6-bb12bf36c789`; exact stack `20261017T015402.962Z-778cc6` exposes nested
+synchronous bridge polling inside a Tokio task. [Integrated F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03)
+owns the source diagnosis: inherited cooperative budget can defer wake to an outer scheduler that
+the nested executor prevents from resuming. `e6dcefc8` isolates only synchronous bridge handoffs;
+async callers/native actors retain ordinary scheduling. Current-thread bridge regression
+`20261017T015747.201Z-671cf1` **passed**10 controls, including512 calls and512 launches with
+actual drainage. `608d269b` migrates the CallScope fixture to awaited APIs and adds complete
+teardown/zero-charge assertions; actual rerun `20261017T015747.544Z-bdd652` is building. The same
+synchronous batch-iterator boundary is being corrected. Both new native attachments remain
+protected; fresh full compile/strict Clippy and final enclosing acceptance remain required.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 The earlier service observation of23 protected attachments was separately settled by authenticated
@@ -427,6 +441,7 @@ deletion or rewritten Unknown follows from host exit or these retained counts.
 | [R:F07](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F07) | open; publisher/RP01 | Exact source finalized before carrier; failed finalization retains Unknown and unpublished output |
 | [R:F08](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F08) | open; Base/RA00 | Shared discovery/typed support preserves root universes, once-only effects and singleton feasibility |
 | [R:F09](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09) | implemented/focused-Tested; Summary/RA01–RA02; integrated acceptance open | Exact endpoint/support factoring preserves necessary output; ordinary/recursive consumers must reach their assertions |
+| [I:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03) | bridge implemented/focused-Tested; batch adapter in progress; compiler-store/cpg-core/CX01/RE90 | Repeated synchronous handoffs progress under inherited Tokio context; async/native fairness, cancellation, actual drainage and CallScope semantic assertions remain |
 
 The following E obligations are transferred with their implemented or decided baseline, **not
 promoted to enclosing verified closure**. RE90 owns remaining verification and any scope-owned

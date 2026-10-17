@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: assembled target review
 
-**Accept scoped, Interface-checked, 2026-10-16, latest scoped source reassessment `0df21c7d`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Revise bounded for F03, Interface-checked, 2026-10-16; latest inspected bridge correction `e6dcefc8`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 assessment in §12 requires the remaining synchronous batch adapter correction and functional acceptance. Earlier scoped acceptances retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
@@ -321,3 +321,56 @@ constructs its concrete body before this boundary, and nested producer polling r
 This assessment neither proves exclusive attribution nor establishes runtime closure of the observed
 stack overflows. Recurring overflow must reopen attribution rather than prompt stack, concurrency
 or deadline overrides. Builds, tests and service operations were **not_run by this reviewer**.
+
+
+<a id="F03"></a>
+
+## 12. F03 — Nested synchronous handoffs inherit a budget they cannot replenish
+
+**Priority: supported progress/correctness defect. Principles: FP-05, FP-07; A4 violated at the
+susceptible adapter. Interface-checked diagnosis, 2026-10-16.** This refines R:F02/E:I08 within
+existing compiler execution responsibilities. [Coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+owns its disposition. No semantic rule change is required.
+
+The actual fifteen-control run `20261017T014030.401Z-a8ba5a` passed fourteen bodies, including the
+normalized-frontier admission/export journey and provider Resource-negative zero-charge control.
+Only the CallScope control timed out. Its whole fixture retained Unknown in attachment
+`f339481b-bb73-44a9-adc4-922c69b01b3c`; the successful bodies do not establish enclosing acceptance.
+A bounded client-only reproduction `20261017T015345.341Z-504076` retained a second attachment,
+`de405073-4543-4c72-8fc6-bb12bf36c789`. No server diagnostics or state mutations were used for
+this attribution. The owned stack receipt `20261017T015402.962Z-778cc6` identifies the test thread
+parked in `futures::executor::block_on` → `NativeBridge::call<ContentHash>` →
+`ProducerOutput::declare_kind<CallDestination>`. The independent bridge actor was idle. An earlier
+stack selection observed the actor rather than the test thread; later attempt `015236…6e28f1`
+found an already terminated process and supplies no client stack.
+
+Independent inspection of pinned Tokio **1.53.2** supports the mechanism: oneshot receiving checks
+cooperative budget before inspecting ready state (`sync/oneshot.rs:1320`); exhausted budget
+registers a deferred enclosing-runtime wake (`task/coop/mod.rs:343–397`). The nested synchronous
+executor parks while preventing that runtime task from returning control to its scheduler.
+Repeated handoffs can therefore stall without native work remaining. This is a progress-contract
+mismatch, not evidence that graph traversal or native query execution caused this particular stall.
+It does not exclusively explain historical timeouts.
+
+`e6dcefc8` corrects the bridge's synchronous call and launch adapters by wrapping only channel
+handoff polling in Tokio's existing `unconstrained` future. Submitted work remains actor-owned and
+cooperatively executed; async bridge calls remain cooperative. Cancellation, bounded queue
+admission, late diagnostics and explicit drainage retain their existing paths. The wrapper restores
+the prior budget after each poll. Moving every synchronous callback to another worker would add
+scheduling and ownership machinery without addressing this narrow adapter directly.
+
+The equivalent synchronous `NativeBatches::Iterator::next` still blocks on Tokio MPSC receiving.
+Ordinary provider threads avoid an inherited Tokio task budget, but synchronous typed iteration in
+Tokio controls is supported. Apply the same adaptation only to that synchronous handoff; preserve
+`next_async` and the independent driver. This is another susceptible adapter established by source
+inspection, not attribution of the captured CallScope stall. The source judgment at `e6dcefc8`
+therefore remains **Revise bounded** until this route is corrected and inspected.
+
+The CallScope fixture correction `608d269b` uses existing awaited declaration/freeze APIs and
+preserves all semantic assertions. Explicit teardown checks selected hydration release, original
+owner/SDK finality and zero final reservations. Its rerun alone cannot validate the synchronous
+bridge correction. Central current-thread regressions must cross the cooperative-budget boundary
+with repeated synchronous requests, launches and batches, then establish actual drainage and
+retained cancellation/error behavior. Actual CallScope acceptance remains required. These are
+functional controls, not timing benchmarks or authority to increase timeouts, stacks or concurrency
+limits. No new executor or diagnostic platform is proposed.
