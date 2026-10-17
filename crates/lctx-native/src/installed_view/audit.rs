@@ -7234,7 +7234,7 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             foreign_reader.close().await.unwrap();
             let own_pin = RecordId::new("native_pin", audit.pin.identity.hex());
             let mut live = client.query("SELECT VALUE released FROM ONLY $pin").bind(("pin", own_pin.clone())).await.unwrap().check().unwrap();
-            assert!(!live.take::<bool>(0).unwrap(), "this audit owns an actual live native pin");
+            assert_eq!(live.take::<Value>(0).unwrap(), Value::Bool(false), "this audit owns an actual live native pin");
             let guard = format!("BEGIN; IF {} {{ THROW 'native installation live pins remain'; }}; CANCEL;", crate::control::live_pin_drain_predicate_for_control());
             let blocked = client.query(guard).await.unwrap().check().unwrap_err();
             assert!(blocked.to_string().contains("native installation live pins remain"), "production live-pin clause itself must exclude the checked lifetime, independently of attempts: {blocked}");
@@ -7242,7 +7242,7 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             if !drift {
                 audit.close().await.unwrap();
                 let mut released = client.query("SELECT VALUE released FROM ONLY $pin").bind(("pin", own_pin)).await.unwrap().check().unwrap();
-                assert!(released.take::<bool>(0).unwrap(), "this audit's exact pin is released regardless of other parallel pins");
+                assert_eq!(released.take::<Value>(0).unwrap(), Value::Bool(true), "this audit's exact pin is released regardless of other parallel pins");
                 assert!(lifetime.check(&reader, &budget).is_err(), "released pin cannot retain checked context");
                 assert!(ordinary.check(&reader, &audit, &budget).await.is_err());
                 return;
