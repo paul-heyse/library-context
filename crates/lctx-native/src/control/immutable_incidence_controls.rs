@@ -176,6 +176,7 @@ async fn immutable_bulk_incidence_preserves_equal_replay_new_holders_and_context
         install_window(&fixture.client, Some(first), install(first, owner1.clone(), row.clone())?, None).await?;
         let first_guard = physical(&fixture.client, &target).await?;
         let first_predicate = predicate(&fixture.client, &target).await?;
+        assert_eq!(revision(&first_guard)?, 1, "vacant guard creation supplies revision one; the first hold must not increment it again");
         assert_eq!(revision(&first_predicate)?, 1, "row and its first hold share one changed-target increment");
         install_window(&fixture.client, Some(first), install(first, owner1.clone(), row.clone())?, None).await?;
         assert_eq!(physical(&fixture.client, &target).await?, first_guard);
