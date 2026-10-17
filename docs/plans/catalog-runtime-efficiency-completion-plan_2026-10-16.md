@@ -236,7 +236,7 @@ shutdown/discard and host cleanup confirmed. Its generation was
 separate discard acknowledgements for `2faec210-e023-4b36-b2e0-b76f1f2911d4` and
 `4f3b2fcf-9059-42a1-89c5-ef23484bce10`. Original failure/Unknown observations remain unchanged.
 Main/validation checks and admission reopening passed. A subsequent approved exact default replacement `20261017T020954.067Z-ed921b` **passed** after
-all workers drained. Its current generation is
+all workers drained. Its generation was
 `ea82ade5fe60bd3078a6e8ac46439a12cda496d260f73feac94fdc0e5f9ae2e4`, journal
 `f48b8e325a5b677dcfec6f90618555262f6d7a05406af4e5d0c3ba6d360f7c7d`, same exact installation
 and pinned peer. Separate discard acknowledgements settle the later CallScope timeout/probe/byte-fixture
@@ -246,6 +246,17 @@ Main/validation check/open and host cleanup passed. Native refresh `20261017T021
 passed after formatting. RE90's outstanding selected-complete rerun is `20261017T021707.714Z-3e0358`;
 predecessor passes remain dated at their own scopes. No target mutation may follow accepted final-state
 evidence without reopening the affected boundary.
+
+Rerun `3e0358` was subsequently stopped after native concurrency failures selected another bounded
+source correction. Exact authorized replacement `20261017T023906.406Z-682a66` **passed** after
+host/executor drainage, with main/validation check/open and host cleanup confirmed. Current generation
+is `ce1ca3917631274968a68eb7b028b1130463ac83f50c95abbbdd991985d66ff3`, journal
+`fb4fa3e1f6e88ff92b9b9479cb8c87b04715dea2f7ae2ed6c3fb25e84f03e10d`, same installation/peer.
+Its exact separate discard acknowledgement settles attachment
+`12604101-fef7-4585-8858-a40960af4897`; original failures/cancellation and native observations
+remain unchanged. Subsequent acceptance must bind this successor, with no credit for workload
+success inferred from replacement. No new campaign or operator adoption occurred.
+
 
 ## 6. RE90 — Integrated functional acceptance
 

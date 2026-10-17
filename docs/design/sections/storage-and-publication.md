@@ -368,6 +368,18 @@ under controlled writes; independent semantic admission remains strict. Privileg
 require quiescence and rebuilding affected state. Native prerequisite controls passed before route
 replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
 
+**Implemented / native verification pending, 2026-10-17 UTC:** terminal `ReleaseRecovery` settlement
+is a monotone deletion after durable exact terminal knowledge. It retains the same transactional
+installation/stripe schema, generation, era and watermark checks and exact effect/reference
+predicate writes, while omitting only the installation-stripe revision increment. A release that
+commits before a cut creates no borrower or eligibility change; a cut that commits first still
+invalidates the stale locked read. History collection retains the exact effect-predicate exclusion.
+`RetainCaller` can establish retention and therefore keeps its stripe write, as do ordinary apply,
+reconciliation, cleanup and real lifecycle cuts. Failed or unknown release retains its actual
+pending recipient until checked settlement. Generation replacement still requires authenticated
+client/executor quiescence. The runtime coordinator owns the revealing native control and enclosing
+acceptance; no ordinary-success deferral or settlement grouping is selected.
+
 **Implemented / Interface-checked, functional acceptance pending, 2026-10-16.** A native audit pin protects an
 observed generation and validity epoch only after a successful post-acquisition comparison.
 Authorized context changes require the native admission cut and drainage, which excludes a live

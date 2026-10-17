@@ -457,6 +457,49 @@ allocation count, laziness, scheduling, tracing and completion. Independent sour
 that bounded correction. The running extraction binaries precede this correction; their dated
 results remain evidence, while affected current-source codegen and functional reruns remain required.
 No recursion-limit increase, warning allowance or unsafe auto-trait implementation is used.
+Corrected extraction codegen `20261017T022450.776Z-818e24` **passed** for all selected test targets,
+without warnings; source reassessment at `9297f305` is recorded in the integrated review.
+
+Outstanding run `3e0358` was stopped at 02:38:15 UTC after a material native correction was selected.
+Exit 137 and host cleanup confirmed at 02:38:22 UTC are separate from native finality. Extraction
+recorded 171 starts, 74 passes and 96 failures, including 60 timeouts and cancellation; the
+boundary is interrupted, not a completed pass. Later boundaries remain not_run. Attachment
+`12604101-fef7-4585-8858-a40960af4897` retains its native obligation. The first concrete failures
+were completion-only cleanup transactions after provider completion; provider execution also
+contained repeated conflicts, so cleanup-only attribution is rejected. Exact SQL hash mapping
+identifies immutable install (`7243deb…`), terminal reference settlement (`9b19e593…`), pin hold
+release (`c2137e7b…`) and cleanup hold pages (`2d036e9d…`).
+
+The selected bounded follow-up removes only the installation-stripe revision write from
+`ReleaseRecovery` terminal reference deletion, retaining its current transactional installation/
+stripe checks and exact effect/reference predicate writes. Ordinary apply, reconciliation,
+`RetainCaller`, hold deletion and real cuts remain unchanged. Implementation `53fb831a` retains the ordinary guard byte-for-byte through one shared check
+literal; only the terminal deletion route omits its revision write. Independent source review
+accepts this bounded change. Its native control shares the production lowering and asserts stripe
+deltas within the transaction (release 0, retention 1), exact replay and refusal preservation;
+actual runtime and enclosing concurrency acceptance remain pending.
+Ordinary settlement grouping is not selected: deferring success would change current finality
+semantics. Existing recovery-owned grouping remains a possible later physical improvement, not
+an excuse to weaken success or retain an unowned obligation. Authorized exact default regeneration
+`20261017T023906.406Z-682a66` **passed**, with authenticated shutdown/discard, main/validation
+check/open and host cleanup confirmed. Current generation is
+`ce1ca3917631274968a68eb7b028b1130463ac83f50c95abbbdd991985d66ff3`, journal
+`fb4fa3e1f6e88ff92b9b9479cb8c87b04715dea2f7ae2ed6c3fb25e84f03e10d`, same installation/peer.
+Attachment `12604101-fef7-4585-8858-a40960af4897` is released with its separate matching discard
+acknowledgement; the stopped run and original native observations are unchanged. No new campaign
+or operator adoption occurred. Fresh functional acceptance must use this successor target.
+
+A second RN02 refinement is selected for the demonstrated long cleanup/pin-release pages. Reuse
+retirement's existing pattern: preserve scalar locked reads, complete distinct attempt cuts, exact
+page/hold/guard/incarnation checks and late rollback, then bulk ordinary predicate increments,
+nomination item insertion and exact hold-ID deletion in the same transaction. No array-valued
+FOR UPDATE, page-size/thread cap, new lifecycle framework or deferred ordinary success is selected.
+The initial source count was approximately 10H record statements plus the complete origin cut for
+cleanup, and approximately 5H for pin release (H at most 128); these are lowering counts, not measured
+server times or proof of exclusive timeout attribution. Implementation and affected controls remain
+open. Full current compile/strict Clippy and native refresh will follow the stable integrated source.
+
+
 
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory
