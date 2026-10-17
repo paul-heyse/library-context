@@ -386,8 +386,16 @@ authenticated shutdown/discard route. Generation is
 `f49200d7cfcfd9194f4ef583c3416b82938c4bf1c96df6e21a906f684873e2d7`, same pinned peer. Both
 attachments are released with separate `installation-discard.json` acknowledgements; original
 Unknowns remain unchanged. Main/validation check/open passed; no new campaign was created.
-Service-free producer launch controls `20261017T012336.994Z-c33c29` are building; source edits
-during that build require a stable-source rerun before final acceptance.
+Service-free producer launch controls `20261017T012336.994Z-c33c29` **passed**9 cases. Because
+source changed during that build, stable-source rerun `20261017T013103.609Z-6aa887` separately
+**passed** all9, including never-polled shutdown, concrete-body refusal/cleanup, delivery, panic,
+cancellation and sibling progress. This does not establish actual normalized-frontier closure.
+Python/document leaves `20261017T013143.776Z-c0e08f`: Pyrefly and agent lint **passed**; Ruff
+**failed** on three formatting lines awaiting final turn-end; ADR/docs **failed** because retained
+ADR-0145/0165 still consume retired ADR-0173 metadata. ADR-0173 is restored as a superseded
+reference record while those historical consumers remain; current governing references still use
+ADR-0178. Accepted decision bodies are unchanged. Native follow-up controls
+`20261017T013121.932Z-5e6618` are running.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 The earlier service observation of23 protected attachments was separately settled by authenticated
