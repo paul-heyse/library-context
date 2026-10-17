@@ -6,6 +6,17 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+
+fn selected_inputs<R: Record>(
+    inputs: &[ValidationInput],
+) -> impl Iterator<Item = &ValidationInput> {
+    // One type may have several exact selected epochs. A native Facts descriptor
+    // cannot stand in for the compact result authored by a later analysis owner.
+    inputs
+        .iter()
+        .filter(|input| input.type_id() == std::any::TypeId::of::<R>())
+}
+
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &datafusion::prelude::SessionContext,
@@ -39,7 +50,7 @@ pub async fn produce(
         data.admit_uniform_owner(owner)?;
     }
     let session = access.session(runtime).await?;
-    macro_rules! read{($($ty:ty),* $(,)?)=>{$(if let Some(input)=inputs.iter().find(|i|i.type_id()==std::any::TypeId::of::<$ty>()){load::<$ty>(&access,&session,input,&mut data).await?;})*};}
+    macro_rules! read{($($ty:ty),* $(,)?)=>{$(for input in selected_inputs::<$ty>(&inputs){load::<$ty>(&access,&session,input,&mut data).await?;})*};}
     lctx_model::final_frontier_inputs!(read);
     let records = frontier::derive(&data, target, budget)?;
     match target {
@@ -71,4 +82,43 @@ pub async fn produce(
     drop(records);
     drop(data);
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod controls {
+    use super::*;
+
+    #[test]
+    fn frontier_reader_preserves_every_selected_uniform_epoch() {
+        for target in [Target::Analysis, Target::Catalog] {
+            let inputs = FrontierData::inputs(target);
+            let selected = selected_inputs::<uniform_outcome::UniformNotRequested>(&inputs)
+                .map(ValidationInput::prefix)
+                .collect::<Vec<_>>();
+            let mut expected = std::collections::BTreeSet::from([Some(PublicationBoundary::Facts)]);
+            expected.extend(
+                analysis::owner::AnalysisOwner::ALL
+                    .into_iter()
+                    .filter(|owner| owner.can_be_wholly_unrequested())
+                    .map(|owner| owner.boundary()),
+            );
+            assert_eq!(selected.len(), expected.len());
+            assert_eq!(
+                selected
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                expected
+            );
+            assert_eq!(
+                selected_inputs::<attribution::ProviderRun>(&inputs).count(),
+                1,
+                "ordinary inputs still select their one canonical role"
+            );
+            assert_eq!(
+                selected_inputs::<analysis::frontier::CatalogAssessment>(&inputs).count(),
+                0,
+                "an undeclared successor cannot become a frontier read"
+            );
+        }
+    }
 }

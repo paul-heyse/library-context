@@ -477,21 +477,49 @@ pub async fn produce(
 /// The model owns this finite technique DAG. Private completion immediately unlocks
 /// its dependants; unrelated slow ranking/concept work is not a community barrier.
 async fn run_techniques(
-    mut preparation: build::TechniquePreparation,
+    preparation: build::TechniquePreparation,
     runtime: &Arc<Workspace>,
     name: &'static str,
 ) -> Result<build::TechniquePreparation, ModelError> {
+    run_techniques_with(
+        preparation,
+        runtime.budget(),
+        runtime.cancellation(),
+        |job| {
+            runtime
+                .spawn_stage(async move { crate::stage_runtime::borrowed_cpu(name, || job.run()) })
+        },
+    )
+    .await
+}
+
+type TechniqueCompletion = BoxFuture<'static, Result<build::TechniqueOutput, ModelError>>;
+
+/// The concrete driver is shared by production and gated finite-model controls.
+/// A failed coordinator has no further use for preparation, but every accepted
+/// task still owns its actual input backing and must be joined before returning.
+async fn run_techniques_with(
+    preparation: build::TechniquePreparation,
+    budget: &resources::ResourceBudget,
+    cancellation: crate::workspace::Cancellation,
+    mut launch: impl FnMut(build::TechniqueJob) -> Result<TechniqueCompletion, ModelError>,
+) -> Result<build::TechniquePreparation, ModelError> {
     const TECHNIQUES: usize = 6;
     type Delivery = BoxFuture<'static, (usize, Result<build::TechniqueOutput, ModelError>)>;
-    let _delivery = runtime.budget().reserve(
+    let _delivery = budget.reserve(
         "analytic private technique delivery",
         TECHNIQUES * (size_of::<Delivery>() + size_of::<Option<build::TechniqueOutput>>() + 128),
     )?;
     let mut pending = FuturesUnordered::<Delivery>::new();
     let mut failures = std::collections::BTreeMap::new();
+    let mut preparation = Some(preparation);
     loop {
         if failures.is_empty() {
-            match preparation.ready() {
+            match preparation
+                .as_mut()
+                .expect("live technique preparation")
+                .ready()
+            {
                 Ok(ready) => {
                     for job in ready {
                         let ordinal = job.ordinal();
@@ -500,20 +528,18 @@ async fn run_techniques(
                                 ordinal,
                                 ModelError::Conflict("analytic technique ordinal"),
                             );
-                            runtime.cancellation().cancel();
+                            cancellation.cancel();
                             break;
                         }
-                        if let Err(error) = runtime.cancellation().check() {
+                        if let Err(error) = cancellation.check() {
                             failures.insert(ordinal, error);
                             break;
                         }
-                        match runtime.spawn_stage(async move {
-                            crate::stage_runtime::borrowed_cpu(name, || job.run())
-                        }) {
+                        match launch(job) {
                             Ok(task) => pending.push(async move { (ordinal, task.await) }.boxed()),
                             Err(error) => {
                                 failures.insert(ordinal, error);
-                                runtime.cancellation().cancel();
+                                cancellation.cancel();
                                 break;
                             }
                         }
@@ -521,24 +547,33 @@ async fn run_techniques(
                 }
                 Err(error) => {
                     failures.insert(TECHNIQUES, error);
-                    runtime.cancellation().cancel();
+                    cancellation.cancel();
                 }
             }
+        }
+        if !failures.is_empty() {
+            // Drop integrated results, retained vectors and unlaunched jobs
+            // before awaiting any remaining accepted work.
+            drop(preparation.take());
         }
         let Some((ordinal, result)) = pending.next().await else {
             break;
         };
         match result {
             Ok(output) if failures.is_empty() => {
-                if let Err(error) = preparation.integrate(output) {
+                if let Err(error) = preparation
+                    .as_mut()
+                    .expect("live technique preparation")
+                    .integrate(output)
+                {
                     failures.insert(ordinal, error);
-                    runtime.cancellation().cancel();
+                    cancellation.cancel();
                 }
             }
             Ok(_) => {}
             Err(error) => {
                 failures.insert(ordinal, error);
-                runtime.cancellation().cancel();
+                cancellation.cancel();
             }
         }
     }
@@ -556,8 +591,8 @@ async fn run_techniques(
         }
         return completion::complete(Err(primary), terminal);
     }
-    runtime.cancellation().check()?;
-    Ok(preparation)
+    cancellation.check()?;
+    Ok(preparation.expect("successful technique preparation"))
 }
 
 #[cfg(test)]
@@ -574,5 +609,391 @@ mod decoder_tests {
                 &decoders,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod technique_lifetime_tests {
+    use super::*;
+    use resources::{Reservation, ResourceBudget, ResourcePool};
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+
+    /// Observe actual finite-model reservations by owner; the underlying pool
+    /// still enforces every admission and all resize/refusal semantics.
+    #[derive(Debug)]
+    struct ObservedPool {
+        budget: ResourceBudget,
+        owners: Arc<Mutex<BTreeMap<&'static str, usize>>>,
+    }
+    #[derive(Debug)]
+    struct ObservedReservation {
+        inner: Box<dyn Reservation>,
+        owner: &'static str,
+        owners: Arc<Mutex<BTreeMap<&'static str, usize>>>,
+    }
+    impl Reservation for ObservedReservation {
+        fn size(&self) -> usize {
+            self.inner.size()
+        }
+        fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
+            let previous = self.size();
+            self.inner.try_resize(bytes)?;
+            let mut owners = self.owners.lock().unwrap();
+            let used = owners.entry(self.owner).or_default();
+            *used = *used - previous + bytes;
+            Ok(())
+        }
+    }
+    impl Drop for ObservedReservation {
+        fn drop(&mut self) {
+            *self.owners.lock().unwrap().entry(self.owner).or_default() -= self.size();
+        }
+    }
+    impl ResourcePool for ObservedPool {
+        fn reserve(
+            &self,
+            owner: &'static str,
+            bytes: usize,
+        ) -> Result<Box<dyn Reservation>, ModelError> {
+            let inner = self.budget.reserve(owner, bytes)?;
+            *self.owners.lock().unwrap().entry(owner).or_default() += bytes;
+            Ok(Box::new(ObservedReservation {
+                inner,
+                owner,
+                owners: self.owners.clone(),
+            }))
+        }
+        fn reserved(&self) -> usize {
+            self.budget.reserved()
+        }
+        fn limit(&self) -> usize {
+            self.budget.limit()
+        }
+    }
+    impl ObservedPool {
+        fn bytes(&self, owner: &'static str) -> usize {
+            self.owners
+                .lock()
+                .unwrap()
+                .get(owner)
+                .copied()
+                .unwrap_or_default()
+        }
+    }
+    fn budget() -> (ResourceBudget, Arc<ObservedPool>) {
+        let pool = Arc::new(ObservedPool {
+            budget: ResourceBudget::fixed(32 << 20).unwrap(),
+            owners: Arc::default(),
+        });
+        (ResourceBudget::from_pool(pool.clone()).unwrap(), pool)
+    }
+    fn id<T>(n: u8) -> Id<T> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    struct Fixture {
+        data: build::Data,
+        frame: semantic::AnalyticFrame,
+        invocations: normalized::Rows<owner::Invocation>,
+        graph: projection::snapshot::MaterializedGraph,
+    }
+    impl Fixture {
+        fn new(budget: &ResourceBudget) -> Self {
+            let mut data = build::Data::new(budget);
+            let settings = analysis::settings::AnalyticsConfiguration {
+                module_prefixes: vec!["api".into()],
+                public_roots: vec!["api".into()],
+                configured_seeds: vec![],
+                depth: 2,
+                vertices: 64,
+                arcs: 128,
+                witnesses: 1,
+                brief_budget: 0,
+                communities: true,
+                pagerank: true,
+                fca: false,
+                rca: false,
+                knn: false,
+                type_layer: true,
+                mention_layer: false,
+                knn_layer: true,
+            };
+            let mut text = embedding::text::TextDefinition::builtin();
+            text.requested = false;
+            data.vectors.text_definitions.insert(text).unwrap();
+            data.settings.insert(settings.clone()).unwrap();
+            let (parent, _) = analysis::structural::Invocation::new(id(1), id(2), id(3), None, []);
+            data.structural_invocations.insert(parent.clone()).unwrap();
+            let mut projected = projection::normalization::ProjectionData::new(budget);
+            let run = projected
+                .runs
+                .insert(attribution::ProviderRun {
+                    provider: id(4),
+                    input: parent.input,
+                    context: parent.context,
+                    configuration: ContentHash::of(b"control"),
+                    requested_families: ContentHash::of(b"empty"),
+                })
+                .unwrap();
+            let scope = source::CoverageScope::Input {
+                input: parent.input,
+            };
+            projected.scopes.insert(scope.clone()).unwrap();
+            for family in
+                projection::ProjectionSpec::builtin(projection::ProjectionName::CallableInvocation)
+                    .families()
+            {
+                projected
+                    .coverage
+                    .insert(attribution::ProviderCoverage {
+                        scope: scope.id(),
+                        provider: Some(id(4)),
+                        context: parent.context,
+                        family: *family,
+                        run: Some(run),
+                        status: attribution::CoverageStatus::CompleteUnderStatedModel,
+                        reason: None,
+                        diagnostic: None,
+                    })
+                    .unwrap();
+            }
+            let input = projection::normalization::describe(
+                &projected,
+                projection::normalization::ProjectionKey {
+                    input: parent.input,
+                    context: parent.context,
+                    name: projection::ProjectionName::CallableInvocation,
+                },
+                budget,
+            )
+            .unwrap();
+            let assessment = input.assessment();
+            let graph = projection::snapshot::MaterializedGraph::build(&input, budget).unwrap();
+            data.graphs.assessments.insert(assessment.clone()).unwrap();
+            let structural = structural::StructuralFrame {
+                invocation: parent.id(),
+                usage_invocation: parent.id(),
+                handoff_invocation: parent.id(),
+                control_invocation: parent.id(),
+                controls_requested: false,
+                configuration: settings.id(),
+                invocation_graph: assessment.id(),
+                definition_graph: id(5),
+            };
+            data.structural.frames.insert(structural.clone()).unwrap();
+            let frame = semantic::AnalyticFrame {
+                structural: structural.id(),
+                configuration: settings.id(),
+            };
+            let mut invocations = normalized::Rows::new(budget);
+            for method in build::METHODS {
+                let (parameters, definition) = build::definition(&settings, method).unwrap();
+                data.parameters.insert(parameters).unwrap();
+                data.definitions.insert(definition.clone()).unwrap();
+                invocations
+                    .insert(
+                        owner::Invocation::new(
+                            parent.input,
+                            parent.context,
+                            definition.id(),
+                            None,
+                            [],
+                        )
+                        .0,
+                    )
+                    .unwrap();
+            }
+            Self {
+                data,
+                frame,
+                invocations,
+                graph,
+            }
+        }
+        fn prepare(&self, budget: &ResourceBudget) -> build::TechniquePreparation {
+            build::prepare(
+                &self.data,
+                &self.frame,
+                &self.invocations,
+                &self.graph,
+                budget,
+                semantic::policy::RETAINED.attributes,
+            )
+            .unwrap()
+        }
+    }
+
+    async fn refused_peer_retires_preparation_before_other_jobs_finish(foreign_completion: bool) {
+        let (budget, observed) = budget();
+        let fixture = Fixture::new(&budget);
+        let preparation = fixture.prepare(&budget);
+        let foreign = foreign_completion.then(|| {
+            let separate = ResourceBudget::fixed(32 << 20).unwrap();
+            let fixture = Fixture::new(&separate);
+            let mut preparation = fixture.prepare(&separate);
+            preparation.ready().unwrap().remove(1).run().unwrap()
+        });
+        let (refuse, refusal) = tokio::sync::oneshot::channel::<()>();
+        let mut refusal = Some(refusal);
+        let mut foreign = foreign;
+        let peers = Arc::new(tokio::sync::Semaphore::new(0));
+        let cancellation = crate::workspace::Cancellation::default();
+        let mut launched = Vec::new();
+        let operation = run_techniques_with(preparation, &budget, cancellation.clone(), |job| {
+            let ordinal = job.ordinal();
+            launched.push(ordinal);
+            Ok(match ordinal {
+                0 => async move { job.run() }.boxed(),
+                1 => {
+                    let refusal = refusal.take().unwrap();
+                    let foreign = foreign.take();
+                    async move {
+                        refusal.await.unwrap();
+                        drop(job);
+                        foreign.ok_or(ModelError::Conflict("analytic peer refused"))
+                    }
+                    .boxed()
+                }
+                2 | 3 => {
+                    let peers = peers.clone();
+                    async move {
+                        let permit = peers.acquire().await.unwrap();
+                        permit.forget();
+                        job.run()
+                    }
+                    .boxed()
+                }
+                _ => panic!("dependent technique launched before vectors complete"),
+            })
+        });
+        let mut operation = Box::pin(operation);
+        assert!(futures::poll!(operation.as_mut()).is_pending());
+        // Rank has integrated; nearest vectors are still live, and the type
+        // layer sits in the dependent community job that cannot launch yet.
+        assert!(observed.bytes(semantic::TechniqueResult::NAME) > 0);
+        assert!(observed.bytes(semantic::LayerResult::NAME) > 0);
+        assert!(observed.bytes(semantic::AnalyticFrame::NAME) > 0);
+        refuse.send(()).unwrap();
+        assert!(futures::poll!(operation.as_mut()).is_pending());
+        assert!(cancellation.check().is_err());
+        assert_eq!(observed.bytes(semantic::TechniqueResult::NAME), 0);
+        assert_eq!(observed.bytes(semantic::LayerResult::NAME), 0);
+        assert_eq!(observed.bytes(semantic::AnalyticFrame::NAME), 0);
+        // Accepted peers still own the real FramePreparation and delivery
+        // slots; cancellation did not pretend those jobs were joined.
+        assert!(observed.bytes("analytic-technique-owners") > 0);
+        assert!(observed.bytes("analytic private technique delivery") > 0);
+        peers.add_permits(2);
+        let error = match operation.as_mut().await {
+            Ok(_) => panic!("refused technique unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        if foreign_completion {
+            assert!(format!("{error:?}").contains("another preparation"));
+        } else {
+            assert!(format!("{error:?}").contains("analytic peer refused"));
+        }
+        drop(operation);
+        assert_eq!(observed.bytes("analytic-technique-owners"), 0);
+        assert_eq!(observed.bytes("analytic private technique delivery"), 0);
+        assert_eq!(launched, vec![0, 1, 2, 3]);
+        drop(fixture);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn worker_refusal_retires_integrated_and_unlaunched_technique_state_before_drain() {
+        refused_peer_retires_preparation_before_other_jobs_finish(false).await;
+    }
+    #[tokio::test]
+    async fn integration_refusal_retires_integrated_and_unlaunched_technique_state_before_drain() {
+        refused_peer_retires_preparation_before_other_jobs_finish(true).await;
+    }
+
+    #[tokio::test]
+    async fn launch_refusal_and_cancellation_release_preparation_but_join_accepted_work() {
+        for cancel_at_launch in [false, true] {
+            let (budget, observed) = budget();
+            let fixture = Fixture::new(&budget);
+            let cancellation = crate::workspace::Cancellation::default();
+            let peers = Arc::new(tokio::sync::Semaphore::new(0));
+            let mut launched = Vec::new();
+            let operation = run_techniques_with(
+                fixture.prepare(&budget),
+                &budget,
+                cancellation.clone(),
+                |job| {
+                    let ordinal = job.ordinal();
+                    launched.push(ordinal);
+                    if ordinal == 1 {
+                        return Err(ModelError::Conflict("analytic launch refused"));
+                    }
+                    assert_eq!(ordinal, 0);
+                    if cancel_at_launch {
+                        cancellation.cancel();
+                    }
+                    let peers = peers.clone();
+                    Ok(async move {
+                        let permit = peers.acquire().await.unwrap();
+                        permit.forget();
+                        job.run()
+                    }
+                    .boxed())
+                },
+            );
+            let mut operation = Box::pin(operation);
+            assert!(futures::poll!(operation.as_mut()).is_pending());
+            assert_eq!(observed.bytes(semantic::AnalyticFrame::NAME), 0);
+            assert_eq!(observed.bytes(semantic::LayerResult::NAME), 0);
+            assert!(observed.bytes("analytic-technique-owners") > 0);
+            peers.add_permits(1);
+            let error = match operation.as_mut().await {
+                Ok(_) => panic!("failed launch unexpectedly succeeded"),
+                Err(error) => error,
+            };
+            assert!(format!("{error:?}").contains(if cancel_at_launch {
+                "compilation cancelled"
+            } else {
+                "analytic launch refused"
+            }));
+            drop(operation);
+            assert_eq!(
+                launched,
+                if cancel_at_launch {
+                    vec![0]
+                } else {
+                    vec![0, 1]
+                }
+            );
+            assert_eq!(observed.bytes("analytic-technique-owners"), 0);
+            drop(fixture);
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn successful_technique_driver_matches_complete_finite_output() {
+        let (budget, _) = budget();
+        let fixture = Fixture::new(&budget);
+        let expected = build::produce(
+            &fixture.data,
+            &fixture.frame,
+            &fixture.invocations,
+            &fixture.graph,
+            &budget,
+        )
+        .unwrap();
+        let preparation = run_techniques_with(
+            fixture.prepare(&budget),
+            &budget,
+            crate::workspace::Cancellation::default(),
+            |job| Ok(async move { job.run() }.boxed()),
+        )
+        .await
+        .unwrap();
+        let actual = preparation.finish(&fixture.data).unwrap();
+        actual.matches(&expected).unwrap();
+        drop((actual, expected, fixture));
+        assert_eq!(budget.reserved(), 0);
     }
 }

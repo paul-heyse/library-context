@@ -70,6 +70,9 @@ Compact metadata retains distinct model-owned roles: native availability at Fact
 family's predecessor checkpoint, and a completed compact owner's own boundary. Required frontier
 inputs retain every exact relation/epoch pair. Nominal compact references retain their explicit
 dependency role set; this grants no merged epoch, and ambiguous unqualified consumption refuses.
+Final frontier acquisition visits every declared role for a record type through its exact permit;
+the first native Facts role cannot replace later compact-owner output roles. Equal selected copies
+retain the existing model-owned coalescing and conflict checks.
 Assertion-support declarations also bind shared vocabulary by its semantic owner: native supports
 use Facts, while derived supports use the producing analysis family’s output boundary. The latter
 can contain newly authored places and conditions; a predecessor checkpoint cannot replace it.
@@ -983,6 +986,11 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 ## §15.11 Compilation and physical realization
 
 **Implemented / integrated functional acceptance blocked,2026-10-17 (ADR-0187).** Complete selected prerequisite readiness replaces broad execution phase barriers. Private checked inputs retain exact dependency/qualification inventories and provider-only facts coverage; final coherent admission and ordered publication remain. Existing joined task owners execute independent typed grains with canonical integration. Analytic indexes and shared incidence remove repeated work; Summary releases dead solving preparation while retaining SCC/global frontier semantics.
+After terminal failure, analytic preparation and queued successful results which cannot integrate
+retire immediately; the outer driver also releases its unused preparation roots before settlement.
+Accepted actions and workers retain their own real backing, queue/delivery capacity and actual joins.
+The [upper-execution coordinator](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns focused lifetime/readiness closure and the remaining native integration outcome.
 
 > Decision: ADR-0187
 

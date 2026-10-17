@@ -753,7 +753,13 @@ async fn coordinate_with_pending<T, A>(
                 };
                 if let Err(error) = accepted {
                     cancellation.cancel();
-                    if failure.is_none() { failure = Some(error); }
+                    if failure.is_none() {
+                        // Queued terminal preparations can no longer integrate. Retire
+                        // their deep payloads now, while the accepted action and live
+                        // siblings retain their own backing through genuine completion.
+                        ready.rows.clear();
+                        failure = Some(error);
+                    }
                     else { terminal.step("sibling stage during coordinator wait", Err(error)); }
                 }
             }
@@ -1301,6 +1307,23 @@ async fn compile_driver(
     let mut failure = None;
     loop {
         if let Some(error) = failure.take() {
+            // No further consumers can launch after terminal failure. Accepted
+            // work already owns its independent authorities/preparation clones;
+            // retire the coordinator's unused roots before awaiting its drainage.
+            drop((
+                providers,
+                receiver_authority,
+                event_authority,
+                binding_application,
+                bindings,
+                products,
+                graphs,
+                local,
+                evaluations,
+                completed_bodies,
+                source_calls,
+                uniform,
+            ));
             return settle_upper_pending(
                 &workspace.cancellation(),
                 &mut pending,
@@ -1890,8 +1913,10 @@ mod upper_completion_controls {
         let observed = action_terminal.clone();
         let token = cancellation.clone();
         let (finish_action, action_finished) = tokio::sync::oneshot::channel();
+        let action_charge = budget.reserve("accepted coordinator action", 512).unwrap();
         let mut coordinating = Box::pin(coordinate_with_pending(
             async move {
+                let _action_charge = action_charge;
                 token.cancelled().await;
                 action_finished.await.map_err(ModelError::codec)?;
                 observed.store(1, Ordering::SeqCst);
@@ -1907,10 +1932,15 @@ mod upper_completion_controls {
         assert!(cancellation.check().is_err());
         assert_eq!(
             dropped.load(Ordering::SeqCst),
-            1,
-            "success observed after refusal is never accepted or buffered"
+            2,
+            "queued and subsequently observed successes retire before the action finishes"
         );
-        assert_eq!(budget.reserved(), queue_bytes + 512);
+        assert_eq!(action_terminal.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            budget.reserved(),
+            queue_bytes + 256 + 512,
+            "queue capacity, live sibling and accepted action retain their actual backing"
+        );
         secondary.send(()).unwrap();
         assert!(futures::poll!(&mut coordinating).is_pending());
         finish_action.send(()).unwrap();
@@ -1934,7 +1964,7 @@ mod upper_completion_controls {
         assert_eq!(
             dropped.load(Ordering::SeqCst),
             2,
-            "buffered private preparation drops on failure"
+            "settlement does not retain an already-dead terminal preparation"
         );
         assert_eq!(
             budget.reserved(),
@@ -1960,6 +1990,86 @@ mod upper_completion_controls {
                 "secondary refusal lost: {cause}: {error}"
             );
         }
+        drop(ready);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn coordinator_queue_refusal_retires_payloads_before_action_and_peer_drain() {
+        let budget = resources::ResourceBudget::fixed(4096).unwrap();
+        let cancellation = crate::workspace::Cancellation::default();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let owned = || OwnedPreparation {
+            _charge: budget.reserve("queue refusal preparation", 256).unwrap(),
+            dropped: dropped.clone(),
+        };
+        let mut ready = ReadyStages::new(1, &budget).unwrap();
+        let queue_bytes = budget.reserved();
+        ready.push(owned()).unwrap();
+        let mut pending: FuturesUnordered<BoxFuture<'_, Result<OwnedPreparation, ModelError>>> =
+            FuturesUnordered::new();
+        let excess = owned();
+        pending.push(async move { Ok(excess) }.boxed());
+        let tail = owned();
+        let token = cancellation.clone();
+        let (drain, drained) = tokio::sync::oneshot::channel();
+        pending.push(
+            async move {
+                token.cancelled().await;
+                drained.await.map_err(ModelError::codec)?;
+                Ok(tail)
+            }
+            .boxed(),
+        );
+        let action_charge = budget.reserve("accepted coordinator action", 512).unwrap();
+        let action_terminal = Arc::new(AtomicUsize::new(0));
+        let observed = action_terminal.clone();
+        let (finish_action, action_finished) = tokio::sync::oneshot::channel();
+        let mut coordinating = Box::pin(coordinate_with_pending(
+            async move {
+                let _action_charge = action_charge;
+                action_finished.await.map_err(ModelError::codec)?;
+                observed.store(1, Ordering::SeqCst);
+                Ok(())
+            },
+            &cancellation,
+            &mut pending,
+            &mut ready,
+        ));
+        assert!(futures::poll!(&mut coordinating).is_pending());
+        assert!(cancellation.check().is_err());
+        assert_eq!(dropped.load(Ordering::SeqCst), 2);
+        assert_eq!(action_terminal.load(Ordering::SeqCst), 0);
+        assert_eq!(budget.reserved(), queue_bytes + 256 + 512);
+        finish_action.send(()).unwrap();
+        let primary = coordinating.await.unwrap_err();
+        assert_eq!(action_terminal.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            primary.primary(),
+            Some(ModelError::Conflict(
+                "compiler ready stages exceed schedule"
+            ))
+        ));
+        assert!(ready.rows.is_empty());
+        let mut settlement = Box::pin(settle_upper_pending(
+            &cancellation,
+            &mut pending,
+            &mut ready,
+            primary,
+        ));
+        assert!(futures::poll!(&mut settlement).is_pending());
+        assert_eq!(budget.reserved(), queue_bytes + 256);
+        drain.send(()).unwrap();
+        let error = settlement.await.unwrap_err();
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Conflict(
+                "compiler ready stages exceed schedule"
+            ))
+        ));
+        assert!(pending.is_empty() && ready.rows.is_empty());
+        assert_eq!(dropped.load(Ordering::SeqCst), 3);
+        assert_eq!(budget.reserved(), queue_bytes);
         drop(ready);
         assert_eq!(budget.reserved(), 0);
     }
