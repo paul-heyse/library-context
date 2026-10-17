@@ -53,10 +53,10 @@ fn discharge_inputs()->Vec<ValidationInput> {
     let mut inputs=vec![ValidationInput::of::<AnalysisObligation>(&["id"]),ValidationInput::of::<ObligationSubject>(&["id"]),ValidationInput::of::<ObligationSource>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<DischargeEvidence>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<AnalysisCoverage>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"])];
     predecessor_obligation_inputs(&mut inputs);
     inputs.extend(ownership::ScopeIndex::inputs());
-    inputs
+    inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(support_vocabulary_boundary())}else {input}).collect()
 }
 pub(crate) fn discharge_invariants()->Vec<Invariant> {
-    vec![Invariant {purpose: crate::domain::InvariantPurpose::Admission,revision: 1,name:owner_table!("analysis_discharge"),inputs:discharge_inputs(),create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {
+    vec![Invariant {purpose: crate::domain::InvariantPurpose::Admission,revision: 2,name:owner_table!("analysis_discharge"),inputs:discharge_inputs(),create:std::sync::Arc::new(|budget|Box::new(DischargeCheck {
         charge:charged::StateCharge::new(budget,"analysis_discharge"),ownership:ownership::ScopeIndex::new(budget,"analysis_discharge"),
         obligations:Default::default(),subjects:Default::default(),sources:Default::default(),frames:Default::default(),evidence:Default::default(),derivations:Default::default(),propositions:Default::default(),qualifications:Default::default(),coverage:Default::default(),conditions:Default::default(),nodes:Default::default(),
     }))}]

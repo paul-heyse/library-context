@@ -28,10 +28,11 @@ pub struct GenericSpecializationObservation {
 pub(crate) fn generic_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "generic_specialization_basis",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<calls::CallSyntax>(&["id"]),
             ValidationInput::of::<calls::Signature>(&["id"]),
             ValidationInput::of::<calls::ProviderSymbol>(&["id"]),

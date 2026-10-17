@@ -434,6 +434,10 @@ pub struct DerivedSupportFrame {
     pub evidence: super::analysis::support::SourceFacts,
 }
 pub trait DerivedSupportSource: Sized + Send + Sync + 'static {
+    /// The completed vocabulary that contains this support's assertion qualifications
+    /// and subject values. Native assertions use Facts; derived assertions use their
+    /// actual producing owner's publication, independently of predecessor premises.
+    fn vocabulary_boundary() -> super::stages::PublicationBoundary;
     fn inputs() -> Vec<ValidationInput>;
     fn index(budget: &super::resources::ResourceBudget) -> Box<dyn DerivedSupportIndex<Self>>;
 }
@@ -448,6 +452,9 @@ pub trait DerivedSupportIndex<S>: Send + Sync {
 pub enum NoDerivedSource {}
 struct NoDerivedIndex;
 impl DerivedSupportSource for NoDerivedSource {
+    fn vocabulary_boundary() -> super::stages::PublicationBoundary {
+        super::stages::PublicationBoundary::Facts
+    }
     fn inputs() -> Vec<ValidationInput> {
         Vec::new()
     }
@@ -633,9 +640,19 @@ pub fn support_invariants<A: Assertion, S: Support<Assertion = A>>() -> Vec<Inva
         ValidationInput::of::<A>(&["id"]),
         ValidationInput::of::<S>(&["id"]),
     ]);
+    let inputs = inputs
+        .into_iter()
+        .map(|input| {
+            if super::stages::is_vocabulary(input.name()) {
+                input.at_epoch(S::Source::vocabulary_boundary())
+            } else {
+                input
+            }
+        })
+        .collect();
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: S::NAME,
         inputs,
         create: std::sync::Arc::new(|budget| Box::new(SupportCheck::<A, S>::new(budget))),

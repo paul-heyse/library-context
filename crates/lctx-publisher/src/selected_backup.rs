@@ -442,8 +442,8 @@ pub(crate) async fn export(
     let mut originals = manifest
         .originals
         .iter()
-        .map(|original| RecordId::new("original", original.source.0.hex()))
-        .collect::<BTreeSet<_>>();
+        .map(|original| lctx_native::originals::layout_id(original.source))
+        .collect::<Result<BTreeSet<_>, _>>()?;
     let mut blobs = BTreeMap::new();
     let mut role_claims = None;
     let mut search_claims = None;

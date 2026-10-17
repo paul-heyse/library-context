@@ -19,7 +19,7 @@ use datafusion::{
 use futures::{FutureExt, TryStreamExt, future::BoxFuture};
 use lctx_model::domain::completed::{CompletedBinding, CompletedContribution, CompletedView};
 use lctx_model::domain::{
-    Batch, ContentHash, ModelError, Record, Relation, ValidatedModel,
+    Batch, ContentHash, ModelError, Record, Relation, ValidatedModel, ValidationInput,
     charged::StateCharge,
     resources::{Reservation, ResourceBudget},
     stages::{Profile, PublicationBoundary},
@@ -1536,11 +1536,29 @@ impl AdmissionRuntime {
                     .collect(),
                 None => self.validation_views(session).await?,
             };
+            let referrers = inputs
+                .relations
+                .iter()
+                .map(|((name, _), source)| {
+                    let relation = self
+                        .model
+                        .relation(name)
+                        .ok_or(ModelError::Schema("validation referrer relation"))?;
+                    let input = ValidationInput::of_relation(relation, &["id"]);
+                    // Detached requested roles alias canonical input; they are premises,
+                    // never additional physically selected publication roots.
+                    Ok(if let Some(epoch) = source.resolved {
+                        input.at_epoch(epoch)
+                    } else {
+                        input
+                    })
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
             let checks = if admission {
-                self.model.admission_candidates_for_scope(&names)?
+                self.model.admission_candidates_for_views(&referrers)?
             } else {
                 self.model
-                    .invariants_for_scope_with_premises(&names, &unrequested)?
+                    .invariants_for_views_with_premises(&referrers, &unrequested)?
             };
             let uniform = self.uniform_owners_async(profile).await?;
             let scoped_inventory = if admission && reference_owner.is_some() {

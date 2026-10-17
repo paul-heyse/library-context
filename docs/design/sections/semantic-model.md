@@ -70,6 +70,23 @@ Compact metadata retains distinct model-owned roles: native availability at Fact
 family's predecessor checkpoint, and a completed compact owner's own boundary. Required frontier
 inputs retain every exact relation/epoch pair. Nominal compact references retain their explicit
 dependency role set; this grants no merged epoch, and ambiguous unqualified consumption refuses.
+Assertion-support declarations also bind shared vocabulary by its semantic owner: native supports
+use Facts, while derived supports use the producing analysis family’s output boundary. The latter
+can contain newly authored places and conditions; a predecessor checkpoint cannot replace it.
+Shared-vocabulary checks are instantiated for each exact referring root epoch; their otherwise
+unqualified vocabulary premises use that same epoch. Static prerequisite closure carries the same
+role through those premises and vocabulary foreign keys, using the shared model binding rule.
+Execution, memo identity and durable
+admission reconstruction consume the same ordered bound definition, preserving explicit roles.
+Analysis-owner declarations finalize their complete assurance inputs before recipe identity and domain
+hashing. Compiler capture and lower compact-owner reconstruction consume this same ordered recipe.
+Profile availability comes from the model’s native contracts, preserving active alternative suppliers;
+no global supplier discovery or weaker inventory comparison is used by lower admission.
+Exact selected dependency traversal discovers each complete view before retaining its descriptor
+and expands each physical contributor once per selected-root operation. Every view/logical physical
+mapping and incarnation check remains independent. Physical inventory and product retention share
+this charged discovery; retained descriptor ownership receives its actual reservation. View identity
+validation borrows its fields and preserves the existing hash encoding.
 The upper execution coordinator owns current functional evidence and its limits.
 
 > Decision: ADR-0187
@@ -827,6 +844,12 @@ consumers of this meaning. The rules:
 - Alternatives are separate derivations of one conclusion.
 - Premise graphs are acyclic.
 - The typed step relations and their sealed digests remain the premise payloads.
+
+**Implemented / focused acceptance pending,2026-10-17.** The generated cycle check consumes
+every actual selected shared-proof epoch in one relation-qualified graph, with ordinary proof
+inputs once. Equal dependency projections coalesce through a charged source index; contradictory
+projections refuse. This neither substitutes for full payload agreement nor changes standalone
+acyclic work accounting. The upper execution coordinator owns current F07 functional evidence.
 
 **Findings.** Analysis findings come from one emitter. Invocations record their input invocations.
 

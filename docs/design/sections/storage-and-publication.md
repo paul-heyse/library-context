@@ -90,6 +90,16 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Implemented / focused-Tested,2026-10-17 (ADR-0189).** Original layouts have
+model/codec-qualified physical addresses because they reference exact model-qualified Source
+payloads. Public source/original manifest identities remain nominal; original blob and chunk bytes
+remain content-addressed. Every producer, byte reader, audit and backup/restore translates through
+one native address owner. Resolve foreign-model source candidates before canonical decoding,
+retaining exact current-candidate checks and strict immutable equality. No nominal fallback or old
+row rewrite is introduced; unresolved old owners remain protected.
+
+> Decision: ADR-0189
+
 **Implemented / integrated functional acceptance blocked,2026-10-17 (ADR-0187).** Selected assurance uses authentic exact contributor and producer-input bindings without installing a partial inventory or widening physical read grants. Provider-only availability is frozen before later upper contributions; joined private work retains its actual inputs, deep results and cleanup obligations through its final borrower.
 
 > Decision: ADR-0187
@@ -588,6 +598,16 @@ mechanisms have independent scoped review acceptance; the coordinator owns uncom
 
 ### §6.2 Readers
 
+**Implemented / focused-Tested,2026-10-17 (ADR-0189).** Logical Source EntityIds
+resolve through the model/codec-qualified original-layout owner. Indexed source candidates from
+foreign model realizations are excluded by exact physical address before canonical decoding;
+malformed or conflicting current candidates still refuse. Byte reads, independent audits and
+selected backup/restore retain exact layout/artifact/blob correspondence and current ownership.
+Cold restore reconstructs nominal original identity from independently decoded source facts,
+while validating all physical header address shapes before selection.
+
+> Decision: ADR-0189
+
 **Implemented / focused-Tested, 2026-10-17 (ADR-0185).** Receiving blob integrity and canonical chunk hashes share one complete independent byte scan within the exact protected incarnation. Every layout/source/hold/range still validates; producer completion never grants receiving trust. Peer holds/equal replay do not invalidate frozen-byte preparation solely through incidental revision changes. Arbitrary requested ranges retain the separate bounded union hydration path. Preparation and point indexes retain their charged backing and registered worker lifetime.
 
 > Decision: ADR-0185
@@ -723,6 +743,16 @@ separate contract from approximate discovery. Resources and continuations pin co
 <a id="section-6-5"></a>
 
 ### §6.5 Services and capability adoption
+
+**Implemented / focused-Tested,2026-10-17 (ADR-0188).** Exact validation-record
+inspection uses the service owner's generation-checked shared lease and installed VIEWER
+credentials. A bounded typed manifest admits only allowed physical table/string-key point reads;
+response/status/identity checks precede observations. Unresolved native borrowers remain protected;
+no maintenance bypass, native admission change or coherent-snapshot claim follows. Arbitrary SQL
+and native MCP retain explicit exclusive maintenance. The upper-execution coordinator owns
+focused acceptance and the outstanding SourceArtifact diagnosis.
+
+> Decision: ADR-0188
 
 **Accepted target / implementation in progress, 2026-10-09 (ADR-0145).** One stable local
 SurrealDB3.3 RocksDB service serves main and validation. Host state and coordination live outside

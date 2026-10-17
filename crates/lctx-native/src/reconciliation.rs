@@ -226,7 +226,7 @@ impl Loader {
         let mut original_chunks = 0u64;
         for original in &manifest.originals {
             self.check_read_admission()?;
-            let id = RecordId::new("original", original.source.0.hex());
+            let id = crate::originals::layout_id(original.source)?;
             let layout = crate::originals::layout(&reader, &id)
                 .await?
                 .ok_or(ModelError::Conflict("native original layout"))?;
@@ -428,8 +428,8 @@ impl<Context> crate::NativeReader<Context> {
         }
         let requests = ranges
             .iter()
-            .map(|(source, start, len)| (RecordId::new("original", source.0.hex()), *start, *len))
-            .collect::<Vec<_>>();
+            .map(|(source, start, len)| Ok((crate::originals::layout_id(*source)?, *start, *len)))
+            .collect::<Result<Vec<_>, ModelError>>()?;
         crate::originals::read_ranges(self, &requests, &self.resource_budget()?).await
     }
 

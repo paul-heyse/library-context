@@ -68,7 +68,7 @@ impl<R: Record> DerivationReference for Option<Id<R>> {
         self.map(RowRef::of)
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proof {
     pub source: RowRef,
     pub conclusion: RowRef,
@@ -121,6 +121,7 @@ pub(super) struct Check {
     sources: Vec<super::Relation>,
     charge: super::charged::StateCharge,
     proofs: super::charged::ChargedVec<Proof>,
+    seen: super::charged::ChargedMap<RowRef, usize>,
     entries: usize,
 }
 impl Check {
@@ -129,8 +130,25 @@ impl Check {
             sources,
             charge: super::charged::StateCharge::new(budget, "derivation_acyclic"),
             proofs: Default::default(),
+            seen: Default::default(),
             entries: 0,
         }
+    }
+    fn retain_projection(&mut self, proof: Proof) -> Result<(), ModelError> {
+        if let Some(index) = self.seen.get(&proof.source) {
+            // This predicate compares the complete declared dependency projection.
+            // Full typed payload agreement is a separate admission prerequisite.
+            if self.proofs[*index] != proof {
+                return Err(ModelError::Conflict(
+                    "selected derivation projection differs",
+                ));
+            }
+            return Ok(());
+        }
+        self.seen
+            .insert(&mut self.charge, proof.source, self.proofs.len())?;
+        self.entries = self.entries.saturating_add(proof.premises.len() + 2);
+        self.proofs.push(&mut self.charge, proof)
     }
 }
 impl super::InvariantCheck for Check {
@@ -145,8 +163,7 @@ impl super::InvariantCheck for Check {
             .find(|s| s.name() == relation)
             .ok_or_else(|| ModelError::Invalid("undeclared proof input".into()))?;
         for proof in source.proofs(batch)? {
-            self.entries = self.entries.saturating_add(proof.premises.len() + 2);
-            self.proofs.push(&mut self.charge, proof)?;
+            self.retain_projection(proof)?;
         }
         Ok(())
     }
@@ -175,3 +192,85 @@ impl super::InvariantCheck for Check {
 /// struct Proof { #[model(key)] name: String, #[model(premise)] prior: Option<Id<Proof>> }
 /// ```
 pub mod declaration_controls {}
+
+#[cfg(test)]
+mod selected_copy_controls {
+    use super::*;
+    use crate::domain::{
+        InvariantCheck, assumptions::Assumption, assumptions_universe::AssumptionUniverseSupport,
+        resources::ResourceBudget,
+    };
+
+    fn shared() -> RowRef {
+        RowRef {
+            relation: Assumption::NAME,
+            id: [1; 16],
+        }
+    }
+    fn ordinary() -> RowRef {
+        RowRef {
+            relation: AssumptionUniverseSupport::NAME,
+            id: [2; 16],
+        }
+    }
+
+    #[test]
+    fn selected_proof_copies_share_one_charged_graph_and_conflicting_projections_refuse() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let proof = Proof {
+            source: shared(),
+            conclusion: shared(),
+            premises: vec![ordinary()],
+        };
+        let mut check = Check::new(vec![], &budget);
+        check.retain_projection(proof.clone()).unwrap();
+        let retained = budget.reserved();
+        check.retain_projection(proof.clone()).unwrap();
+        assert_eq!(check.proofs.len(), 1);
+        assert_eq!(
+            budget.reserved(),
+            retained,
+            "equal publication copies do not multiply retained proof/index storage"
+        );
+        let mut contradictory = proof.clone();
+        contradictory.premises.clear();
+        assert!(check.retain_projection(contradictory).is_err());
+        drop(check);
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "proof and seen-index backing end with the check"
+        );
+        assert!(acyclic(std::slice::from_ref(&proof), 2).is_ok());
+        assert!(
+            acyclic(&[proof.clone(), proof], 2).is_err(),
+            "standalone work accounting still includes duplicate proofs"
+        );
+    }
+
+    #[test]
+    fn selected_shared_and_ordinary_proofs_form_one_cycle_graph() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let a = Proof {
+            source: shared(),
+            conclusion: shared(),
+            premises: vec![ordinary()],
+        };
+        let b = Proof {
+            source: ordinary(),
+            conclusion: ordinary(),
+            premises: vec![shared()],
+        };
+        assert!(acyclic(std::slice::from_ref(&a), usize::MAX).is_ok());
+        assert!(acyclic(std::slice::from_ref(&b), usize::MAX).is_ok());
+        let mut check = Check::new(vec![], &budget);
+        check.retain_projection(a.clone()).unwrap();
+        check.retain_projection(a).unwrap();
+        check.retain_projection(b).unwrap();
+        assert!(
+            Box::new(check).finish().is_err(),
+            "cycle across ordinary and shared publication proof sources must remain visible"
+        );
+        assert_eq!(budget.reserved(), 0);
+    }
+}

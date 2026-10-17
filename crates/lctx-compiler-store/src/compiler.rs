@@ -307,6 +307,216 @@ struct RetainedViewMappings {
     mappings: Vec<lctx_native::installed_view::ContributorRealization>,
     _charge: d::charged::StateCharge,
 }
+struct PendingDependencyView {
+    view: CompletedView,
+    charge: d::charged::StateCharge,
+}
+impl d::HeapSize for PendingDependencyView {
+    fn heap_bytes(&self) -> usize {
+        0
+    }
+}
+/// One selected-root operation discovers each exact view before allocating its
+/// pending descriptor. Physical contributor expansion is a separate graph grain:
+/// every output slot is still checked, but a shared owner's input edges run once.
+struct SelectedDependencyTraversal {
+    budget: ResourceBudget,
+    pending: d::charged::ChargedVec<PendingDependencyView>,
+    pending_capacity: d::charged::StateCharge,
+    discovered: d::charged::ChargedSet<ContentHash>,
+    expanded: d::charged::ChargedSet<ContentHash>,
+    identities: d::charged::StateCharge,
+}
+#[cfg(test)]
+mod selected_dependency_traversal_controls {
+    use super::*;
+
+    #[test]
+    fn selected_dependency_branching_cycles_and_shared_owners_keep_exact_views_once() {
+        let budget = ResourceBudget::fixed(128 << 10).unwrap();
+        let physical = [
+            ContentHash::of(b"owner0"),
+            ContentHash::of(b"owner1"),
+            ContentHash::of(b"owner2"),
+        ];
+        let root = CompletedView::new("root".into(), [physical[0]].into(), 0).unwrap();
+        let left = CompletedView::new("conditions".into(), [physical[1]].into(), 0).unwrap();
+        let right =
+            CompletedView::new("conditions".into(), [physical[1], physical[2]].into(), 0).unwrap();
+        let shared =
+            CompletedView::new("assertion_qualifications".into(), [physical[2]].into(), 0).unwrap();
+        let edges = [
+            (physical[0], vec![&left, &right]),
+            (physical[1], vec![&shared, &root]),
+            (physical[2], vec![&left, &shared]),
+        ]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+        // An existing observation cache grants no expansion for a different root operation.
+        let observed = physical.into_iter().collect::<BTreeSet<_>>();
+        for _ in 0..2 {
+            let mut traversal = SelectedDependencyTraversal::new(&budget);
+            traversal.discover(&root).unwrap();
+            let mut mappings = BTreeSet::new();
+            let mut expanded = 0;
+            while !traversal.is_empty() {
+                let (_capacity, frontier) = traversal.take_frontier();
+                for pending in frontier.iter() {
+                    for owner in &pending.view.contributions {
+                        assert!(observed.contains(owner));
+                        mappings.insert((pending.view.identity, *owner));
+                        if !traversal.expand(*owner).unwrap() {
+                            continue;
+                        }
+                        expanded += 1;
+                        for dependency in &edges[owner] {
+                            traversal.discover(dependency).unwrap();
+                        }
+                        let charged = budget.reserved();
+                        for _ in 0..4096 {
+                            for dependency in &edges[owner] {
+                                assert!(!traversal.discover(dependency).unwrap());
+                            }
+                        }
+                        assert_eq!(
+                            budget.reserved(),
+                            charged,
+                            "duplicate fanout must not allocate or retain pending descriptor storage"
+                        );
+                    }
+                }
+            }
+            assert_eq!(expanded, 3);
+            assert_eq!(
+                mappings,
+                [
+                    (root.identity, physical[0]),
+                    (left.identity, physical[1]),
+                    (right.identity, physical[1]),
+                    (right.identity, physical[2]),
+                    (shared.identity, physical[2])
+                ]
+                .into()
+            );
+            let mut malformed = left.clone();
+            malformed.rows = 1;
+            let charged = budget.reserved();
+            assert!(
+                traversal.discover(&malformed).is_err(),
+                "duplicate identity must still validate its full descriptor"
+            );
+            assert_eq!(budget.reserved(), charged);
+            drop(traversal);
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+
+    #[test]
+    fn selected_dependency_pending_charge_transfers_and_failure_releases() {
+        let view = CompletedView::new(
+            "conditions".into(),
+            [ContentHash::of(b"charge-owner")].into(),
+            0,
+        )
+        .unwrap();
+        let budget = ResourceBudget::fixed(32 << 10).unwrap();
+        let mut traversal = SelectedDependencyTraversal::new(&budget);
+        traversal.discover(&view).unwrap();
+        let PendingDependencyView {
+            charge,
+            view: retained_view,
+        } = traversal.pop().unwrap().unwrap();
+        assert_eq!(retained_view, view);
+        let mut retained =
+            d::charged::StateCharge::new(&budget, "retained selected dependency control");
+        retained.prepare_absorb(&charge).unwrap();
+        retained.absorb(charge).unwrap();
+        drop(traversal);
+        assert!(
+            budget.reserved() > 0,
+            "moved descriptor still owns its charge"
+        );
+        drop(retained_view);
+        drop(retained);
+        assert_eq!(budget.reserved(), 0);
+        let tight = ResourceBudget::fixed(128).unwrap();
+        let mut failed = SelectedDependencyTraversal::new(&tight);
+        assert!(failed.discover(&view).is_err());
+        drop(failed);
+        assert_eq!(tight.reserved(), 0);
+    }
+}
+impl SelectedDependencyTraversal {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            budget: budget.clone(),
+            pending: Default::default(),
+            pending_capacity: d::charged::StateCharge::new(
+                budget,
+                "selected dependency pending capacity",
+            ),
+            discovered: Default::default(),
+            expanded: Default::default(),
+            identities: d::charged::StateCharge::new(
+                budget,
+                "selected dependency discovered identities",
+            ),
+        }
+    }
+    fn discover(&mut self, view: &CompletedView) -> Result<bool, ModelError> {
+        // Identity validation is borrowed: even a duplicate cannot smuggle an
+        // inconsistent full descriptor past enqueue-time deduplication.
+        view.validate()?;
+        if self.discovered.contains(&view.identity) {
+            return Ok(false);
+        }
+        let bytes = size_of::<CompletedView>()
+            .saturating_add(view.relation.capacity())
+            .saturating_add(
+                view.contributions
+                    .len()
+                    .saturating_mul(size_of::<ContentHash>() + 64),
+            )
+            .saturating_add(128);
+        let mut retained =
+            d::charged::StateCharge::new(&self.budget, "selected dependency pending view");
+        retained.grow(bytes)?;
+        self.discovered
+            .insert(&mut self.identities, view.identity)?;
+        self.pending.push(
+            &mut self.pending_capacity,
+            PendingDependencyView {
+                view: view.clone(),
+                charge: retained,
+            },
+        )?;
+        Ok(true)
+    }
+    fn expand(&mut self, physical: ContentHash) -> Result<bool, ModelError> {
+        self.expanded.insert(&mut self.identities, physical)
+    }
+    fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+    fn pop(&mut self) -> Result<Option<PendingDependencyView>, ModelError> {
+        self.pending
+            .take_last(&mut self.pending_capacity)?
+            .map(|value| value.into_inner(&mut self.pending_capacity))
+            .transpose()
+    }
+    fn take_frontier(
+        &mut self,
+    ) -> (
+        d::charged::StateCharge,
+        d::charged::ChargedVec<PendingDependencyView>,
+    ) {
+        let capacity = std::mem::replace(
+            &mut self.pending_capacity,
+            d::charged::StateCharge::new(&self.budget, "selected dependency pending capacity"),
+        );
+        (capacity, std::mem::take(&mut self.pending))
+    }
+}
 /// Provenance of acknowledged declaration/holds, never selection or admission.
 /// The exact descriptor stays in the immutable known-view owner; mappings stay in
 /// their existing charged allocation. This compact marker uses its header allowance.
@@ -2794,39 +3004,8 @@ impl NativeCompilerStore {
         if let Some(mappings) = self.retained_selected_mappings(view)? {
             return Ok((mappings, charge));
         }
-        let view_bytes = |view: &CompletedView| {
-            std::mem::size_of::<CompletedView>()
-                .saturating_add(view.relation.capacity())
-                .saturating_add(
-                    view.contributions
-                        .len()
-                        .saturating_mul(std::mem::size_of::<ContentHash>() + 64),
-                )
-                .saturating_add(128)
-        };
-        struct PendingView {
-            view: CompletedView,
-            _charge: Box<dyn d::resources::Reservation>,
-        }
-        impl d::HeapSize for PendingView {
-            // The descriptor's reservation moves with it through processing;
-            // ChargedVec separately retains the stack's highwater capacity.
-            fn heap_bytes(&self) -> usize {
-                0
-            }
-        }
-        let initial = budget.reserve("selected dependency pending view", view_bytes(view))?;
-        let mut pending_capacity =
-            d::charged::StateCharge::new(budget, "selected dependency pending capacity");
-        let mut pending = d::charged::ChargedVec::default();
-        pending.push(
-            &mut pending_capacity,
-            PendingView {
-                view: view.clone(),
-                _charge: initial,
-            },
-        )?;
-        let mut seen = std::collections::BTreeSet::new();
+        let mut traversal = SelectedDependencyTraversal::new(budget);
+        traversal.discover(view)?;
         let mut mappings = BTreeMap::new();
         let mut working =
             d::charged::StateCharge::new(budget, "selected dependency traversal state");
@@ -2841,14 +3020,10 @@ impl NativeCompilerStore {
                 0
             }
         }
-        while !pending.is_empty() {
+        while !traversal.is_empty() {
             // Dependencies become known only after decoding their selected contributors.
             // Borrow its current frontier; newly discovered views enter the next round.
-            let _frontier_capacity = std::mem::replace(
-                &mut pending_capacity,
-                d::charged::StateCharge::new(budget, "selected dependency pending capacity"),
-            );
-            let frontier = std::mem::take(&mut pending);
+            let (_frontier_capacity, frontier) = traversal.take_frontier();
             let mut views = frontier.iter();
             let mut current_view = None::<(
                 &CompletedView,
@@ -2863,14 +3038,10 @@ impl NativeCompilerStore {
                 let mut unseen = d::charged::ChargedSet::default();
                 while slots.len() < crate::loader::NATIVE_WINDOW_ROWS {
                     if current_view.is_none() {
-                        let Some(PendingView { view: selected, .. }) = views.next() else {
+                        let Some(PendingDependencyView { view: selected, .. }) = views.next()
+                        else {
                             break;
                         };
-                        if seen.contains(&selected.identity) {
-                            continue;
-                        }
-                        working.grow(std::mem::size_of::<ContentHash>() + 64)?;
-                        seen.insert(selected.identity);
                         current_view = Some((selected, selected.contributions.iter()));
                     }
                     let Some((selected, contributions)) = &mut current_view else {
@@ -3008,6 +3179,9 @@ impl NativeCompilerStore {
                         )?;
                         mappings.insert((selected.identity, *logical), mapping);
                     }
+                    if !traversal.expand(*physical)? {
+                        continue;
+                    }
                     for source in &descriptor.spec.inputs {
                         let known = self
                             .known_views
@@ -3016,19 +3190,12 @@ impl NativeCompilerStore {
                         let dependency = known.get(&source.view()).ok_or(ModelError::Conflict(
                             "dependency view requires exact prior attachment/import",
                         ))?;
-                        let retained = budget
-                            .reserve("selected dependency pending view", view_bytes(dependency))?;
-                        pending.push(
-                            &mut pending_capacity,
-                            PendingView {
-                                view: dependency.clone(),
-                                _charge: retained,
-                            },
-                        )?;
+                        traversal.discover(dependency)?;
                     }
                 }
             }
         }
+        drop(traversal);
         charge.grow(
             mappings
                 .len()
@@ -3092,17 +3259,14 @@ impl NativeCompilerStore {
             let (products, _product_charge) = self.retained_product_views(budget).await?;
             let mut selection_charge =
                 d::charged::StateCharge::new(budget, "physical completed selected inventory");
-            selection_charge.grow(
-                bindings
-                    .len()
-                    .saturating_add(products.len())
-                    .saturating_mul(4096),
-            )?;
-            let mut pending = bindings
+            let mut traversal = SelectedDependencyTraversal::new(budget);
+            for view in bindings
                 .iter()
-                .map(|binding| binding.view.clone())
-                .chain(products)
-                .collect::<Vec<_>>();
+                .map(|binding| &binding.view)
+                .chain(products.iter())
+            {
+                traversal.discover(view)?;
+            }
             let mut selections = BTreeMap::new();
             let mut mapping_charges = Vec::new();
             let mapping_reader =
@@ -3114,10 +3278,11 @@ impl NativeCompilerStore {
             };
             let mut observed = BTreeMap::new();
             let mapping_result = async {
-                while let Some(view) = pending.pop() {
-                    if selections.contains_key(&view.identity) {
-                        continue;
-                    }
+                while let Some(PendingDependencyView {
+                    charge: view_charge,
+                    view,
+                }) = traversal.pop()?
+                {
                     self.registered_view(&view).await?;
                     let (mappings, charge) = self
                         .selected_view_mappings_read(
@@ -3137,18 +3302,13 @@ impl NativeCompilerStore {
                             let dependency = known.get(&mapping.view).ok_or(
                                 ModelError::Conflict("physical dependency descriptor absent"),
                             )?;
-                            selection_charge.grow(
-                                dependency
-                                    .relation
-                                    .capacity()
-                                    .saturating_add(
-                                        dependency.contributions.len().saturating_mul(128),
-                                    )
-                                    .saturating_add(1024),
-                            )?;
-                            pending.push(dependency.clone());
+                            traversal.discover(dependency)?;
                         }
                     }
+                    selection_charge.prepare_absorb(&view_charge)?;
+                    selection_charge.absorb(view_charge)?;
+                    selection_charge
+                        .grow(size_of::<lctx_native::completed_state::ViewSelection>() + 64)?;
                     mapping_charges.push(charge);
                     selections.insert(
                         view.identity,
@@ -3168,6 +3328,7 @@ impl NativeCompilerStore {
                 Ok(())
             }
             .await;
+            drop(traversal);
             let mut mapping_terminal = d::completion::Completion::default();
             mapping_terminal.step(
                 "physical inventory mapping reader close",
@@ -6184,7 +6345,7 @@ impl NativeCompilerStore {
                         }else{
                             let backing=validate_state_row("compiler_record",payload)?.ok_or(ModelError::Schema("original completion chunk backing"))?;
                             if object.get("semantic_key")!=Some(&Value::String(key.clone())){return Err(ModelError::Conflict("original completion chunk semantic key"));}
-                            RecordId::new("original",d::graph::EntityId::of(backing.artifact).0.hex())
+                            lctx_native::originals::layout_id(d::graph::EntityId::of(backing.artifact))?
                         };
                         sources.push(source);after=Some(key.clone());
                         observed = observed.checked_add(1).ok_or(ModelError::Schema("original completion count overflow"))?;
@@ -6867,10 +7028,12 @@ impl NativeCompilerStore {
             reader
         };
         let result = async {
-            let layout =
-                lctx_native::originals::layout(&reader, &RecordId::new("original", source.0.hex()))
-                    .await?
-                    .ok_or(ModelError::Conflict("compiler original layout"))?;
+            let layout = lctx_native::originals::layout(
+                &reader,
+                &lctx_native::originals::layout_id(source)?,
+            )
+            .await?
+            .ok_or(ModelError::Conflict("compiler original layout"))?;
             lctx_native::originals::validate_layout(&reader, &layout).await?;
             if !lctx_native::originals::header(&reader, &layout.blob).await? {
                 return Err(ModelError::Conflict("compiler original incomplete blob"));

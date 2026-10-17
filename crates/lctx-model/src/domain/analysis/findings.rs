@@ -233,9 +233,19 @@ pub(crate) fn finding_invariants() -> Vec<Invariant> {
         ValidationInput::of::<conditions::Condition>(&["id"]),
         ValidationInput::of::<conditions::ConditionNode>(&["id"]),
     ]);
+    let inputs = inputs
+        .into_iter()
+        .map(|input| {
+            if stages::is_vocabulary(input.name()) {
+                input.at_epoch(stages::PublicationBoundary::Synthesis)
+            } else {
+                input
+            }
+        })
+        .collect();
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "finding_emitter",
         inputs,
         create: std::sync::Arc::new(|budget| {

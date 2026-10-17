@@ -15,6 +15,7 @@ import contextvars
 import copy
 import fcntl
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -615,9 +616,9 @@ def local_urlopen(request: str | urllib.request.Request, *, timeout: float):
         raise
 
 
-def sql(
+def _sql_request(
     installation: Installation, statement: str, *, cfg: Mapping[str, Any]
-) -> list[dict[str, Any]]:
+) -> urllib.request.Request:
     credentials = f"{cfg['username']}:{cfg['password']}".encode()
     headers = {
         "Authorization": "Basic " + base64.b64encode(credentials).decode(),
@@ -633,9 +634,15 @@ def sql(
         headers.update(
             {"Surreal-Auth-NS": cfg.get("namespace", NAMESPACE), "Surreal-Auth-DB": cfg["database"]}
         )
-    request = urllib.request.Request(
+    return urllib.request.Request(
         installation.endpoint + "/sql", data=statement.encode(), headers=headers
     )
+
+
+def sql(
+    installation: Installation, statement: str, *, cfg: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    request = _sql_request(installation, statement, cfg=cfg)
     try:
         with local_urlopen(request, timeout=25) as response:
             rows = json.load(response)
@@ -646,6 +653,138 @@ def sql(
         raise FixtureBlocked(
             "query", "native request failed; credentials and response withheld"
         ) from None
+
+
+INSPECT_TABLES = frozenset({"entity", "entity_anchor", "native_hold", "compiler_contribution"})
+INSPECT_MAX_RECORDS = 64
+INSPECT_MANIFEST_BYTES = 64 * 1024
+INSPECT_RESPONSE_BYTES = 8 * 1024**2
+
+
+def inspect_records(installation: Installation, manifest: Path) -> dict[str, Any]:
+    """Read exact validation records as its viewer under ordinary generation protection.
+
+    This is an observation, not a snapshot, recovery action or native-finality proof.
+    The fixed physical families use lowercase 32-byte hexadecimal string keys.
+    """
+    try:
+        with manifest.open("rb") as source:
+            data = source.read(INSPECT_MANIFEST_BYTES + 1)
+        if len(data) > INSPECT_MANIFEST_BYTES:
+            raise ValueError("manifest bound")
+        records = json.loads(data)
+        if not isinstance(records, list) or not 0 < len(records) <= INSPECT_MAX_RECORDS:
+            raise ValueError("record count")
+        selected: set[tuple[str, str]] = set()
+        for record in records:
+            if (
+                not isinstance(record, dict)
+                or set(record) != {"table", "key"}
+                or not isinstance(record["table"], str)
+                or record["table"] not in INSPECT_TABLES
+                or not isinstance(record["key"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", record["key"]) is None
+            ):
+                raise ValueError("record identity")
+            identity = record["table"], record["key"]
+            if identity in selected:
+                raise ValueError("duplicate identity")
+            selected.add(identity)
+    except OSError, ValueError, TypeError, RecursionError:
+        raise FixtureFailed(
+            "inspection", "invalid bounded exact-record manifest; content withheld"
+        ) from None
+    if installation.record.get("phase") != "ready":
+        raise FixtureBlocked("installation", "record inspection requires a ready installation")
+    statement = "\n".join(
+        f"SELECT * FROM ONLY {record['table']}:⟨{record['key']}⟩;" for record in records
+    )
+    with borrow(installation) as checked:
+        # Inherited maintenance ownership intentionally yields no ordinary proof.
+        if checked is None:
+            raise FixtureBlocked(
+                "maintenance", "record inspection requires ordinary open admission"
+            )
+        checked.validate(installation)
+        cfg = installation.runtime("validation")
+        viewer = cfg.get("viewer_username")
+        password = cfg.get("viewer_password")
+        if (
+            not isinstance(viewer, str)
+            or not viewer
+            or viewer == "root"
+            or viewer == cfg.get("username")
+            or not isinstance(password, str)
+            or not password
+        ):
+            raise FixtureBlocked("configuration", "installed validation viewer is unavailable")
+        request = _sql_request(
+            installation,
+            statement,
+            cfg={
+                "username": viewer,
+                "password": password,
+                "namespace": NAMESPACE,
+                "database": "validation",
+                "authentication": "database",
+            },
+        )
+        try:
+            with local_urlopen(request, timeout=25) as response:
+                if response.status != 200:
+                    raise FixtureFailed("inspection", "record request refused; response withheld")
+                body = response.read(INSPECT_RESPONSE_BYTES + 1)
+                if len(body) > INSPECT_RESPONSE_BYTES:
+                    raise FixtureFailed("inspection", "record response exceeds its byte bound")
+                envelopes = json.loads(body)
+        except urllib.error.HTTPError as error:
+            error.close()
+            raise FixtureFailed(
+                "inspection", "record HTTP request refused; response withheld"
+            ) from None
+        except OSError, http.client.HTTPException:
+            raise FixtureBlocked("query", "record transport failed; credentials withheld") from None
+        except ValueError, RecursionError:
+            raise FixtureFailed("inspection", "invalid record response; content withheld") from None
+        if not isinstance(envelopes, list) or len(envelopes) != len(records):
+            raise FixtureFailed("inspection", "record response envelope count differs")
+        observations = []
+        for record, envelope in zip(records, envelopes, strict=True):
+            if not isinstance(envelope, dict) or envelope.get("status") not in ("OK", "ERR"):
+                raise FixtureFailed("inspection", "invalid record response envelope")
+            if envelope["status"] != "OK":
+                raise FixtureFailed("inspection", "record statement refused; native cause withheld")
+            if "result" not in envelope:
+                raise FixtureFailed("inspection", "record response result is missing")
+            result = envelope["result"]
+            if result is not None:
+                # HTTP RecordId JSON uses its SQL display spelling. All accepted
+                # spellings below denote this exact safe string key, never a number.
+                table, key = record["table"], record["key"]
+                spellings = {f"{table}:⟨{key}⟩", f"{table}:`{key}`"}
+                if not key.isdecimal():
+                    spellings.add(f"{table}:{key}")
+                if (
+                    not isinstance(result, dict)
+                    or not isinstance(result.get("id"), str)
+                    or result["id"] not in spellings
+                ):
+                    raise FixtureFailed(
+                        "inspection", "record response identity or cardinality differs"
+                    )
+            observations.append(
+                {**record, "status": "absent" if result is None else "present", "result": result}
+            )
+        checked.validate(installation)
+        return {
+            "outcome": "passed",
+            "installation_id": installation.id,
+            "service_generation": list(installation.record["service_generation"]),
+            "namespace": NAMESPACE,
+            "database": "validation",
+            "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "records": observations,
+        }
 
 
 def unit_text(
@@ -4411,6 +4550,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     regenerate_parser.add_argument("--server-generation", type=Path, required=True)
     commands.add_parser("check", help="read-only compatibility and native readiness")
     commands.add_parser("status", help="read-only ownership, state and maintenance observation")
+    inspect_parser = commands.add_parser(
+        "inspect-records", help="viewer-only exact validation records under ordinary admission"
+    )
+    inspect_parser.add_argument("manifest", type=Path)
     backup_parser = commands.add_parser(
         "backup", help="maintenance-owned cold whole-service protected recovery archive"
     )
@@ -4564,7 +4707,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             installation = Installation.load(
                 ready=args.action not in {"status", "dispose-campaign", "regenerate"}
             )
-            if args.action == "status":
+            if args.action == "inspect-records":
+                value = inspect_records(installation, args.manifest)
+            elif args.action == "status":
                 marker = read_json(installation.directory / "maintenance.json")
                 value = {
                     "installation_id": installation.id,

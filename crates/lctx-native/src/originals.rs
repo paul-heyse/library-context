@@ -1,7 +1,7 @@
 //! Shared original bytes. Logical artifact identity retains its exact canonical source payload;
 //! only the full-content-addressed blob owns physical bytes. Completion is earned by readback.
 use lctx_model::domain::{
-    ContentHash, ContentHasher, KeySink, ModelError, Record,
+    ContentHash, ContentHasher, Key, KeySink, ModelError, Record,
     graph::{Entity, EntityId},
     resources::ResourceBudget,
     source::SourceArtifact,
@@ -12,6 +12,31 @@ use surrealdb::{Surreal, engine::remote::grpc::Client};
 
 pub const CHUNK_BYTES: usize = 65536;
 pub const FORMAT: &str = "OriginalBlob/v1";
+
+/// A layout retains a model-qualified source payload. Its address must qualify
+/// the same model even though the logical source and physical byte blob survive it.
+pub fn layout_id(source: EntityId) -> Result<RecordId, ModelError> {
+    Ok(layout_id_for_model(crate::loader::model_digest()?, source))
+}
+fn layout_id_for_model(model: ContentHash, source: EntityId) -> RecordId {
+    layout_id_for_payload_codec(
+        model,
+        source,
+        lctx_model::domain::completed::NATIVE_PAYLOAD_CODEC,
+    )
+}
+fn layout_id_for_payload_codec(
+    model: ContentHash,
+    source: EntityId,
+    payload_codec: &[u8],
+) -> RecordId {
+    let mut key = KeySink::new("original-layout/v1");
+    model.encode(&mut key);
+    key.part(b"codec", b"canonical-original-layout/v1");
+    key.part(b"source-payload-codec", payload_codec);
+    source.0.encode(&mut key);
+    RecordId::new("original", key.finish().hex())
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Blob {
@@ -88,7 +113,7 @@ impl Layout {
     pub fn source(row: &SourceArtifact) -> Result<Self, ModelError> {
         row.validate()?;
         Ok(Self {
-            id: RecordId::new("original", EntityId::of(row.id()).0.hex()),
+            id: layout_id(EntityId::of(row.id()))?,
             artifact: crate::loader::entity_payload_id(&Entity::Source(row.clone()))?,
             blob: Blob::new(row.content, row.byte_len as u64)?,
         })
@@ -263,44 +288,12 @@ pub async fn resolve_source<Context>(
         "anchor",
         crate::reader::target_id(lctx_model::domain::graph::Target::Entity(EntityId(source))),
     );
-    let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(vars,vec![],vec!["SELECT id,canonical FROM entity WITH INDEX anchor_payload WHERE anchor=$anchor AND semantic_type='source_artifacts' ORDER BY id".into()])?)?;
+    let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(vars,vec![],vec!["SELECT id,content,canonical FROM entity WITH INDEX anchor_payload WHERE anchor=$anchor AND semantic_type='source_artifacts' ORDER BY id".into()])?)?;
     let result = async {
         let mut found = None;
         while let Some(value) = stream.next().await? {
-            let Value::Object(row) = value else {
-                return Err(ModelError::Schema("original source candidate"));
-            };
-            let id = RecordId::from_value(
-                row.get("id")
-                    .cloned()
-                    .ok_or(ModelError::Schema("original source candidate identity"))?,
-            )
-            .map_err(ModelError::codec)?;
-            // Ingress claims the exact typed source payload; completed-view admission is earned separately.
-
-            let Some(Value::Bytes(canonical)) = row.get("canonical") else {
-                return Err(ModelError::Schema("original source candidate canonical"));
-            };
-            let _decode = budget.reserve(
-                "original source candidate decode",
-                canonical.len().saturating_mul(8).saturating_add(4096),
-            )?;
-            let entity: Entity = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
-            entity.validate()?;
-            let Entity::Source(source_row) = entity else {
-                return Err(ModelError::Schema("original source candidate kind"));
-            };
-            let layout = Layout::source(&source_row)?;
-            if layout.artifact != id
-                || layout.id != RecordId::new("original", source.hex())
-                || layout.blob.content != content
-                || layout.blob.byte_len != length
-            {
-                return Err(ModelError::Conflict("original source declaration"));
-            }
-            if found.replace(layout).is_some() {
-                return Err(ModelError::Conflict("ambiguous original source payload"));
-            }
+            let candidate = source_candidate(value, source, content, length, budget)?;
+            retain_source_candidate(&mut found, candidate)?;
         }
         found.ok_or(ModelError::Conflict("original source payload missing"))
     }
@@ -311,6 +304,69 @@ pub async fn resolve_source<Context>(
         stream.drain_transport().await,
     );
     lctx_model::domain::completion::complete(result, completion)
+}
+fn source_candidate(
+    value: Value,
+    source: ContentHash,
+    content: ContentHash,
+    length: u64,
+    budget: &ResourceBudget,
+) -> Result<Option<Layout>, ModelError> {
+    let Value::Object(row) = value else {
+        return Err(ModelError::Schema("original source candidate"));
+    };
+    let id = RecordId::from_value(
+        row.get("id")
+            .cloned()
+            .ok_or(ModelError::Schema("original source candidate identity"))?,
+    )
+    .map_err(ModelError::codec)?;
+    let Some(Value::String(payload_content)) = row.get("content") else {
+        return Err(ModelError::Schema("original source candidate content"));
+    };
+    let expected = crate::loader::payload_id(
+        "entity",
+        SourceArtifact::NAME,
+        &source.0,
+        hash(payload_content)?,
+    )?;
+    if id != expected {
+        // The shared anchor is logical; other model realizations are not current
+        // candidates and their canonical formats are never decoded here.
+        return Ok(None);
+    }
+    let Some(Value::Bytes(canonical)) = row.get("canonical") else {
+        return Err(ModelError::Schema("original source candidate canonical"));
+    };
+    let _decode = budget.reserve(
+        "original source candidate decode",
+        canonical.len().saturating_mul(8).saturating_add(4096),
+    )?;
+    let entity: Entity = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
+    entity.validate()?;
+    let Entity::Source(source_row) = entity else {
+        return Err(ModelError::Schema("original source candidate kind"));
+    };
+    let layout = Layout::source(&source_row)?;
+    if layout.artifact != id
+        || layout.id != layout_id(EntityId(source))?
+        || layout.blob.content != content
+        || layout.blob.byte_len != length
+    {
+        return Err(ModelError::Conflict("original source declaration"));
+    }
+    Ok(Some(layout))
+}
+fn retain_source_candidate(
+    found: &mut Option<Layout>,
+    candidate: Option<Layout>,
+) -> Result<(), ModelError> {
+    if let Some(candidate) = candidate
+        && found.replace(candidate).is_some()
+    {
+        return Err(ModelError::Conflict("ambiguous original source payload"));
+    }
+    Ok(())
 }
 pub async fn header<Context>(
     reader: &crate::NativeReader<Context>,
@@ -1223,6 +1279,370 @@ mod tests {
         );
     }
     #[test]
+    fn model_qualified_layouts_preserve_logical_source_and_share_only_blob() {
+        use lctx_model::domain::input::InputRevision;
+        let source = SourceArtifact::from_bytes(
+            InputRevision {
+                manifest: ContentHash([1; 32]),
+            }
+            .id(),
+            "same.py".into(),
+            b"shared",
+        )
+        .unwrap();
+        let entity = Entity::Source(source.clone());
+        let logical = entity.id();
+        let current = Layout::source(&source).unwrap();
+        let model = lctx_model::domain::model().unwrap().digest();
+        let foreign_model = ContentHash::of(b"another semantic model for original layout control");
+        let foreign = Layout {
+            id: layout_id_for_model(foreign_model, logical),
+            artifact: RecordId::new(
+                "entity",
+                lctx_model::domain::completed::payload_address(
+                    foreign_model,
+                    SourceArtifact::NAME,
+                    &logical.0.0,
+                    entity.content(),
+                )
+                .hex(),
+            ),
+            blob: current.blob.clone(),
+        };
+        assert_eq!(current.id, layout_id_for_model(model, logical));
+        assert_ne!(current.id, foreign.id);
+        assert_ne!(current.artifact, foreign.artifact);
+        assert_eq!(current.blob, foreign.blob);
+        assert_eq!(
+            decode_layout(foreign.value()).unwrap().value(),
+            foreign.value()
+        );
+        assert!(foreign.validate_source(&source).is_err());
+        let chunk = lctx_model::domain::artifact::ArtifactChunk {
+            artifact: source.id(),
+            ordinal: 0,
+            body: lctx_model::domain::EvidenceBytes(b"shared".to_vec()),
+        };
+        let metadata = crate::adapter::original_metadata(&chunk).unwrap();
+        assert_eq!(
+            metadata.as_object().unwrap().get("original"),
+            Some(&Value::RecordId(current.id))
+        );
+        let attempt = ContentHash([3; 32]);
+        assert_ne!(
+            pending_id(attempt, &foreign.id).unwrap(),
+            pending_id(attempt, &layout_id(logical).unwrap()).unwrap()
+        );
+    }
+    #[test]
+    fn payload_codec_change_qualifies_layout_without_changing_source_or_blob_addresses() {
+        use lctx_model::domain::input::InputRevision;
+        let source = SourceArtifact::from_bytes(
+            InputRevision {
+                manifest: ContentHash([4; 32]),
+            }
+            .id(),
+            "same.py".into(),
+            b"shared",
+        )
+        .unwrap();
+        let logical = EntityId::of(source.id());
+        let model = crate::loader::model_digest().unwrap();
+        let current = Layout::source(&source).unwrap();
+        let revised_codec = b"independent-native-payload-codec/control";
+        let revised = layout_id_for_payload_codec(model, logical, revised_codec);
+        assert_eq!(
+            current.id,
+            layout_id_for_payload_codec(
+                model,
+                logical,
+                lctx_model::domain::completed::NATIVE_PAYLOAD_CODEC
+            )
+        );
+        assert_ne!(
+            current.id, revised,
+            "layout preserves its source payload codec dependency"
+        );
+        assert_eq!(logical, Entity::Source(source.clone()).id());
+        let reused = Blob::new(source.content, source.byte_len as u64).unwrap();
+        assert_eq!(current.blob.id(), reused.id());
+        assert_eq!(
+            chunk_id(&current.blob.id(), 0).unwrap(),
+            chunk_id(&reused.id(), 0).unwrap()
+        );
+    }
+    #[test]
+    fn source_candidate_excludes_foreign_model_before_decoding_and_refuses_current_corruption() {
+        use lctx_model::domain::input::InputRevision;
+        let source = SourceArtifact::from_bytes(
+            InputRevision {
+                manifest: ContentHash([2; 32]),
+            }
+            .id(),
+            "same.py".into(),
+            b"shared",
+        )
+        .unwrap();
+        let entity = Entity::Source(source.clone());
+        let logical = entity.id().0;
+        let current = Layout::source(&source).unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut row = Object::new();
+        row.insert("id", current.artifact.clone());
+        row.insert("content", entity.content().hex());
+        row.insert(
+            "canonical",
+            Bytes::from(serde_json::to_vec(&entity).unwrap()),
+        );
+        let selected = source_candidate(
+            Value::Object(row.clone()),
+            logical,
+            source.content,
+            source.byte_len as u64,
+            &budget,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.value(), current.value());
+        let mut found = None;
+        retain_source_candidate(&mut found, Some(selected.clone())).unwrap();
+        assert!(
+            retain_source_candidate(&mut found, Some(selected)).is_err(),
+            "current-model ambiguity remains a refusal"
+        );
+        let foreign_id = RecordId::new(
+            "entity",
+            lctx_model::domain::completed::payload_address(
+                ContentHash::of(b"foreign source candidate model"),
+                SourceArtifact::NAME,
+                &logical.0,
+                entity.content(),
+            )
+            .hex(),
+        );
+        let mut foreign = row.clone();
+        foreign.insert("id", foreign_id);
+        foreign.insert(
+            "canonical",
+            Bytes::from(b"not this model's canonical format".to_vec()),
+        );
+        assert!(
+            source_candidate(
+                Value::Object(foreign),
+                logical,
+                source.content,
+                source.byte_len as u64,
+                &budget
+            )
+            .unwrap()
+            .is_none()
+        );
+        row.insert(
+            "canonical",
+            Bytes::from(b"malformed current canonical".to_vec()),
+        );
+        assert!(
+            source_candidate(
+                Value::Object(row.clone()),
+                logical,
+                source.content,
+                source.byte_len as u64,
+                &budget
+            )
+            .is_err()
+        );
+        row.remove("content");
+        assert!(
+            source_candidate(
+                Value::Object(row),
+                logical,
+                source.content,
+                source.byte_len as u64,
+                &budget
+            )
+            .is_err()
+        );
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn two_model_original_layouts_coexist_with_one_blob_and_current_source_resolution() {
+        use futures::FutureExt;
+        use lctx_compiler_store::compiler::NativeCompilerStore;
+        use lctx_model::domain::{admission::Frontier, completion, input::InputRevision};
+        let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("ordinary owned native fixture"),
+        ))
+        .unwrap();
+        let budget =
+            ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+        let factory =
+            lctx_compiler_store::compiler::recovery_factory(&config, budget.clone()).unwrap();
+        let first = NativeCompilerStore::begin(&config, Frontier::Facts, &factory)
+            .await
+            .unwrap();
+        let second = NativeCompilerStore::begin(&config, Frontier::Facts, &factory)
+            .await
+            .unwrap();
+        // Unit tests also link the normal library through compiler-store. The
+        // direct native writes below require this crate instance's own scope.
+        let observer_config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("ordinary owned native fixture"),
+        ))
+        .unwrap();
+        let observer_factory = crate::control::RecoveryFactoryOwner::new(
+            observer_config.receipt_binding().unwrap(),
+            budget.clone(),
+        )
+        .unwrap();
+        let (client, observer_lease) = crate::reader::connect_owned(
+            &observer_config.endpoint,
+            &observer_config.writer_credentials(),
+            first.namespace().as_str(),
+            first.database().as_str(),
+            &observer_factory,
+        )
+        .await
+        .unwrap();
+        let reader = crate::NativeReader::private(client.clone()).with_budget(&budget);
+        let result = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            std::panic::AssertUnwindSafe(async {
+                let body = first.attempt().0.to_vec();
+                let source = SourceArtifact::from_bytes(
+                    InputRevision {
+                        manifest: first.attempt(),
+                    }
+                    .id(),
+                    "two-model-layout.py".into(),
+                    &body,
+                )
+                .unwrap();
+                let entity = Entity::Source(source.clone());
+                let current = Layout::source(&source).unwrap();
+                let foreign_model =
+                    ContentHash::of(b"independent semantic model original layout fixture");
+                let foreign = Layout {
+                    id: layout_id_for_model(foreign_model, entity.id()),
+                    artifact: RecordId::new(
+                        "entity",
+                        lctx_model::domain::completed::payload_address(
+                            foreign_model,
+                            SourceArtifact::NAME,
+                            &entity.id().0.0,
+                            entity.content(),
+                        )
+                        .hex(),
+                    ),
+                    blob: current.blob.clone(),
+                };
+                for (attempt, layout) in [(first.attempt(), &foreign), (second.attempt(), &current)]
+                {
+                    let view = crate::codec::entity_views(std::slice::from_ref(&entity))
+                        .unwrap()
+                        .remove(0);
+                    let physical = crate::adapter::physical_row(
+                        layout.artifact.clone(),
+                        entity.content(),
+                        serde_json::to_vec(&entity).unwrap(),
+                        Some((entity.kind() as i64, entity.subtype())),
+                        view,
+                    )
+                    .unwrap();
+                    let mut payloads = crate::loader::entity_endpoint_values(&entity).unwrap();
+                    payloads.push(physical);
+                    for window in crate::control::ImmutableWindows::new(
+                        payloads,
+                        Some(attempt),
+                        None,
+                        Some(RecordId::new("native_attempt", attempt.hex())),
+                    )
+                    .with_budget(Some(&budget))
+                    {
+                        crate::control::install_window(
+                            &client,
+                            Some(attempt),
+                            window.unwrap(),
+                            Some(&budget),
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    install_completion_layout(&client, attempt, layout, &budget).await;
+                }
+                assert_ne!(current.id, foreign.id);
+                assert_ne!(current.artifact, foreign.artifact);
+                assert_eq!(current.blob, foreign.blob);
+                for expected in [&foreign, &current] {
+                    assert_eq!(
+                        layout(&reader, &expected.id)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .value(),
+                        expected.value()
+                    );
+                }
+                install_completion_pieces(&client, second.attempt(), &current.blob, &body, &budget)
+                    .await;
+                complete_blob(&reader, Some(second.attempt()), &current, &budget)
+                    .await
+                    .unwrap();
+                let resolved = resolve_source(
+                    &reader,
+                    entity.id().0,
+                    source.content,
+                    body.len() as u64,
+                    &budget,
+                )
+                .await
+                .unwrap();
+                assert_eq!(resolved.value(), current.value());
+                assert_eq!(
+                    reader
+                        .original_bytes(entity.id(), 0, body.len())
+                        .await
+                        .unwrap()
+                        .as_ref(),
+                    body.as_slice()
+                );
+                validate_blob(&reader, &foreign.blob, &budget)
+                    .await
+                    .unwrap();
+            })
+            .catch_unwind(),
+        )
+        .await;
+        let mut cleanup = completion::Completion::default();
+        cleanup.step("two model layout reader close", reader.close().await);
+        cleanup.step("two model first attempt cleanup", first.abandon().await);
+        cleanup.step("two model second attempt cleanup", second.abandon().await);
+        let observer_completion = observer_lease.complete_with(&cleanup).await;
+        cleanup.step("two model observer owner completion", observer_completion);
+        drop(observer_lease);
+        cleanup.step(
+            "two model observer factory drainage",
+            observer_factory
+                .drain(&crate::control::RetryCancellation::default())
+                .await,
+        );
+        cleanup.step(
+            "two model attempt factory drainage",
+            factory
+                .drain(&lctx_compiler_store::control::RetryCancellation::default())
+                .await,
+        );
+        let cleaned = completion::complete(Ok(()), cleanup);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned {
+                eprintln!("two model layout cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
+    }
+    #[test]
     fn original_union_reuses_overlapping_blob_pieces_and_preserves_logical_order() {
         let mut body = vec![0; CHUNK_BYTES + 2];
         body[7..10].copy_from_slice(b"abc");
@@ -1959,7 +2379,7 @@ impl PendingOriginals {
         let mut segments = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             chunk.validate()?;
-            let source = RecordId::new("original", EntityId::of(chunk.artifact).0.hex());
+            let source = layout_id(EntityId::of(chunk.artifact))?;
             match layout(reader, &source).await? {
                 Some(layout) => {
                     validate_layout(reader, &layout).await?;

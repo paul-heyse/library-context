@@ -98,10 +98,11 @@ impl SignatureEnumerationObservation {
 pub(crate) fn enumeration_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "native_signature_enumeration",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<ProviderSymbol>(&["id"]),
             ValidationInput::of::<Signature>(&["id"]),
             ValidationInput::of::<SignatureEnumerationObservation>(&["id"]),

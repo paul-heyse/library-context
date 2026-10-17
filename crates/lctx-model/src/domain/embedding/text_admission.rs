@@ -951,13 +951,15 @@ pub(super) fn invariant() -> Invariant {
         ValidationInput::of::<SourceArtifact>(&["id"]),
         ValidationInput::of::<ArtifactUse>(&["id"]),
         ValidationInput::of::<Module>(&["id"]),
-        ValidationInput::of::<AssertionQualification>(&["id"]),
+        ValidationInput::of::<AssertionQualification>(&["id"])
+            .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
         ValidationInput::of::<DeclarationObservation>(&["id"]),
         ValidationInput::of::<ParameterSyntaxObservation>(&["id"]),
         ValidationInput::of::<SyntaxPlacement>(&["id"]),
         ValidationInput::of::<SyntaxDetailObservation>(&["id"]),
         ValidationInput::of::<SyntaxDetail>(&["id"]),
-        ValidationInput::of::<crate::domain::value::Literal>(&["id"]),
+        ValidationInput::of::<crate::domain::value::Literal>(&["id"])
+            .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
         ValidationInput::of::<EntityRef>(&["id"]),
         ValidationInput::of::<CallableEntity>(&["id"]),
         ValidationInput::of::<ClassEntity>(&["id"]),
@@ -974,7 +976,7 @@ pub(super) fn invariant() -> Invariant {
     Invariant {
         name: "analytic_text_original_membership",
         purpose: InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         inputs,
         create: std::sync::Arc::new(|budget| Box::new(Check::new(budget))),
     }

@@ -52,11 +52,12 @@ fn invalid(s: &str) -> ModelError {
 pub(crate) fn invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "actual_pinned_assumption_universe",
         inputs: vec![
-            ValidationInput::of::<AssumptionUniverse>(&["id"]),
-            ValidationInput::of::<Assumption>(&["id"]),
+            ValidationInput::of::<AssumptionUniverse>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Model),
+            ValidationInput::of::<Assumption>(&["id"]).at_epoch(stages::PublicationBoundary::Model),
             ValidationInput::of::<ModelCatalog>(&["id"]),
             ValidationInput::of::<AuthoredModel>(&["id"]),
             ValidationInput::of::<AssumptionUniverseSupport>(&["id"]),

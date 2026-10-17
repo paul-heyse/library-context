@@ -132,12 +132,7 @@ pub struct Loader {
     cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
     budget: Option<lctx_model::domain::resources::ResourceBudget>,
 }
-pub fn payload_id(
-    table: &str,
-    relation: &str,
-    nominal: &[u8],
-    content: ContentHash,
-) -> Result<RecordId, ModelError> {
+pub(crate) fn model_digest() -> Result<ContentHash, ModelError> {
     static MODEL: std::sync::OnceLock<Result<ContentHash, String>> = std::sync::OnceLock::new();
     let model = MODEL
         .get_or_init(|| {
@@ -147,9 +142,18 @@ pub fn payload_id(
         })
         .as_ref()
         .map_err(|error| ModelError::Invalid(error.clone()))?;
+    Ok(*model)
+}
+pub fn payload_id(
+    table: &str,
+    relation: &str,
+    nominal: &[u8],
+    content: ContentHash,
+) -> Result<RecordId, ModelError> {
     Ok(RecordId::new(
         table,
-        lctx_model::domain::completed::payload_address(*model, relation, nominal, content).hex(),
+        lctx_model::domain::completed::payload_address(model_digest()?, relation, nominal, content)
+            .hex(),
     ))
 }
 pub fn entity_payload_id(row: &Entity) -> Result<RecordId, ModelError> {

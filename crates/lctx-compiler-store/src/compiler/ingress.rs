@@ -483,7 +483,7 @@ mod tests {
                 .accept(Batch::new(&model, chunks, &budget)?.into_checked()?)
                 .await?;
             assert_eq!(replay.await_committed().await?.sequence, 2);
-            let source_id = RecordId::new("original", d::graph::EntityId::of(source.id()).0.hex());
+            let source_id = lctx_native::originals::layout_id(d::graph::EntityId::of(source.id()))?;
             // Completion keeps its independent writer and proves exact source EOF.
             crate::control::with_recovery_scope(
                 store.recovery_scope()?,

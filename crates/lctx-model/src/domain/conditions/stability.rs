@@ -454,11 +454,21 @@ pub fn guard_substitution_invariants() -> Vec<Invariant> {
         ValidationInput::of::<GuardSubstitution>(&["id"]),
         ValidationInput::of::<crate::domain::transfer::summary::ControlInfluence>(&["id"]),
     ]);
+    let mut inputs = inputs
+        .into_iter()
+        .map(|input| {
+            if stages::is_vocabulary(input.name()) && input.prefix().is_none() {
+                input.at_epoch(stages::PublicationBoundary::Summary)
+            } else {
+                input
+            }
+        })
+        .collect::<Vec<_>>();
     inputs.sort_by_key(|i| (i.name(), i.prefix().map(|p| p.code())));
     inputs.dedup_by_key(|i| (i.name(), i.prefix().map(|p| p.code())));
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "guard_substitution_replay",
         inputs,
         create: std::sync::Arc::new(|budget| {
@@ -532,7 +542,10 @@ impl InvariantCheck for StabilityCheck {
                     Err(invalid("undeclared Facts binding input"))
                 }
             }
-            Some(_) => Err(invalid("guard binding replay requires Facts vocabulary")),
+            Some(stages::PublicationBoundary::Summary) => self.visit(input.name(), batch),
+            Some(_) => Err(invalid(
+                "guard substitution replay requires Facts or Summary vocabulary",
+            )),
             None => self.visit(input.name(), batch),
         }
     }
@@ -674,4 +687,50 @@ pub(crate) fn stability_invariants_refs() -> Vec<&'static str> {
 }
 pub(crate) fn guard_substitution_invariants_refs() -> Vec<&'static str> {
     vec!["guard_substitution_replay"]
+}
+
+#[cfg(test)]
+mod selected_vocabulary_controls {
+    use super::*;
+
+    #[test]
+    fn guard_substitution_accepts_its_summary_role_and_preserves_facts_binding_role() {
+        use stages::PublicationBoundary::{Facts, Local, Summary};
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let invariant = guard_substitution_invariants().remove(0);
+        let qualification_roles = invariant
+            .inputs
+            .iter()
+            .filter(|input| input.name() == AssertionQualification::NAME)
+            .map(ValidationInput::prefix)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(qualification_roles, [Some(Facts), Some(Summary)].into());
+        let mut kernel = (invariant.create)(&budget);
+        let nodes =
+            <super::super::ConditionNode as Record>::encode(&[super::super::ConditionNode::True])
+                .unwrap();
+        kernel
+            .visit_input(
+                &ValidationInput::of::<super::super::ConditionNode>(&["id"]).at_epoch(Summary),
+                &nodes,
+            )
+            .unwrap();
+        let qualification = arrow_array::RecordBatch::new_empty(AssertionQualification::schema());
+        kernel
+            .visit_input(
+                &ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(Facts),
+                &qualification,
+            )
+            .unwrap();
+        assert!(
+            kernel
+                .visit_input(
+                    &ValidationInput::of::<super::super::ConditionNode>(&["id"]).at_epoch(Local),
+                    &nodes
+                )
+                .is_err()
+        );
+        drop(kernel);
+        assert_eq!(budget.reserved(), 0);
+    }
 }

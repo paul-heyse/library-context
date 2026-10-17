@@ -1753,7 +1753,7 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
         let unrelated = unrelated_owner.as_ref().unwrap();
         assert_ne!(fixture.handle.publication, unrelated.handle.publication);
         for original in &unrelated.manifest.originals {
-            assert!(!expected.contains_key(&RecordId::new("original", original.source.0.hex())));
+            assert!(!expected.contains_key(&lctx_native::originals::layout_id(original.source).unwrap()));
         }
         let output = fixture.scratch.path().join("composed.surql");
         // These are actual independent production owners, not synthetic data mutations.

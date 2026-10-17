@@ -322,10 +322,9 @@ pub fn validate_compiler_backing(
                 .is_none_or(|end| end > i64::MAX as u64)
             || digest_hash.hex() != *digest
             || body.get("original")
-                != Some(&Value::RecordId(RecordId::new(
-                    "original",
-                    d::graph::EntityId::of(artifact).0.hex(),
-                )))
+                != Some(&Value::RecordId(crate::originals::layout_id(
+                    d::graph::EntityId::of(artifact),
+                )?))
         {
             return Err(ModelError::Conflict("compiler original metadata"));
         }

@@ -134,11 +134,12 @@ fn validate_view(row: &FlowSourceViewObservation) -> Result<(), ModelError> {
 pub(crate) fn view_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "flow_view_and_narrowing_precision",
         inputs: vec![
             ValidationInput::of::<source::SourceArtifact>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<FlowSourceViewObservation>(&["id"]),
             ValidationInput::of::<FlowNarrowingObservation>(&["id"]),
         ],
@@ -289,7 +290,7 @@ pub(crate) fn flow_invariants() -> Vec<Invariant> {
         },
         Invariant {
             purpose: crate::domain::InvariantPurpose::Admission,
-            revision: 1,
+            revision: 2,
             name: "flow_source_structure",
             inputs: vec![
                 ValidationInput::of::<Occurrence>(&["id"]),
@@ -300,7 +301,8 @@ pub(crate) fn flow_invariants() -> Vec<Invariant> {
                 ValidationInput::of::<FlowDefinitionObservation>(&["id"]),
                 ValidationInput::of::<FlowValueObservation>(&["id"]),
                 ValidationInput::of::<FlowRegionObservation>(&["id"]),
-                ValidationInput::of::<super::conditions::EvaluationAtom>(&["id"]),
+                ValidationInput::of::<super::conditions::EvaluationAtom>(&["id"])
+                    .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
                 ValidationInput::of::<FlowTestObservation>(&["id"]),
                 ValidationInput::of::<FlowTestLeafObservation>(&["id"]),
                 ValidationInput::of::<FlowAttributeLoadObservation>(&["id"]),

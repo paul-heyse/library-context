@@ -246,6 +246,15 @@ impl SourceCheck {
         inputs.sort_by_key(|input| (input.name(), input.prefix()));
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
         inputs
+            .into_iter()
+            .map(|input| {
+                if crate::domain::stages::is_vocabulary(input.name()) && input.prefix().is_none() {
+                    input.at_epoch(crate::domain::stages::PublicationBoundary::Structural)
+                } else {
+                    input
+                }
+            })
+            .collect()
     }
     fn scope() -> ExecutionScope {
         ExecutionScope {
@@ -272,9 +281,11 @@ impl SourceCheck {
                     ValidationInput::of::<calls::SignatureParameter>(&["id"]),
                 ),
                 (
-                    ValidationInput::of::<assumptions::AssumptionSetMember>(&["id"]),
+                    ValidationInput::of::<assumptions::AssumptionSetMember>(&["id"])
+                        .at_epoch(stages::PublicationBoundary::Structural),
                     "set",
-                    ValidationInput::of::<assumptions::AssumptionSet>(&["id"]),
+                    ValidationInput::of::<assumptions::AssumptionSet>(&["id"])
+                        .at_epoch(stages::PublicationBoundary::Structural),
                 ),
             ],
             joins: vec![ExecutionMembership {
@@ -922,7 +933,7 @@ pub(crate) fn invariants() -> Vec<Invariant> {
             create: std::sync::Arc::new(|b| Box::new(FrameCheck::new(b))),
         },
         Invariant {
-            revision: 1,
+            revision: 2,
             name: "structural_source_fidelity",
             purpose: InvariantPurpose::Admission,
             inputs: SourceCheck::inputs(),

@@ -165,11 +165,12 @@ fn validate_candidate(r: &NativeOverloadCandidate) -> Result<(), ModelError> {
 pub(crate) fn trace_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "native_overload_original_membership",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<SyntaxPlacement>(&["id"]),
             ValidationInput::of::<TypeObservation>(&["id"]),
             ValidationInput::of::<NativeOverloadObservation>(&["id"]),

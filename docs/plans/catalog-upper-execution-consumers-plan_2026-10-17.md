@@ -2,6 +2,8 @@
 
 _Date: 2026-10-17. UC01–UC05 delivered / focused-Tested under ADR-0186; full Catalog qualification remains pending. The coordinator §6 owns actual dispositions and receipts; this companion is not a second mutable status ledger._
 
+The [coordinator’s current checkpoint](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the subsequent layout, epoch, recipe and dependency-traversal corrections and operator-requested closeout. Earlier focused receipts retain their original scope; the latest native integration gate remains pending.
+
 ## 1. Responsibility and basis
 
 This companion implements the consumer preparation corrections F05–F09 and investigates I03 and the window-representation portion of I06 in the [upper-execution review](../design_review/reviews/design_review_catalog-upper-execution-performance-target_2026-10-17.md). The [coordinator](catalog-upper-execution-plan_2026-10-17.md) owns the combined target, shared contracts, prerequisites, rule decisions and sole §6 disposition ledger. This document defines UC01–UC05; it does not create a second findings status register or supersede existing plans.

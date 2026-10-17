@@ -69,8 +69,8 @@ impl AnalysisDerivation {
         Ok((row,proposition,members,result))
     }
 }
-fn support_inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<AnalysisDerivationPremise>(&["id"])];predecessor_support_inputs(&mut inputs);inputs.extend(assumptions::AssumptionIndex::inputs());for input in ownership::ScopeIndex::inputs() {if !inputs.iter().any(|r|r.name()==input.name()) {inputs.push(input);}}inputs}
-pub(crate) fn support_invariants()->Vec<Invariant> {vec![Invariant {purpose: crate::domain::InvariantPurpose::Admission,revision: 1,name:owner_table!("qualified_derivation"),inputs:support_inputs(),create:std::sync::Arc::new(|budget|Box::new(SupportCheck::new(budget)))}]}
+fn support_inputs()->Vec<ValidationInput> {let mut inputs=vec![ValidationInput::of::<AnalysisProposition>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisDefinition>(&["id"]),ValidationInput::of::<AssertionQualification>(&["id"]),ValidationInput::of::<conditions::Condition>(&["id"]),ValidationInput::of::<conditions::ConditionNode>(&["id"]),ValidationInput::of::<NativeQualification>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<AnalysisDerivationPremise>(&["id"])];predecessor_support_inputs(&mut inputs);inputs.extend(assumptions::AssumptionIndex::inputs());for input in ownership::ScopeIndex::inputs() {if !inputs.iter().any(|r|r.name()==input.name()) {inputs.push(input);}}inputs.into_iter().map(|input|if stages::is_vocabulary(input.name()) {input.at_epoch(support_vocabulary_boundary())}else {input}).collect()}
+pub(crate) fn support_invariants()->Vec<Invariant> {vec![Invariant {purpose: crate::domain::InvariantPurpose::Admission,revision: 2,name:owner_table!("qualified_derivation"),inputs:support_inputs(),create:std::sync::Arc::new(|budget|Box::new(SupportCheck::new(budget)))}]}
 struct SupportCheck {
     charge:charged::StateCharge,
     ownership:ownership::ScopeIndex,
@@ -127,6 +127,7 @@ pub fn relations()->Vec<Relation> {vec![Relation::of::<AnalysisProposition>(),Re
 /// Only this publication's derivation can support its generated assertions. A predecessor proof
 /// first participates in a new local derivation with the owner's interpretation and frame.
 impl assertion::DerivedSupportSource for SupportSource {
+    fn vocabulary_boundary() -> stages::PublicationBoundary {support_vocabulary_boundary()}
     fn inputs()->Vec<ValidationInput> {vec![ValidationInput::of::<SupportSource>(&["id"]),ValidationInput::of::<AnalysisDerivation>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"])]}
     fn index(budget:&resources::ResourceBudget)->Box<dyn assertion::DerivedSupportIndex<Self>> {Box::new(CompanionIndex {charge:charged::StateCharge::new(budget,"derived_companion"),sources:Default::default(),derivations:Default::default(),invocations:Default::default()})}
 }

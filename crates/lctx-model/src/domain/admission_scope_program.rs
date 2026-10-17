@@ -143,7 +143,11 @@ impl ExecutionScope {
                 Some(ExecutionMembershipContext::EnrichedInvocation) => {
                     rows.extend([
                         typed::<AnalysisInvocation>(&inputs)?,
-                        typed::<AssertionQualification>(&inputs)?,
+                        input_binding(
+                            &inputs,
+                            &ValidationInput::of::<AssertionQualification>(&["id"])
+                                .at_epoch(stages::PublicationBoundary::EnrichedExecution),
+                        )?,
                     ]);
                     predicates.extend([
                         equal((2, "id"), (0, "invocation")),
@@ -155,7 +159,11 @@ impl ExecutionScope {
                     rows.extend([
                         typed::<ContextExecution>(&inputs)?,
                         typed::<AnalysisInvocation>(&inputs)?,
-                        typed::<AssertionQualification>(&inputs)?,
+                        input_binding(
+                            &inputs,
+                            &ValidationInput::of::<AssertionQualification>(&["id"])
+                                .at_epoch(stages::PublicationBoundary::EnrichedExecution),
+                        )?,
                     ]);
                     predicates.extend([
                         equal((2, "id"), (0, "execution")),

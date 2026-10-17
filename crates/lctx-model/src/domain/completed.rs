@@ -146,28 +146,35 @@ impl CompletedView {
         contributions: BTreeSet<ContentHash>,
         rows: u64,
     ) -> Result<Self, ModelError> {
+        let identity = Self::content_identity(&relation, &contributions, rows)?;
+        Ok(Self {
+            relation,
+            contributions,
+            rows,
+            identity,
+        })
+    }
+    fn content_identity(
+        relation: &str,
+        contributions: &BTreeSet<ContentHash>,
+        rows: u64,
+    ) -> Result<ContentHash, ModelError> {
         if relation.is_empty() || contributions.is_empty() {
             return Err(ModelError::Invalid(
                 "completed view needs relation and completed contributions".into(),
             ));
         }
         let mut sink = KeySink::new("compiler-completed-view/v1");
-        relation.encode(&mut sink);
-        for contribution in &contributions {
+        sink.part(b"text", relation.as_bytes());
+        for contribution in contributions {
             contribution.encode(&mut sink);
         }
         // Count is deduplicated metadata, not a substitute for exact membership.
         sink.part(b"rows", &rows.to_le_bytes());
-        Ok(Self {
-            relation,
-            contributions,
-            rows,
-            identity: sink.finish(),
-        })
+        Ok(sink.finish())
     }
     pub fn validate(&self) -> Result<(), ModelError> {
-        if Self::new(self.relation.clone(), self.contributions.clone(), self.rows)?.identity
-            != self.identity
+        if Self::content_identity(&self.relation, &self.contributions, self.rows)? != self.identity
         {
             return Err(ModelError::Conflict("completed view identity"));
         }
@@ -226,6 +233,9 @@ pub struct DependencySelection {
 
 pub const STATE_FORMAT_VERSION: u32 = 4;
 
+/// Codec identity shared by payload addresses and physical records that reference them.
+pub const NATIVE_PAYLOAD_CODEC: &[u8] = b"canonical-native-json/v1";
+
 /// Physical addresses qualify the complete nominal identity and semantic payload with the
 /// executable model and codec. Nominal identity alone is never a mutable storage address.
 pub fn payload_address(
@@ -236,7 +246,7 @@ pub fn payload_address(
 ) -> ContentHash {
     let mut sink = KeySink::new("native-immutable-payload/v1");
     model.encode(&mut sink);
-    sink.part(b"codec", b"canonical-native-json/v1");
+    sink.part(b"codec", NATIVE_PAYLOAD_CODEC);
     relation.to_string().encode(&mut sink);
     sink.part(b"nominal", nominal);
     content.encode(&mut sink);

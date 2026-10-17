@@ -1216,15 +1216,18 @@ pub fn relations() -> Vec<Relation> {
 pub(crate) fn refutation_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "checked_finite_refutation_membership",
         inputs: vec![
             ValidationInput::of::<ClaimProof>(&["id"]),
             ValidationInput::of::<ClaimRefutationCoverage>(&["ordinal", "id"]),
             ValidationInput::of::<SummaryClaim>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
-            ValidationInput::of::<conditions::Condition>(&["id"]),
-            ValidationInput::of::<ConditionNode>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Summary),
+            ValidationInput::of::<conditions::Condition>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Summary),
+            ValidationInput::of::<ConditionNode>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Summary),
             ValidationInput::of::<ProviderCoverage>(&["id"]),
             ValidationInput::of::<ProviderRun>(&["id"]),
             ValidationInput::of::<owner::AnalysisInvocation>(&["id"]),

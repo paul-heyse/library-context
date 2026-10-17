@@ -143,6 +143,25 @@ impl AnalysisOwner {
     pub fn catalog_only(self) -> bool {
         matches!(self, Self::Selection | Self::Synthesis | Self::Retrieval)
     }
+    /// Vocabulary containing this owner's completed output qualifications. The three
+    /// nonauthoring catalog owners retain the exact vocabulary they render or cite.
+    pub fn output_vocabulary_boundary(self) -> PublicationBoundary {
+        match self {
+            Self::Local | Self::CatalogEvidence | Self::Selection => PublicationBoundary::Local,
+            Self::CatalogCore => PublicationBoundary::Facts,
+            Self::Base => PublicationBoundary::BaseEvaluation,
+            Self::Completion => PublicationBoundary::BaseCompletion,
+            Self::SourceCalls => PublicationBoundary::SourceCall,
+            Self::Enriched => PublicationBoundary::EnrichedExecution,
+            Self::Models => PublicationBoundary::Model,
+            Self::Summary => PublicationBoundary::Summary,
+            Self::Structural => PublicationBoundary::Structural,
+            Self::Embedding => PublicationBoundary::AnalyticEmbedding,
+            Self::Analytic => PublicationBoundary::Analytic,
+            Self::Synthesis => PublicationBoundary::Synthesis,
+            Self::Retrieval => PublicationBoundary::Retrieval,
+        }
+    }
     pub fn can_be_wholly_unrequested(self) -> bool {
         matches!(
             self,
@@ -286,6 +305,9 @@ impl AnalysisOwner {
                     .at_epoch(self.uniform_checkpoint()),
             );
         }
+        dependency_closure::DependencyClosure::complete_stage_inputs(
+            model, &mut stage, profile, order,
+        )?;
         let mut code = KeySink::new("current analysis owner production/v2");
         stage.code.encode(&mut code);
         ContentHash::of(include_bytes!("owner.rs")).encode(&mut code);

@@ -1452,7 +1452,7 @@ fn delivers(
 pub(crate) fn composition_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "call_composition_frames",
         inputs: {
             let mut inputs = vec![
@@ -1492,7 +1492,18 @@ pub(crate) fn composition_invariants() -> Vec<Invariant> {
                 ValidationInput::of::<super::analysis::AnalysisDefinition>(&["id"]),
             ];
             for input in BindingData::validation_inputs().into_iter().chain(BindingOutput::validation_inputs()).chain(super::analysis::local::support::EvidenceIndex::inputs()).chain(super::analysis::model::support::EvidenceIndex::inputs()).chain(<super::analysis::local::SupportSource as assertion::DerivedSupportSource>::inputs()).chain(<super::analysis::model::SupportSource as assertion::DerivedSupportSource>::inputs()).chain(super::ownership::ScopeIndex::inputs()) {if !inputs.iter().any(|old|old.name()==input.name() && old.prefix()==input.prefix()) {inputs.push(input);}}
+            let mut seen = BTreeSet::new();
             inputs
+                .into_iter()
+                .map(|input| {
+                    if super::stages::is_vocabulary(input.name()) && input.prefix().is_none() {
+                        input.at_epoch(super::stages::PublicationBoundary::Summary)
+                    } else {
+                        input
+                    }
+                })
+                .filter(|input| seen.insert((input.name(), input.prefix())))
+                .collect()
         },
         create: std::sync::Arc::new(|budget| Box::new(CompositionCheck::new(budget))),
     }]

@@ -348,13 +348,16 @@ fn validate_export_enumeration(row: &ExportEnumerationObservation) -> Result<(),
 pub(crate) fn export_enumeration_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "export_enumeration_membership",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<Module>(&["id"]),
-            ValidationInput::of::<value::Literal>(&["id"]),
-            ValidationInput::of::<value::LiteralSetMember>(&["id"]),
+            ValidationInput::of::<value::Literal>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
+            ValidationInput::of::<value::LiteralSetMember>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<PublicNameObservation>(&["id"]),
             ValidationInput::of::<ExportEnumerationObservation>(&["id"]),
         ],

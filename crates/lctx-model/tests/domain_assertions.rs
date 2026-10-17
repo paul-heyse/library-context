@@ -34,6 +34,281 @@ fn check(invariant: &Invariant, batches: &BTreeMap<&str, RecordBatch>) -> Result
 }
 
 #[test]
+fn assertion_support_vocabulary_belongs_to_native_or_exact_derived_publication() {
+    use stages::PublicationBoundary::{Facts, Local, Model, Summary};
+    let model = model().unwrap();
+    let derived = [
+        (transfer::local::TransferSupport::NAME, Local),
+        (transfer::local::ControlSupport::NAME, Local),
+        (transfer::model::TransferSupport::NAME, Model),
+        (transfer::summary::TransferSupport::NAME, Summary),
+        (transfer::summary::ControlSupport::NAME, Summary),
+    ];
+    let mut observed = std::collections::BTreeSet::new();
+    let mut native = 0;
+    for invariant in model.invariants() {
+        let Some(scope) = (invariant.create)(&budget()).support_scope() else {
+            continue;
+        };
+        let expected = derived
+            .iter()
+            .find(|(name, _)| *name == scope.support.name())
+            .map_or(Facts, |(_, epoch)| *epoch);
+        if expected == Facts {
+            native += 1;
+        } else {
+            observed.insert(scope.support.name());
+        }
+        assert_eq!(invariant.revision, 2);
+        assert!(
+            invariant
+                .inputs
+                .iter()
+                .any(|input| stages::is_vocabulary(input.name()))
+        );
+        for input in invariant
+            .inputs
+            .iter()
+            .filter(|input| stages::is_vocabulary(input.name()))
+        {
+            assert_eq!(
+                input.prefix(),
+                Some(expected),
+                "{} needs its own {} role",
+                invariant.name,
+                input.name()
+            );
+        }
+    }
+    assert!(native > 0);
+    assert_eq!(observed, derived.iter().map(|(name, _)| *name).collect());
+}
+
+#[test]
+fn output_validation_vocabulary_follows_each_actual_owner() {
+    use stages::PublicationBoundary as P;
+    let definitions = validation::definitions();
+    let families = [
+        ("local", P::Local),
+        ("base_evaluation", P::BaseEvaluation),
+        ("base_completion", P::BaseCompletion),
+        ("source_call", P::SourceCall),
+        ("enriched_execution", P::EnrichedExecution),
+        ("model", P::Model),
+        ("summary", P::Summary),
+        ("structural", P::Structural),
+        ("analytic_embedding", P::AnalyticEmbedding),
+        ("analytic", P::Analytic),
+        ("catalog_core", P::Facts),
+        ("catalog_evidence", P::Local),
+        ("selection", P::Local),
+        ("synthesis", P::Synthesis),
+        ("retrieval", P::Retrieval),
+    ];
+    let assert_role = |name: &str, epoch| {
+        let invariant = definitions
+            .invariants
+            .iter()
+            .find(|invariant| invariant.name == name)
+            .unwrap();
+        assert_eq!(invariant.revision, 2, "{name}");
+        let vocabulary = invariant
+            .inputs
+            .iter()
+            .filter(|input| stages::is_vocabulary(input.name()))
+            .collect::<Vec<_>>();
+        assert!(!vocabulary.is_empty(), "{name}");
+        for input in vocabulary {
+            assert_eq!(input.prefix(), Some(epoch), "{name}/{}", input.name());
+        }
+    };
+    for ((family, epoch), owner) in families
+        .into_iter()
+        .zip(analysis::owner::AnalysisOwner::ALL)
+    {
+        assert_eq!(owner.output_vocabulary_boundary(), epoch);
+        assert_role(&format!("{family}_qualified_derivation"), epoch);
+        assert_role(&format!("{family}_analysis_discharge"), epoch);
+    }
+    for (family, epoch) in [
+        ("local", P::Local),
+        ("model", P::Model),
+        ("summary", P::Summary),
+    ] {
+        assert_role(&format!("{family}_transfer_keys"), epoch);
+        if family != "model" {
+            assert_role(&format!("{family}_transfer_selections"), epoch);
+        }
+    }
+    assert_role("finding_emitter", P::Synthesis);
+    for native in [
+        "complete_signature_membership",
+        "complete_call_alternatives",
+        "call_target_ownership",
+    ] {
+        assert_role(native, P::Facts);
+    }
+    for native in [
+        "native_signature_enumeration",
+        "declaration_links",
+        "generic_specialization_basis",
+        "selected_type_location_shapes",
+        "native_overload_original_membership",
+        "flow_capture_inventory",
+        "flow_use_inventory_admission",
+        "flow_view_and_narrowing_precision",
+        "flow_source_structure",
+        "export_enumeration_membership",
+        "analytic_text_original_membership",
+    ] {
+        assert_role(native, P::Facts);
+    }
+    assert_role("actual_pinned_assumption_universe", P::Model);
+    assert_role("checked_finite_refutation_membership", P::Summary);
+    assert_role("structural_source_fidelity", P::Structural);
+    for (name, epoch) in [
+        ("execution_expression_fidelity", P::BaseEvaluation),
+        ("execution_statement_fidelity", P::BaseCompletion),
+        ("execution_body_fidelity", P::BaseCompletion),
+        ("execution_header_fidelity", P::SourceCall),
+        ("execution_release_fidelity", P::SourceCall),
+        ("execution_invocation_fidelity", P::SourceCall),
+        ("enriched_statement_fidelity", P::EnrichedExecution),
+        ("enriched_body_fidelity", P::EnrichedExecution),
+        ("enriched_fresh_fidelity", P::EnrichedExecution),
+        ("enriched_modeled_fidelity", P::EnrichedExecution),
+        ("enriched_definition_fidelity", P::EnrichedExecution),
+        ("enriched_binding_fidelity", P::EnrichedExecution),
+        ("enriched_context_fidelity", P::EnrichedExecution),
+        ("enriched_capture_fidelity", P::EnrichedExecution),
+    ] {
+        assert_role(name, epoch);
+    }
+    let composition = definitions
+        .invariants
+        .iter()
+        .find(|check| check.name == "call_composition_frames")
+        .unwrap();
+    assert_eq!(composition.revision, 2);
+    assert!(composition.inputs.iter().any(|input| input.name()
+        == assertion::AssertionQualification::NAME
+        && input.prefix() == Some(P::Facts)));
+    assert!(composition.inputs.iter().any(|input| input.name()
+        == assertion::AssertionQualification::NAME
+        && input.prefix() == Some(P::Summary)));
+    assert!(
+        composition
+            .inputs
+            .iter()
+            .filter(|input| stages::is_vocabulary(input.name()))
+            .all(|input| matches!(input.prefix(), Some(P::Facts | P::Summary)))
+    );
+}
+
+#[test]
+fn ordinary_admission_vocabulary_roles_remain_explicit_beside_distinct_epochs() {
+    let model = model().unwrap();
+    let roots = model
+        .relations()
+        .iter()
+        .flat_map(|relation| {
+            let input = ValidationInput::of_relation(relation, &["id"]);
+            if stages::is_vocabulary(relation.name()) {
+                vec![
+                    input.clone().at_epoch(stages::PublicationBoundary::Facts),
+                    input.at_epoch(stages::PublicationBoundary::Local),
+                ]
+            } else {
+                vec![input]
+            }
+        })
+        .collect::<Vec<_>>();
+    let unresolved = model
+        .admission_candidates_for_views(&roots)
+        .unwrap()
+        .into_iter()
+        .flat_map(|check| {
+            check
+                .inputs
+                .into_iter()
+                .filter(|input| stages::is_vocabulary(input.name()) && input.prefix().is_none())
+                .map(move |input| (check.name, input.name()))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        unresolved.is_empty(),
+        "ordinary admission declarations need exact vocabulary roles: {unresolved:?}"
+    );
+}
+
+#[test]
+fn generated_derivation_keeps_shared_roles_in_one_cross_relation_check() {
+    use stages::PublicationBoundary::{Facts, Local};
+    let model = model().unwrap();
+    let roots = [
+        ValidationInput::of::<assumptions::Assumption>(&["id"]).at_epoch(Facts),
+        ValidationInput::of::<assumptions::Assumption>(&["id"]).at_epoch(Local),
+        ValidationInput::of::<assumptions_universe::AssumptionUniverseSupport>(&["id"]),
+    ];
+    let checks = model.admission_candidates_for_views(&roots).unwrap();
+    let generated = checks
+        .iter()
+        .filter(|check| check.name == "derivation_acyclic")
+        .collect::<Vec<_>>();
+    assert_eq!(generated.len(), 1);
+    let generated = generated[0];
+    assert_eq!(generated.revision, 2);
+    let roles = generated
+        .inputs
+        .iter()
+        .map(|input| (input.name(), input.prefix()))
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        roles,
+        [
+            (assumptions::Assumption::NAME, Some(Facts)),
+            (assumptions::Assumption::NAME, Some(Local)),
+            (assumptions_universe::AssumptionUniverseSupport::NAME, None),
+        ]
+        .into()
+    );
+}
+
+#[test]
+fn actual_admission_scope_programs_bind_their_exact_declared_roles() {
+    let model = model().unwrap();
+    let budget = resources::ResourceBudget::fixed(128 << 20).unwrap();
+    let mut executions = 0;
+    let mut supports = 0;
+    let mut failures = Vec::new();
+    for invariant in model
+        .invariants()
+        .iter()
+        .filter(|check| check.purpose == InvariantPurpose::Admission)
+    {
+        let kernel = (invariant.create)(&budget);
+        if let Some(scope) = kernel.execution_scope() {
+            executions += 1;
+            if let Err(error) = scope.program(invariant.inputs.clone(), &model, &budget) {
+                failures.push((invariant.name, error.to_string()));
+            }
+        }
+        if let Some(scope) = kernel.support_scope() {
+            supports += 1;
+            if let Err(error) = scope.program(invariant.inputs.clone(), &model, &budget) {
+                failures.push((invariant.name, error.to_string()));
+            }
+        }
+    }
+    assert!(executions > 0 && supports > 0);
+    assert!(
+        failures.is_empty(),
+        "actual selected admission scope endpoints must match declared input roles: {failures:?}"
+    );
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
 fn qualified_assertions_preserve_alternatives_and_require_typed_attribution() {
     let model = model().unwrap();
     let input = InputRevision::from_entries(vec![]).unwrap();

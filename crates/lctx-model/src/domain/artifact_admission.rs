@@ -49,7 +49,7 @@ pub struct ArtifactAdmissionEvidence {
     pub production_contract: ContentHash,
 }
 pub fn production_contract() -> ContentHash {
-    ContentHash::of(b"artifact-admission/v1;facts-producer-coverage;exact-references;applicable-invariants;profile-frontier;canonical-entity-assertion-derivations;manifest-outcomes;physical-completion")
+    ContentHash::of(b"artifact-admission/v1;facts-producer-coverage;exact-references;exact-root-epoch-invariant-instances;finalized-analysis-owner-recipes;profile-frontier;canonical-entity-assertion-derivations;manifest-outcomes;physical-completion")
 }
 pub fn frontier_checks(
     frontier: d::admission::Frontier,
@@ -95,12 +95,31 @@ impl ArtifactAdmissionEvidence {
                 "artifact admission complete current contract/physical binding",
             ));
         }
-        let names = bindings
-            .iter()
-            .filter(|binding| binding.boundary.is_none())
-            .map(|binding| binding.view.relation.as_str())
-            .collect::<BTreeSet<_>>();
-        let checks = model.admission_candidates_for_scope(&names)?;
+        let mut referrers = Vec::new();
+        let mut roles = BTreeSet::new();
+        for binding in bindings {
+            let relation = model
+                .relation(&binding.view.relation)
+                .ok_or(ModelError::Schema("admission referrer relation"))?;
+            let prefix = binding
+                .boundary
+                .as_deref()
+                .map(|boundary| {
+                    d::stages::PublicationBoundary::from_name(boundary).ok_or(ModelError::Conflict(
+                        "admission referrer publication boundary",
+                    ))
+                })
+                .transpose()?;
+            if roles.insert((relation.name(), prefix)) {
+                let input = d::ValidationInput::of_relation(relation, &["id"]);
+                referrers.push(if let Some(epoch) = prefix {
+                    input.at_epoch(epoch)
+                } else {
+                    input
+                });
+            }
+        }
+        let checks = model.admission_candidates_for_views(&referrers)?;
         if checks.len() != self.invariants.len() {
             return Err(ModelError::Conflict(
                 "artifact admission applicable invariant ledger",
@@ -212,6 +231,9 @@ fn validate_inputs(
                 resolved,
             } => {
                 if *requested != input.prefix()
+                    || input
+                        .prefix()
+                        .is_some_and(|prefix| resolved.is_some_and(|actual| actual != prefix))
                     || source.model() != model.digest()
                     || source.relation() != input.name()
                     || !bindings.iter().any(|binding| {
@@ -248,4 +270,254 @@ fn validate_inputs(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod exact_epoch_controls {
+    use super::*;
+    use d::{Record, Relation, stages::PublicationBoundary as P};
+
+    #[test]
+    fn artifact_ledger_retains_each_root_epoch_and_refuses_other_epoch_substitution() {
+        let model = d::model().unwrap();
+        let budget = d::resources::ResourceBudget::fixed(16 << 20).unwrap();
+        let mut bindings = Vec::new();
+        for epoch in [P::Facts, P::Local] {
+            for relation in [
+                Relation::of::<d::conditions::Condition>(),
+                Relation::of::<d::conditions::ConditionNode>(),
+            ] {
+                let view = d::completed::CompletedView::new(
+                    relation.name().into(),
+                    [ContentHash::of(epoch.name().as_bytes())].into(),
+                    1,
+                )
+                .unwrap();
+                bindings.push(d::completed::CompletedBinding {
+                    boundary: Some(epoch.name().into()),
+                    source: d::analysis::sources::SourceSnapshot::of_completed_view(
+                        &relation,
+                        model.digest(),
+                        &view,
+                    )
+                    .unwrap(),
+                    view,
+                    configuration: None,
+                });
+            }
+        }
+        let referrers = [P::Facts, P::Local, P::Facts].map(|epoch| {
+            d::ValidationInput::of::<d::conditions::Condition>(&["id"]).at_epoch(epoch)
+        });
+        let checks = model.admission_candidates_for_views(&referrers).unwrap();
+        assert_eq!(
+            checks.len(),
+            2,
+            "same check and exact root role deduplicate"
+        );
+        assert_eq!(checks[0].name, checks[1].name);
+        assert_ne!(checks[0].digest(), checks[1].digest());
+        assert!(std::sync::Arc::ptr_eq(&checks[0].create, &checks[1].create));
+        for (check, epoch) in checks.iter().zip([P::Facts, P::Local]) {
+            assert!(
+                check
+                    .inputs
+                    .iter()
+                    .all(|input| input.prefix() == Some(epoch))
+            );
+            let mut kernel = (check.create)(&budget);
+            let node = if epoch == P::Facts {
+                d::conditions::ConditionNode::False
+            } else {
+                d::conditions::ConditionNode::True
+            };
+            for input in &check.inputs {
+                let batch = if input.name() == d::conditions::ConditionNode::NAME {
+                    d::conditions::ConditionNode::encode(std::slice::from_ref(&node)).unwrap()
+                } else {
+                    d::conditions::Condition::encode(&[d::conditions::Condition {
+                        root: node.id(),
+                    }])
+                    .unwrap()
+                };
+                kernel.visit_input(input, &batch).unwrap();
+            }
+            kernel.finish().unwrap();
+        }
+        let roots = d::completed_identity::CompletedFamilyRoots::new(
+            d::recovery_closure::COMPLETED_FAMILIES.map(|family| {
+                d::completed_identity::CompletedFamilyHasher::new(family)
+                    .unwrap()
+                    .finish()
+            }),
+        )
+        .unwrap();
+        let mut evidence = ArtifactAdmissionEvidence {
+            version: 1,
+            model: model.digest(),
+            bindings: d::completed::binding_inventory_identity(&bindings).unwrap(),
+            manifest: d::graph::Manifest {
+                admission_contract: ContentHash::of(b"epoch-ledger-admission-control"),
+                completed_state: d::completed::CompletedStateIdentity::from_roots(&roots).unwrap(),
+                format_version: d::graph::ARTIFACT_FORMAT_VERSION,
+                frontier: d::admission::Frontier::Facts,
+                profile: d::stages::Profile::Behavioral,
+                captures: vec![],
+                semantic_contract: model.digest(),
+                producers: vec![],
+                settings: ContentHash::of(b"epoch-ledger-control"),
+                families: vec![],
+                required_outcomes: vec![],
+                outcomes: vec![],
+                originals: vec![],
+                projections: vec![],
+                embeddings: vec![],
+            },
+            invariants: checks
+                .iter()
+                .map(|check| ValidationExecution {
+                    name: check.name.into(),
+                    revision: check.revision,
+                    definition: check.digest(),
+                    factory: model
+                        .factory_contract(check.identity())
+                        .map(|factory| factory.identity().unwrap()),
+                    execution: Execution::WholeInput,
+                    inputs: check
+                        .inputs
+                        .iter()
+                        .map(|input| {
+                            let binding = bindings
+                                .iter()
+                                .find(|binding| {
+                                    binding.view.relation == input.name()
+                                        && binding.boundary.as_deref()
+                                            == input.prefix().map(P::name)
+                                })
+                                .unwrap();
+                            SelectedInput::Completed {
+                                source: binding.source.clone(),
+                                requested: input.prefix(),
+                                resolved: input.prefix(),
+                            }
+                        })
+                        .collect(),
+                })
+                .collect(),
+            frontier: vec![],
+            production_contract: production_contract(),
+        };
+        evidence
+            .validate_current(&model, &bindings, &roots, &budget)
+            .unwrap();
+        let pristine = evidence.clone();
+        let mut missing_check = evidence.clone();
+        missing_check.invariants.pop();
+        assert!(
+            missing_check
+                .validate_current(&model, &bindings, &roots, &budget)
+                .is_err()
+        );
+        let replacement = bindings
+            .iter()
+            .find(|binding| {
+                binding.view.relation == d::conditions::ConditionNode::NAME
+                    && binding.boundary.as_deref() == Some(P::Local.name())
+            })
+            .unwrap();
+        evidence.invariants[0].inputs[0] = SelectedInput::Completed {
+            source: replacement.source.clone(),
+            requested: Some(P::Facts),
+            resolved: Some(P::Local),
+        };
+        assert!(
+            evidence
+                .validate_current(&model, &bindings, &roots, &budget)
+                .is_err(),
+            "another authentic epoch cannot satisfy the Facts companion"
+        );
+        evidence = pristine.clone();
+        bindings.retain(|binding| {
+            !(binding.view.relation == d::conditions::ConditionNode::NAME
+                && binding.boundary.as_deref() == Some(P::Facts.name()))
+        });
+        evidence.bindings = d::completed::binding_inventory_identity(&bindings).unwrap();
+        assert!(
+            evidence
+                .validate_current(&model, &bindings, &roots, &budget)
+                .is_err(),
+            "missing one companion cannot fall back to another epoch"
+        );
+
+        let canonical_bindings = bindings
+            .iter()
+            .filter(|binding| binding.boundary.as_deref() == Some(P::Local.name()))
+            .cloned()
+            .map(|mut binding| {
+                binding.boundary = None;
+                binding
+            })
+            .collect::<Vec<_>>();
+        let canonical = model
+            .admission_candidates_for_views(&[d::ValidationInput::of::<d::conditions::Condition>(
+                &["id"],
+            )])
+            .unwrap();
+        assert_eq!(
+            canonical.len(),
+            1,
+            "canonical imported roots do not invent publication epochs"
+        );
+        let check = &canonical[0];
+        let mut detached = pristine;
+        detached.bindings = d::completed::binding_inventory_identity(&canonical_bindings).unwrap();
+        detached.invariants = vec![ValidationExecution {
+            name: check.name.into(),
+            revision: check.revision,
+            definition: check.digest(),
+            factory: model
+                .factory_contract(check.identity())
+                .map(|factory| factory.identity().unwrap()),
+            execution: Execution::WholeInput,
+            inputs: check
+                .inputs
+                .iter()
+                .map(|input| SelectedInput::Completed {
+                    source: canonical_bindings
+                        .iter()
+                        .find(|binding| binding.view.relation == input.name())
+                        .unwrap()
+                        .source
+                        .clone(),
+                    requested: None,
+                    resolved: None,
+                })
+                .collect(),
+        }];
+        detached
+            .validate_current(&model, &canonical_bindings, &roots, &budget)
+            .unwrap();
+        let declaration =
+            d::ValidationInput::of::<d::conditions::ConditionNode>(&["id"]).at_epoch(P::Facts);
+        let source = canonical_bindings
+            .iter()
+            .find(|binding| binding.view.relation == declaration.name())
+            .unwrap();
+        let alias = ValidationExecution {
+            inputs: vec![SelectedInput::Completed {
+                source: source.source.clone(),
+                requested: Some(P::Facts),
+                resolved: None,
+            }],
+            ..detached.invariants[0].clone()
+        };
+        validate_inputs(
+            &model,
+            &[declaration],
+            &alias,
+            &canonical_bindings,
+            d::stages::Profile::Behavioral,
+        )
+        .unwrap();
+    }
 }

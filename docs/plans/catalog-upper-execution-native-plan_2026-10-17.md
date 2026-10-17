@@ -6,6 +6,8 @@ The [coordinator](catalog-upper-execution-plan_2026-10-17.md) owns shared contra
 rule directions, dependencies and the sole §6 disposition ledger. This document does not
 supersede existing plans or own their unresolved native obligations.
 
+The [coordinator’s current checkpoint](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns the subsequent layout, epoch, recipe and dependency-traversal corrections and operator-requested closeout. Earlier focused receipts retain their original scope; the latest native integration gate remains pending.
+
 ## 1. Basis and foundation assessment
 
 Source inspected at **d37a14add3e18d6a101aa4710dcd279b5445e896**, 2026-10-17. The implemented

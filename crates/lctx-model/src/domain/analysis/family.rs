@@ -147,6 +147,11 @@ macro_rules! analysis_family {
                 ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"])
                     .at_epoch(owner.uniform_checkpoint())
             }
+            fn support_vocabulary_boundary() -> stages::PublicationBoundary {
+                crate::domain::analysis::owner::AnalysisOwner::for_family($prefix)
+                    .expect("declared analysis family")
+                    .output_vocabulary_boundary()
+            }
             pub(crate) mod invocation {include!("family/invocation.rs");}
             pub use invocation::*;
             pub mod coverage {include!("family/coverage.rs");}

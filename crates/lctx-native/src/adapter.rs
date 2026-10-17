@@ -189,7 +189,7 @@ pub fn original_metadata(row: &d::artifact::ArtifactChunk) -> Result<Value, Mode
     body.insert("ordinal", row.ordinal);
     body.insert(
         "original",
-        surrealdb::types::RecordId::new("original", d::graph::EntityId::of(row.artifact).0.hex()),
+        crate::originals::layout_id(d::graph::EntityId::of(row.artifact))?,
     );
     body.insert("start", start);
     body.insert("len", row.body.0.len() as u64);

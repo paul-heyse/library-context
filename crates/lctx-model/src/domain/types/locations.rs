@@ -12,10 +12,11 @@ use crate::domain::{
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "selected_type_location_shapes",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<Occurrence>(&["id"]),
             ValidationInput::of::<SyntaxPlacement>(&["id"]),
             ValidationInput::of::<TypeObservation>(&["id"]),

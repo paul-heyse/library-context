@@ -486,40 +486,15 @@ fn complete_assurance_declarations(
     profile: Profile,
     order: &PublicationOrder,
 ) -> Result<Vec<Stage>, ModelError> {
-    let available = stages
-        .iter()
-        .filter(|stage| stage.profiles.contains(&profile))
-        .flat_map(|stage| stage.outputs.iter().chain(&stage.contributes))
-        .map(|relation| relation.name())
-        .collect::<std::collections::BTreeSet<_>>();
-    let absent_flow = producer_contract::facts::ty_flow()
-        .outputs
-        .iter()
-        .filter(|r| !is_vocabulary(r.name()))
-        .map(|relation| relation.name())
-        .collect::<std::collections::BTreeSet<_>>();
     for stage in &mut stages {
         if providers.contains(stage.name)
             || !stage.profiles.contains(&profile)
             || stage.inputs.is_empty()
+            || analysis::owner::AnalysisOwner::resolve(stage.name).is_ok()
         {
             continue;
         }
-        let roots = dependency_closure::DependencyClosure::roots_from_uses(model, &stage.inputs)?;
-        let mut grants = dependency_closure::DependencyClosure::grants(
-            model,
-            roots,
-            stage.inputs.clone(),
-            &stage.outputs,
-            PublicationBoundary::Facts,
-            dependency_closure::LowerLayerPolicy::IncludeInferredOrdinaryFacts,
-            order,
-        )?;
-        grants.retain(|grant| {
-            available.contains(grant.name())
-                || !(profile == Profile::Catalog && absent_flow.contains(grant.name()))
-        });
-        stage.inputs = grants;
+        dependency_closure::DependencyClosure::complete_stage_inputs(model, stage, profile, order)?;
     }
     Ok(stages)
 }
@@ -2359,6 +2334,7 @@ mod readiness_declaration_controls {
             include_str!("../../lctx-model/models/external.toml"),
         )
         .unwrap();
+        let mut unresolved_vocabulary = std::collections::BTreeMap::new();
         for profile in Profile::ALL {
             for frontier in [
                 Frontier::Facts,
@@ -2407,6 +2383,76 @@ mod readiness_declaration_controls {
                         }
                     }
                     if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
+                        for stage in schedule.stages() {
+                            let roots = dependency_closure::DependencyClosure::roots_from_uses(
+                                &model,
+                                &stage.inputs,
+                            )
+                            .unwrap();
+                            for check in model.admission_candidates_for_views(&roots).unwrap() {
+                                for input in
+                                    check.inputs.iter().filter(|input| input.prefix().is_some())
+                                {
+                                    if !stage.inputs.iter().any(|role| {
+                                        role.name() == input.name()
+                                            && role.prefix() == input.prefix()
+                                    }) {
+                                        let epochs = stage
+                                            .inputs
+                                            .iter()
+                                            .filter(|role| role.name() == input.name())
+                                            .map(|role| role.prefix())
+                                            .collect::<BTreeSet<_>>();
+                                        let entry = unresolved_vocabulary
+                                            .entry((
+                                                check.name,
+                                                input.name(),
+                                                input.prefix(),
+                                                epochs,
+                                            ))
+                                            .or_insert((
+                                                (
+                                                    profile.name(),
+                                                    frontier.name(),
+                                                    requested,
+                                                    stage.name,
+                                                ),
+                                                0usize,
+                                            ));
+                                        entry.1 += 1;
+                                    }
+                                }
+                                for input in check.inputs.iter().filter(|input| {
+                                    is_vocabulary(input.name()) && input.prefix().is_none()
+                                }) {
+                                    let epochs = stage
+                                        .inputs
+                                        .iter()
+                                        .filter(|role| role.name() == input.name())
+                                        .map(|role| role.prefix())
+                                        .collect::<BTreeSet<_>>();
+                                    if !epochs.contains(&None) && epochs.len() > 1 {
+                                        let entry = unresolved_vocabulary
+                                            .entry((
+                                                check.name,
+                                                input.name(),
+                                                input.prefix(),
+                                                epochs,
+                                            ))
+                                            .or_insert((
+                                                (
+                                                    profile.name(),
+                                                    frontier.name(),
+                                                    requested,
+                                                    stage.name,
+                                                ),
+                                                0usize,
+                                            ));
+                                        entry.1 += 1;
+                                    }
+                                }
+                            }
+                        }
                         for stage in schedule.stages().iter().filter(|stage| {
                             !providers
                                 .iter()
@@ -2433,6 +2479,28 @@ mod readiness_declaration_controls {
                             for epoch in [PublicationBoundary::Facts, PublicationBoundary::Model] {
                                 assert!(summary.inputs.iter().any(|role| role.name() == lctx_model::domain::uniform_outcome::UniformNotRequested::NAME && role.prefix() == Some(epoch)));
                             }
+                            let native_support = model.invariant("binding_supports").unwrap();
+                            for premise in native_support
+                                .inputs
+                                .iter()
+                                .filter(|input| is_vocabulary(input.name()))
+                            {
+                                assert_eq!(premise.prefix(), Some(PublicationBoundary::Facts));
+                                assert!(
+                                    summary
+                                        .inputs
+                                        .iter()
+                                        .any(|input| input.name() == premise.name()
+                                            && input.prefix() == premise.prefix()),
+                                    "native support must retain its Facts role beside upper execution vocabulary"
+                                );
+                            }
+                            assert!(
+                                summary.inputs.iter().any(|input| input.name()
+                                    == lctx_model::domain::value::PlaceRoot::NAME
+                                    && input.prefix() != Some(PublicationBoundary::Facts)),
+                                "revealing case must retain distinct upper place vocabulary too"
+                            );
                         }
                         for group in analysis::preparation::ConfigurationGroup::ALL {
                             assert!(
@@ -2459,5 +2527,9 @@ mod readiness_declaration_controls {
                 }
             }
         }
+        assert!(
+            unresolved_vocabulary.is_empty(),
+            "missing or ambiguous exact admission roles: {unresolved_vocabulary:?}"
+        );
     }
 }

@@ -151,13 +151,14 @@ fn validate_snapshot(row: &FlowCaptureTimingObservation) -> Result<(), ModelErro
 pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "flow_capture_inventory",
         inputs: vec![
             ValidationInput::of::<FlowCaptureInventory>(&["id"]),
             ValidationInput::of::<FlowCaptureCandidate>(&["inventory", "ordinal"]),
             ValidationInput::of::<FlowCaptureTimingObservation>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
         ],
         create: std::sync::Arc::new(|budget| {
             Box::new(InventoryCheck {

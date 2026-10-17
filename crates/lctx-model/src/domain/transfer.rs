@@ -90,6 +90,7 @@ macro_rules! transfer_family {
  }
  impl TransferKeyRecord for TransferKey {
  type Alternative=TransferAlternative;
+ type Source=$source;
  fn descriptor(&self)->TransferDescriptor {TransferDescriptor {owner:self.owner,input:self.input,output:self.output,context:self.context,scope:self.scope,modality:self.modality,approximation:self.approximation,kind:self.kind,call_site:self.call_site,provenance:self.provenance}}
  fn from_descriptor(d:TransferDescriptor)->Self {Self {owner:d.owner,input:d.input,output:d.output,context:d.context,scope:d.scope,modality:d.modality,approximation:d.approximation,kind:d.kind,call_site:d.call_site,provenance:d.provenance}}
  fn alternative(&self,q:&AssertionQualification)->TransferAlternative {TransferAlternative {transfer:self.id(),qualification:q.id(),scope:q.scope}}
@@ -185,6 +186,7 @@ pub(crate) fn subject_rows(
 }
 pub trait TransferKeyRecord: Record + Clone + std::fmt::Debug + PartialEq + Eq {
     type Alternative: TransferAlternativeRecord<TransferKey = Self>;
+    type Source: assertion::DerivedSupportSource;
     fn descriptor(&self) -> TransferDescriptor;
     fn from_descriptor(d: TransferDescriptor) -> Self;
     fn alternative(&self, q: &AssertionQualification) -> Self::Alternative;
@@ -420,11 +422,12 @@ pub fn merge<K: TransferKeyRecord>(
 fn frame_invariants<K: TransferKeyRecord>() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: K::NAME,
         inputs: vec![
             ValidationInput::of::<EntityRef>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(K::Source::vocabulary_boundary()),
             ValidationInput::of::<K>(&["id"]),
             ValidationInput::of::<K::Alternative>(&["id"]),
         ],
@@ -517,13 +520,16 @@ fn control_invariants<
 >() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: S::NAME,
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
-            ValidationInput::of::<EvaluationAtom>(&["id"]),
-            ValidationInput::of::<ConditionNode>(&["id"]),
-            ValidationInput::of::<Condition>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(K::Source::vocabulary_boundary()),
+            ValidationInput::of::<EvaluationAtom>(&["id"])
+                .at_epoch(K::Source::vocabulary_boundary()),
+            ValidationInput::of::<ConditionNode>(&["id"])
+                .at_epoch(K::Source::vocabulary_boundary()),
+            ValidationInput::of::<Condition>(&["id"]).at_epoch(K::Source::vocabulary_boundary()),
             ValidationInput::of::<K>(&["id"]),
             ValidationInput::of::<K::Alternative>(&["id"]),
             ValidationInput::of::<I>(&["id"]),

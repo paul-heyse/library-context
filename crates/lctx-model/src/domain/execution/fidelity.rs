@@ -248,7 +248,24 @@ impl Kind {
         }
         inputs.sort_by_key(|input| (input.name(), input.prefix()));
         inputs.dedup_by_key(|input| (input.name(), input.prefix()));
+        let epoch = match self {
+            Self::Expression => stages::PublicationBoundary::BaseEvaluation,
+            Self::Statement | Self::Body => stages::PublicationBoundary::BaseCompletion,
+            Self::Header | Self::Release | Self::Invocation => {
+                stages::PublicationBoundary::SourceCall
+            }
+            _ => stages::PublicationBoundary::EnrichedExecution,
+        };
         inputs
+            .into_iter()
+            .map(|input| {
+                if stages::is_vocabulary(input.name()) && input.prefix().is_none() {
+                    input.at_epoch(epoch)
+                } else {
+                    input
+                }
+            })
+            .collect()
     }
 }
 macro_rules! fields {($apply:ident) => {$apply! {
@@ -891,7 +908,7 @@ pub fn invariants() -> Vec<Invariant> {
     .map(|kind| Invariant {
         purpose: InvariantPurpose::Admission,
         name: kind.name(),
-        revision: 1,
+        revision: 2,
         inputs: kind.inputs(),
         create: std::sync::Arc::new(move |budget| Box::new(Check::new(kind, budget))),
     })

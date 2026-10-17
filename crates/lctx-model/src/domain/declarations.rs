@@ -43,11 +43,12 @@ fn invalid(message: &str) -> ModelError {
 pub(crate) fn declaration_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "declaration_links",
         inputs: vec![
             ValidationInput::of::<Occurrence>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<ProviderSymbol>(&["id"]),
             ValidationInput::of::<Signature>(&["id"]),
             ValidationInput::of::<SignatureParameter>(&["id"]),

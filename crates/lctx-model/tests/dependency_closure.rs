@@ -18,6 +18,78 @@ fn order() -> PublicationOrder {
     ])
     .unwrap()
 }
+
+#[test]
+fn shared_qualification_roots_close_each_exact_companion_epoch() {
+    use lctx_model::domain::{assertion::AssertionQualification, assumptions::*, conditions::*};
+    let model = model().unwrap();
+    let roots = [
+        PublicationBoundary::Facts,
+        PublicationBoundary::BaseEvaluation,
+    ]
+    .into_iter()
+    .map(|epoch| ValidationInput::of::<AssertionQualification>(&["id"]).at_epoch(epoch))
+    .collect::<Vec<_>>();
+    let order = PublicationOrder::planning(
+        &PublicationBoundary::ALL
+            .into_iter()
+            .map(|epoch| PublicationGroup::new(epoch, vec![epoch.name()]))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let closure = DependencyClosure::build(
+        &model,
+        roots.clone(),
+        vec![],
+        &[],
+        PublicationBoundary::Facts,
+        LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+        &order,
+    )
+    .unwrap();
+    for epoch in [
+        PublicationBoundary::Facts,
+        PublicationBoundary::BaseEvaluation,
+    ] {
+        for name in [
+            AssertionQualification::NAME,
+            Condition::NAME,
+            ConditionNode::NAME,
+            EvaluationAtom::NAME,
+            Assumption::NAME,
+            AssumptionSet::NAME,
+            AssumptionSetMember::NAME,
+            AssumptionUniverse::NAME,
+        ] {
+            assert!(
+                closure
+                    .grants
+                    .iter()
+                    .any(|grant| grant.name() == name && grant.prefix() == Some(epoch)),
+                "{name} must accompany the qualification root at {epoch:?}"
+            );
+        }
+    }
+    let checks = model.admission_candidates_for_views(&roots).unwrap();
+    let qualification_checks = checks
+        .iter()
+        .filter(|check| check.name == "qualification_condition_context")
+        .collect::<Vec<_>>();
+    assert_eq!(qualification_checks.len(), 2);
+    for check in qualification_checks {
+        for input in &check.inputs {
+            assert!(
+                closure
+                    .grants
+                    .iter()
+                    .any(|grant| grant.name() == input.name() && grant.prefix() == input.prefix()),
+                "runtime check requires the same exact role granted by planning: {} {:?}",
+                input.name(),
+                input.prefix()
+            );
+        }
+    }
+}
 #[test]
 fn separate_views_and_orders_preserve_each_compiler_input() {
     let model = ValidatedModel::declared(vec![Relation::of::<Literal>()]).unwrap();

@@ -3538,7 +3538,7 @@ fn audit_original<'a>(
 ) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
     async move {
         let source = d::graph::EntityId::of(original.artifact);
-        let layout = crate::originals::layout(reader, &RecordId::new("original", source.0.hex()))
+        let layout = crate::originals::layout(reader, &crate::originals::layout_id(source)?)
             .await?
             .ok_or(ModelError::Conflict("installed original layout"))?;
         crate::originals::validate_layout(reader, &layout).await?;
@@ -3854,7 +3854,7 @@ mod tests {
                 declared.insert("__type", "artifact_chunks");
                 declared.insert("artifact", chunk.artifact.bytes().iter().map(|byte| i64::from(*byte)).collect::<Vec<_>>());
                 declared.insert("ordinal", 0i64);
-                declared.insert("original", RecordId::new("original", d::graph::EntityId::of(chunk.artifact).0.hex()));
+                declared.insert("original", crate::originals::layout_id(d::graph::EntityId::of(chunk.artifact)).unwrap());
                 declared.insert("start", 0u64);
                 declared.insert("len", bytes.len() as u64);
                 declared.insert("digest", ContentHash::of(&bytes).hex());

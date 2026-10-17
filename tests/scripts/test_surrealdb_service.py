@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import fcntl
 import io
@@ -28,6 +29,305 @@ DAEMON_CHECK = service.Installation.check_daemon
 INSTALLATION_CHECK = service.Installation.check
 OWNED_START = service._start_owned
 DISPOSAL_INSTALLER_RUN = service._run_disposal_installer
+
+
+@pytest.fixture
+def record_inspection(recoverable, monkeypatch, tmp_path):
+    installation, _, actions = recoverable
+    cfg = json.loads(installation.runtime_path().read_text())
+    cfg.update(
+        username="validation_writer",
+        password="writer-secret",
+        viewer_username="validation_viewer",
+        viewer_password="viewer-secret",
+    )
+    service.private_json(installation.runtime_path(), cfg)
+    manifest = tmp_path / "records.json"
+    identities = [{"table": "entity", "key": "a" * 64}, {"table": "entity_anchor", "key": "b" * 64}]
+    manifest.write_text(json.dumps(identities))
+    attachment = installation.directory / "attachments" / str(uuid.uuid4())
+    drain = attachment / "native-drain"
+    drain.mkdir(parents=True)
+    unknown = attachment / "record.json"
+    generation = bytes(installation.record["service_generation"]).hex()
+    service.private_json(
+        unknown,
+        {
+            "id": attachment.name,
+            "installation_id": installation.id,
+            "released": False,
+            "child_exit_code": 1,
+            "command_cleanup": {"status": "confirmed", "survivors": []},
+            "native_drain": {
+                "directory": str(drain),
+                "attachment": attachment.name,
+                "generation": generation,
+            },
+        },
+    )
+    service.private_json(
+        drain / "123-456-0.json",
+        {
+            "schema": 1,
+            "kind": "native-process-owner",
+            "attachment": attachment.name,
+            "generation": generation,
+            "owner": "prior unresolved native session",
+            "process": {"pid": 123, "start_ticks": 456},
+            "registration": 0,
+            "state": "complete",
+            "completion": {
+                "local": "terminal",
+                "remote": "unknown",
+                "storage": [],
+                "committed": [],
+                "failures": [],
+            },
+        },
+    )
+    state = {
+        "requests": [],
+        "body": json.dumps(
+            [
+                {
+                    "status": "OK",
+                    "result": {
+                        "id": "entity:" + "a" * 64,
+                        "canonical": "full-byte-value",
+                        "body": {"nested": [1, "text"]},
+                    },
+                },
+                {"status": "OK", "result": None},
+            ]
+        ).encode(),
+        "read_sizes": [],
+        "change": None,
+        "error": None,
+    }
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def read(self, size=-1):
+            assert_borrow_protected(installation.directory / "borrowers.lock")
+            assert service.checked_generation(installation) is not None
+            state["read_sizes"].append(size)
+            if state["change"]:
+                state["change"]()
+            return super().read(size)
+
+    def request(value, *, timeout):
+        assert_borrow_protected(installation.directory / "borrowers.lock")
+        assert timeout == 25
+        state["requests"].append(value)
+        if state["error"]:
+            raise state["error"]
+        return Response(state["body"])
+
+    monkeypatch.setattr(service, "local_urlopen", request)
+    return installation, manifest, state, unknown, actions
+
+
+def test_record_inspection_viewer_exact_queries_and_unknown_preservation(record_inspection):
+    installation, manifest, state, unknown, actions = record_inspection
+    import surrealdb_fixture
+
+    before = service.borrowers(installation)
+    assert len(before) == 1 and before[0]["id"] == unknown.parent.name
+    assert before[0]["protected"] and not before[0]["released"]
+    native = surrealdb_fixture.native_completion(unknown.parent, before[0])
+    assert native["status"] == "unknown" and len(native["owners"]) == 1
+    assert native["owners"][0]["completion"]["remote"] == "unknown"
+    protected = {p: p.read_bytes() for p in installation.directory.rglob("*") if p.is_file()}
+    result = service.inspect_records(installation, manifest)
+    assert result["installation_id"] == installation.id
+    assert result["service_generation"] == list(range(32))
+    assert result["database"] == "validation" and result["observed_at"].endswith("Z")
+    assert [row["status"] for row in result["records"]] == ["present", "absent"]
+    assert result["records"][0]["result"]["body"] == {"nested": [1, "text"]}
+    (request,) = state["requests"]
+    assert request.full_url == installation.endpoint + "/sql"
+    assert request.data.decode() == (
+        f"SELECT * FROM ONLY entity:⟨{'a' * 64}⟩;\nSELECT * FROM ONLY entity_anchor:⟨{'b' * 64}⟩;"
+    )
+    assert (
+        request.get_header("Authorization")
+        == "Basic " + base64.b64encode(b"validation_viewer:viewer-secret").decode()
+    )
+    assert request.get_header("Surreal-db") == "validation"
+    assert request.get_header("Surreal-auth-db") == "validation"
+    assert state["read_sizes"] == [service.INSPECT_RESPONSE_BYTES + 1]
+    assert {p: p.read_bytes() for p in protected} == protected
+    assert unknown.read_bytes() == protected[unknown]
+    assert service.borrowers(installation) == before
+    assert surrealdb_fixture.native_completion(unknown.parent, before[0]) == native
+    assert actions == ["ready"]
+    assert service.checked_generation(installation) is None
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+@pytest.mark.parametrize(
+    "records",
+    [
+        [],
+        [{"table": "entity; DELETE entity", "key": "a" * 64}],
+        [{"table": "entity", "key": "x⟩; DELETE entity; --"}],
+        [{"table": "native_attempt", "key": "a" * 64}],
+        [{"table": "entity", "key": "a" * 64, "database": "main"}],
+        [{"table": "entity", "key": "a" * 64}] * 2,
+        [{"table": "entity", "key": "a" * 64}] * (service.INSPECT_MAX_RECORDS + 1),
+    ],
+)
+def test_record_inspection_refuses_unsafe_or_unbounded_identity_before_borrow(
+    record_inspection, records
+):
+    installation, manifest, state, _, actions = record_inspection
+    manifest.write_text(json.dumps(records))
+    with pytest.raises(service.FixtureFailed, match="invalid bounded exact-record manifest"):
+        service.inspect_records(installation, manifest)
+    assert state["requests"] == [] and actions == []
+
+
+def test_record_inspection_refuses_manifest_and_response_byte_overflow(record_inspection):
+    installation, manifest, state, _, actions = record_inspection
+    original = manifest.read_bytes()
+    manifest.write_bytes(b" " * (service.INSPECT_MANIFEST_BYTES + 1))
+    with pytest.raises(service.FixtureFailed, match="manifest"):
+        service.inspect_records(installation, manifest)
+    assert not state["requests"] and not actions
+    manifest.write_bytes(original)
+    state["body"] = b" " * (service.INSPECT_RESPONSE_BYTES + 1)
+    with pytest.raises(service.FixtureFailed, match="byte bound"):
+        service.inspect_records(installation, manifest)
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"not-json native-secret SELECT password",
+        b"[]",
+        b'[ {"status":"OK","result":null} ]',
+        b'[ {"status":"OK"}, {"status":"OK","result":null} ]',
+        b'[ {"status":"ERR","result":"native-secret"}, {"status":"OK","result":null} ]',
+        b'[ {"status":"OK","result":[]}, {"status":"OK","result":null} ]',
+        b'[ {"status":[],"result":null}, {"status":"OK","result":null} ]',
+        b'[ {"status":"OK","result":{"id":"entity:wrong"}}, {"status":"OK","result":null} ]',
+        b'[ {"status":"OK","result":{"id":[]}}, {"status":"OK","result":null} ]',
+    ],
+)
+def test_record_inspection_rejects_missing_refused_or_malformed_results(record_inspection, body):
+    installation, manifest, state, _, _ = record_inspection
+    state["body"] = body
+    with pytest.raises(service.FixtureFailed) as caught:
+        service.inspect_records(installation, manifest)
+    assert "native-secret" not in str(caught.value) and "SELECT" not in str(caught.value)
+    assert service.checked_generation(installation) is None
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+def test_record_inspection_refuses_generation_change_before_publishing(record_inspection):
+    installation, manifest, state, unknown, _ = record_inspection
+    original = unknown.read_bytes()
+    state["change"] = lambda: installation.runtime_path().write_bytes(b"changed generation")
+    with pytest.raises(service.FixtureBlocked, match="no longer protected"):
+        service.inspect_records(installation, manifest)
+    assert unknown.read_bytes() == original
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+def test_record_inspection_cannot_inherit_maintenance_authority(record_inspection, monkeypatch):
+    installation, manifest, state, unknown, _ = record_inspection
+    marker = installation.directory / "maintenance.json"
+    service.private_json(
+        marker, {"token": "owned-token", "owner": service.ProcessIdentity.of().to_json()}
+    )
+    original = marker.read_bytes(), unknown.read_bytes()
+    monkeypatch.setenv("LCTX_SURREAL_MAINTENANCE_TOKEN", "owned-token")
+    lock = service.hold_lock(installation.directory / "admission.lock")
+    try:
+        assert service.maintenance_owned(installation)
+        with pytest.raises(service.FixtureBlocked, match="ordinary open admission"):
+            service.inspect_records(installation, manifest)
+    finally:
+        os.close(lock)
+    assert not state["requests"]
+    assert (marker.read_bytes(), unknown.read_bytes()) == original
+
+
+@pytest.mark.parametrize("viewer", [None, "root", "validation_writer"])
+def test_record_inspection_refuses_missing_or_elevated_viewer(record_inspection, viewer):
+    installation, manifest, state, _, _ = record_inspection
+    cfg = json.loads(installation.runtime_path().read_text())
+    cfg["viewer_username"] = viewer
+    service.private_json(installation.runtime_path(), cfg)
+    with pytest.raises(service.FixtureBlocked, match="viewer is unavailable"):
+        service.inspect_records(installation, manifest)
+    assert not state["requests"]
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+def test_record_inspection_sanitizes_transport_failure_and_releases_borrow(record_inspection):
+    installation, manifest, state, _, _ = record_inspection
+    state["error"] = OSError("writer-secret SELECT native-secret")
+    with pytest.raises(service.FixtureBlocked, match="record transport failed") as caught:
+        service.inspect_records(installation, manifest)
+    assert "secret" not in str(caught.value) and "SELECT" not in str(caught.value)
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+def test_record_inspection_http_refusal_withholds_native_body(record_inspection):
+    installation, manifest, state, _, _ = record_inspection
+    secret = io.BytesIO(b"viewer-secret SELECT native-secret")
+    state["error"] = service.urllib.error.HTTPError(
+        installation.endpoint + "/sql", 403, "native-secret", {}, secret
+    )
+    with pytest.raises(service.FixtureFailed, match="HTTP request refused") as caught:
+        service.inspect_records(installation, manifest)
+    assert "secret" not in str(caught.value) and secret.closed
+    assert not service.lock_held(installation.directory / "borrowers.lock")
+
+
+def test_record_inspection_closed_admission_has_no_http_or_owner_effect(record_inspection):
+    installation, manifest, state, unknown, _ = record_inspection
+    original = unknown.read_bytes()
+    lock = service.hold_lock(installation.directory / "admission.lock")
+    try:
+        with pytest.raises(service.FixtureBlocked, match="borrower admission is closed"):
+            service.inspect_records(installation, manifest)
+    finally:
+        os.close(lock)
+    assert not state["requests"] and unknown.read_bytes() == original
+
+
+def test_record_inspection_numeric_string_key_is_quoted_and_never_accepts_numeric_id(
+    record_inspection,
+):
+    installation, manifest, state, _, _ = record_inspection
+    key = "1" * 64
+    manifest.write_text(json.dumps([{"table": "entity", "key": key}]))
+    state["body"] = json.dumps([{"status": "OK", "result": {"id": f"entity:⟨{key}⟩"}}]).encode()
+    assert service.inspect_records(installation, manifest)["records"][0]["status"] == "present"
+    assert state["requests"][0].data.decode() == f"SELECT * FROM ONLY entity:⟨{key}⟩;"
+    state["body"] = json.dumps([{"status": "OK", "result": {"id": f"entity:{key}"}}]).encode()
+    with pytest.raises(service.FixtureFailed, match="identity or cardinality"):
+        service.inspect_records(installation, manifest)
+
+
+def test_record_inspection_cli_dispatches_only_the_fixed_viewer_lane(
+    record_inspection, monkeypatch, capsys
+):
+    installation, manifest, state, _, _ = record_inspection
+    monkeypatch.setenv(
+        "LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json")
+    )
+    assert service.main(["inspect-records", str(manifest)]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["database"] == "validation" and len(output["records"]) == 2
+    assert len(state["requests"]) == 1
+    manifest.write_text("invalid native-secret")
+    assert service.main(["inspect-records", str(manifest)]) == 1
+    assert "native-secret" not in capsys.readouterr().err
 
 
 def required_record(value: dict[str, Any] | None) -> dict[str, Any]:

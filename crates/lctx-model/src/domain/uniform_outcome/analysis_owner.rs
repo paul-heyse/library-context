@@ -745,8 +745,17 @@ pub(crate) mod test_support {
         context: &AnalysisContext,
         budget: &ResourceBudget,
     ) -> EmptyOwner {
+        owner_for_profile(kind, input, context, budget, stages::Profile::Catalog)
+    }
+    pub(super) fn owner_for_profile(
+        kind: AnalysisOwner,
+        input: &InputRevision,
+        context: &AnalysisContext,
+        budget: &ResourceBudget,
+        profile: stages::Profile,
+    ) -> EmptyOwner {
         let model = crate::domain::model().unwrap();
-        let mut inputs = AnalysisUniformInputs::new(stages::Profile::Catalog, budget).unwrap();
+        let mut inputs = AnalysisUniformInputs::new(profile, budget).unwrap();
         let mut batches = Vec::new();
         fn add<R: Record>(
             inputs: &mut AnalysisUniformInputs,
@@ -846,14 +855,29 @@ pub(crate) mod test_support {
             true,
         ))
         .unwrap();
-        let stage = kind
-            .declaration(
-                stages::Profile::Catalog,
-                &inputs.selected().unwrap(),
-                &model,
-                &order,
-            )
+        let mut stage = kind
+            .declaration(profile, &inputs.selected().unwrap(), &model, &order)
             .unwrap();
+        // Exercise the compiler's complete assurance operation before capture. Lower
+        // reconstruction independently obtains its recipe from the model owner.
+        let final_roles = stage
+            .inputs
+            .iter()
+            .map(|role| (role.name(), role.prefix()))
+            .collect::<Vec<_>>();
+        crate::domain::dependency_closure::DependencyClosure::complete_stage_inputs(
+            &model, &mut stage, profile, &order,
+        )
+        .unwrap();
+        assert_eq!(
+            stage
+                .inputs
+                .iter()
+                .map(|role| (role.name(), role.prefix()))
+                .collect::<Vec<_>>(),
+            final_roles,
+            "the compiler must capture the already-finalized owner recipe"
+        );
         let mut suppliers = Vec::new();
         let bindings = stage
             .inputs
@@ -909,7 +933,7 @@ pub(crate) mod test_support {
             spec: ContributionSpec {
                 captured_binding: None,
                 producer: stage.name.into(),
-                profile: OutputProfile::Specific(stages::Profile::Catalog),
+                profile: OutputProfile::Specific(profile),
                 model: model.digest(),
                 implementation: stage.code,
                 configuration: Some(stage.configuration),
@@ -935,7 +959,7 @@ pub(crate) mod test_support {
         let owner = ValidatedUniformOwner::validate_analysis_binding(
             &contribution,
             &descriptor,
-            stages::Profile::Catalog,
+            profile,
             &model,
             &bindings,
             &inputs,
@@ -963,6 +987,70 @@ pub(crate) mod test_support {
 mod controls {
     use super::*;
     use crate::domain::{analysis::sources::SourceSnapshot, completed::*, stages::*};
+    #[test]
+    fn finalized_compact_recipes_reconstruct_nonempty_domains_and_optional_profiles() {
+        let budget = ResourceBudget::fixed(128 << 20).unwrap();
+        let (input, context) = test_support::input_context();
+        for profile in Profile::ALL {
+            for kind in [AnalysisOwner::Embedding, AnalysisOwner::Analytic] {
+                let actual =
+                    test_support::owner_for_profile(kind, &input, &context, &budget, profile);
+                assert_eq!(actual.owner.analysis_owner(), Some(kind));
+                assert_eq!(
+                    actual.owner.descriptor(),
+                    &actual.domain.descriptor_row().unwrap()
+                );
+                if kind == AnalysisOwner::Analytic {
+                    assert_eq!(
+                        actual.domain.members().count(),
+                        5,
+                        "all five genuinely unrequested analytic methods retain their input subjects"
+                    );
+                    assert!(!actual.domain.is_explicit_empty());
+                }
+            }
+        }
+        assert_eq!(budget.reserved(), 0);
+        let mut f = fixture_with_artifacts(true);
+        let order =
+            PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true))
+                .unwrap();
+        crate::domain::dependency_closure::DependencyClosure::complete_stage_inputs(
+            &f.model,
+            &mut f.stage,
+            Profile::Catalog,
+            &order,
+        )
+        .unwrap();
+        analysis::owner::validate_selected_roles(&f.stage, &f.owner, &f.bindings, &f.model)
+            .unwrap();
+        let proof = ValidatedUniformOwner::validate_analysis_binding(
+            &f.owner,
+            &f.descriptor,
+            Profile::Catalog,
+            &f.model,
+            &f.bindings,
+            &f.inputs,
+            &f.budget,
+        )
+        .unwrap();
+        assert_eq!(proof.descriptor().members, 1);
+        let mut incomplete = f.owner.clone();
+        incomplete.spec.inputs.pop();
+        assert!(
+            ValidatedUniformOwner::validate_analysis_binding(
+                &incomplete,
+                &f.descriptor,
+                Profile::Catalog,
+                &f.model,
+                &f.bindings,
+                &f.inputs,
+                &f.budget
+            )
+            .is_err(),
+            "finalization must retain exact whole-recipe authority"
+        );
+    }
     #[test]
     fn compact_consumers_retain_current_owner_roles_and_nested_epochs() {
         for owner in AnalysisOwner::ALL

@@ -442,10 +442,11 @@ fn validate_shapes(form: SignatureForm, parameters: &[ParameterShape]) -> Result
 pub(crate) fn signature_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "complete_signature_membership",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Facts),
             ValidationInput::of::<ProviderSymbol>(&["id"]),
             ValidationInput::of::<ParameterShape>(&["id"]),
             ValidationInput::of::<Signature>(&["id"]),
@@ -1889,10 +1890,11 @@ impl CallResolution {
 pub(crate) fn resolution_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "complete_call_alternatives",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Facts),
             ValidationInput::of::<CallTarget>(&["id"]),
             ValidationInput::of::<CallResolution>(&["id"]),
             ValidationInput::of::<CallResolutionMember>(&["resolution", "target"]),
@@ -2160,10 +2162,11 @@ fn validate_receiver(row: &Receiver) -> Result<(), ModelError> {
 pub(crate) fn target_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "call_target_ownership",
         inputs: vec![
-            ValidationInput::of::<AssertionQualification>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(stages::PublicationBoundary::Facts),
             ValidationInput::of::<ProviderSymbol>(&["id"]),
             ValidationInput::of::<Occurrence>(&["id"]),
             ValidationInput::of::<Receiver>(&["id"]),

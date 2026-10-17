@@ -15,6 +15,49 @@ pub enum LowerLayerPolicy {
     IncludeInferredOrdinaryFacts,
 }
 impl DependencyClosure {
+    /// Finalize the exact assurance recipe once at its model owner, before execution
+    /// captures input snapshots or compact domain identities. Profile availability
+    /// comes from the native producer contract, independently of a caller's schedule.
+    pub fn complete_stage_inputs(
+        model: &ValidatedModel,
+        stage: &mut Stage,
+        profile: Profile,
+        order: &PublicationOrder,
+    ) -> Result<(), ModelError> {
+        if stage.inputs.is_empty() {
+            return Ok(());
+        }
+        let roots = Self::roots_from_uses(model, &stage.inputs)?;
+        let mut grants = Self::grants(
+            model,
+            roots,
+            stage.inputs.clone(),
+            &stage.outputs,
+            PublicationBoundary::Facts,
+            LowerLayerPolicy::IncludeInferredOrdinaryFacts,
+            order,
+        )?;
+        let flow = super::producer_contract::facts::ty_flow();
+        if !flow.profiles.contains(&profile) {
+            let available = super::producer_contract::facts::FactsProducer::ALL
+                .into_iter()
+                .map(super::producer_contract::facts::FactsProducer::contract)
+                .filter(|contract| contract.profiles.contains(&profile))
+                .flat_map(|contract| contract.outputs.into_iter().chain(contract.contributes))
+                .map(|relation| relation.name())
+                .collect::<BTreeSet<_>>();
+            let unavailable = flow
+                .outputs
+                .iter()
+                .filter(|relation| !is_vocabulary(relation.name()))
+                .map(|relation| relation.name())
+                .filter(|name| !available.contains(name))
+                .collect::<BTreeSet<_>>();
+            grants.retain(|grant| !unavailable.contains(grant.name()));
+        }
+        stage.inputs = grants;
+        Ok(())
+    }
     /// Construct sufficient grants without discarding exact validation roots on the way in.
     pub fn grants(
         model: &ValidatedModel,
@@ -160,6 +203,9 @@ impl DependencyClosure {
                 continue;
             }
             let row = relation(input.name())?;
+            let vocabulary_role = is_vocabulary(input.name())
+                .then_some(input.prefix())
+                .flatten();
             // An ordinary relation's attached invariant names the authoritative companion
             // views for its foreign keys. Resolve locally before considering caller roots.
             let mut owner_views = BTreeMap::<_, BTreeSet<_>>::new();
@@ -176,7 +222,7 @@ impl DependencyClosure {
                             .or_default()
                             .insert(epoch);
                     }
-                    premises.push(required.clone());
+                    premises.push(required.clone().with_vocabulary_epoch(vocabulary_role));
                 }
             }
             for target in row
@@ -196,6 +242,7 @@ impl DependencyClosure {
                     continue;
                 }
                 let mut target_input = ValidationInput::of_relation(relation(target)?, &["id"]);
+                target_input = target_input.with_vocabulary_epoch(vocabulary_role);
                 if target == super::uniform_outcome::UniformNotRequested::NAME
                     && !is_epoch_shared(input.name())
                     && let Some(views) = owner_views

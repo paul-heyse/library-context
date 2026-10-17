@@ -732,6 +732,92 @@ impl ValidatedModel {
     ) -> Result<Vec<Invariant>, ModelError> {
         self.select_checks_for_scope(referrers, &std::collections::BTreeSet::new(), true, false)
     }
+    /// Shared vocabulary selects a check at each actual referrer's exact publication
+    /// role. Its unqualified vocabulary premises refer to that same role, rather than
+    /// to whichever cumulative stream happens to be available to the consumer.
+    pub fn admission_candidates_for_views(
+        &self,
+        referrers: &[ValidationInput],
+    ) -> Result<Vec<Invariant>, ModelError> {
+        self.checks_for_views(referrers, &std::collections::BTreeSet::new(), true, false)
+    }
+    pub fn invariants_for_views_with_premises(
+        &self,
+        referrers: &[ValidationInput],
+        acknowledged_premises: &std::collections::BTreeSet<&str>,
+    ) -> Result<Vec<Invariant>, ModelError> {
+        self.checks_for_views(referrers, acknowledged_premises, false, true)
+    }
+    fn checks_for_views(
+        &self,
+        referrers: &[ValidationInput],
+        acknowledged_premises: &std::collections::BTreeSet<&str>,
+        admission: bool,
+        require_premises: bool,
+    ) -> Result<Vec<Invariant>, ModelError> {
+        let names = referrers.iter().map(ValidationInput::name).collect();
+        let checks = self.select_checks_for_scope(
+            &names,
+            acknowledged_premises,
+            admission,
+            require_premises,
+        )?;
+        let mut by_check = std::collections::BTreeMap::<_, std::collections::BTreeSet<_>>::new();
+        let mut by_relation = std::collections::BTreeMap::<_, std::collections::BTreeSet<_>>::new();
+        for root in referrers {
+            root.validate_prefix()?;
+            let relation = self
+                .relation(root.name())
+                .ok_or(ModelError::Schema("validation referrer relation"))?;
+            let role = if super::stages::is_vocabulary(root.name()) {
+                root.prefix()
+            } else {
+                None
+            };
+            by_relation
+                .entry(root.name())
+                .or_default()
+                .insert(root.prefix());
+            for id in relation.invariant_refs() {
+                by_check.entry(*id).or_default().insert(role);
+            }
+        }
+        let mut instances = Vec::new();
+        for check in checks {
+            let Some(roles) = by_check.remove(check.name) else {
+                // Generated graph validation remains one cross-relation check. Each
+                // shared proof stream retains every actual selected role, while
+                // ordinary proof sources are visited once. Nominal graph nodes keep
+                // their relation/row identity, independently of publication copies.
+                let mut generated = check;
+                let mut expanded = Vec::new();
+                for input in generated.inputs {
+                    if super::stages::is_epoch_shared(input.name()) {
+                        for role in &by_relation[&input.name()] {
+                            expanded.push(if let Some(epoch) = role {
+                                input.clone().at_epoch(*epoch)
+                            } else {
+                                input.clone()
+                            });
+                        }
+                    } else {
+                        expanded.push(input);
+                    }
+                }
+                generated.inputs = expanded;
+                instances.push(generated);
+                continue;
+            };
+            for role in roles {
+                let mut instance = check.clone();
+                for input in &mut instance.inputs {
+                    *input = input.clone().with_vocabulary_epoch(role);
+                }
+                instances.push(instance);
+            }
+        }
+        Ok(instances)
+    }
     fn checks_for_scope(
         &self,
         referrers: &std::collections::BTreeSet<&str>,
@@ -846,7 +932,7 @@ fn generated_derivation(sources: Vec<Relation>) -> Option<Invariant> {
     Some(Invariant {
         purpose: InvariantPurpose::Admission,
         name: "derivation_acyclic",
-        revision: 1,
+        revision: 2,
         inputs,
         create: std::sync::Arc::new(move |budget| {
             Box::new(super::derivation::Check::new(sources.clone(), budget))
@@ -987,6 +1073,21 @@ pub struct ValidationInput {
     prefix: Option<super::stages::PublicationBoundary>,
 }
 impl ValidationInput {
+    /// Shared vocabulary premises follow their exact referrer's role. An explicit
+    /// premise role remains authoritative, and ordinary inputs remain unqualified.
+    pub(crate) fn with_vocabulary_epoch(
+        self,
+        epoch: Option<super::stages::PublicationBoundary>,
+    ) -> Self {
+        if super::stages::is_vocabulary(self.name)
+            && self.prefix.is_none()
+            && let Some(epoch) = epoch
+        {
+            self.at_epoch(epoch)
+        } else {
+            self
+        }
+    }
     /// An earlier semantic owner replays against its immutable vocabulary, even when a later
     /// consumer also validates current vocabulary of the same nominal relation.
     pub fn at_epoch(mut self, prefix: super::stages::PublicationBoundary) -> Self {

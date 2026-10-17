@@ -1,6 +1,6 @@
 # Catalog upper execution: analysis preparation and algorithms
 
-**UA01/UA02 focused-Tested; UA03/UA04 decisions and source delivered,2026-10-17; genuine Summary integration blocked.** This is a standalone companion to the [coordinator](catalog-upper-execution-plan_2026-10-17.md), whose [§6](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) alone owns current dispositions. Source: [upper execution target review](../design_review/reviews/design_review_catalog-upper-execution-performance-target_2026-10-17.md), F10/F11 and I07/I08; baseline d37a14add3e18d6a101aa4710dcd279b5445e896. Existing plans are not superseded, reconciled or resumed by this set.
+**UA01/UA02 focused-Tested; UA03/UA04 decisions and source delivered,2026-10-17; genuine Summary acceptance pending at operator closeout.** This is a standalone companion to the [coordinator](catalog-upper-execution-plan_2026-10-17.md), whose [§6](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) alone owns current dispositions. Source: [upper execution target review](../design_review/reviews/design_review_catalog-upper-execution-performance-target_2026-10-17.md), F10/F11 and I07/I08; baseline d37a14add3e18d6a101aa4710dcd279b5445e896. Existing plans are not superseded, reconciled or resumed by this set.
 
 ## 1. Target and foundations
 

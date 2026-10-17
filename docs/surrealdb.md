@@ -312,6 +312,22 @@ a fresh consumer. Fresh/cold negative controls execute their intended validation
 cannot substitute cached success. Infrastructure/readiness blocking is exit75; unexplained process
 endings remain failed with unknown cause.
 
+## Exact validation record inspection
+
+**Implemented / focused-Tested,2026-10-17 (ADR-0188):**
+`just service inspect-records FILE` observes exact synthetic validation records without exclusive
+maintenance. FILE is a nonempty bounded JSON array of `{"table":"entity","key":"exact-key"}`
+objects; only the command's physical-table allowlist is accepted. The service fixes validation,
+uses installed VIEWER credentials and retains the ordinary generation-checked lease through
+bounded response processing. Existing maintenance admission refuses. No SQL fragments, functions,
+MCP, target override or writer/root fallback is accepted.
+
+Missing records, statement refusals, transport failures and malformed results remain distinct.
+Results identify the observed installation/generation and time; they do not establish a coherent
+snapshot, native finality or permission to release an unresolved owner. The command does not
+close/drain/open native admission, reset data, recover borrowers or alter maintenance markers.
+Use the existing managed run owner to retain the resulting diagnostic evidence.
+
 ## Maintenance diagnostics
 
 Diagnostics use synthetic validation content on the stable service. SQL and invocation-scoped

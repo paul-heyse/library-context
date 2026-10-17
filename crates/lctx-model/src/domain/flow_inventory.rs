@@ -314,7 +314,7 @@ fn inventory_scope() -> InventoryScope {
 pub(crate) fn inventory_invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 1,
+        revision: 2,
         name: "flow_use_inventory_admission",
         inputs: vec![
             ValidationInput::of::<ProviderRun>(&["id"]),
@@ -323,10 +323,14 @@ pub(crate) fn inventory_invariants() -> Vec<Invariant> {
             ValidationInput::of::<FlowUse>(&["id"]),
             ValidationInput::of::<FlowUseObservation>(&["id"]),
             ValidationInput::of::<FlowUseSupport>(&["id"]),
-            ValidationInput::of::<AssertionQualification>(&["id"]),
-            ValidationInput::of::<ConditionNode>(&["id"]),
-            ValidationInput::of::<Condition>(&["id"]),
-            ValidationInput::of::<EvaluationAtom>(&["id"]),
+            ValidationInput::of::<AssertionQualification>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
+            ValidationInput::of::<ConditionNode>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
+            ValidationInput::of::<Condition>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
+            ValidationInput::of::<EvaluationAtom>(&["id"])
+                .at_epoch(crate::domain::stages::PublicationBoundary::Facts),
             ValidationInput::of::<FlowSourceViewObservation>(&["id"]),
             ValidationInput::of::<FlowSourceViewSupport>(&["id"]),
             ValidationInput::of::<ReachingDefinition>(&["id"]),

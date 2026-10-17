@@ -6,7 +6,7 @@ use crate::{
 };
 use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
-    ContentHash, ModelError,
+    ContentHash, ModelError, Record,
     completed::CompletedBinding,
     graph::{Assertion, Entity, Manifest, semantic_contract},
     recovery_closure::{RECOVERY_FAMILIES, RecoveryFamily},
@@ -651,8 +651,8 @@ impl PreparedClosure {
         let mut demanded = manifest
             .originals
             .iter()
-            .map(|original| RecordId::new("original", original.source.0.hex()))
-            .collect::<BTreeSet<_>>();
+            .map(|original| lctx_native::originals::layout_id(original.source))
+            .collect::<Result<BTreeSet<_>, _>>()?;
         selection_charge.try_resize(
             selection_charge
                 .size()
@@ -1012,7 +1012,8 @@ fn prepare_originals(
             identities.include("original", &row)?;
             // Decode even unretained headers: selecting a subset cannot conceal corruption.
             let layout = lctx_native::originals::decode_layout(row)?;
-            let source = hash_record(&layout.id, "original")?;
+            // Physical address shape remains mandatory even for an unretained header.
+            hash_record(&layout.id, "original")?;
             if !demanded.contains(&layout.id) {
                 continue;
             }
@@ -1020,17 +1021,6 @@ fn prepare_originals(
                 return Err(ModelError::Conflict(
                     "restore original exact source authority",
                 ));
-            }
-            let original = lctx_model::domain::graph::Original {
-                source: lctx_model::domain::graph::EntityId(source),
-                content: layout.blob.content,
-                byte_len: layout.blob.byte_len,
-            };
-            if declared
-                .get(&original.source)
-                .is_some_and(|expected| *expected != &original)
-            {
-                return Err(ModelError::Conflict("restore original header"));
             }
             charge.try_resize(
                 charge
@@ -1048,7 +1038,6 @@ fn prepare_originals(
             {
                 return Err(ModelError::Conflict("restore original blob collision"));
             }
-            originals.insert(layout.id.clone(), original);
             layouts.insert(layout.id.clone(), layout);
         }
         identities.finish()?;
@@ -1080,8 +1069,23 @@ fn prepare_originals(
             let Entity::Source(source) = entity else {
                 return Err(ModelError::Schema("restore original source kind"));
             };
-            for original in sources {
-                layouts[original].validate_source(&source)?;
+            for layout_id in sources {
+                let layout = &layouts[layout_id];
+                layout.validate_source(&source)?;
+                // Public original identity comes from the independently decoded source,
+                // never by reversing a model-qualified physical layout address.
+                let original = lctx_model::domain::graph::Original {
+                    source: lctx_model::domain::graph::EntityId::of(source.id()),
+                    content: layout.blob.content,
+                    byte_len: layout.blob.byte_len,
+                };
+                if declared
+                    .get(&original.source)
+                    .is_some_and(|expected| *expected != &original)
+                {
+                    return Err(ModelError::Conflict("restore original header"));
+                }
+                originals.insert(layout_id.clone(), original);
             }
         }
         identities.finish()?;
@@ -2247,7 +2251,7 @@ mod definition_tests {
             entity.insert("id", layout.artifact.clone());
             entity.insert(
                 "canonical",
-                Bytes::from(serde_json::to_vec(&Entity::Source(source)).unwrap()),
+                Bytes::from(serde_json::to_vec(&Entity::Source(source.clone())).unwrap()),
             );
             rows.push(Value::Object(entity));
             rows.push(layout.value());
@@ -2258,7 +2262,7 @@ mod definition_tests {
             demands.insert(layout.id.clone());
             if index == 0 {
                 declared.push(Original {
-                    source: EntityId(hash_record(&layout.id, "original").unwrap()),
+                    source: EntityId::of(source.id()),
                     content: layout.blob.content,
                     byte_len: layout.blob.byte_len,
                 });
@@ -2315,7 +2319,7 @@ mod definition_tests {
         assert_eq!(layouts.len(), 3);
         assert_eq!(blobs.len(), 2);
         assert_eq!(
-            originals[&RecordId::new("original", declared[0].source.0.hex())],
+            originals[&lctx_native::originals::layout_id(declared[0].source).unwrap()],
             declared[0]
         );
         assert!(
@@ -2333,6 +2337,7 @@ mod definition_tests {
             "duplicate-source",
             "duplicate-blob",
             "corrupt-unretained",
+            "invalid-unretained-address",
             "foreign-artifact",
         ] {
             let (mut rows, declared, demands, nodes) = original_lookup_fixture();
@@ -2351,6 +2356,13 @@ mod definition_tests {
                 rows.remove(index);
             } else if fault.starts_with("duplicate") {
                 rows.push(rows[index].clone());
+            } else if fault == "invalid-unretained-address" {
+                let mut row = rows[index].clone();
+                let Value::Object(value) = &mut row else {
+                    unreachable!()
+                };
+                value.insert("id", RecordId::new("original", "not-a-hash"));
+                rows.push(row);
             } else if fault == "corrupt-unretained" {
                 let mut row = rows[index].clone();
                 let Value::Object(value) = &mut row else {

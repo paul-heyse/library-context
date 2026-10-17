@@ -304,7 +304,7 @@ impl NativeCompilerStore {
         self: &Arc<Self>,
         request: ContentHash,
         contribution: ContentHash,
-        mut pending: Vec<CompletedView>,
+        pending: Vec<CompletedView>,
         mut charge: d::charged::StateCharge,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
@@ -322,6 +322,11 @@ impl NativeCompilerStore {
             {
                 return Ok(());
             }
+            let mut traversal = SelectedDependencyTraversal::new(budget);
+            for view in &pending {
+                traversal.discover(view)?;
+            }
+            drop(pending);
             let mut selections = BTreeMap::new();
             let mut mapping_charges = Vec::new();
             let mapping_reader =
@@ -334,10 +339,11 @@ impl NativeCompilerStore {
             let mut observed = BTreeMap::new();
             let mapping_phase = crate::phase::Phase::begin("native_product_mapping_discovery");
             let mapping_result = async {
-                while let Some(view) = pending.pop() {
-                    if selections.contains_key(&view.identity) {
-                        continue;
-                    }
+                while let Some(PendingDependencyView {
+                    charge: view_charge,
+                    view,
+                }) = traversal.pop()?
+                {
                     self.registered_view(&view).await?;
                     let (mappings, mapping_charge) = self
                         .selected_view_mappings_read(
@@ -351,7 +357,7 @@ impl NativeCompilerStore {
                     for mapping in mappings.as_slice() {
                         if mapping.view != view.identity && !selections.contains_key(&mapping.view)
                         {
-                            let dependency = {
+                            {
                                 let views = self.known_views.lock().map_err(|_| {
                                     ModelError::Conflict("retained product dependency inventory")
                                 })?;
@@ -359,16 +365,12 @@ impl NativeCompilerStore {
                                     views.get(&mapping.view).ok_or(ModelError::Conflict(
                                         "retained product dependency descriptor absent",
                                     ))?;
-                                charge.grow(
-                                    size_of::<CompletedView>()
-                                        + 1024
-                                        + lctx_native::installed_view::view_heap(dependency),
-                                )?;
-                                dependency.clone()
-                            };
-                            pending.push(dependency);
+                                traversal.discover(dependency)?;
+                            }
                         }
                     }
+                    charge.prepare_absorb(&view_charge)?;
+                    charge.absorb(view_charge)?;
                     mapping_charges.push(mapping_charge);
                     charge.grow(2048usize.saturating_add(mappings.len().saturating_mul(
                         size_of::<lctx_native::installed_view::ContributorRealization>(),
@@ -384,6 +386,7 @@ impl NativeCompilerStore {
                 Ok(())
             }
             .await;
+            drop(traversal);
             mapping_phase.finish_result(&mapping_result);
             let mut mapping_terminal = d::completion::Completion::default();
             mapping_terminal.step(
