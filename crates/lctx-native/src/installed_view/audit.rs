@@ -100,6 +100,8 @@ struct WorkOwner {
     next: std::sync::atomic::AtomicU64,
     accepting: std::sync::atomic::AtomicBool,
     close_gate: tokio::sync::Mutex<()>,
+    context_checked: std::sync::atomic::AtomicBool,
+    context_gate: tokio::sync::Mutex<()>,
 }
 type PreparationWorker = (
     u64,
@@ -147,6 +149,38 @@ pub struct InstallationAudit {
     context: (ContentHash, i64),
     work: std::sync::Arc<WorkOwner>,
     worker: bool,
+}
+/// A post-pin native context observation tied to its still-open actual source.
+/// Copies retain no authority after pin release, source close or foreign reuse.
+#[derive(Clone)]
+pub(super) struct CheckedContextLifetime {
+    pin: std::sync::Weak<crate::control::ReaderPin>,
+    client: std::sync::Weak<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    work: std::sync::Weak<WorkOwner>,
+    closed: std::sync::Weak<std::sync::atomic::AtomicBool>,
+    budget: ResourceBudget,
+}
+impl CheckedContextLifetime {
+    pub(super) fn check(&self, reader: &NativeReader<()>, budget: &ResourceBudget) -> Result<(), ModelError> {
+        let pin = self.pin.upgrade().ok_or(ModelError::Conflict("checked context source released"))?;
+        let client = self.client.upgrade().ok_or(ModelError::Conflict("checked context session released"))?;
+        let work = self.work.upgrade().ok_or(ModelError::Conflict("checked context operation released"))?;
+        let closed = self.closed.upgrade().ok_or(ModelError::Conflict("checked context source released"))?;
+        pin.ensure_live()?;
+        if !std::ptr::eq(client.as_ref(), reader.client()) {
+            return Err(ModelError::Conflict("checked context foreign native session"));
+        }
+        if !self.budget.shares_pool(budget) {
+            return Err(ModelError::Conflict("checked context foreign resource owner"));
+        }
+        if closed.load(std::sync::atomic::Ordering::Acquire)
+            || !work.accepting.load(std::sync::atomic::Ordering::Acquire)
+            || !work.context_checked.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ModelError::Conflict("checked context source closed"));
+        }
+        Ok(())
+    }
 }
 /// Borrowed operation source for boundary construction. This cannot outlive its actual audit;
 /// serialized descriptors and independently owned audits cannot supply its observations.
@@ -248,6 +282,8 @@ impl InstallationAudit {
                 next: std::sync::atomic::AtomicU64::new(1),
                 accepting: std::sync::atomic::AtomicBool::new(true),
                 close_gate: tokio::sync::Mutex::new(()),
+                context_checked: std::sync::atomic::AtomicBool::new(false),
+                context_gate: tokio::sync::Mutex::new(()),
             }),
             worker: false,
         })
@@ -263,6 +299,11 @@ impl InstallationAudit {
             return Err(ModelError::Conflict(
                 "installation audit foreign resource owner",
             ));
+        }
+        if self.closed.load(std::sync::atomic::Ordering::Acquire)
+            || (!self.worker && !self.work.accepting.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Err(ModelError::Conflict("installation audit closed"));
         }
         Ok(())
     }
@@ -320,6 +361,16 @@ impl InstallationAudit {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         self.check(reader, budget)?;
+        if self.work.context_checked.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(());
+        }
+        // The constructor observed context BEFORE acquiring its native pin. Only
+        // this post-pin observation earns reuse, coalesced across actual workers.
+        let _context = self.work.context_gate.lock().await;
+        self.check(reader, budget)?;
+        if self.work.context_checked.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(());
+        }
         let _charge = budget.reserve("installation audit context check", 4096)?;
         #[cfg(test)]
         self.context_observations
@@ -345,7 +396,26 @@ impl InstallationAudit {
                 "installation audit validity context changed",
             ));
         }
-        self.pin.ensure_live()
+        self.check(reader, budget)?;
+        self.work.context_checked.store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+    pub(super) fn checked_context_lifetime(
+        &self,
+        reader: &NativeReader<()>,
+        budget: &ResourceBudget,
+    ) -> Result<CheckedContextLifetime, ModelError> {
+        self.check_source_local(reader, budget)?;
+        if !self.work.context_checked.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(ModelError::Conflict("installation audit context not earned"));
+        }
+        Ok(CheckedContextLifetime {
+            pin: std::sync::Arc::downgrade(&self.pin),
+            client: std::sync::Arc::downgrade(&self.client),
+            work: std::sync::Arc::downgrade(&self.work),
+            closed: std::sync::Arc::downgrade(&self.closed),
+            budget: self.budget.clone(),
+        })
     }
     async fn run_work(
         &self,
@@ -985,7 +1055,7 @@ impl ClosureInspectionScope {
     }
     /// A compound receiving phase fences the captured context in its final native
     /// effect. Its selector iterations borrow one observation, without changing
-    /// ordinary operation scopes or their independent current-context checks.
+    /// the independently checked endpoints or the final receiving context CAS.
     pub(crate) fn for_boundary(mut self) -> Self {
         self.boundary = true;
         self
@@ -1028,7 +1098,7 @@ impl ClosureInspectionScope {
         self.check_local(reader, audit, budget)?;
         // A receiving phase retains exact-CAS-pinned endpoints, and its final
         // completion/acquisition effect independently fences captured context.
-        // Ordinary operation scopes still reobserve context on every check.
+        // Ordinary scopes consume the same actual post-pin checked lifetime.
         if (self.operation && !self.boundary) || !self.context_checked {
             audit.ensure_context(reader, budget).await?;
             self.check_local(reader, audit, budget)?;
@@ -3324,6 +3394,7 @@ mod tests {
                 .protected_source(&client, &budget)
                 .await
                 .unwrap();
+            let checked_context = closing_audit.checked_context_lifetime(&reader, &budget).unwrap();
             let mut scope = source.inspection_scope(&reader, &budget).unwrap();
             let inspected = inspect_closure_scoped(
                 &reader,
@@ -3348,6 +3419,7 @@ mod tests {
                     "source close must drain the accepted native first-miss blob worker"
                 );
                 closing_audit.pin.ensure_live().unwrap();
+                assert!(checked_context.check(&reader, &budget).is_err(), "checked context refuses closing before native pin release");
                 assert!(
                     closing_audit
                         .protected_source(&client, &budget)
@@ -3543,6 +3615,30 @@ mod tests {
                     .await
                     .is_err()
             );
+            // Earn a genuine source context, then transfer exact contributor
+            // protection before independently dropping that source and its pin.
+            let handoff_audit = InstallationAudit::new(client.clone(), &budget).await.unwrap();
+            let selected = std::sync::Arc::new(crate::installed_view::select_live_view_scoped(
+                client.clone(), store.attempt(), view, &mappings, &budget, &handoff_audit,
+            ).await.unwrap());
+            assert!(selected.earned_source().unwrap().has_checked_context_lifetime(), "actual source selection earned Some checked lifetime");
+            let source_pin = std::sync::Arc::downgrade(&handoff_audit.pin);
+            let receiver_pin = crate::control::ReaderPin::acquire(client.clone(), &[]).await.unwrap();
+            let received = crate::installed_view::receiving::protect_receiving_views(
+                std::slice::from_ref(&selected), &receiver_pin, &reader, &budget,
+            ).await.unwrap();
+            let received_view = received.views()[0].clone();
+            assert!(!received_view.earned_source().unwrap().has_checked_context_lifetime(), "receiving pin cannot inherit source context provenance");
+            handoff_audit.close().await.unwrap();
+            drop(selected);
+            drop(handoff_audit);
+            assert!(source_pin.upgrade().is_none(), "receiving preparation retains no source pin or context owner");
+            received_view.ensure_borrowed_current(&reader, &budget).await.unwrap();
+            received_view.ensure_current(&reader, &budget).await.unwrap();
+            assert!(received.ensure_for(&received_view, &client, &budget).unwrap());
+            drop(received_view);
+            drop(received);
+            receiver_pin.release().await.unwrap();
             audit.close().await.unwrap();
             assert!(audit.protected_source(&client, &budget).await.is_err());
             assert!(
@@ -6608,6 +6704,8 @@ mod shared_preparation_controls {
                 next: AtomicU64::new(1),
                 accepting: AtomicBool::new(true),
                 close_gate: tokio::sync::Mutex::new(()),
+                context_checked: std::sync::atomic::AtomicBool::new(false),
+                context_gate: tokio::sync::Mutex::new(()),
             }),
         }
     }
@@ -7104,21 +7202,51 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
         let mut restore_epoch = None;
         let mut boundary_owner = None;
         let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async {
+            let mut stale = InstallationAudit::new(client.clone(), &budget).await.unwrap();
+            // Model an observation captured before pin issuance which no longer
+            // matches the actual post-pin context, without changing shared state.
+            stale.context.1 = stale.context.1.checked_add(1).unwrap();
+            let mismatch = stale.ensure_context(&reader, &budget).await.unwrap_err();
+            assert!(mismatch.to_string().contains("installation audit validity context changed"));
+            assert_eq!(stale.context_observations.load(std::sync::atomic::Ordering::Relaxed), 1);
+            assert!(!stale.work.context_checked.load(std::sync::atomic::Ordering::Acquire));
+            stale.close().await.unwrap();
             let source = audit.protected_source(&client, &budget).await.unwrap();
             let mut scope = source.inspection_scope(&reader, &budget).unwrap().for_boundary();
             let before = audit.context_observations.load(std::sync::atomic::Ordering::Relaxed);
+            assert_eq!(before, 1, "protected source earns exactly one actual post-pin context observation");
             scope.check(&reader, &audit, &budget).await.unwrap();
             let first = audit.context_observations.load(std::sync::atomic::Ordering::Relaxed);
-            assert_eq!(first, before + 1, "phase entry dispatches an actual native context query");
+            assert_eq!(first, before, "phase entry consumes the already checked actual pin lifetime");
             for _ in 0..64 { scope.check(&reader, &audit, &budget).await.unwrap(); }
             assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), first,
                 "selector reuse keeps pin/client/pool/source checks without repeated context queries");
             let mut ordinary = source.inspection_scope(&reader, &budget).unwrap();
             ordinary.check(&reader, &audit, &budget).await.unwrap();
             ordinary.check(&reader, &audit, &budget).await.unwrap();
-            assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), first + 2,
-                "ordinary operation scopes still query actual context on each check");
-            if !drift { return; }
+            assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), first,
+                "ordinary operation scopes retain local checks without repeating protected context reads");
+            let lifetime = audit.checked_context_lifetime(&reader, &budget).unwrap();
+            let foreign_budget = ResourceBudget::fixed(64 << 20).unwrap();
+            assert!(lifetime.check(&reader, &foreign_budget).is_err());
+            let foreign_reader = NativeReader::private(std::sync::Arc::new(surrealdb::Surreal::init())).with_budget(&budget);
+            assert!(lifetime.check(&foreign_reader, &budget).is_err());
+            foreign_reader.close().await.unwrap();
+            let own_pin = RecordId::new("native_pin", audit.pin.identity.hex());
+            let mut live = client.query("SELECT VALUE released FROM ONLY $pin").bind(("pin", own_pin.clone())).await.unwrap().check().unwrap();
+            assert!(!live.take::<bool>(0).unwrap(), "this audit owns an actual live native pin");
+            let guard = format!("BEGIN; IF {} {{ THROW 'native installation live pins remain'; }}; CANCEL;", crate::control::live_pin_drain_predicate_for_control());
+            let blocked = client.query(guard).await.unwrap().check().unwrap_err();
+            assert!(blocked.to_string().contains("native installation live pins remain"), "production live-pin clause itself must exclude the checked lifetime, independently of attempts: {blocked}");
+            audit.pin.ensure_live().unwrap();
+            if !drift {
+                audit.close().await.unwrap();
+                let mut released = client.query("SELECT VALUE released FROM ONLY $pin").bind(("pin", own_pin)).await.unwrap().check().unwrap();
+                assert!(released.take::<bool>(0).unwrap(), "this audit's exact pin is released regardless of other parallel pins");
+                assert!(lifetime.check(&reader, &budget).is_err(), "released pin cannot retain checked context");
+                assert!(ordinary.check(&reader, &audit, &budget).await.is_err());
+                return;
+            }
             // Earn a genuine completed parent first; stale local context is never
             // substituted for a receiving parent or incarnation capability.
             let boundary = crate::completed_state::complete_retained_content_from_source(
@@ -7164,8 +7292,9 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
             };
             assert!(error.to_string().contains("live installed view owner changed"),
                 "final live acquisition must compare the captured context atomically: {error:?}");
-            let error = ordinary.check(&reader, &audit, &budget).await.unwrap_err();
-            assert!(error.to_string().contains("installation audit validity context changed"));
+            ordinary.check(&reader, &audit, &budget).await.unwrap();
+            assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), before_reuse,
+                "raw privileged tampering is outside controlled-write source reuse; final receiving CAS still refuses it");
         }).catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         if let (Some(admin), Some(epoch)) = (admin.as_ref(), restore_epoch) {

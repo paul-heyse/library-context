@@ -21,6 +21,7 @@ pub struct SelectedViewDescriptor {
 /// are retained in ExpectedRecord bytes, with normalized preparation owned alongside.
 pub struct EarnedContributionSet {
     pin: Arc<crate::control::ReaderPin>,
+    context_lifetime: Option<super::audit::CheckedContextLifetime>,
     owner: RecordId,
     generation: ContentHash,
     validity_epoch: i64,
@@ -31,6 +32,10 @@ pub struct EarnedContributionSet {
     pub(super) _charge: StateCharge,
 }
 impl EarnedContributionSet {
+    #[cfg(test)]
+    pub(super) fn has_checked_context_lifetime(&self) -> bool {
+        self.context_lifetime.is_some()
+    }
     pub fn owner(&self) -> &RecordId {
         &self.owner
     }
@@ -55,6 +60,9 @@ impl EarnedContributionSet {
         reader: &crate::NativeReader<()>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        if let Some(context) = &self.context_lifetime {
+            return context.check(reader, budget);
+        }
         self.pin.ensure_live()?;
         let _context = budget.reserve("earned borrowed current installation observation", 8192)?;
         let installations: Vec<Object> = reader
@@ -84,25 +92,23 @@ impl EarnedContributionSet {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         self.pin.ensure_live()?;
-        let mut vars = Variables::new();
-        let installations: Vec<Object> = reader
-            .query_native(
-                "SELECT generation,validity_epoch FROM native_installation:current",
-                vars.clone(),
-            )
-            .await?;
-        let [installation] = installations.as_slice() else {
-            return Err(ModelError::Conflict(
-                "earned current installation cardinality",
-            ));
-        };
-        if installation.get("generation") != Some(&Value::String(self.generation.hex()))
-            || installation.get("validity_epoch")
-                != Some(&Value::Number(surrealdb::types::Number::Int(
-                    self.validity_epoch,
-                )))
-        {
-            return Err(ModelError::Conflict("earned current installation changed"));
+        if let Some(context) = &self.context_lifetime {
+            context.check(reader, budget)?;
+        } else {
+            let installations: Vec<Object> = reader
+                .query_native(
+                    "SELECT generation,validity_epoch FROM native_installation:current",
+                    Variables::new(),
+                )
+                .await?;
+            let [installation] = installations.as_slice() else {
+                return Err(ModelError::Conflict("earned current installation cardinality"));
+            };
+            if installation.get("generation") != Some(&Value::String(self.generation.hex()))
+                || installation.get("validity_epoch") != Some(&Value::Number(surrealdb::types::Number::Int(self.validity_epoch)))
+            {
+                return Err(ModelError::Conflict("earned current installation changed"));
+            }
         }
         let _requests = budget.reserve(
             "earned exact current contributor windows",
@@ -143,8 +149,11 @@ impl EarnedContributionSet {
             }
             holds.finish()?;
         }
-        vars.insert("owner", self.owner.clone());
-        self.pin.ensure_live()
+        if let Some(context) = &self.context_lifetime {
+            context.check(reader, budget)
+        } else {
+            self.pin.ensure_live()
+        }
     }
 }
 impl HeldInstalledView {
@@ -170,6 +179,9 @@ impl HeldInstalledView {
                     .saturating_add(std::mem::size_of::<EarnedContributionSet>() + 512))?;
                 let copied = EarnedContributionSet {
                     pin: pin.clone(), owner,
+                    // A new receiving pin cannot inherit the source's checked
+                    // context lifetime. Its existing fresh remote route remains.
+                    context_lifetime: None,
                     generation: set.generation, validity_epoch: set.validity_epoch,
                     contributors: set.contributors.clone(), selector: set.selector,
                     members: set.members.clone(), _prepared: set._prepared.clone(), _charge: state,
@@ -239,6 +251,7 @@ pub async fn select_live_view_scoped(
             )?;
         let set = Arc::new(EarnedContributionSet {
             pin: audit.borrow_pin()?,
+            context_lifetime: Some(audit.checked_context_lifetime(&reader, budget)?),
             owner: RecordId::new("native_pin", audit.pin_identity().hex()),
             generation: owner.generation(),
             validity_epoch: owner.validity_epoch(),
@@ -540,6 +553,7 @@ mod tests {
             }),
             owner: InstalledViewOwner::Earned { set: Arc::new(EarnedContributionSet {
                 pin: source_pin.clone(), owner: RecordId::new("native_pin", source_pin.identity.hex()),
+                context_lifetime: None,
                 generation: ContentHash([2; 32]), validity_epoch: 1, contributors: BTreeMap::new(),
                 selector: ContentHash([3; 32]), members: prepared.point_index(&budget).unwrap(),
                 _prepared: vec![], _charge: state,
