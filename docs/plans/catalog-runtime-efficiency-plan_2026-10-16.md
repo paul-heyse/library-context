@@ -319,8 +319,19 @@ No candidate is retained or replaced; original collision Unknown remains a separ
 Strict full-workspace/all-target keep-going Clippy `20261017T000135.896Z-97cf0e`,
 `000625.256Z-12c068` and `001119.106Z-94ab3d` retain original failures: two collapsible branches,
 one redundant capture reborrow and one fixture default-field assignment, respectively. Equivalent
-source corrections are integrated; the full strict rerun and selected-complete functional acceptance
-remain pending. No warning is suppressed or reclassified as a pass.
+source corrections are integrated. `001354.500Z-9c86b0` also retains two native test-code lint
+failures (error expectation and module placement), corrected without changing assertions.
+Full strict rerun `20261017T001711.400Z-53c733` **passed** with no emitted warnings/errors and
+host cleanup confirmed. Selected-complete functional acceptance remains pending.
+No warning is suppressed or reclassified as a pass.
+Native refresh `20261017T001958.237Z-c9e3e7` **passed** (already current), host cleanup confirmed.
+Final selected-complete run `20261017T002012.086Z-41899e` is running on exact regenerated default
+`58abe9ea-2088-4109-95ab-8440a3749c51`. It selects full model/analytics/provider/compiler/store/
+Rust-serving/oracle/tooling boundaries and applicable non-functional leaves, using release and
+normal concurrency. Coverage inventory accounts for177 Rust targets and63 selected Python files,
+with no unexpected omission; five submitted-MCP Python files and embedding inference remain
+excluded. Full strict Clippy is the separate passed receipt above. Selected coverage is complete;
+global qualification is not claimed, and execution outcomes remain pending.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 Current service status observed23 protected attachments rather than the inherited16; all remain
