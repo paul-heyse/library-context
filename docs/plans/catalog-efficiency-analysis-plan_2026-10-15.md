@@ -31,8 +31,10 @@ overlap, without claiming fewer native reads for every disjoint workload. Three 
 passed in run`a60d51fb-ca02-4a99-9e29-5059f41c9684`, including32 disjoint rich roots under singleton-fit
 pressure. Current model adoption/isolation controls passed3 in
 run`439eeb31-9cd3-4e44-bb6a-b297f3c12b9b`; native persistence and enclosing acceptance remain with coordinator §6.
-No catch-and-requery of failed native acquisition is authorized. [ADR-0176](../adr/0176-bounded-behavioral-preparation.md)
-records the bounded preparation decisions and retained analytic representation.
+No catch-and-requery of failed native acquisition is authorized. Successor
+[ADR-0180](../adr/0180-shared-exact-base-preparation.md) carries the retained Summary/analytic
+decisions and replaces this historical Base preparation direction; current execution belongs to
+the runtime-efficiency coordinator.
 
 The same capture owner now supports same-kernel read cohorts with Physical root checks and full
 literals; expression Virtual activation/opaque literals remain separate. Each read assembles one

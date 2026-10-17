@@ -124,19 +124,19 @@ bodies are not edited by authoring this plan.
 
 | Source impact | Approved direction and implementation gate | Decision route |
 |---|---|---|
-| [R:RC01](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC01) | Permit one atomic apply/outcome for a bounded window only after RN00 closes exact request, absent-request fence, cut and reference cases | RN01 supersedes affected ADR-0173 ordinary split-intent clauses and updates storage/physical compilation; carry unaffected decisions |
-| [R:RC02](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC02) | Mutate actual changed incidence while preserving new-hold retirement exclusion, complete admission participation and parent completion | RN02 records changed lowering through affected ADR-0173 clauses/storage §6.1; preserve semantic incidence and revision consumers |
+| [R:RC01](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC01) | Permit one atomic apply/outcome for a bounded window only after RN00 closes exact request, absent-request fence, cut and reference cases | Accepted ADR-0178 replaces ordinary split-intent clauses and carries unaffected decisions; storage/physical compilation own realization |
+| [R:RC02](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC02) | Mutate actual changed incidence while preserving new-hold retirement exclusion, complete admission participation and parent completion | ADR-0178/storage §6.1 govern changed lowering; preserve semantic incidence and revision consumers |
 | [R:RC03](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC03) | Carry sufficient operation-owned immutable premises, complete receiver protection and supported mutation scope | RN03 uses ADR workflow for changed assurance scope and updates storage §6.2/semantic owner and actual receiving/retained consumers |
 | [R:RC04](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC04) | Permit joined independent producer/CPU ownership with coordinator integration and exact cancellation/drainage | CX01 records a new placement ADR and updates semantic §15.1. ADR-0168's coordinator/readiness decisions remain; supersede only a specifically identified incompatible clause if one emerges |
-| [R:RC05](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC05) | Permit compatible charged Base union preparation with root partitions and one mutable production per root | RA00 supersedes affected ADR-0176 singleton acquisition/reconstruction choice and updates Behavioral/semantic owners |
+| [R:RC05](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC05) | Permit compatible charged Base union preparation with root partitions and one mutable production per root | Accepted ADR-0180 replaces singleton acquisition/reconstruction and carries Summary/analytics; Behavioral/semantic owners govern realization |
 
 The following E directions were approved on 2026-10-15 and have implemented foundations at their
 recorded evidence strengths, with inherited enclosing acceptance still open:
 
-- [E:RC01](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC01): ADR-0173's complete finite attempt/admission cut, delayed fencing and exact outcomes remain required.
+- [E:RC01](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC01): ADR-0178 carries the complete finite attempt/admission cut, delayed fencing and exact outcomes.
 - [E:RC02](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC02): ADR-0175's anchored discovery, migrated cursor consumers and complete safety inventory remain.
 - [E:RC03](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC03): qualified transport ingress admission and physical finality/provenance remain distinct obligations.
-- [E:RC04](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC04): ADR-0173's recovery admission, actual handback recipient and exact terminal/reference ownership remain.
+- [E:RC04](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC04): ADR-0178 carries recovery admission, actual handback recipient and exact terminal/reference ownership.
 
 Do not request approval again or count these as new runtime rules. Additional changes to Summary
 meaning, public selector encoding, scoring or supported guarantees require their own explicit rule decision.
@@ -282,15 +282,45 @@ The capture first-poll/lifetime, pure-plan/start, current Call grouping and reco
 controls passed. `58e6cf67` completes exact deferred routing and exhausted Alias/Path support
 factoring; `df99020c` corrects the extended fixture's typed event ownership. Initial rerun
 `232441.405Z-55f9da` **failed** during compilation, no tests executed; the omitted detailed
-diagnostic is separately retained in `232648.497Z-b792e8`. Final focused rerun
+diagnostic was retained in the existing structured `build` phase and separately copied in
+`232648.497Z-b792e8`. No compiler channel was lost; README/AGENTS now use the observation's
+returned phase, rather than hardcoding `call`. Final focused rerun
 `232832.699Z-feb49a` **passed**20 controls, no emitted compile warnings, host cleanup confirmed.
 The assembled reviewer now **Accept scoped / Interface-checked** the production source through
 `58e6cf67`; its original dated F01/F02 diagnoses remain preserved. Current native epoch-drift
 final-handoff control `233110.389Z-adfef6` **passed**1 actual case with enclosing maintenance/fixture
-and host cleanup confirmed. Cancellation/parallel ingress integration `233254.735Z-ddca94` is
-in progress on the same candidate. RE90 also selects the inherited delayed-first-issue/original
+and host cleanup confirmed. Cancellation/parallel ingress integration `233254.735Z-ddca94` ran2:
+ingress **passed**, cancellation **failed** before dispatch for missing caller budget. `71e58bfa`
+adds the budget and explicit reader closure; maintenance revalidation `233628.575Z-cac962` and
+actual cancellation rerun `233718.224Z-4173c6` **passed**, host cleanup confirmed. RE90 also selects the inherited delayed-first-issue/original
 attempt retry, interrupted closing-before-cleanup and two-successor recovery controls as separate
 exclusive maintenance invocations; they are not subsumed by the new never-issued-owner case.
+Initial delayed-original `233826.545Z-d6b257` **failed** because these older fixtures lacked the
+required recovery scope. `70df2ffc` supplies actual owned connections, scope-bound effects and
+checked finalization. `234801.960Z-d72ac0` then reached its native result but **failed** the new
+zero-charge assertion: session detach precedes SDK engine join. `ac14857b` reuses the existing
+connection-completion join after dropping handles, preserving the zero-charge and semantic checks.
+Delayed-original `235204.199Z-22c080` **passed** with enclosing maintenance/fixture and host cleanup
+confirmed. Interrupted-closing `235319.475Z-fdcbd2` **failed** on ordinary fixture guard retirement
+while admission was closed; independent source inspection confirms the production refusal is
+correct. `91885aaa` opens admission only for those owned retirements, closes it before the final
+cut and retains every crash/cut/drain assertion. Interrupted-closing rerun
+`20261016T235825.687Z-8005c5` and two-successor recovery `20261016T235940.165Z-b0ac2c`
+**passed** one actual case each, with enclosing maintenance/fixture and host cleanup confirmed.
+Full workspace/all-target release compile `234325.884Z-b5ceb4` **passed** without emitted warnings,
+host cleanup confirmed. Native environment sync `233926.755Z-d7c95b` **passed**, host cleanup confirmed.
+Final candidate controls on 2026-10-16 local date: `20261017T000240.990Z-55cf8b` **passed** nine
+incidence/receiving/frozen/late-collision cases; close-cut `000417.192Z-ba4069`, freeze-cut
+`000548.942Z-a1cec1`, row/hold overlap `000826.389Z-19d256` and destructive guard refusals
+`001108.049Z-3c10cf` each **passed** one actual case, enclosing fixture and host cleanup confirmed.
+Exact candidate disposal `20261017T001146.255Z-8bb848` **passed**: authenticated drain, executor
+shutdown, datastore disposal and attachment/installer/unit/storage/credential release all passed.
+No candidate is retained or replaced; original collision Unknown remains a separate historical outcome.
+Strict full-workspace/all-target keep-going Clippy `20261017T000135.896Z-97cf0e`,
+`000625.256Z-12c068` and `001119.106Z-94ab3d` retain original failures: two collapsible branches,
+one redundant capture reborrow and one fixture default-field assignment, respectively. Equivalent
+source corrections are integrated; the full strict rerun and selected-complete functional acceptance
+remain pending. No warning is suppressed or reclassified as a pass.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 Current service status observed23 protected attachments rather than the inherited16; all remain

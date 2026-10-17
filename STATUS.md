@@ -9,8 +9,8 @@ Prior CE80 is delivered; CE90/CE99 transfer to RE90/RE99. Existing implementatio
 Latest reconstruction: 1 passed/6 timed out after 900s; native obligations and original Unknowns protected.
 Historical SurrealDB ~143GB resident private memory remains unclassified. Candidate and default regenerated; default `232319…739293` passed with23 separate discard acknowledgements.
 Current: compiler, analysis, backup and production atomic native source integrated; all three worktrees merged and removed.
-Pre-cutover native atomic cases and current native recovery/handoff controls passed; final focused Summary/capture run `232832…feb49a` passed20 controls.
-Independent assembled review accepts the corrected source within scope. Native integration, selected-complete functional acceptance and final hygiene remain open at coordinator §6.
+Native atomic/race/recovery/handoff controls and final focused Summary/capture run `232832…feb49a` passed; candidate disposal `001146…8bb848` passed authenticated drain/shutdown/discard/release.
+Independent assembled review accepts corrected source within scope; full workspace compile `234325…b5ceb4` passed. Clippy corrections are integrated; full strict rerun and selected-complete functional acceptance remain open at coordinator §6.
 Embedding inference, submitted MCP runtime, real-library/operator adoption and paused older-track execution remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
