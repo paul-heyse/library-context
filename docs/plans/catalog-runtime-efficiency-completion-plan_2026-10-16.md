@@ -32,6 +32,8 @@ snapshot with owned spools. Correct repeated dependency descriptor queries and t
 unnecessarily long lifetime; do not replace backup with a server dump that loses selected closure,
 an old-generation copy or a transaction spanning local carrier work.
 
+<a id="2-inherited-checkpoint-and-protected-obligations"></a>
+
 ## 2. Historical inherited checkpoint and obligation provenance
 
 This section preserves dated evidence and the identities behind original outcomes. It is not a
