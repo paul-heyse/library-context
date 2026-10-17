@@ -10083,10 +10083,23 @@ mod completion_tests {
             let view = views[relation.name()].clone();
             let lease = source.admit_mutation("declaration reuse control", true)?;
             let mappings = lease.within(async {
-                let _gate = source.root_gates([view.identity], &budget).await?;
+                let _gate = source.root_gates(views.values().map(|view| view.identity), &budget).await?;
                 let (mappings, _charge) = source.selected_view_mappings(&view, &budget).await?;
                 assert!(source.has_successful_view_declaration(&view, &mappings, &budget)?);
                 assert!(source.installed_views.lock().unwrap().is_empty(), "declaration has earned no selector");
+                {
+                    let mut retained = source.view_mappings.lock().unwrap();
+                    for pending in views.values() {
+                        let Some(SelectedViewMappings::Live(_, receipt)) = retained.get_mut(&pending.identity) else {
+                            panic!("acknowledged live mapping owner")
+                        };
+                        assert!(receipt.take().is_some(), "clear provenance without dropping mandatory descriptor or mappings");
+                    }
+                }
+                for pending in views.values() {
+                    let selected = source.retained_selected_mappings(pending)?.expect("mandatory mapping owner");
+                    assert!(!source.has_successful_view_declaration(pending, &selected, &budget)?, "metadata alone cannot prove acknowledgement");
+                }
                 let before_receipts = budget.reserved();
                 let pressure = budget.reserve("pending declarations leave no optional working set", budget.limit() - before_receipts)?;
                 for pending in views.values() {
