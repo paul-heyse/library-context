@@ -1,10 +1,10 @@
 # Catalog runtime efficiency: assembled target review
 
-**Accept scoped, Interface-checked, 2026-10-16, final source reassessment `58e6cf67`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Accept scoped, Interface-checked, 2026-10-16, latest source reassessment `6eb0f01d`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
-This is an independent **design / target** review of the complete [runtime coordinator](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md) and its native, compiler, analysis and completion companions. The initial inspected production baseline is **`a5f50a53`**, including the complete recovered-owner correction. Sections 2–8 preserve that baseline assessment; §9 supplies the current assembled judgment after bounded reassessment through **`58e6cf67`**, including capture correction `99f42979`, fixture refinement `32460297`, and Summary corrections `ad0813ae` / `58e6cf67`. Concurrent coordinator documents and unrelated source work are not final-source qualification. This review changes only this document. Current execution disposition belongs solely to [coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint); the dated assessments below do not form another status ledger.
+This is an independent **design / target** review of the complete [runtime coordinator](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md) and its native, compiler, analysis and completion companions. The initial inspected production baseline is **`a5f50a53`**, including the complete recovered-owner correction. Sections 2–8 preserve that baseline assessment; §9 supplies the Summary/capture correction judgment through **`58e6cf67`**, including capture correction `99f42979`, fixture refinement `32460297`, and Summary corrections `ad0813ae` / `58e6cf67`. §10 assesses the subsequent named native and fixture follow-ups through **`6eb0f01d`**. Concurrent coordinator documents and unrelated source work are not final-source qualification. This review changes only this document. Current execution disposition belongs solely to [coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint); the dated assessments below do not form another status ledger.
 
 ## 1. Scope, functional intent and evidence boundary
 
@@ -236,3 +236,62 @@ The final F02 control refinement `32460297` targets the actual adjacency payload
 FP-01–FP-07 are now source-supported for the named assembled scenarios. The original §7 core/profile gate verdicts remain scoped **pass / Interface-checked**, with CI-G3 inapplicable to changed evaluation behavior; no source inspection substitutes for actual native/functional acceptance. **Additional rule impacts remain none.** The fixes preserve queue/refusal, proof/evidence, receiving/admission and no-reissue meanings rather than changing supported semantics or adding a cutoff.
 
 **Current bounded decision: Accept scoped at source strength through `58e6cf67`.** No material architectural issue remains in the inspected runtime-efficiency interactions. The coordinator must still integrate any later repairs, run final-source selected functional/shared-contract and non-functional acceptance, and preserve exact native uncertainty/receipts independently. Those pending checks, historical memory attribution, real-library/operator and excluded runtime journeys prevent any claim of whole-product/release qualification; they do not create an unobserved source defect. A subsequent production change reopens its affected review/acceptance boundary.
+
+
+## 10. Follow-up source reassessment: `6eb0f01d`
+
+**Accept scoped, Interface-checked, 2026-10-16.** Independent read-only inspection covers fixture
+connection finalization (`b3d8ce74`), cleanup cut coalescing (`6040916e`), acknowledged declaration
+provenance (`9d706e1b`/`37c6ebcc`), checked audit-pin context (`c681594a`, incorporating
+`640b153c`/`8bcf5a66`), and fixture preparation/hydration/borrower corrections
+(`7425458f`/`6eb0f01d`). No new material defect was found in those assigned interactions. This
+assessment does not certify later changes, the running acceptance campaign or any executed result.
+
+Cleanup coalescing preserves the actual exclusion boundary. The authorization wrapper writes the
+cleanup row and its complete incidence before entering the payload. The payload verifies exact
+cleanup/origin/owner/page correspondence, reuses only already written predicates, and writes every
+remaining distinct hold target before nomination and deletion. Nomination still checks positive
+active incarnations and creates the entire retirement page atomically before deleting holds.
+Identical-origin reuse removes repeated complete cuts; distinct attempts and nominated objects
+retain their cuts. Added controls distinguish same/distinct origins and owners, attempt-valued
+roots and late-page rollback. Actual native execution remains pending.
+
+Declaration reuse records acknowledged effects rather than deriving authority from metadata.
+The inline marker binds actual operation/recovery ownership and resource pool; reuse also requires
+the full known descriptor and exact physical mappings. Production records it only after declaration
+and all dependency holds acknowledge. Fresh selector earning still performs independent native
+descriptor, membership, alias and incarnation checks. Inline storage uses the existing charged
+mapping header rather than another descriptor copy or optional reservation minimum. The pressure
+control clears earlier provenance before first minting multiple markers at the full pool ceiling,
+and challenges foreign ownership and unequal selection. Its executed outcome remains pending.
+
+[ADR-0181](../../adr/0181-checked-audit-pin-context.md)'s context is earned by a successful post-pin
+native comparison, never constructor capture. Reuse retains exact pin/client/pool and closing
+checks; admitted workers remain drainable. Weak source references do not extend authority, and
+independent receiving copies omit source context provenance. The corrected control isolates the
+production live-pin predicate from unrelated attempt blockers. The actual handoff control starts
+with a genuine checked token, transfers protection, drops the source, and exercises the receiver's
+independent remote/current/hold route. Final receiving context CAS remains separate. These
+implementations and controls are source-supported, not runtime-qualified.
+
+Fixture finalization composes operation failure and owner finality before applying the shared
+recursive cleanup-permission decision. Acknowledged refusal remains a failure while permitting the
+SDK join after handles drop; Unknown or Outstanding still prevents that join. Fixture budget
+corrections retain compact preparation in its actual pool while preserving the smaller selected
+typed-hydration ceiling. Borrower controls distinguish source-owned adjacency from temporary grain
+state, require repeated preparation to plateau, and retain zero charge after the last borrower
+drops. These changes clarify the tested boundary without increasing production limits.
+
+A1–A3 remain **Satisfied, scoped**: existing owners retain semantic meaning, effect authority and
+lifecycle responsibility. A4 remains **Satisfied, scoped at source strength** for the named
+mechanisms: duplicate declaration effects, repeated protected context reads and redundant cleanup
+cuts are removed without relocating their guarantees. Core/profile judgments retain their earlier
+scope. Rule impact is the approved RC03/ADR-0181 refinement; no additional rule change is recommended.
+
+Selected functional acceptance must still cover cleanup cut/rollback cases, declaration first-mint
+and independent receiver earning, post-pin/closing/receiving controls, provider refusal finalization,
+and affected scope/budget/borrower controls. Provider timeouts and retry conflicts retain their
+original outcomes until actual reruns settle them. The subsequent compiler stack-overflow signal
+requires its own diagnosis and correction assessment. This review establishes no whole-product
+qualification, historical memory attribution or excluded-runtime result. Coordinator §6 remains
+the sole disposition owner.
