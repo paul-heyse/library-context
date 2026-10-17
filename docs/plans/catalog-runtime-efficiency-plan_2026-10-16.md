@@ -517,8 +517,11 @@ with enclosing fixture and host cleanup confirmed. Full workspace/all-target kee
 `20261017T025812.226Z-7e9480` and strict Clippy `20261017T025941.048Z-1c2a1b` **passed**, without
 warnings/errors and with host cleanup confirmed. Independent source review accepts the bulk lowering
 and stopped-release control through `967cf1eb`. Root `just turn-end` passed at functional slice
-completion; Hakari was unchanged. Native refresh and outstanding selected-complete functional
-acceptance follow the formatted source on the unchanged successor target. The five-control pass
+completion; Hakari was unchanged. Formatting and checkpoint are committed as `27d95963`.
+Native refresh `20261017T030211.887Z-c4c2a5` **passed** (already current), host cleanup confirmed.
+Outstanding selected-complete acceptance `20261017T030304.383Z-d28970` is running as
+`just verify --rerun 20261017T002012.086Z-41899e`, on the unchanged successor target, release profile,
+normal parallelism and original runtime exclusions. The five-control pass
 does not establish that the earlier normal-concurrency failures are resolved.
 
 
