@@ -29,7 +29,7 @@ use crate::domain::{
     value::*,
     *,
 };
-use crate::{Domain, DomainCode, DomainSum};
+use crate::{Domain, DomainSum};
 #[path = "summary_enqueue.rs"]
 mod enqueue_groups;
 use enqueue_groups::{EndpointIndex, ExhaustedGroups};
@@ -152,35 +152,36 @@ pub struct OriginBoundary {
     #[model(key)]
     pub qualification: Id<AssertionQualification>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
-#[repr(i16)]
-pub enum PairDisposition {
-    Disjoint = 0,
-    Subsumed = 1,
-    Proven = 2,
-    Refused = 3,
+/// Invocation-local questions discovered from processed live operands. This is preparation,
+/// never a persisted claim or a second pair trace.
+pub(super) type Question = (
+    Id<normalized::events::NormalizedCallEvent>, Id<Place>, Id<Place>,
+    Id<AssertionQualification>,
+);
+struct QuestionDomain {
+    questions: crate::domain::charged::ChargedSet<Question>,
+    charge: StateCharge,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
-#[model(name = "summary_pair_outcomes")]
-pub struct PairOutcome {
-    #[model(key)]
-    pub invocation: Id<owner::AnalysisInvocation>,
-    #[model(key)]
-    pub attempt: Id<CallBindingAttempt>,
-    #[model(key)]
-    pub caller_origin: Id<SummaryOrigin>,
-    #[model(key)]
-    pub callee_origin: Id<SummaryOrigin>,
-    #[model(key)]
-    pub caller: Id<SummaryPremise>,
-    #[model(key)]
-    pub callee: Id<SummaryPremise>,
-    #[model(key)]
-    pub disposition: PairDisposition,
-    #[model(key)]
-    pub witness: Option<Id<SummaryWitness>>,
-    #[model(key)]
-    pub reason: Option<obligation::ObligationKind>,
+impl QuestionDomain {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self { questions: Default::default(), charge: StateCharge::new(budget, "summary-question-domain") }
+    }
+    fn discover(&mut self, question: Question) -> Result<(), ModelError> {
+        self.questions.insert(&mut self.charge, question)?;
+        Ok(())
+    }
+    fn observe(
+        &mut self, event: Id<normalized::events::NormalizedCallEvent>,
+        caller: &dyn CompositionOperand, callee: &dyn CompositionOperand,
+        results: &[CallComposition],
+    ) -> Result<(), ModelError> {
+        if !results.is_empty() {
+            self.discover((event, caller.descriptor().input, callee.descriptor().output,
+                caller.qualification().id()))?;
+        }
+        Ok(())
+    }
+
 }
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
@@ -227,7 +228,7 @@ macro_rules! summary_vocabulary{($apply:ident)=>{$apply!{
  assumption_sets:$crate::domain::assumptions::AssumptionSet,assumption_members:$crate::domain::assumptions::AssumptionSetMember,assumptions:$crate::domain::assumptions::Assumption,assumption_universes:$crate::domain::assumptions::AssumptionUniverse,
  roots:$crate::domain::value::PlaceRoot,places:$crate::domain::value::Place,paths:$crate::domain::value::AccessPath,segments:$crate::domain::value::PathSegment,literals:$crate::domain::value::Literal,predicates:$crate::domain::value::Predicate,atoms:$crate::domain::conditions::EvaluationAtom,qualifications:$crate::domain::assertion::AssertionQualification,conditions:$crate::domain::conditions::Condition,nodes:$crate::domain::conditions::ConditionNode,
 }};}
-macro_rules! vocabulary{($($field:ident:$ty:ty,)*)=>{pub struct Vocabulary{$(pub $field:ChargedMap<Id<$ty>,$ty>,)*charge:StateCharge}impl Vocabulary{pub(super) fn new(b:&ResourceBudget)->Self{Self{$($field:Default::default(),)*charge:StateCharge::new(b,"summary-vocabulary")}}pub(super) fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{$(if n==<$ty>::NAME{for row in <$ty>::decode(b)?{self.$field.insert(&mut self.charge,row.id(),row)?;}})*Ok(())}fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]).at_epoch(stages::PublicationBoundary::Model),)*]}}};}
+macro_rules! vocabulary{($($field:ident:$ty:ty,)*)=>{pub struct Vocabulary{$(pub $field:ChargedMap<Id<$ty>,$ty>,)*charge:StateCharge}impl Vocabulary{pub(super) fn new(b:&ResourceBudget)->Self{Self{$($field:Default::default(),)*charge:StateCharge::new(b,"summary-vocabulary")}}$(pub fn $field(&mut self,max_rows:usize,max_bytes:usize)->Result<Option<crate::domain::normalized::CanonicalBatch<$ty>>,ModelError>{crate::domain::normalized::rows::take_checked_batch(&mut self.$field,&mut self.charge,max_rows,max_bytes)})*pub(super) fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{$(if n==<$ty>::NAME{for row in <$ty>::decode(b)?{self.$field.insert(&mut self.charge,row.id(),row)?;}})*Ok(())}fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]).at_epoch(stages::PublicationBoundary::Model),)*]}}};}
 crate::summary_vocabulary!(vocabulary);
 // Predecessor evidence and entry bindings use the explicit completed vocabulary view.
 fn evidence_inputs() -> Vec<ValidationInput> {
@@ -434,7 +435,7 @@ macro_rules! summary_outputs{($apply:ident)=>{$apply!{
  capture_witnesses:$crate::domain::execution::summary_capture::SummaryCaptureWitness,capture_contributions:$crate::domain::execution::summary_capture::SummaryCaptureContribution,
  exception_outcomes:$crate::domain::execution::summary_exceptions::SummaryExceptionOutcome,
  symbolic_alternatives:$crate::domain::execution::summary_symbolic::SymbolicFieldAlternative,
- origin_boundaries:$crate::domain::execution::summary_production::OriginBoundary,pair_outcomes:$crate::domain::execution::summary_production::PairOutcome,
+ origin_boundaries:$crate::domain::execution::summary_production::OriginBoundary,
  runs:$crate::domain::execution::summary_production::SummaryRun,components:$crate::domain::execution::summary_production::SummaryComponent,component_members:$crate::domain::execution::summary_production::ComponentMember,origins:$crate::domain::execution::summary_production::SummaryOrigin,proof_origins:$crate::domain::execution::summary_production::ProofOrigin,residuals:$crate::domain::execution::summary_production::SummaryResidual,call_members:$crate::domain::execution::summary_production::CallMember,
  control_witnesses:$crate::domain::execution::summary_control::SummaryControlWitness,
  costs:$crate::domain::execution::summary_proof::SummaryProofCost,path_routes:$crate::domain::execution::summary_path::SummaryPathRoute,path_witnesses:$crate::domain::execution::summary_path::SummaryPathWitness,path_contributions:$crate::domain::execution::summary_path::SummaryPathContribution,
@@ -443,8 +444,12 @@ macro_rules! summary_outputs{($apply:ident)=>{$apply!{
  claims:$crate::domain::execution::summary_consequences::SummaryClaim,claim_members:$crate::domain::execution::summary_consequences::ClaimMember,claim_standings:$crate::domain::execution::summary_consequences::ClaimStanding,claim_proofs:$crate::domain::execution::summary_consequences::ClaimProof,claim_proof_members:$crate::domain::execution::summary_consequences::ClaimProofMember,refutation_coverage:$crate::domain::execution::summary_consequences::ClaimRefutationCoverage,conclusions:$crate::domain::execution::summary_consequences::ClaimConclusion,obligation_sources:$crate::domain::analysis::summary::ObligationSource,
  sources:$crate::domain::analysis::summary::SupportSource,subjects:$crate::domain::analysis::summary::ObligationSubject,propositions:$crate::domain::analysis::summary::AnalysisProposition,derivations:$crate::domain::analysis::summary::AnalysisDerivation,derivation_premises:$crate::domain::analysis::summary::AnalysisDerivationPremise,obligations:$crate::domain::analysis::summary::AnalysisObligation,discharges:$crate::domain::analysis::summary::DischargeEvidence,
 }};}
-macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct SummaryRecords{$(pub $field:Rows<$ty>,)*pub outcome:owner::AnalysisOutcome,pub vocabulary:Vocabulary,pending:Option<(Vec<super::summary_consequences::PendingDischarge>,StateCharge)>}impl SummaryRecords{pub(super) fn new(i:Id<owner::AnalysisInvocation>,b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*outcome:owner::AnalysisOutcome{invocation:i,status:analysis::AnalysisStatus::Completed,reason:None},vocabulary:Vocabulary::new(b),pending:None}}}};}
+macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct SummaryRecords{$(pub $field:Rows<$ty>,)*pub outcome:owner::AnalysisOutcome,pub vocabulary:Vocabulary,questions:QuestionDomain,pending:Option<(Vec<super::summary_consequences::PendingDischarge>,StateCharge)>}impl SummaryRecords{pub(super) fn new(i:Id<owner::AnalysisInvocation>,b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*outcome:owner::AnalysisOutcome{invocation:i,status:analysis::AnalysisStatus::Completed,reason:None},vocabulary:Vocabulary::new(b),questions:QuestionDomain::new(b),pending:None}}}};}
 crate::summary_outputs!(output);
+impl SummaryRecords {
+    pub(super) fn questions(&self) -> impl Iterator<Item = &Question> { self.questions.questions.iter() }
+}
+
 impl SummaryRecords {
     fn consequences(
         &mut self,
@@ -556,8 +561,8 @@ impl Vocabulary {
             guards: self.guards(),
             paths: &self.paths,
             segments: place_composition::PathCatalog {
-                segments: &self.segments,
-                literals: &self.literals,
+                segments: &*self.segments,
+                literals: &*self.literals,
             },
         }
     }
@@ -2105,15 +2110,14 @@ fn publish(
     let mut members =
         charged::ChargedMap::<(Id<TransferKey>, ContentHash), BTreeSet<ProofId>>::default();
     let mut charge = StateCharge::new(budget, "summary-publication-members");
-    for branch in progress.branches.values().filter(|b| {
-        component.binary_search(&b.descriptor().owner).is_ok()
-            && matches!(
-                b.premise,
-                SummaryPremise::Witness { .. }
-                    | SummaryPremise::Path { .. }
-                    | SummaryPremise::Captured { .. }
-            )
-    }) {
+    for branch in component.iter()
+        .filter_map(|owner| progress.by_owner.get(owner))
+        .flatten()
+        .map(|id| &progress.branches[id])
+        .filter(|b| matches!(b.premise,
+            SummaryPremise::Witness { .. } | SummaryPremise::Path { .. } | SummaryPremise::Captured { .. }
+        ))
+    {
         members.insert_set(
             &mut charge,
             (
@@ -2172,6 +2176,8 @@ fn publish_members(
     };
     let _evidence = budget.reserve("summary-aggregate-evidence", ids.len().saturating_mul(1024))?;
     let mut proof_sources = Rows::new(budget);
+    let mut source_branches = ChargedMap::default();
+    let mut source_charge = StateCharge::new(budget, "summary-publication-proof-correspondence");
     for id in ids {
         let branch = &progress.branches[id];
         let source = match branch.premise {
@@ -2184,29 +2190,14 @@ fn publish_members(
             }
             _ => unreachable!(),
         };
+        if !source_branches.contains_key(&source.id()) {
+            source_branches.insert(&mut source_charge, source.id(), *id)?;
+        }
         proof_sources.insert(source)?;
     }
     let mut evidence = Vec::new();
     for source in proof_sources.iter() {
-        let branch = ids
-            .iter()
-            .map(|id| &progress.branches[id])
-            .find(|b| match (source, &b.premise) {
-                (
-                    owner::SupportSource::TransferWitness { witness: a },
-                    SummaryPremise::Witness { witness: b },
-                ) => a == b,
-                (
-                    owner::SupportSource::PathWitness { witness: a },
-                    SummaryPremise::Path { witness: b },
-                ) => a == b,
-                (
-                    owner::SupportSource::CaptureWitness { witness: a },
-                    SummaryPremise::Captured { witness: b },
-                ) => a == b,
-                _ => false,
-            })
-            .ok_or_else(|| invalid("aggregate witness branch absent"))?;
+        let branch = &progress.branches[&source_branches[&source.id()]];
         evidence.push(match branch.premise {
             SummaryPremise::Witness { witness } => owner::support::EvidencePremise::derived(
                 source,
@@ -2633,52 +2624,19 @@ fn produce_with_application(
                         }
                         let caller = progress.branches[&caller].clone();
                         let callee = progress.branches[&callee].clone();
-                        out.premises.insert(caller.premise.clone())?;
-                        out.premises.insert(callee.premise.clone())?;
                         let call = discovery
                             .attempts
                             .get(&attempt)
                             .map(|index| &calls[*index])
                             .ok_or_else(|| invalid("summary queued call absent"))?;
-                        let pair = |disposition, witness, reason| PairOutcome {
-                            invocation: invocation.id(),
-                            attempt,
-                            caller_origin: caller.origin,
-                            callee_origin: callee.origin,
-                            caller: caller.premise.id(),
-                            callee: callee.premise.id(),
-                            disposition,
-                            witness,
-                            reason,
-                        };
-                        for result in call_preparation.get(call, budget)?.compose(
-                            &caller,
-                            &callee,
-                            &vocabulary,
-                            &guards,
-                            budget,
-                        )? {
+                        let results = call_preparation.get(call, budget)?.compose(
+                            &caller, &callee, &vocabulary, &guards, budget,
+                        )?;
+                        out.questions.observe(call._event, &caller, &callee, results.as_slice())?;
+                        for result in results {
                             match result {
-                                CallComposition::Disjoint => {
-                                    out.pair_outcomes.insert(pair(
-                                        PairDisposition::Disjoint,
-                                        None,
-                                        None,
-                                    ))?;
-                                }
-                                CallComposition::Subsumed => {
-                                    out.pair_outcomes.insert(pair(
-                                        PairDisposition::Subsumed,
-                                        None,
-                                        None,
-                                    ))?;
-                                }
+                                CallComposition::Disjoint | CallComposition::Subsumed => {}
                                 CallComposition::Obligation(reason) => {
-                                    out.pair_outcomes.insert(pair(
-                                        PairDisposition::Refused,
-                                        None,
-                                        Some(reason),
-                                    ))?;
                                     residual(
                                         ResidualContext {
                                             discovery: &discovery,
@@ -2698,11 +2656,6 @@ fn produce_with_application(
                                         match ProofCost::through_call(caller.cost, callee.cost) {
                                             Ok(c) => c,
                                             Err(reason) => {
-                                                out.pair_outcomes.insert(pair(
-                                                    PairDisposition::Refused,
-                                                    None,
-                                                    Some(reason),
-                                                ))?;
                                                 residual(
                                                     ResidualContext {
                                                         discovery: &discovery,
@@ -2757,11 +2710,6 @@ fn produce_with_application(
                                     )?;
                                     if let summary_worklist::Admission::Refused(reason) = admission
                                     {
-                                        out.pair_outcomes.insert(pair(
-                                            PairDisposition::Refused,
-                                            None,
-                                            Some(reason),
-                                        ))?;
                                         residual(
                                             ResidualContext {
                                                 discovery: &discovery,
@@ -2778,11 +2726,6 @@ fn produce_with_application(
                                         continue;
                                     }
                                     if cost.check(limits).is_err() {
-                                        out.pair_outcomes.insert(pair(
-                                            PairDisposition::Subsumed,
-                                            None,
-                                            None,
-                                        ))?;
                                         continue;
                                     }
                                     // Store every admissible proof, including equal-cost evidence; reopen only semantic progress.
@@ -2802,11 +2745,6 @@ fn produce_with_application(
                                         out.premises.insert(premise)?;
                                     }
                                     out.witnesses.insert(emission.witness.clone())?;
-                                    out.pair_outcomes.insert(pair(
-                                        PairDisposition::Proven,
-                                        Some(emission.witness.id()),
-                                        None,
-                                    ))?;
                                     out.keys.insert(emission.key)?;
                                     for substitution in &composed.records.substitutions {
                                         out.substitutions.insert(substitution.clone())?;
@@ -4747,5 +4685,58 @@ mod exhausted_candidate_controls {
     #[test]
     fn recursive_endpoints_and_incomparable_proofs_preserve_full_inventory() {
         exercise(2, 4, true, true, true, 0);
+    }
+}
+
+#[cfg(test)]
+mod question_domain_controls {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    fn operand(input: u8, output: u8, scope: u8, budget: &ResourceBudget) -> TransferBranch<transfer::local::TransferKey> {
+        let q = AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(), context: id(20), scope: id(scope),
+            condition: Diagram::always().id(), modality: attribution::Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        TransferBranch::new(transfer::local::TransferKey::from_descriptor(TransferDescriptor {
+            owner: id(21), input: id(input), output: id(output), context: q.context, scope: q.scope,
+            modality: q.modality, approximation: q.approximation, kind: TransferKind::Identity,
+            call_site: None, provenance: ProvenanceClass::Composed,
+        }), q, Diagram::always(), budget).unwrap()
+    }
+    #[test]
+    fn disjoint_and_subsumed_questions_use_original_operands_and_caller_qualification() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let caller = operand(2, 3, 4, &budget);
+        let callee = operand(5, 6, 7, &budget);
+        for result in [CallComposition::Disjoint, CallComposition::Subsumed] {
+            let mut domain = QuestionDomain::new(&budget);
+            domain.observe(id(1), &caller, &callee, &[result]).unwrap();
+            assert_eq!(domain.questions.iter().copied().collect::<Vec<_>>(),
+                vec![(id(1), id(2), id(6), caller.qualification().id())]);
+        }
+        let mut domain = QuestionDomain::new(&budget);
+        domain.observe(id(1), &caller, &callee, &[]).unwrap();
+        assert!(domain.questions.is_empty(), "no result or unprocessed candidate has no question");
+    }
+    #[test]
+    fn question_domain_coalesces_discoveries_without_erasing_caller_qualification() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut domain = QuestionDomain::new(&budget);
+        let question = (id(1), id(2), id(3), id(4));
+        domain.discover(question).unwrap();
+        let once = budget.reserved();
+        for _ in 0..100 {
+            domain.discover(question).unwrap();
+        }
+        assert_eq!(domain.questions.len(), 1);
+        assert_eq!(budget.reserved(), once, "duplicate pairs retain no trace backing");
+        domain.discover((id(1), id(2), id(3), id(5))).unwrap();
+        domain.discover((id(6), id(2), id(3), id(4))).unwrap();
+        assert_eq!(domain.questions.len(), 3);
+        drop(domain);
+        assert_eq!(budget.reserved(), 0);
     }
 }

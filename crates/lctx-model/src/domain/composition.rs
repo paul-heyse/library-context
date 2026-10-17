@@ -445,17 +445,10 @@ fn composition_allowance(
             )
         })
         .ok_or_else(|| invalid("composition allowance overflow"))?;
-    let maps = catalog
-        .guards
-        .places
-        .heap_bytes()
-        .checked_add(catalog.guards.roots.heap_bytes())
-        .and_then(|n| n.checked_add(catalog.paths.heap_bytes()))
-        .and_then(|n| n.checked_add(catalog.segments.segments.heap_bytes()))
-        .and_then(|n| n.checked_add(catalog.segments.literals.heap_bytes()))
-        .ok_or_else(|| invalid("composition allowance overflow"))?;
+    // Catalog backing is borrowed, including the tiny projection overlay. Its total size
+    // neither needs traversal nor represents per-composition owned allocation.
+    let _ = catalog;
     rows.checked_mul(4096)
-        .and_then(|n| n.checked_add(maps.checked_mul(4)?))
         .and_then(|n| n.checked_add(4096))
         .ok_or_else(|| invalid("composition allowance overflow"))
 }
@@ -1030,18 +1023,17 @@ fn compose_call_impl(
     }
     let delivered = delivered.append(path(caller_output.path)?);
     // Projection items are new rows until stored; the path catalog must see them to compare.
-    let mut segments = catalog.segments.segments.clone();
-    let mut literals = catalog.segments.literals.clone();
-    for segment in &composer.records.segments {
-        segments.insert(segment.id(), segment.clone());
-    }
-    for literal in &composer.records.literals {
-        literals.insert(literal.id(), literal.clone());
-    }
-    let paths = PathCatalog {
-        segments: &segments,
-        literals: &literals,
+    // Only these bounded projection rows are owned; the admitted frame stays borrowed.
+    // Keep the tiny overlay independent of subsequent output construction in composer.
+    let added_segments = composer.records.segments.clone();
+    let added_literals = composer.records.literals.clone();
+    let segments = place_composition::PathOverlay {
+        base: catalog.segments.segments, added: &added_segments,
     };
+    let literals = place_composition::PathOverlay {
+        base: catalog.segments.literals, added: &added_literals,
+    };
+    let paths = PathCatalog { segments: &segments, literals: &literals };
     let composed = place_composition::compose(
         path(caller_input.path)?,
         &delivered,
@@ -1135,19 +1127,9 @@ fn compose_call_impl(
         modality,
         approximation,
     };
-    let mut restated = match substitute_call_guards(
-        callee.condition(),
-        call.site,
-        caller_key.context,
-        &catalog.guards,
-        &guard_bindings,
-        callee_frame.witnesses,
-        Some(&final_q),
-        budget,
-    ) {
-        Ok(rows) => rows,
-        Err(reason) => return CompositionResults::one(CallComposition::Obligation(reason), budget),
-    };
+    // The semantic substitution does not depend on qualification. Rebind only its evidence
+    // to the final composed qualification, preserving the admitted condition and rows.
+    let mut restated = restated.with_qualification(&final_q)?;
     let guard_charge = Arc::new(restated.take_admission());
     let caller_root = root(caller_input.root)?.clone();
     let RebasedGuards {
@@ -1810,7 +1792,7 @@ impl CompositionCheck {
             Self::get(&self.paths, &place.path, "composition access path absent")?,
         ))
     }
-    fn step(&self, row: &SummaryWitness, verified: &VerifiedBindings) -> Result<(), ModelError> {
+    fn step(&self, row: &SummaryWitness, verified: &VerifiedBindings, path_allowance: usize) -> Result<(), ModelError> {
         let (composed, composed_q) = self.witness_frame(row)?;
         let (caller, caller_q) = self.premise(row.caller)?;
         let (callee, callee_q) = self.premise(row.callee)?;
@@ -1961,38 +1943,7 @@ impl CompositionCheck {
         }
         // Replay the shared port/path operation, not only root locality. A caller-side field with
         // a forged path must not become evidence for a different transfer proposition.
-        let row_bytes = self
-            .binding_data
-            .parameters
-            .iter()
-            .try_fold(0usize, |n, row| {
-                n.checked_add(size_of::<SignatureParameter>() + row.heap_bytes() + 128)
-            })
-            .and_then(|n| {
-                n.checked_add(
-                    self.binding_data
-                        .parameter_declarations
-                        .len()
-                        .checked_mul(size_of::<ParameterDeclaration>() + 128)?,
-                )
-            })
-            .ok_or_else(|| invalid("composition path allowance overflow"))?;
-        let map_bytes = self
-            .segments
-            .values()
-            .try_fold(row_bytes, |n, row| {
-                n.checked_add(size_of::<PathSegment>() + row.heap_bytes() + 128)
-            })
-            .and_then(|n| {
-                self.literals.values().try_fold(n, |n, row| {
-                    n.checked_add(size_of::<Literal>() + row.heap_bytes() + 128)
-                })
-            })
-            .and_then(|n| n.checked_mul(4))
-            .and_then(|n| n.checked_add(self.places.len().checked_mul(2048)?))
-            .and_then(|n| n.checked_add(8192))
-            .ok_or_else(|| invalid("composition path allowance overflow"))?;
-        let _path_charge = self.budget.reserve("composition_path_replay", map_bytes)?;
+        let _path_charge = self.budget.reserve("composition_path_replay", path_allowance)?;
         let bound = binding.checked.bound();
         let declaration = self
             .binding_data
@@ -2064,26 +2015,11 @@ impl CompositionCheck {
             delivered = delivered.extend(segment.id());
         }
         delivered = delivered.append(delivered_path);
-        let mut segments = self
-            .segments
-            .iter()
-            .map(|(id, p)| (*id, p.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let mut literals = self
-            .literals
-            .iter()
-            .map(|(id, p)| (*id, p.clone()))
-            .collect::<BTreeMap<_, _>>();
-        for segment in &composer.records.segments {
-            segments.insert(segment.id(), segment.clone());
-        }
-        for literal in &composer.records.literals {
-            literals.insert(literal.id(), literal.clone());
-        }
-        let path_catalog = PathCatalog {
-            segments: &segments,
-            literals: &literals,
-        };
+        let added_segments = composer.records.segments.clone();
+        let added_literals = composer.records.literals.clone();
+        let segments = place_composition::PathOverlay { base: &*self.segments, added: &added_segments };
+        let literals = place_composition::PathOverlay { base: &*self.literals, added: &added_literals };
+        let path_catalog = PathCatalog { segments: &segments, literals: &literals };
         let (caller_input_root, caller_input_path) = self.place(caller.input)?;
         let (callee_output_root, callee_output_path) = self.place(callee.output)?;
         let ComposedPaths::Flow {
@@ -2424,8 +2360,18 @@ impl InvariantCheck for CompositionCheck {
             &self.binding_output,
             &self.budget,
         )?;
+        // Immutable retained sizes are established once for this complete frame. Path
+        // catalogs are borrowed; only selected parameter/port/projection rows are copied.
+        let path_allowance = self.binding_data.parameters.iter().try_fold(0usize, |n, row| {
+            n.checked_add(size_of::<SignatureParameter>() + row.heap_bytes() + 128)
+        }).and_then(|n| n.checked_add(self.binding_data.parameter_declarations.len()
+            .checked_mul(size_of::<ParameterDeclaration>() + 128)?))
+            .and_then(|n| n.checked_mul(4))
+            .and_then(|n| n.checked_add(self.places.len().checked_mul(2048)?))
+            .and_then(|n| n.checked_add(8192))
+            .ok_or_else(|| invalid("composition path allowance overflow"))?;
         for row in self.witnesses.values() {
-            self.step(row, &verified)?;
+            self.step(row, &verified, path_allowance)?;
         }
         for row in self.contributions.iter() {
             let witness = Self::get(

@@ -427,13 +427,25 @@ fn complete_with_values(
             invocation: parent,
         });
     }
+    // Immutable syntax and authentic evaluation correspondence belong to this admitted
+    // window. Only statement/body proof state is rebuilt for each semantic request.
+    let prepared = super::evaluation::PreparedExecution::new(
+        facts, invocation.input, invocation.context, budget,
+    )?;
+    let mut by_owner = charged::ChargedMap::<Id<normalized::entities::EntityRef>, Vec<&super::evaluation::CheckedEvaluation>>::default();
+    for proof in &checked {
+        by_owner.push(&mut charge, proof.request().owner, proof.as_ref())?;
+    }
+    let mut by_expression = charged::ChargedMap::<
+        (Id<normalized::entities::EntityRef>, Id<Occurrence>), Vec<&CompletionEvaluation<'_>>,
+    >::default();
+    for row in &rows {
+        by_expression.push(&mut charge, (row.evaluation.owner, row.evaluation.expression), row)?;
+    }
     for row in facts.occurrences.iter().filter(|row| {
         selected_statement.is_none_or(|selected| row.id() == selected)
             && selected_body.is_none_or(|selected| {
-                facts
-                    .owners
-                    .iter()
-                    .any(|owner| owner.occurrence == row.id() && owner.entity == selected)
+                prepared.completion_owners(row.id()).any(|owner| owner.entity == selected)
             })
             && is_statement(row.syntax_kind)
             && roots.contains(&row.source)
@@ -443,44 +455,22 @@ fn complete_with_values(
                         == Some(admission::ArtifactClass::PythonSource)
             })
     }) {
-        let mut owners = facts
-            .owners
-            .iter()
-            .filter(|owner| owner.occurrence == row.id());
+        let mut owners = prepared.completion_owners(row.id());
         let first = owners.next();
         let owner = if owners.next().is_none() {
             first.map(|owner| owner.entity)
         } else {
             None
         };
-        // Searching only the exact owner bounds each statement's evaluation work and prevents a
-        // foreign callable's independently valid evaluation from entering this completion frame.
-        let _scratch = budget.reserve(
-            "base_completion_owner_operands",
-            checked
-                .len()
-                .checked_mul(
-                    size_of::<&super::evaluation::CheckedEvaluation>() * 2
-                        + size_of::<CompletionEvaluation<'_>>() * 2,
-                )
-                .ok_or_else(|| invalid("completion owner scratch overflow"))?,
-        )?;
-        let refs = checked
-            .iter()
-            .filter(|proof| Some(proof.request().owner) == owner)
-            .map(std::sync::Arc::as_ref)
-            .collect::<Vec<_>>();
         let result = if let Some(owner) = owner {
-            complete(
-                facts,
+            let refs = by_owner.get(&owner).map(Vec::as_slice).unwrap_or(&[]);
+            complete_prepared_with_contexts(
+                &prepared,
                 CompletionRequest {
-                    input: invocation.input,
-                    context: invocation.context,
-                    owner,
-                    statement: row.id(),
+                    input: invocation.input, context: invocation.context,
+                    owner, statement: row.id(),
                 },
-                &refs,
-                budget,
+                refs, &[], &[], &[],
             )?
         } else {
             Err(obligation::ObligationKind::MissingEvidence)
@@ -499,8 +489,8 @@ fn complete_with_values(
                     .evaluation_facts()
                     .iter()
                     .map(|facts| {
-                        let mut matching = rows
-                            .iter()
+                        let mut matching = by_expression.get(&facts.lookup_key())
+                            .into_iter().flatten()
                             .filter(|row| facts.matches(row.evaluation, row.invocation));
                         let row = matching.next().ok_or_else(|| {
                             invalid("completion entered evaluation mapping absent")
@@ -570,15 +560,14 @@ fn complete_with_values(
             callable: callable.id(),
         }
         .id();
-        match super::body::complete_body(
-            facts,
+        match super::body::complete_body_prepared(
+            &prepared,
             super::body::SourceBodyRequest {
                 input: invocation.input,
                 context: invocation.context,
                 callee: owner,
             },
             &statement_refs,
-            budget,
         )? {
             Err(reason) => {
                 output.body_boundaries.insert(BodyBoundary {

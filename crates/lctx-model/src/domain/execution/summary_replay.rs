@@ -65,7 +65,7 @@ pub fn inputs_for_profile(profile: Profile) -> Vec<ValidationInput> {
 pub fn invariants() -> Vec<Invariant> {
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 2,
+        revision: 3,
         name: "finite_summary_inventory_replay",
         inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
             analysis::owner::AnalysisOwner::Summary,
@@ -264,7 +264,6 @@ pub fn relations() -> Vec<Relation> {
         Relation::of::<SummaryResidual>(),
         Relation::of::<CallMember>(),
         Relation::of::<OriginBoundary>(),
-        Relation::of::<PairOutcome>(),
         Relation::of::<super::summary_control::SummaryControlWitness>(),
         Relation::of::<super::summary_symbolic::SymbolicFieldAlternative>(),
     ]

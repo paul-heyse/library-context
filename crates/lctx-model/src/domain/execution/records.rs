@@ -226,6 +226,9 @@ impl EvaluationFacts {
             ),
         }
     }
+    pub(crate) fn lookup_key(&self) -> (Id<normalized::entities::EntityRef>, Id<Occurrence>) {
+        (self.request.owner, self.request.expression)
+    }
     pub(crate) fn is_base(&self) -> bool {
         self.call.is_none()
     }

@@ -1408,6 +1408,10 @@ impl<'a> PreparedExecution<'a> {
     pub(crate) fn budget(&self) -> &ResourceBudget {
         &self.budget
     }
+    pub(crate) fn completion_owners(&self, site: Id<Occurrence>) -> impl Iterator<Item = &OccurrenceOwnership> {
+        self.index.ownership.get(&site).into_iter().flatten()
+            .filter_map(|id| self.data.owners.get(*id))
+    }
     /// Only the immutable admitted index is shared. Each completion owns fresh work and
     /// proof state, charged to this same attempt pool.
     pub(crate) fn with_completion_syntax<T>(

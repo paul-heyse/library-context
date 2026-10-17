@@ -117,7 +117,7 @@ fn wildcard_unknown_suffix_and_numeric_aliases_do_not_establish_false_disjointne
             bits: (-0.0f64).to_bits() as i64,
         },
     ];
-    let literals = values.iter().map(|row| (row.id(), row.clone())).collect();
+    let literals: BTreeMap<_, _> = values.iter().map(|row| (row.id(), row.clone())).collect();
     let items: Vec<_> = values
         .iter()
         .map(|row| PathSegment::Item { key: row.id() })

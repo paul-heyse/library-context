@@ -110,40 +110,48 @@ impl CheckedSourceBody {
         ObligationKind::FrameExitCleanup
     }
 }
+fn body_declaration(
+    data: evaluation::EvaluationDataView<'_>, request: SourceBodyRequest,
+) -> Result<Id<Occurrence>, ObligationKind> {
+    let Some(EntityRef::Callable { callable }) = data.refs.get(request.callee) else {
+        return Err(ObligationKind::MissingEvidence);
+    };
+    let Some(CallableEntity::Source { declaration, kind: CallableKind::Function }) = data.callables.get(*callable) else {
+        return Err(ObligationKind::ScopeBoundary);
+    };
+    if data.occurrences.get(*declaration).is_none_or(|row| row.syntax_kind != SyntaxKind::StmtFunctionDef) {
+        return Err(ObligationKind::MissingEvidence);
+    }
+    Ok(*declaration)
+}
 pub fn complete_body(
     data: &EvaluationData,
     request: SourceBodyRequest,
     statements: &[&CheckedCompletion],
     budget: &ResourceBudget,
 ) -> Result<Result<CheckedSourceBody, ObligationKind>, ModelError> {
-    let missing = || Ok(Err(ObligationKind::MissingEvidence));
-    let Some(EntityRef::Callable { callable }) = data.refs.get(request.callee) else {
-        return missing();
+    if let Err(reason) = body_declaration(data.view(), request) { return Ok(Err(reason)); }
+    let prepared = evaluation::PreparedExecution::new(data, request.input, request.context, budget)?;
+    complete_body_prepared(&prepared, request, statements)
+}
+pub(crate) fn complete_body_prepared(
+    prepared: &evaluation::PreparedExecution<'_>,
+    request: SourceBodyRequest,
+    statements: &[&CheckedCompletion],
+) -> Result<Result<CheckedSourceBody, ObligationKind>, ModelError> {
+    let data = prepared.data();
+    let budget = prepared.budget();
+    let declaration = match body_declaration(data, request) {
+        Ok(declaration) => declaration,
+        Err(reason) => return Ok(Err(reason)),
     };
-    let Some(CallableEntity::Source {
-        declaration,
-        kind: CallableKind::Function,
-    }) = data.callables.get(*callable)
-    else {
-        return Ok(Err(ObligationKind::ScopeBoundary));
-    };
-    let declaration = *declaration;
-    if data
-        .occurrences
-        .get(declaration)
-        .is_none_or(|row| row.syntax_kind != SyntaxKind::StmtFunctionDef)
-    {
-        return missing();
-    }
-    evaluation::with_completion_syntax(
-        data,
+    prepared.with_completion_syntax(
         ExpressionRequest {
             input: request.input,
             context: request.context,
             owner: request.callee,
             expression: declaration,
         },
-        budget,
         |syntax| {
             syntax.observe_callable(declaration)?;
             let children = syntax.children(declaration)?;

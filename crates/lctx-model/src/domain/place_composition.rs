@@ -11,9 +11,25 @@ pub enum PathRelation {
 }
 /// Nominal lookup inputs must retain their recorded identities. This also refuses a forged map
 /// instead of trusting a caller-supplied key for a different attribute/literal.
+pub trait PathRows<R: Record>: Send + Sync {
+    fn get(&self, id: &Id<R>) -> Option<&R>;
+}
+impl<R: Record> PathRows<R> for BTreeMap<Id<R>, R> {
+    fn get(&self, id: &Id<R>) -> Option<&R> { BTreeMap::get(self, id) }
+}
+/// Small newly derived rows borrow immutable admitted backing instead of cloning it.
+pub(crate) struct PathOverlay<'a, R: Record> {
+    pub base: &'a dyn PathRows<R>,
+    pub added: &'a [R],
+}
+impl<R: Record> PathRows<R> for PathOverlay<'_, R> {
+    fn get(&self, id: &Id<R>) -> Option<&R> {
+        self.added.iter().find(|row| row.id() == *id).or_else(|| self.base.get(id))
+    }
+}
 pub struct PathCatalog<'a> {
-    pub segments: &'a BTreeMap<Id<PathSegment>, PathSegment>,
-    pub literals: &'a BTreeMap<Id<Literal>, Literal>,
+    pub segments: &'a dyn PathRows<PathSegment>,
+    pub literals: &'a dyn PathRows<Literal>,
 }
 impl PathCatalog<'_> {
     fn segment(&self, id: Id<PathSegment>) -> Result<&PathSegment, ModelError> {

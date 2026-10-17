@@ -940,15 +940,13 @@ fn enrich_with_application(
                     proofs.len() * size_of::<&super::completion::CheckedCompletion>() * 2,
                 )?;
                 let refs = proofs.iter().collect::<Vec<_>>();
-                let body = super::body::complete_body(
-                    facts,
+                let body = frame.complete_body(
                     super::body::SourceBodyRequest {
                         input: invocation.input,
                         context: invocation.context,
                         callee: header.callee(),
                     },
                     &refs,
-                    budget,
                 )?;
                 let Ok(body) = body else { continue };
                 let call = super::source_invocation::CheckedSourceInvocation::derive_with_values(
@@ -1101,15 +1099,13 @@ fn enrich_with_application(
             if selected_owner.is_some_and(|selected| selected != owner) {
                 continue;
             }
-            match super::body::complete_body(
-                facts,
+            match frame.complete_body(
                 super::body::SourceBodyRequest {
                     input: invocation.input,
                     context: invocation.context,
                     callee: owner,
                 },
                 &refs,
-                budget,
             )? {
                 Err(reason) => {
                     output.body_boundaries.insert(BodyBoundary {

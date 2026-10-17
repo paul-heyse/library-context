@@ -191,6 +191,13 @@ impl<'a> EnrichedFrame<'a> {
             &self.contexts,
         )
     }
+    pub(crate) fn complete_body(
+        &self,
+        request: super::body::SourceBodyRequest,
+        statements: &[&CheckedCompletion],
+    ) -> Result<Result<super::body::CheckedSourceBody, ObligationKind>, ModelError> {
+        super::body::complete_body_prepared(&self.prepared, request, statements)
+    }
     pub(crate) fn evaluation_premises(
         &self,
         proof: &CheckedCompletion,

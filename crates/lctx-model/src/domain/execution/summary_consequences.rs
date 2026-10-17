@@ -1,7 +1,7 @@
 //! Finite alternatives and complete call-member claims are different semantic questions.
 //! Only the shared obligation owner decides priority, discharge and behavioral verdicts.
 use super::summary_production::{
-    CallMember, PairDisposition, PairOutcome, SummaryData, SummaryRecords, SummaryResidual,
+    CallMember, SummaryData, SummaryRecords, SummaryResidual,
 };
 use crate::domain::{
     analysis::{
@@ -272,6 +272,33 @@ struct Finite {
     facts: SourceFacts,
 }
 impl HeapSize for Finite {}
+type ClosureKey = (Id<CallBindingAttempt>, Id<Place>, Id<Place>);
+fn witness_key(
+    witness: &transfer::summary::SummaryWitness,
+    finite: &charged::ChargedMap<Id<SummaryPremise>, Finite>,
+) -> Option<ClosureKey> {
+    Some((witness.attempt, finite.get(&witness.caller)?.branch.descriptor().input,
+        finite.get(&witness.callee)?.branch.descriptor().output))
+}
+fn discovered_questions(out: &SummaryRecords) -> impl Iterator<Item = super::summary_production::Question> {
+    out.questions().copied().chain(out.residuals.iter().map(|row|
+        (row.event, row.input, row.output, row.qualification)))
+}
+fn observe_member<'a>(
+    decisions: &mut obligation::Decisions<Id<CallBindingAttempt>, Id<ClaimProof>>,
+    statuses: &mut Vec<EvidenceStatus>, attempt: Id<CallBindingAttempt>,
+    qualification: &AssertionQualification,
+    proofs: impl Iterator<Item = (&'a AssertionQualification, Id<ClaimProof>, EvidenceStatus)>,
+    reasons: impl Iterator<Item = ObligationKind>,
+) {
+    for (q, proof, status) in proofs {
+        if q == qualification {
+            decisions.proof(attempt, proof, Verdict::Established);
+            statuses.push(status);
+        }
+    }
+    for reason in reasons { decisions.open(attempt, reason); }
+}
 /// Immutable Model/Summary nodes are merged once; every condition uses the shared kernel's
 /// exact reachable closure and canonical atom ordering. Distinct qualifications may reuse a BDD.
 struct ConditionCatalog {
@@ -915,34 +942,20 @@ pub(super) fn derive_with_verified_bindings(
     for row in conclusions.values() {
         rows.conclusions.insert(row.clone())?;
     }
-    // A query comes from an actual attempted pair or residual, never from an empty flow table.
+    // Production discovers this private domain from live processed operands. Independent
+    // diagnostic replay runs production afresh; published claims never seed this inventory.
     let mut queries = charged::ChargedSet::default();
-    // Qualification remains a proof comparison below; grouping must not discard other qids.
-    let mut pairs = charged::ChargedMap::<
+    for question in discovered_questions(out) {
+        queries.insert(&mut charge, question)?;
+    }
+    // Proof endpoints come from the ORIGINAL operands, not the composed transfer's rebasing.
+    let mut witnesses = charged::ChargedMap::<
         (Id<CallBindingAttempt>, Id<Place>, Id<Place>),
-        Vec<&PairOutcome>,
+        Vec<Id<transfer::summary::SummaryWitness>>,
     >::default();
-    for row in out.pair_outcomes.iter() {
-        let attempt = need(&data.binding_output.attempts, row.attempt)?;
-        if let (Some(caller), Some(callee)) = (finite.get(&row.caller), finite.get(&row.callee)) {
-            pairs.push(
-                &mut charge,
-                (
-                    row.attempt,
-                    caller.branch.descriptor().input,
-                    callee.branch.descriptor().output,
-                ),
-                row,
-            )?;
-            queries.insert(
-                &mut charge,
-                (
-                    attempt.event,
-                    caller.branch.descriptor().input,
-                    callee.branch.descriptor().output,
-                    caller.branch.qualification().id(),
-                ),
-            )?;
+    for witness in out.witnesses.iter() {
+        if let Some(key) = witness_key(witness, &finite) {
+            witnesses.push(&mut charge, key, witness.id())?;
         }
     }
     // The original residual question is event/input/output, independent of qualification.
@@ -952,10 +965,6 @@ pub(super) fn derive_with_verified_bindings(
     >::default();
     for row in out.residuals.iter() {
         residuals.push(&mut charge, (row.event, row.input, row.output), row)?;
-        queries.insert(
-            &mut charge,
-            (row.event, row.input, row.output, row.qualification),
-        )?;
     }
     let mut members_by_event =
         charged::ChargedMap::<Id<NormalizedCallEvent>, Vec<&CallMember>>::default();
@@ -983,6 +992,16 @@ pub(super) fn derive_with_verified_bindings(
         let complete =
             complete_sets.get(&set.event).copied().unwrap_or(true) && set.coverage_complete;
         complete_sets.insert(&mut charge, set.event, complete)?;
+    }
+    // Each origin boundary is resolved once. Input and output indexes retain the OR scope
+    // without scanning all boundaries again for every closure question.
+    let mut input_boundaries = charged::ChargedMap::<_, Vec<ObligationKind>>::default();
+    let mut output_boundaries = charged::ChargedMap::<_, Vec<(Id<Place>, ObligationKind)>>::default();
+    for boundary in out.origin_boundaries.iter() {
+        need(&out.origins, boundary.origin)?;
+        let d = need(&out.keys, boundary.transfer)?.descriptor();
+        input_boundaries.push(&mut charge, (d.context, d.scope, d.input), boundary.reason)?;
+        output_boundaries.push(&mut charge, (d.context, d.scope, d.output), (d.input, boundary.reason))?;
     }
     for &(event, input, output, qid) in queries.iter() {
         let q = qualification(data, out, qid)?;
@@ -1032,36 +1051,16 @@ pub(super) fn derive_with_verified_bindings(
                     == normalized::signature_applicability::BindingAuthority::EffectiveInvocation;
             if !excluded {
                 applicable.insert(member.attempt);
-                if let Some(reason) = member.reason {
-                    decisions.open(member.attempt, reason);
-                }
-                for pair in pairs
-                    .get(&(member.attempt, input, output))
-                    .into_iter()
-                    .flatten()
-                {
-                    if pair.disposition == PairDisposition::Refused {
-                        decisions.open(
-                            member.attempt,
-                            pair.reason.unwrap_or(ObligationKind::MissingEvidence),
-                        );
-                    }
-                    if pair.disposition == PairDisposition::Proven
-                        && let Some(witness) = pair.witness
-                    {
-                        let source = SummaryPremise::Witness { witness };
-                        if let (Some(fact), Some(proof)) =
-                            (finite.get(&source.id()), proven.get(&source.id()))
-                            && fact.branch.qualification() == q
-                        {
-                            decisions.proof(member.attempt, *proof, Verdict::Established);
-                            statuses.push(fact.facts.status);
-                        }
-                    }
-                }
-                for residual in residuals.get(&(event, input, output)).into_iter().flatten() {
-                    decisions.open(member.attempt, residual.reason);
-                }
+                let proofs = witnesses.get(&(member.attempt, input, output)).into_iter().flatten()
+                    .filter_map(|witness| {
+                        let source = SummaryPremise::Witness { witness: *witness };
+                        Some((finite.get(&source.id())?.branch.qualification(),
+                            *proven.get(&source.id())?, finite.get(&source.id())?.facts.status))
+                    });
+                let reasons = member.reason.into_iter().chain(residuals.get(&(event, input, output))
+                    .into_iter().flatten().map(|row| row.reason));
+                observe_member(&mut decisions, &mut statuses, member.attempt, q, proofs, reasons);
+
             }
             let (standing, proof, reason) = if excluded {
                 (MemberStanding::Excluded, None, None)
@@ -1084,16 +1083,9 @@ pub(super) fn derive_with_verified_bindings(
             standing_rows.push(standing.id());
             rows.standings.insert(standing)?;
         }
-        for boundary in out.origin_boundaries.iter() {
-            need(&out.origins, boundary.origin)?;
-            let descriptor = need(&out.keys, boundary.transfer)?.descriptor();
-            if descriptor.context == q.context
-                && descriptor.scope == q.scope
-                && (descriptor.input == input || descriptor.output == output)
-            {
-                open.push(boundary.reason);
-            }
-        }
+        open.extend(input_boundaries.get(&(q.context, q.scope, input)).into_iter().flatten().copied());
+        open.extend(output_boundaries.get(&(q.context, q.scope, output)).into_iter().flatten()
+            .filter_map(|(boundary_input, reason)| (*boundary_input != input).then_some(*reason)));
         let complete =
             assessed.contains(&event) && complete_sets.get(&event).copied().unwrap_or(false);
         let (closed, _) = obligation::discharge(&applicable, &decisions);
@@ -1690,5 +1682,91 @@ mod tests {
         decisions.open(2u8, ObligationKind::SummaryProofLimit);
         assert!(!obligation::discharge(&BTreeSet::from([1u8, 2u8]), &decisions).0);
         assert!(matches!(decisions.decide(1), Standing::Proved { proof: 7 }));
+    }
+}
+
+#[cfg(test)]
+mod closure_contract_controls {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> { serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap() }
+    fn q() -> AssertionQualification {
+        AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(), context: id(1), scope: id(2),
+            condition: Diagram::always().id(), modality: Modality::Definite,
+            approximation: Approximation::Exact,
+        }
+    }
+    #[test]
+    fn exact_proven_qualification_and_refusal_scope_remain_independent() {
+        let first = q();
+        let second = AssertionQualification { modality: Modality::Potential, ..first.clone() };
+        let status = EvidenceStatus::StructurallyObserved;
+        let attempt = id(3);
+        let mut decisions = obligation::Decisions::default();
+        let mut statuses = Vec::new();
+        observe_member(&mut decisions, &mut statuses, attempt, &first,
+            [(&first, id(9), status), (&second, id(1), status), (&first, id(8), status)].into_iter(),
+            std::iter::empty());
+        assert!(matches!(decisions.decide(attempt), Standing::Proved { proof } if proof == id(8)));
+        assert_eq!(statuses.len(), 2, "distinct qualified finite witnesses remain evidence");
+        for qualification in [&first, &second] {
+            let mut decisions = obligation::Decisions::default();
+            observe_member(&mut decisions, &mut Vec::new(), attempt, qualification,
+                [(&first, id(9), status), (&second, id(1), status)].into_iter(),
+                [ObligationKind::SummaryDepthLimit].into_iter());
+            assert!(matches!(decisions.decide(attempt), Standing::Open { obligation: ObligationKind::SummaryDepthLimit }),
+                "the same endpoint refusal opens either qualified question despite a finite proof");
+        }
+        let mut decisions = obligation::Decisions::default();
+        observe_member(&mut decisions, &mut Vec::new(), attempt, &second,
+            [(&first, id(9), status)].into_iter(), std::iter::empty());
+        assert!(matches!(decisions.decide(attempt), Standing::Open { obligation: ObligationKind::CallTransfer }));
+    }
+    #[test]
+    fn residual_only_questions_are_discovered_without_claims_or_pair_trace() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut out = SummaryRecords::new(id(1), &budget);
+        let residual = SummaryResidual {
+            invocation: id(1), component: ContentHash::of(b"component"), origin: id(2), event: id(3),
+            channel: analysis::AnalysisChannel::Value, phase: CallPhase::Call,
+            input: id(4), output: id(5), reason: ObligationKind::SummaryDepthLimit, qualification: id(6),
+        };
+        out.residuals.insert(residual.clone()).unwrap();
+        out.residuals.insert(SummaryResidual { reason: ObligationKind::ConditionWorkLimit, ..residual }).unwrap();
+        assert!(out.questions().next().is_none());
+        assert!(out.claims.is_empty());
+        assert_eq!(discovered_questions(&out).collect::<BTreeSet<_>>(), BTreeSet::from([(id(3), id(4), id(5), id(6))]));
+    }
+    fn finite(source: SummaryPremise, input: u8, output: u8, budget: &ResourceBudget) -> Finite {
+        let q = q();
+        Finite {
+            branch: TransferBranch::new(TransferKey::from_descriptor(TransferDescriptor {
+                owner: id(10), input: id(input), output: id(output), context: q.context, scope: q.scope,
+                modality: q.modality, approximation: q.approximation, kind: transfer::TransferKind::Identity,
+                call_site: None, provenance: transfer::ProvenanceClass::Composed,
+            }), q.clone(), Diagram::always(), budget).unwrap(),
+            source, facts: SourceFacts { qualification: q.id(), status: EvidenceStatus::StructurallyObserved, heuristic: false },
+        }
+    }
+    #[test]
+    fn witness_grouping_uses_original_operands_instead_of_rebased_composed_endpoints() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let caller = SummaryPremise::Local { alternative: id(1) };
+        let callee = SummaryPremise::Local { alternative: id(2) };
+        let witness = transfer::summary::SummaryWitness {
+            invocation: id(3), transfer: id(4), qualification: q().id(), caller: caller.id(), callee: callee.id(),
+            target: id(5), signature: id(6), callee_declaration: id(7), attempt: id(8),
+            selected_signature_enumeration: None, selected_signature_enumeration_support: None,
+            bindings: ContentHash::of(b"bindings"), status: EvidenceStatus::StructurallyObserved, heuristic: false,
+        };
+        let mut inventory = charged::ChargedMap::default();
+        let mut charge = charged::StateCharge::new(&budget, "closure-test-finite");
+        inventory.insert(&mut charge, caller.id(), finite(caller, 11, 12, &budget)).unwrap();
+        inventory.insert(&mut charge, callee.id(), finite(callee, 13, 14, &budget)).unwrap();
+        let composed = SummaryPremise::Witness { witness: witness.id() };
+        inventory.insert(&mut charge, composed.id(), finite(composed, 15, 16, &budget)).unwrap();
+        assert_eq!(witness_key(&witness, &inventory), Some((id(8), id(11), id(14))));
+        inventory.remove(&mut charge, &witness.callee).unwrap();
+        assert!(witness_key(&witness, &inventory).is_none(), "a composed row cannot replace a missing original operand");
     }
 }
