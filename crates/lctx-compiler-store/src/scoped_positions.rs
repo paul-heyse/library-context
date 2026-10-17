@@ -98,7 +98,8 @@ impl<'a> PreparedPositions<'a> {
         {
             return Err(ModelError::Conflict("scoped positions input ports"));
         }
-        let (ports, charge) = prepare_positions(roots, inputs, &union.rows, budget, cancellation)?;
+        let (ports, charge) =
+            prepare_positions(roots, inputs, &union.rows, budget, cancellation, None)?;
         Ok(Self {
             roots,
             inputs,
@@ -135,6 +136,7 @@ fn prepare_positions(
     rows: &[Vec<RecordBatch>],
     budget: &ResourceBudget,
     cancellation: &Cancellation,
+    schemas: Option<&[arrow_schema::SchemaRef]>,
 ) -> Result<(Vec<PortIndex>, StateCharge), ModelError> {
     cancellation.check()?;
     roots.require_owner(budget)?;
@@ -149,10 +151,25 @@ fn prepare_positions(
         if relation.type_id() != input.type_id() || relation.name() != input.name() {
             return Err(ModelError::Conflict("scoped positions nominal port"));
         }
+        let schema = schemas.map_or_else(
+            || Ok(relation.schema()),
+            |schemas| {
+                schemas
+                    .get(port)
+                    .ok_or(ModelError::Schema("scoped positions projected ports"))
+            },
+        )?;
+        if schema.field_with_name("id").ok() != relation.schema().field_with_name("id").ok()
+            || schema.fields().iter().any(|field| {
+                relation.schema().field_with_name(field.name()).ok() != Some(field.as_ref())
+            })
+        {
+            return Err(ModelError::Schema("scoped positions projected schema"));
+        }
         let mut index = PortIndex::new();
         for (batch, rows) in rows[port].iter().enumerate() {
             cancellation.check()?;
-            if rows.schema().as_ref() != relation.schema().as_ref() {
+            if rows.schema().as_ref() != schema.as_ref() {
                 return Err(ModelError::Schema("scoped positions input schema"));
             }
             for row in 0..rows.num_rows() {
@@ -233,53 +250,76 @@ impl<'a> PositionSource<'a, '_> {
                 }
             }
         }
-        let mut charge = StateCharge::new(budget, "scoped-gathered-rows");
-        // Include both retained batch handles and the handles handed to a scoped provider.
-        charge.grow(
-            backing[port]
-                .len()
-                .saturating_mul(size_of::<RecordBatch>())
-                .saturating_mul(2),
-        )?;
-        let mut rows = Vec::with_capacity(backing[port].len());
-        let mut ordered = positions.iter().copied().peekable();
-        while let Some((batch, _)) = ordered.peek().copied() {
-            cancellation.check()?;
-            let source = &backing[port][batch];
-            let count = positions.range((batch, 0)..=(batch, usize::MAX)).count();
-            let _indices = budget.reserve(
-                "scoped-gather-indices",
-                count.saturating_mul(size_of::<u64>()).saturating_add(128),
-            )?;
-            let mut indices = Vec::with_capacity(count);
-            while let Some((next, row)) = ordered.peek().copied() {
-                if next != batch {
-                    break;
-                }
-                ordered.next();
-                indices.push(row as u64);
-            }
-            let indices = UInt64Array::from(indices);
-            // Source, index and selected arrays overlap. The full source allowance bounds a
-            // subset gather, including kernels that retain source backing for view arrays.
-            charge.grow(
-                source
-                    .get_array_memory_size()
-                    .saturating_add(count.saturating_mul(32))
-                    .saturating_add(4096),
-            )?;
-            let selected = datafusion::arrow::compute::take_record_batch(source, &indices)
-                .map_err(ModelError::codec)?;
-            rows.push(selected);
-        }
-        Ok(GatheredRows {
-            rows,
-            _charge: charge,
-            _roots: roots,
-            _inputs: inputs,
-            _backing: backing,
-        })
+        gather_physical(
+            roots,
+            inputs,
+            backing,
+            budget,
+            port,
+            positions.iter().copied(),
+            cancellation,
+        )
     }
+}
+
+fn gather_physical<'a, I: Iterator<Item = Position> + Clone>(
+    roots: &'a PreparedRootBatch,
+    inputs: &'a [ValidationInput],
+    backing: &'a [Vec<RecordBatch>],
+    budget: &ResourceBudget,
+    port: usize,
+    positions: I,
+    cancellation: &Cancellation,
+) -> Result<GatheredRows<'a>, ModelError> {
+    let mut charge = StateCharge::new(budget, "scoped-gathered-rows");
+    // Include both retained batch handles and the handles handed to a scoped provider.
+    charge.grow(
+        backing[port]
+            .len()
+            .saturating_mul(size_of::<RecordBatch>())
+            .saturating_mul(2),
+    )?;
+    let mut rows = Vec::with_capacity(backing[port].len());
+    let mut ordered = positions.peekable();
+    while let Some((batch, _)) = ordered.peek().copied() {
+        cancellation.check()?;
+        let source = &backing[port][batch];
+        let count = ordered
+            .clone()
+            .take_while(|(next, _)| *next == batch)
+            .count();
+        let _indices = budget.reserve(
+            "scoped-gather-indices",
+            count.saturating_mul(size_of::<u64>()).saturating_add(128),
+        )?;
+        let mut indices = Vec::with_capacity(count);
+        while let Some((next, row)) = ordered.peek().copied() {
+            if next != batch {
+                break;
+            }
+            ordered.next();
+            indices.push(row as u64);
+        }
+        let indices = UInt64Array::from(indices);
+        // Source, index and selected arrays overlap. The full source allowance bounds a
+        // subset gather, including kernels that retain source backing for view arrays.
+        charge.grow(
+            source
+                .get_array_memory_size()
+                .saturating_add(count.saturating_mul(32))
+                .saturating_add(4096),
+        )?;
+        let selected = datafusion::arrow::compute::take_record_batch(source, &indices)
+            .map_err(ModelError::codec)?;
+        rows.push(selected);
+    }
+    Ok(GatheredRows {
+        rows,
+        _charge: charge,
+        _roots: roots,
+        _inputs: inputs,
+        _backing: backing,
+    })
 }
 
 /// Immutable owning counterpart for compiler windows that retain their actual root batch
@@ -289,6 +329,7 @@ pub struct IndexedRootColumns {
     inputs: Vec<ValidationInput>,
     rows: Vec<Vec<RecordBatch>>,
     ports: Vec<PortIndex>,
+    selected: Option<Vec<Vec<Vec<Position>>>>,
     budget: ResourceBudget,
     _backing_charge: StateCharge,
     _preparation_charge: StateCharge,
@@ -298,6 +339,25 @@ impl IndexedRootColumns {
         roots: PreparedRootBatch,
         inputs: &[ValidationInput],
         rows: Vec<Vec<RecordBatch>>,
+        backing_charge: StateCharge,
+        budget: &ResourceBudget,
+        cancellation: &Cancellation,
+    ) -> Result<Self, ModelError> {
+        Self::construct(
+            roots,
+            inputs,
+            rows,
+            None,
+            backing_charge,
+            budget,
+            cancellation,
+        )
+    }
+    fn construct(
+        roots: PreparedRootBatch,
+        inputs: &[ValidationInput],
+        rows: Vec<Vec<RecordBatch>>,
+        schemas: Option<&[arrow_schema::SchemaRef]>,
         backing_charge: StateCharge,
         budget: &ResourceBudget,
         cancellation: &Cancellation,
@@ -325,7 +385,7 @@ impl IndexedRootColumns {
             return Err(ModelError::Conflict("scoped positions backing reservation"));
         }
         let (ports, mut preparation_charge) =
-            prepare_positions(&roots, inputs, &rows, budget, cancellation)?;
+            prepare_positions(&roots, inputs, &rows, budget, cancellation, schemas)?;
         preparation_charge.grow(
             inputs
                 .len()
@@ -343,10 +403,165 @@ impl IndexedRootColumns {
             inputs,
             rows,
             ports,
+            selected: None,
             budget: budget.clone(),
             _backing_charge: backing_charge,
             _preparation_charge: preparation_charge,
         })
+    }
+    /// Index an explicitly declared typed property projection using closure memberships.
+    pub fn new_projected(
+        roots: PreparedRootBatch,
+        inputs: &[ValidationInput],
+        rows: Vec<Vec<RecordBatch>>,
+        schemas: &[arrow_schema::SchemaRef],
+        backing_charge: StateCharge,
+        budget: &ResourceBudget,
+        cancellation: &Cancellation,
+    ) -> Result<Self, ModelError> {
+        if schemas.len() != inputs.len() {
+            return Err(ModelError::Schema("scoped positions projected ports"));
+        }
+        Self::construct(
+            roots,
+            inputs,
+            rows,
+            Some(schemas),
+            backing_charge,
+            budget,
+            cancellation,
+        )
+    }
+    /// Bind explicit selected memberships to this exact ordered backing. Selection may be
+    /// narrower than closure reachability, or include independently selected artifact rows.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Selection, typed schemas and charged backing remain explicit at the owning boundary."
+    )]
+    pub fn new_selected(
+        roots: PreparedRootBatch,
+        inputs: &[ValidationInput],
+        rows: Vec<Vec<RecordBatch>>,
+        schemas: &[arrow_schema::SchemaRef],
+        memberships: &ChargedSet<(usize, usize, [u8; 16])>,
+        backing_charge: StateCharge,
+        budget: &ResourceBudget,
+        cancellation: &Cancellation,
+    ) -> Result<Self, ModelError> {
+        if schemas.len() != inputs.len() {
+            return Err(ModelError::Schema("scoped positions projected ports"));
+        }
+        let mut owner = Self::construct(
+            roots,
+            inputs,
+            rows,
+            Some(schemas),
+            backing_charge,
+            budget,
+            cancellation,
+        )?;
+        let partitions = owner.roots.outcomes().len();
+        owner._preparation_charge.grow(partitions.saturating_mul(
+            size_of::<Vec<Vec<Position>>>()
+                + inputs.len().saturating_mul(size_of::<Vec<Position>>()),
+        ))?;
+        let mut selected: Vec<Vec<Vec<Position>>> = (0..partitions)
+            .map(|_| (0..inputs.len()).map(|_| Vec::new()).collect())
+            .collect();
+        for &(partition, port, key) in memberships.iter() {
+            cancellation.check()?;
+            let target = selected
+                .get_mut(partition)
+                .and_then(|ports| ports.get_mut(port))
+                .ok_or(ModelError::Schema("scoped selected membership port"))?;
+            let matches = owner.ports[port].get(&key).ok_or(ModelError::Conflict(
+                "scoped selected physical member absent",
+            ))?;
+            owner
+                ._preparation_charge
+                .grow(matches.len().saturating_mul(size_of::<Position>()))?;
+            target.reserve_exact(matches.len());
+            target.extend_from_slice(matches);
+        }
+        for ports in &mut selected {
+            for positions in ports {
+                positions.sort_unstable();
+                positions.dedup();
+            }
+        }
+        let index_bytes = owner.ports.iter().fold(
+            owner
+                .ports
+                .capacity()
+                .saturating_mul(size_of::<PortIndex>()),
+            |bytes, port| {
+                port.values().fold(bytes, |bytes, positions| {
+                    bytes
+                        .saturating_add(size_of::<[u8; 16]>() + size_of::<Vec<Position>>() + 32)
+                        .saturating_add(positions.capacity().saturating_mul(size_of::<Position>()))
+                })
+            },
+        );
+        drop(std::mem::take(&mut owner.ports));
+        owner._preparation_charge.release(index_bytes);
+        owner.selected = Some(selected);
+        Ok(owner)
+    }
+    /// Gather the precomputed positions for explicitly selected partitions without scanning
+    /// union rows or consulting raw graph closure membership.
+    pub fn gather_selected(
+        &self,
+        partitions: &[usize],
+        port: usize,
+        budget: &ResourceBudget,
+        cancellation: &Cancellation,
+    ) -> Result<GatheredRows<'_>, ModelError> {
+        if !self.budget.shares_pool(budget) {
+            return Err(ModelError::Conflict("scoped positions resource owner"));
+        }
+        let selected = self
+            .selected
+            .as_ref()
+            .ok_or(ModelError::Conflict("scoped selected membership absent"))?;
+        if port >= self.inputs.len() {
+            return Err(ModelError::Schema("scoped selected membership port"));
+        }
+        if let [partition] = partitions {
+            cancellation.check()?;
+            let positions = &selected
+                .get(*partition)
+                .ok_or(ModelError::Schema("scoped selected partition"))?[port];
+            return gather_physical(
+                &self.roots,
+                &self.inputs,
+                &self.rows,
+                budget,
+                port,
+                positions.iter().copied(),
+                cancellation,
+            );
+        }
+        let mut charge = StateCharge::new(budget, "scoped-selected-positions");
+        let mut positions = ChargedSet::default();
+        for &partition in partitions {
+            cancellation.check()?;
+            for &position in selected
+                .get(partition)
+                .ok_or(ModelError::Schema("scoped selected partition"))?[port]
+                .iter()
+            {
+                positions.insert(&mut charge, position)?;
+            }
+        }
+        gather_physical(
+            &self.roots,
+            &self.inputs,
+            &self.rows,
+            budget,
+            port,
+            positions.iter().copied(),
+            cancellation,
+        )
     }
     pub fn roots(&self) -> &PreparedRootBatch {
         &self.roots
@@ -367,6 +582,11 @@ impl IndexedRootColumns {
     ) -> Result<GatheredRows<'_>, ModelError> {
         if !self.budget.shares_pool(budget) {
             return Err(ModelError::Conflict("scoped positions resource owner"));
+        }
+        if self.selected.is_some() {
+            return Err(ModelError::Conflict(
+                "scoped explicit selection requires selected gather",
+            ));
         }
         PositionSource {
             roots: &self.roots,
@@ -670,6 +890,234 @@ mod controls {
         assert_eq!(names(&retained), ["b", "a", "b"]);
         drop(retained);
         assert_eq!(budget.reserved(), indexed_usage);
+        drop(owned);
+        drop(edges);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn explicit_selected_positions_keep_projection_outside_closure_and_exact_ports() {
+        let session = SessionContext::new();
+        let packages = ["a", "b", "c"].map(|name| Package { name: name.into() });
+        let encoded = Package::encode(&packages).unwrap();
+        session
+            .register_table(
+                "selected_packages",
+                Arc::new(MemTable::try_new(encoded.schema(), vec![vec![encoded]]).unwrap()),
+            )
+            .unwrap();
+        let plan = NominalClosure::new(
+            (0..2)
+                .map(|_| ClosureTable {
+                    relation: Relation::of::<Package>(),
+                    alias: "selected_packages".into(),
+                })
+                .collect(),
+        )
+        .unwrap();
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let cancellation = Cancellation::default();
+        let edges = plan.prepare(&session, &budget).await.unwrap();
+        let root = PreparedRoot {
+            table: 0,
+            key: *packages[0].id().bytes(),
+            kind: PreparedRootKind::Virtual,
+        };
+        let roots = edges.batch(&[root; 3], &budget).await.unwrap();
+        assert!(
+            !roots
+                .keys(0, 0)
+                .unwrap()
+                .any(|key| key == *packages[2].id().bytes())
+        );
+        let inputs = vec![ValidationInput::of::<Package>(&["id"]); 2];
+        let full = Package::encode(&[
+            packages[2].clone(),
+            packages[1].clone(),
+            packages[2].clone(),
+        ])
+        .unwrap();
+        let rows = vec![
+            vec![full.project(&[0]).unwrap()],
+            vec![Package::encode(&[packages[1].clone(), packages[2].clone()]).unwrap()],
+        ];
+        let schemas = rows.iter().map(|rows| rows[0].schema()).collect::<Vec<_>>();
+        let mut charge = StateCharge::new(&budget, "selected-control-backing");
+        charge
+            .grow(
+                rows.iter()
+                    .map(|rows| {
+                        rows.iter()
+                            .map(RecordBatch::get_array_memory_size)
+                            .sum::<usize>()
+                            + rows.capacity() * size_of::<RecordBatch>()
+                    })
+                    .sum::<usize>()
+                    + rows.capacity() * size_of::<Vec<RecordBatch>>(),
+            )
+            .unwrap();
+        let mut membership_charge = StateCharge::new(&budget, "selected-control-membership");
+        let mut memberships = ChargedSet::default();
+        for key in [
+            (0, 0, *packages[2].id().bytes()),
+            (1, 0, *packages[1].id().bytes()),
+            (2, 0, *packages[2].id().bytes()),
+            (0, 1, *packages[1].id().bytes()),
+        ] {
+            memberships.insert(&mut membership_charge, key).unwrap();
+        }
+        let missing_roots = edges.batch(&[root; 3], &budget).await.unwrap();
+        let mut missing_memberships = ChargedSet::default();
+        missing_memberships
+            .insert(&mut membership_charge, (0, 0, *packages[0].id().bytes()))
+            .unwrap();
+        let mut missing_charge = StateCharge::new(&budget, "missing-selected-control");
+        missing_charge.grow(charge.reserved()).unwrap();
+        assert!(matches!(
+            IndexedRootColumns::new_selected(
+                missing_roots,
+                &inputs,
+                rows.clone(),
+                &schemas,
+                &missing_memberships,
+                missing_charge,
+                &budget,
+                &cancellation
+            ),
+            Err(ModelError::Conflict(
+                "scoped selected physical member absent"
+            ))
+        ));
+        drop(missing_memberships);
+        let wrong_roots = edges.batch(&[root; 3], &budget).await.unwrap();
+        let mut wrong_charge = StateCharge::new(&budget, "wrong-schema-selected-control");
+        wrong_charge.grow(charge.reserved()).unwrap();
+        let mut wrong_schemas = schemas.clone();
+        wrong_schemas[0] = full.schema();
+        assert!(
+            matches!(
+                IndexedRootColumns::new_selected(
+                    wrong_roots,
+                    &inputs,
+                    rows.clone(),
+                    &wrong_schemas,
+                    &memberships,
+                    wrong_charge,
+                    &budget,
+                    &cancellation
+                ),
+                Err(ModelError::Schema("scoped positions input schema"))
+            ),
+            "projection acceptance requires the caller's exact typed schema, never inferred fields"
+        );
+        let wrong_roots = edges.batch(&[root; 3], &budget).await.unwrap();
+        let mut wrong_charge = StateCharge::new(&budget, "wrong-id-selected-control");
+        wrong_charge.grow(charge.reserved()).unwrap();
+        wrong_schemas[0] = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "id",
+            arrow_schema::DataType::UInt64,
+            false,
+        )]));
+        assert!(matches!(
+            IndexedRootColumns::new_selected(
+                wrong_roots,
+                &inputs,
+                rows.clone(),
+                &wrong_schemas,
+                &memberships,
+                wrong_charge,
+                &budget,
+                &cancellation
+            ),
+            Err(ModelError::Schema("scoped positions projected schema"))
+        ));
+        let owned = IndexedRootColumns::new_selected(
+            roots,
+            &inputs,
+            rows,
+            &schemas,
+            &memberships,
+            charge,
+            &budget,
+            &cancellation,
+        )
+        .unwrap();
+        drop(memberships);
+        drop(membership_charge);
+        let ids = |partitions: &[usize]| {
+            owned
+                .gather_selected(partitions, 0, &budget, &cancellation)
+                .unwrap()
+                .rows()
+                .iter()
+                .flat_map(|rows| {
+                    (0..rows.num_rows()).map(move |row| column(rows, "id", row).unwrap().unwrap())
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids(&[0]),
+            [*packages[2].id().bytes(); 2],
+            "selected artifact keys need not belong to the raw closure"
+        );
+        assert_eq!(ids(&[1]), [*packages[1].id().bytes()]);
+        assert_eq!(
+            ids(&[2]),
+            ids(&[0]),
+            "duplicate requests have distinct partitions"
+        );
+        assert_eq!(
+            ids(&[0, 1, 0]),
+            [
+                *packages[2].id().bytes(),
+                *packages[1].id().bytes(),
+                *packages[2].id().bytes()
+            ],
+            "source order and physical duplicates survive overlap"
+        );
+        assert_eq!(
+            names(
+                &owned
+                    .gather_selected(&[0], 1, &budget, &cancellation)
+                    .unwrap()
+            ),
+            ["b"],
+            "same nominal relation on another port has independent selection"
+        );
+        assert!(
+            owned
+                .gather(&[0], 0, 0, &budget, &cancellation, &mut |_, _| true)
+                .is_err(),
+            "an explicit selected window cannot fall back to raw closure authority"
+        );
+        assert!(
+            owned
+                .gather_selected(&[3], 0, &budget, &cancellation)
+                .is_err()
+        );
+        assert!(
+            owned
+                .gather_selected(&[0], 2, &budget, &cancellation)
+                .is_err()
+        );
+        let foreign = ResourceBudget::fixed(16 << 20).unwrap();
+        assert!(
+            owned
+                .gather_selected(&[0], 0, &foreign, &cancellation)
+                .is_err()
+        );
+        assert_eq!(foreign.reserved(), 0);
+        let retained = owned
+            .gather_selected(&[0], 1, &budget, &cancellation)
+            .unwrap();
+        cancellation.cancel();
+        assert!(
+            owned
+                .gather_selected(&[0], 0, &budget, &cancellation)
+                .is_err()
+        );
+        assert_eq!(names(&retained), ["b"]);
+        drop(retained);
         drop(owned);
         drop(edges);
         assert_eq!(budget.reserved(), 0);

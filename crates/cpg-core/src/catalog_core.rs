@@ -70,20 +70,13 @@ fn load_metadata<'a, 'sources>(
             parameters: Rows::new(runtime.budget()),
             runs: Rows::new(runtime.budget()),
         };
-        let mut declarations = CatalogData::validation_inputs();
-        declarations.extend(analysis::expected::inputs(build::definition().1.method));
-        declarations.extend([
-            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
-            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
-            ValidationInput::of::<attribution::ProviderRun>(&["id"]),
-        ]);
+        let declarations = build::metadata_validation_inputs();
         let mut consumed =
             crate::consumed_rows::ConsumedInputs::new(declarations, runtime.budget())?;
         macro_rules! read {($($field:ident:$ty:ty,)*)=>{{
             const LOADERS:&[InventoryLoader]=&[$(inventory::<$ty>,)*];
             for load in LOADERS {load(access,session,&mut consumed,admission,&mut metadata).await?;}
         }};}
-        lctx_model::catalog_inputs!(read);
         lctx_model::expected_domain_inputs!(read);
         read! {definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,runs:attribution::ProviderRun,}
         consumed.finish(access.name())?;
@@ -358,4 +351,82 @@ fn emit_rows<'a>(
         lctx_model::catalog_outputs!(emit);
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod metadata_controls {
+    use super::*;
+    use futures::FutureExt;
+    use lctx_model::domain::stages::Profile;
+    #[tokio::test]
+    async fn catalog_metadata_does_not_acquire_irrelevant_rich_rows_but_rich_adapter_refuses_malformed_rows()
+     {
+        let budget = resources::ResourceBudget::fixed(128 << 20).unwrap();
+        let workspace = Workspace::with_budget(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            crate::workspace::WorkspaceOptions {
+                memory_bytes: 128 << 20,
+                ..Default::default()
+            },
+            budget.clone(),
+            crate::test_native::store_with_budget(budget.clone()),
+        )
+        .unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let mut names = build::metadata_validation_inputs().iter().map(ValidationInput::name).collect::<Vec<_>>();
+            names.push(calls::ProviderSymbol::NAME);
+            let output = workspace.output("catalog-metadata-control-source", Profile::Catalog, ContentHash::of(b"catalog-metadata-control"),
+                workspace.inputs("catalog-metadata-control-source", Profile::Catalog, []).unwrap(), names.clone());
+            macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(if names.contains(&<$ty>::NAME) {output.declare_async::<$ty>().await.unwrap();})*};}
+            lctx_model::expected_domain_inputs!(declare);
+            declare! {definitions:analysis::AnalysisDefinition,parameters:analysis::MethodParameters,runs:attribution::ProviderRun,symbols:calls::ProviderSymbol,}
+            let (parameters, definition) = build::definition();
+            output.push(parameters.clone()).await.unwrap(); output.push(definition.clone()).await.unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+            // The rich relation is genuinely completed, but absent from metadata's
+            // captured ports. Any attempted rich acquisition must therefore refuse.
+            let access = workspace.inputs("catalog-metadata-control-consumer", Profile::Catalog,
+                names.iter().copied().filter(|name| *name != calls::ProviderSymbol::NAME)).unwrap();
+            assert!(access.read::<calls::ProviderSymbol>().is_err());
+            let sources = analysis::sources::CapturedSources::capture(Profile::Catalog, access.snapshots(), &budget).unwrap();
+            let mut admission = analysis::expected::CoverageAdmission::new(&sources, &budget).unwrap();
+            let session = access.session(&workspace).await.unwrap();
+            let metadata = load_metadata(&access, &session, &workspace, &mut admission).await.unwrap();
+            assert_eq!(metadata.definitions.get(definition.id()), Some(&definition));
+            assert_eq!(metadata.parameters.get(parameters.id()), Some(&parameters));
+            // Independent finite adapter evidence only: selected rich production
+            // still uses CatalogData's typed visitor, which refuses a wrong schema.
+            // This does not mutate captured aliases or assert native corruption.
+            let malformed = input::Package::encode(&[input::Package { name:"not-a-symbol".into() }]).unwrap();
+            let mut selected = CatalogData::new(&budget);
+            assert!(selected.visit(calls::ProviderSymbol::NAME, &malformed).is_err(),
+                "the rich typed adapter still refuses a malformed selected premise");
+        }).catch_unwind().await;
+        let mut finality = workspace.drain_owned_report().await;
+        if finality.local == completion::LocalState::Terminal
+            && finality.remote == completion::RemoteState::Confirmed
+            && finality
+                .failures
+                .iter()
+                .all(|failure| failure.error.permits_storage_cleanup())
+        {
+            finality.merge(workspace.native().abandon_finality_report().await);
+        } else {
+            finality
+                .storage
+                .push(completion::StorageState::Orphan(format!(
+                    "native_attempt:{}",
+                    workspace.native().attempt().hex()
+                )));
+        }
+        let signal = workspace.complete_signal(&finality).await;
+        finality.step("catalog metadata control workspace signal", signal);
+        if let Err(panic) = result {
+            if let Err(error) = completion::complete::<()>(Ok(()), finality) {
+                eprintln!("catalog metadata cleanup after panic: {error:#?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        completion::complete::<()>(Ok(()), finality).unwrap();
+    }
 }

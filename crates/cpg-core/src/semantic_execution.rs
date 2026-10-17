@@ -892,77 +892,93 @@ pub async fn complete_base(
                 while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
                     let _root_transfer = budget
                         .reserve("completion-root-transfer", batch.get_array_memory_size())?;
-                    for row in 0..batch.num_rows() {
-                        runtime.cancellation().check()?;
-                        let id = crate::scoped_admission::column(&batch, "id", row)?
-                            .ok_or(ModelError::Schema("completion root absent"))?;
-                        let records = if body {
-                            let callable: Id<normalized::entities::CallableEntity> =
-                                execution_scope::nominal(&id)?;
-                            let scope = scopes.body(callable, budget).await?;
-                            let selected = scopes.data(&access, &scope, budget).await?;
-                            let owner = normalized::entities::EntityRef::Callable { callable }.id();
-                            let (records, owner) =
-                                execution::completion_production::complete_body_produced(
-                                    &selected,
-                                    &invocation,
-                                    definition,
-                                    profile,
-                                    budget,
-                                    actual,
-                                    owner,
-                                )?;
-                            produced
-                                .as_mut()
-                                .expect("actual frame owner")
-                                .append(owner)?;
-                            records
-                        } else {
-                            let statement: Id<source::Occurrence> = execution_scope::nominal(&id)?;
-                            let scope = scopes.statement(statement, budget).await?;
-                            let selected = scopes.data(&access, &scope, budget).await?;
-                            let (records, _) =
-                                execution::completion_production::complete_statement_produced(
-                                    &selected,
-                                    &invocation,
-                                    definition,
-                                    profile,
-                                    budget,
-                                    actual,
-                                    statement,
-                                )?;
-                            records
-                        };
-                        let add = |left: i64, right: i64| {
-                            left.checked_add(right).ok_or_else(|| {
-                                ModelError::Invalid("completion inventory count overflow".into())
+                    for start in (0..batch.num_rows()).step_by(32) {
+                        let count = (batch.num_rows() - start).min(32);
+                        let _keys = budget.reserve(
+                            "completion-root-window-keys",
+                            count * size_of::<[u8; 16]>() + 4096,
+                        )?;
+                        let keys = (start..start + count)
+                            .map(|row| {
+                                crate::scoped_admission::column(&batch, "id", row)?
+                                    .ok_or(ModelError::Schema("completion root absent"))
                             })
-                        };
-                        if body {
-                            run.bodied = add(run.bodied, records.run.bodied)?;
-                            run.body_refused = add(run.body_refused, records.run.body_refused)?;
-                            emit_completion_body(&records, &output).await?;
-                            for row in records.outcomes.iter().filter(|row| {
-                                records.bodies.iter().any(|body| body.outcome == row.id())
-                            }) {
-                                output.push(row.clone()).await?;
+                            .collect::<Result<Vec<_>, ModelError>>()?;
+                        let window = scopes
+                            .window(body, &keys, budget, &runtime.cancellation())
+                            .await?;
+                        for (partition, id) in keys.iter().enumerate() {
+                            runtime.cancellation().check()?;
+                            let selected =
+                                window.data(partition, budget, &runtime.cancellation())?;
+                            let records = if body {
+                                let callable: Id<normalized::entities::CallableEntity> =
+                                    execution_scope::nominal(id)?;
+                                let owner =
+                                    normalized::entities::EntityRef::Callable { callable }.id();
+                                let (records, owner) =
+                                    execution::completion_production::complete_body_produced(
+                                        &selected,
+                                        &invocation,
+                                        definition,
+                                        profile,
+                                        budget,
+                                        actual,
+                                        owner,
+                                    )?;
+                                produced
+                                    .as_mut()
+                                    .expect("actual frame owner")
+                                    .append(owner)?;
+                                records
+                            } else {
+                                let statement: Id<source::Occurrence> =
+                                    execution_scope::nominal(id)?;
+                                let (records, _) =
+                                    execution::completion_production::complete_statement_produced(
+                                        &selected,
+                                        &invocation,
+                                        definition,
+                                        profile,
+                                        budget,
+                                        actual,
+                                        statement,
+                                    )?;
+                                records
+                            };
+                            let add = |left: i64, right: i64| {
+                                left.checked_add(right).ok_or_else(|| {
+                                    ModelError::Invalid(
+                                        "completion inventory count overflow".into(),
+                                    )
+                                })
+                            };
+                            if body {
+                                run.bodied = add(run.bodied, records.run.bodied)?;
+                                run.body_refused = add(run.body_refused, records.run.body_refused)?;
+                                emit_completion_body(&records, &output).await?;
+                                for row in records.outcomes.iter().filter(|row| {
+                                    records.bodies.iter().any(|body| body.outcome == row.id())
+                                }) {
+                                    output.push(row.clone()).await?;
+                                }
+                                if records.run.body_refused != 0 {
+                                    outcome.status = analysis::AnalysisStatus::Partial;
+                                    outcome.reason =
+                                        Some(obligation::ObligationKind::UnsupportedControlFlow);
+                                }
+                            } else {
+                                run.completed = add(run.completed, records.run.completed)?;
+                                run.refused = add(run.refused, records.run.refused)?;
+                                emit_completion_statement(&records, &output).await?;
+                                if records.run.refused != 0 {
+                                    outcome.status = analysis::AnalysisStatus::Partial;
+                                    outcome.reason =
+                                        Some(obligation::ObligationKind::UnsupportedControlFlow);
+                                }
                             }
-                            if records.run.body_refused != 0 {
-                                outcome.status = analysis::AnalysisStatus::Partial;
-                                outcome.reason =
-                                    Some(obligation::ObligationKind::UnsupportedControlFlow);
-                            }
-                        } else {
-                            run.completed = add(run.completed, records.run.completed)?;
-                            run.refused = add(run.refused, records.run.refused)?;
-                            emit_completion_statement(&records, &output).await?;
-                            if records.run.refused != 0 {
-                                outcome.status = analysis::AnalysisStatus::Partial;
-                                outcome.reason =
-                                    Some(obligation::ObligationKind::UnsupportedControlFlow);
-                            }
+                            tokio::task::yield_now().await;
                         }
-                        tokio::task::yield_now().await;
                     }
                 }
             }

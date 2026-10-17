@@ -18,6 +18,17 @@ impl CatalogData {
     }
 };}
 crate::catalog_inputs!(data);
+/// C0 physical metadata acquisition. Rich kernel/receiving premises remain declared
+/// by CatalogData; they are loaded only by the selected public windows that use them.
+pub fn metadata_validation_inputs() -> Vec<ValidationInput> {
+    let mut inputs = analysis::expected::inputs(definition().1.method);
+    inputs.extend([
+        ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+        ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+        ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+    ]);
+    inputs
+}
 type ConstructorMatches = std::collections::BTreeMap<
     Id<FunctionTraitObservation>,
     Vec<(Option<Id<AncestryEntityMember>>, Knowledge)>,
@@ -1567,5 +1578,47 @@ mod correspondence_controls {
         drop(prepared);
         drop(data);
         assert_eq!(budget.reserved(), 0);
+    }
+}
+
+#[cfg(test)]
+mod metadata_demand_controls {
+    use super::*;
+    #[test]
+    fn catalog_metadata_declares_only_complete_expected_domains_and_authored_metadata() {
+        let declared = metadata_validation_inputs()
+            .into_iter()
+            .map(|input| input.name())
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut expected = analysis::expected::inputs(analysis::AnalysisMethod::Catalog)
+            .into_iter()
+            .map(|input| input.name())
+            .collect::<std::collections::BTreeSet<_>>();
+        expected.extend([
+            analysis::AnalysisDefinition::NAME,
+            analysis::MethodParameters::NAME,
+            attribution::ProviderRun::NAME,
+        ]);
+        assert_eq!(declared, expected);
+        assert!(!declared.contains(calls::ProviderSymbol::NAME));
+        assert!(
+            CatalogData::validation_inputs()
+                .iter()
+                .any(|input| input.name() == calls::ProviderSymbol::NAME),
+            "selected rich catalog kernels retain their premises"
+        );
+        assert!(declared.contains(source::SourceArtifact::NAME));
+        assert!(declared.contains(source::CoverageScope::NAME));
+        assert!(
+            !declared.contains(attribution::ProviderCoverage::NAME),
+            "C0's expected domain is a normalized contract; native receipt checks remain with its rich premises"
+        );
+        assert!(
+            CatalogData::validation_inputs()
+                .iter()
+                .any(|input| input.name() == attribution::ProviderCoverage::NAME),
+            "native qualification obligations remain independently declared for rich C0 admission"
+        );
+        assert!(declared.contains(normalized::coverage::NormalizationCoverage::NAME));
     }
 }

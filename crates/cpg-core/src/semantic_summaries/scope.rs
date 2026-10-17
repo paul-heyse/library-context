@@ -1,7 +1,7 @@
 //! Summary's finite whole-frame frontier has one physically selected predecessor closure.
 //! Referenced artifacts and occurrences are dependencies, never new publication roots.
 use crate::{
-    consumed_rows::{ClosureTable, PreparedClosure},
+    consumed_rows::{ClosureTable, PreparedClosure, PreparedRoot, PreparedRootKind},
     normalize::call_scope::{CallScopeMode, CallScopes},
     workspace::CompletedInputs,
 };
@@ -159,6 +159,7 @@ impl SummaryScopes {
         .await?;
         Ok(Self { calls, frame })
     }
+    #[cfg(test)]
     pub(super) async fn frame(
         &self,
         run: Id<attribution::ProviderRun>,
@@ -169,6 +170,7 @@ impl SummaryScopes {
             .grain(self.frame, &format!("id=X'{}'", run.hex()), budget)
             .await
     }
+    #[cfg(test)]
     fn select_actual(
         grain: &PreparedClosure,
         table: usize,
@@ -178,26 +180,124 @@ impl SummaryScopes {
             return Ok(None);
         }
         let sql = grain.select(table)?;
-        let columns = if input.type_id() == TypeId::of::<source::Occurrence>() {
-            Some(source::properties::OccurrenceIndex::columns())
-        } else if input.type_id() == TypeId::of::<source::SourceArtifact>() {
-            Some(source::properties::ArtifactIndex::columns())
-        } else if input.type_id() == TypeId::of::<calls::ProviderSymbol>() {
-            Some(source::properties::SymbolIndex::columns())
-        } else {
-            None
-        };
+        let columns = actual_columns(input);
         Ok(Some(columns.map_or(sql.clone(), |columns| {
             format!("SELECT {columns} FROM ({sql}) source_properties")
         })))
     }
-    pub(super) fn load<'a>(
+    pub(super) async fn window<'a>(
         &'a self,
         access: &'a CompletedInputs,
-        grain: &'a PreparedClosure,
+        runs: &[Id<attribution::ProviderRun>],
+        budget: &'a resources::ResourceBudget,
+        cancellation: &'a crate::workspace::Cancellation,
+    ) -> Result<SummaryWindow<'a>, ModelError> {
+        if runs.len() > crate::analytical_scopes::WINDOW_ROOTS {
+            return Err(ModelError::Schema("Summary frame window bound"));
+        }
+        let inputs = self.calls.inputs();
+        let mut charge = charged::StateCharge::new(budget, "summary-window-columns");
+        charge.grow(
+            runs.len() * size_of::<PreparedRoot>()
+                + inputs.len()
+                    * (size_of::<Vec<arrow_array::RecordBatch>>()
+                        + size_of::<arrow_schema::SchemaRef>())
+                + 4096,
+        )?;
+        let roots = runs
+            .iter()
+            .map(|run| PreparedRoot {
+                table: self.frame,
+                key: *run.bytes(),
+                kind: PreparedRootKind::Virtual,
+            })
+            .collect::<Vec<_>>();
+        let batch = self
+            .calls
+            .edges()
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        let mut rows = (0..inputs.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+        let schemas = inputs
+            .iter()
+            .enumerate()
+            .map(|(table, input)| {
+                let schema = batch.relation(table)?.schema();
+                if let Some(columns) = actual_columns(input) {
+                    let fields = columns
+                        .split(',')
+                        .map(|column| {
+                            schema
+                                .field_with_name(column.trim_matches('"'))
+                                .cloned()
+                                .map_err(ModelError::codec)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(Arc::new(arrow_schema::Schema::new(fields)))
+                } else {
+                    Ok(schema.clone())
+                }
+            })
+            .collect::<Result<Vec<_>, ModelError>>()?;
+        let mut readers: Vec<Hydrator> = Vec::new();
+        macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(readers.push(hydrate::<$ty>);)*};}
+        lctx_model::normalized_binding_inputs!(read);
+        lctx_model::normalized_binding_outputs!(read);
+        lctx_model::entry_value_inputs!(read);
+        lctx_model::summary_path_inputs!(read);
+        lctx_model::summary_owned_inputs!(read);
+        lctx_model::summary_vocabulary!(read);
+        lctx_model::summary_evidence_inputs!(read);
+        // The inventories intentionally overlap. Hydrate each exact typed/prefixed port once.
+        let mut seen = charged::ChargedSet::default();
+        for read in readers {
+            read(
+                self,
+                access,
+                &batch.union,
+                &mut rows,
+                &mut charge,
+                &mut seen,
+                cancellation,
+            )
+            .await?;
+        }
+        let columns = lctx_compiler_store::scoped_positions::IndexedRootColumns::new_projected(
+            batch,
+            inputs,
+            rows,
+            &schemas,
+            charge,
+            budget,
+            cancellation,
+        )?;
+        Ok(SummaryWindow {
+            scopes: self,
+            access,
+            columns,
+            budget,
+            cancellation,
+        })
+    }
+}
+pub(super) struct SummaryWindow<'a> {
+    scopes: &'a SummaryScopes,
+    access: &'a CompletedInputs,
+    columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
+    budget: &'a resources::ResourceBudget,
+    cancellation: &'a crate::workspace::Cancellation,
+}
+impl SummaryWindow<'_> {
+    pub(super) fn load<'a>(
+        &'a self,
+        grain: usize,
         budget: &'a resources::ResourceBudget,
     ) -> BoxFuture<'a, Result<SummaryData, ModelError>> {
         Box::pin(async move {
+            if !self.budget.shares_pool(budget) {
+                return Err(ModelError::Conflict("Summary window resource owner"));
+            }
+            let access = self.access;
             let mut data = SummaryData::new(budget);
             let mut readers: Vec<Reader> = Vec::new();
             macro_rules! read {($($field:ident:$ty:ty,)*)=>{$(readers.push(reader::<$ty>());)*};}
@@ -215,11 +315,84 @@ impl SummaryScopes {
         })
     }
 }
-// Inventories retain their order and overlap; each adapter visits every matching prefix.
-type Reader = for<'a> fn(
+fn actual_columns(input: &ValidationInput) -> Option<&'static str> {
+    if input.type_id() == TypeId::of::<source::Occurrence>() {
+        Some(source::properties::OccurrenceIndex::columns())
+    } else if input.type_id() == TypeId::of::<source::SourceArtifact>() {
+        Some(source::properties::ArtifactIndex::columns())
+    } else if input.type_id() == TypeId::of::<calls::ProviderSymbol>() {
+        Some(source::properties::SymbolIndex::columns())
+    } else {
+        None
+    }
+}
+type Hydrator = for<'a> fn(
     &'a SummaryScopes,
     &'a CompletedInputs,
     &'a PreparedClosure,
+    &'a mut [Vec<arrow_array::RecordBatch>],
+    &'a mut charged::StateCharge,
+    &'a mut charged::ChargedSet<usize>,
+    &'a crate::workspace::Cancellation,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+fn hydrate<'a, R: Record>(
+    scopes: &'a SummaryScopes,
+    access: &'a CompletedInputs,
+    union: &'a PreparedClosure,
+    rows: &'a mut [Vec<arrow_array::RecordBatch>],
+    charge: &'a mut charged::StateCharge,
+    seen: &'a mut charged::ChargedSet<usize>,
+    cancellation: &'a crate::workspace::Cancellation,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        for (table, input) in scopes
+            .calls
+            .inputs()
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
+        {
+            if !SummaryData::consumes_actual(input) || !seen.insert(charge, table)? {
+                continue;
+            }
+            let sql = union.select(table)?;
+            let sql = actual_columns(input).map_or(sql.clone(), |columns| {
+                format!("SELECT {columns} FROM ({sql}) source_properties")
+            });
+            let permit = access.read_at::<R>(input.prefix())?;
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                input,
+                access,
+                union.session(),
+                &sql,
+                |_, batch| {
+                    cancellation.check()?;
+                    let target = &mut rows[table];
+                    let additional = if target.len() == target.capacity() {
+                        target.capacity().max(4)
+                    } else {
+                        0
+                    };
+                    charge.grow(
+                        batch.get_array_memory_size()
+                            + additional * size_of::<arrow_array::RecordBatch>(),
+                    )?;
+                    target.reserve_exact(additional);
+                    target.push(batch.clone());
+                    Ok(())
+                },
+            )
+            .await?;
+        }
+        Ok(())
+    })
+}
+// Inventories retain their order and overlap; each adapter visits every matching prefix.
+type Reader = for<'a> fn(
+    &'a SummaryWindow<'a>,
+    &'a CompletedInputs,
+    usize,
     &'a mut SummaryData,
 ) -> BoxFuture<'a, Result<(), ModelError>>;
 
@@ -264,9 +437,9 @@ fn reader<R: Record>() -> Reader {
 }
 
 fn read_record<'a, R: Record>(
-    scopes: &'a SummaryScopes,
+    scopes: &'a SummaryWindow<'a>,
     access: &'a CompletedInputs,
-    grain: &'a PreparedClosure,
+    grain: usize,
     data: &'a mut SummaryData,
     visit: fn(
         &mut SummaryData,
@@ -277,25 +450,29 @@ fn read_record<'a, R: Record>(
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         for (table, input) in scopes
+            .scopes
             .calls
             .inputs()
             .iter()
             .enumerate()
             .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
         {
-            let Some(sql) = SummaryScopes::select_actual(grain, table, input)? else {
+            if !SummaryData::consumes_actual(input) {
                 continue;
-            };
+            }
             let permit = access.read_at::<R>(input.prefix())?;
-            crate::consumed_rows::stream_query_at(
-                &permit,
-                input,
-                access,
-                grain.session(),
-                &sql,
-                |permit, batch| visit(data, input, permit, batch),
-            )
-            .await?;
+            let selected = scopes.columns.gather(
+                &[grain],
+                table,
+                table,
+                scopes.budget,
+                scopes.cancellation,
+                &mut |_, _| true,
+            )?;
+            for batch in selected.rows() {
+                scopes.cancellation.check()?;
+                visit(data, input, &permit, batch)?;
+            }
         }
         Ok(())
     })
@@ -680,5 +857,139 @@ mod summary_scope_controls {
         .await;
         assert_eq!(literals.len(), 0);
         drop(literals);
+        // Exercise the projected owning index on one bounded union, including duplicate
+        // requested frames. Rich paths stay excluded from both hydration and gathers.
+        let roots = [PreparedRoot {
+            table: scopes.frame,
+            key: *run.id().bytes(),
+            kind: PreparedRootKind::Virtual,
+        }; 2];
+        let batch = scopes.calls.edges().batch(&roots, &budget).await.unwrap();
+        let cancellation = crate::workspace::Cancellation::default();
+        let mut charge = charged::StateCharge::new(&budget, "summary-projected-window-control");
+        charge
+            .grow(
+                inputs.len()
+                    * (size_of::<Vec<arrow_array::RecordBatch>>()
+                        + size_of::<arrow_schema::SchemaRef>())
+                    + 4096,
+            )
+            .unwrap();
+        let mut columns = (0..inputs.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+        let mut schemas = Vec::new();
+        for (table, input) in inputs.iter().enumerate() {
+            let nominal_schema = batch.relation(table).unwrap().schema();
+            let schema = if let Some(properties) = actual_columns(input) {
+                Arc::new(arrow_schema::Schema::new(
+                    properties
+                        .split(',')
+                        .map(|column| {
+                            nominal_schema
+                                .field_with_name(column.trim_matches('"'))
+                                .unwrap()
+                                .clone()
+                        })
+                        .collect::<Vec<_>>(),
+                ))
+            } else {
+                nominal_schema.clone()
+            };
+            schemas.push(schema);
+            if let Some(sql) = SummaryScopes::select_actual(&batch.union, table, input).unwrap() {
+                let mut stream = crate::sql::query(batch.union.session(), &sql)
+                    .await
+                    .unwrap()
+                    .execute_stream()
+                    .await
+                    .unwrap();
+                while let Some(rows) = stream.try_next().await.unwrap() {
+                    charge
+                        .grow(rows.get_array_memory_size() + size_of::<arrow_array::RecordBatch>())
+                        .unwrap();
+                    columns[table].reserve_exact(1);
+                    columns[table].push(rows);
+                }
+            }
+        }
+        let columns = lctx_compiler_store::scoped_positions::IndexedRootColumns::new_projected(
+            batch,
+            &inputs,
+            columns,
+            &schemas,
+            charge,
+            &budget,
+            &cancellation,
+        )
+        .unwrap();
+        let occurrence_permit = analysis::sources::CompletedInput::<source::Occurrence>::new(
+            "summary-property-control",
+            ContentHash::of(b"contract"),
+            ContentHash::of(b"implementation"),
+            ContentHash::of(b"stream"),
+            2,
+        )
+        .unwrap();
+        for partition in 0..2 {
+            let gathered = columns
+                .gather(
+                    &[partition],
+                    occurrence_table,
+                    occurrence_table,
+                    &budget,
+                    &cancellation,
+                    &mut |_, _| true,
+                )
+                .unwrap();
+            let mut properties = source::properties::OccurrenceIndex::new(&tiny);
+            for rows in gathered.rows() {
+                properties.visit(&occurrence_permit, rows).unwrap();
+            }
+            assert_eq!(
+                properties.get(occurrence.id()).unwrap().id(),
+                occurrence.id()
+            );
+            let table = inputs
+                .iter()
+                .position(|input| {
+                    input.type_id() == TypeId::of::<analysis::native::NativeQualification>()
+                })
+                .unwrap();
+            let gathered = columns
+                .gather(
+                    &[partition],
+                    table,
+                    table,
+                    &budget,
+                    &cancellation,
+                    &mut |_, _| true,
+                )
+                .unwrap();
+            let mut selected = Rows::<analysis::native::NativeQualification>::new(&tiny);
+            for rows in gathered.rows() {
+                selected.decode(rows).unwrap();
+            }
+            assert_eq!(selected.len(), 1);
+            assert_eq!(selected.get(native.id()), Some(&native));
+        }
+        let retained = budget.reserved();
+        cancellation.cancel();
+        assert!(
+            columns
+                .gather(
+                    &[0],
+                    occurrence_table,
+                    occurrence_table,
+                    &budget,
+                    &cancellation,
+                    &mut |_, _| true
+                )
+                .is_err()
+        );
+        assert_eq!(
+            budget.reserved(),
+            retained,
+            "a failed borrower cannot release its still-owned backing"
+        );
+        drop(columns);
     }
 }

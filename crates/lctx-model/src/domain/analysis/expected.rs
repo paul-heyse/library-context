@@ -466,7 +466,7 @@ impl FrontierIndex {
     pub(crate) fn coalesce_selected_copies(&mut self) {
         self.coalescing = true;
     }
-    fn visit_artifact_properties(
+    pub(crate) fn visit_artifact_properties(
         &mut self,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
@@ -511,16 +511,16 @@ impl FrontierIndex {
                     "expected artifact classifier projection is not bounded",
                 ));
             }
+            let properties = ArtifactScope {
+                input,
+                class: admission::ArtifactClass::of(suffix.value(row)),
+            };
+            if self.coalescing && self.artifacts.get(&id) == Some(&properties) {
+                continue;
+            }
             if self
                 .artifacts
-                .insert(
-                    &mut self.charge,
-                    id,
-                    ArtifactScope {
-                        input,
-                        class: admission::ArtifactClass::of(suffix.value(row)),
-                    },
-                )?
+                .insert(&mut self.charge, id, properties)?
                 .is_some()
             {
                 return Err(ModelError::Conflict(SourceArtifact::NAME));
@@ -754,6 +754,25 @@ impl FrontierIndex {
         }
         Ok(())
     }
+    fn uniformly_requested(
+        &self,
+        contract: Contract,
+        selected: &super::owner::SelectedDefinitions<'_>,
+    ) -> Result<bool, ModelError> {
+        if contract.method == AnalysisMethod::AnalyticEmbedding
+            && let Some(text) = selected.text
+        {
+            return Ok(text.requested);
+        } else if crate::domain::analytics::build::METHODS.contains(&contract.method)
+            && let Some(analytics) = selected.analytics
+        {
+            return Ok(crate::domain::analytics::build::selected(
+                analytics,
+                contract.method,
+            ));
+        }
+        self.requested(contract)
+    }
     pub(crate) fn assert_uniformly_unrequested(
         &self,
         owner: super::owner::AnalysisOwner,
@@ -761,7 +780,7 @@ impl FrontierIndex {
     ) -> Result<(), ModelError> {
         for &(method, capability) in owner.methods() {
             definitions.definition(method)?;
-            if self.requested(contract(method, capability)?)? {
+            if self.uniformly_requested(contract(method, capability)?, definitions)? {
                 return Err(invalid(
                     "requested method cannot report compact NotRequested",
                 ));
@@ -849,7 +868,7 @@ impl FrontierIndex {
         for &(method, capability) in owner.methods() {
             let definition = definitions.definition(method)?;
             let contract = contract(method, capability)?;
-            if self.requested(contract)? {
+            if self.uniformly_requested(contract, definitions)? {
                 return Err(invalid(
                     "requested method cannot report compact NotRequested",
                 ));
@@ -1545,6 +1564,49 @@ mod tests {
             root: root.id(),
             budget,
         }
+    }
+    #[test]
+    fn projected_uniform_artifact_copies_coalesce_equal_properties_but_refuse_conflicts() {
+        use std::sync::Arc;
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let input = fixture().input;
+        let artifact = SourceArtifact::from_bytes(input, "api.py".into(), b"x").unwrap();
+        let full = SourceArtifact::encode(std::slice::from_ref(&artifact)).unwrap();
+        let properties = arrow_array::RecordBatch::try_from_iter([
+            ("id", full.column_by_name("id").unwrap().clone()),
+            ("input", full.column_by_name("input").unwrap().clone()),
+            (
+                "path_suffix",
+                Arc::new(arrow_array::StringArray::from(vec!["i.py"])) as arrow_array::ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let mut index = FrontierIndex::new(Profile::Catalog, &budget);
+        index.coalesce_selected_copies();
+        index.visit_artifact_properties(&properties).unwrap();
+        let retained = index.charge.accounted_bytes();
+        index.visit_artifact_properties(&properties).unwrap();
+        assert_eq!(index.artifacts.len(), 1);
+        assert_eq!(index.charge.accounted_bytes(), retained);
+        let conflicting = arrow_array::RecordBatch::try_from_iter([
+            ("id", properties.column_by_name("id").unwrap().clone()),
+            ("input", properties.column_by_name("input").unwrap().clone()),
+            (
+                "path_suffix",
+                Arc::new(arrow_array::StringArray::from(vec![".md"])) as arrow_array::ArrayRef,
+            ),
+        ])
+        .unwrap();
+        assert!(index.visit_artifact_properties(&conflicting).is_err());
+        let mut strict = FrontierIndex::new(Profile::Catalog, &budget);
+        strict.visit_artifact_properties(&properties).unwrap();
+        assert!(
+            strict.visit_artifact_properties(&properties).is_err(),
+            "receiving admission still refuses duplicate projected identities"
+        );
+        drop(index);
+        drop(strict);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn compact_membership_matches_owner_roles_and_reuses_only_immutable_sources() {

@@ -104,31 +104,33 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
     })
 }
 fn load_frame<'a>(
-    scopes: &'a crate::analytical_scopes::FrameScopes,
+    scopes: &'a crate::analytical_scopes::FrameWindow<'a>,
     access: &'a CompletedInputs,
-    grain: &'a crate::consumed_rows::PreparedClosure,
+    grain: usize,
     data: &'a mut build::Data,
     input: Id<input::InputRevision>,
     context: Id<attribution::AnalysisContext>,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     type Loader = for<'a> fn(
-        &'a crate::analytical_scopes::FrameScopes,
+        &'a crate::analytical_scopes::FrameWindow<'a>,
         &'a CompletedInputs,
-        &'a crate::consumed_rows::PreparedClosure,
+        usize,
         &'a mut build::Data,
         Id<input::InputRevision>,
         Id<attribution::AnalysisContext>,
     ) -> BoxFuture<'a, Result<(), ModelError>>;
     fn read_frame<'a, R: Record>(
-        scopes: &'a crate::analytical_scopes::FrameScopes,
-        access: &'a CompletedInputs,
-        grain: &'a crate::consumed_rows::PreparedClosure,
+        scopes: &'a crate::analytical_scopes::FrameWindow<'a>,
+        _access: &'a CompletedInputs,
+        grain: usize,
         data: &'a mut build::Data,
         input: Id<input::InputRevision>,
         context: Id<attribution::AnalysisContext>,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
-        scopes.read::<R>(access, grain, move |binding, batch| {
-            data.visit_frame_input(binding, batch, input, context)
+        Box::pin(async move {
+            scopes.read::<R>(grain, move |binding, batch| {
+                data.visit_frame_input(binding, batch, input, context)
+            })
         })
     }
     let mut loaders: Vec<Loader> = Vec::new();
@@ -239,175 +241,202 @@ pub async fn produce(
     };
     drop(session);
     let metadata = data;
-    for sf in roots.iter() {
-        let mut data = build::Data::new(runtime.budget());
-        if let Some(scopes) = &scopes {
-            let grain = scopes.grain(sf.id(), runtime.budget()).await?;
-            // Parent is fixed metadata. Native dependencies can name other provider runs; they
-            // cannot widen the E1 consumer's expected invocation domain into another frame.
-            let mut parent_rows =
-                normalized::Rows::<analysis::structural::Invocation>::new(runtime.budget());
-            scopes
-                .read::<analysis::structural::Invocation>(&access, &grain, |_, batch| {
-                    parent_rows.decode(batch)?;
-                    Ok(())
-                })
-                .await?;
-            let frame_parent = parent_rows
-                .get(sf.invocation)
-                .ok_or(ModelError::Schema("analytic selected parent"))?
-                .clone();
-            drop(parent_rows);
-            load_frame(
-                scopes,
-                &access,
-                &grain,
-                &mut data,
-                frame_parent.input,
-                frame_parent.context,
-            )
-            .await?;
-            drop(grain);
-        } else {
-            data.structural.frames.insert(sf.clone())?;
-            macro_rules! metadata {($($field:ident),*)=>{$(for row in metadata.$field.iter(){data.$field.insert(row.clone())?;})*};}
-            metadata!(settings, definitions, parameters);
-            data.structural_invocations.insert(
-                metadata
+    let cancellation = runtime.cancellation();
+    let mut readers = Vec::new();
+    macro_rules! window_readers {($($field:ident:$ty:ty,)*)=>{$(readers.push(crate::analytical_scopes::window_reader::<$ty>());)*};}
+    decoder_inputs!(window_readers);
+    {
+        let mut remaining = roots.iter().peekable();
+        while remaining.peek().is_some() {
+            let _selected = runtime.budget().reserve(
+                "analytic-window-roots",
+                crate::analytical_scopes::WINDOW_ROOTS
+                    * (size_of::<&structural::StructuralFrame>()
+                        + size_of::<Id<structural::StructuralFrame>>()),
+            )?;
+            let selected = remaining
+                .by_ref()
+                .take(crate::analytical_scopes::WINDOW_ROOTS)
+                .collect::<Vec<_>>();
+            let ids = selected.iter().map(|frame| frame.id()).collect::<Vec<_>>();
+            let window = match &scopes {
+                Some(scopes) => Some(
+                    scopes
+                        .window(&access, &ids, &readers, runtime.budget(), &cancellation)
+                        .await?,
+                ),
+                None => None,
+            };
+            for (partition, sf) in selected.into_iter().enumerate() {
+                let mut data = build::Data::new(runtime.budget());
+                if let Some(window) = &window {
+                    // Parent is fixed metadata. Native dependencies can name other provider runs; they
+                    // cannot widen the E1 consumer's expected invocation domain into another frame.
+                    let mut parent_rows =
+                        normalized::Rows::<analysis::structural::Invocation>::new(runtime.budget());
+                    window.read::<analysis::structural::Invocation>(partition, |_, batch| {
+                        parent_rows.decode(batch)?;
+                        Ok(())
+                    })?;
+                    let frame_parent = parent_rows
+                        .get(sf.invocation)
+                        .ok_or(ModelError::Schema("analytic selected parent"))?
+                        .clone();
+                    drop(parent_rows);
+                    load_frame(
+                        window,
+                        &access,
+                        partition,
+                        &mut data,
+                        frame_parent.input,
+                        frame_parent.context,
+                    )
+                    .await?;
+                } else {
+                    data.structural.frames.insert(sf.clone())?;
+                    macro_rules! metadata {($($field:ident),*)=>{$(for row in metadata.$field.iter(){data.$field.insert(row.clone())?;})*};}
+                    metadata!(settings, definitions, parameters);
+                    data.structural_invocations.insert(
+                        metadata
+                            .structural_invocations
+                            .get(sf.invocation)
+                            .ok_or(ModelError::Schema("analytic selected parent"))?
+                            .clone(),
+                    )?;
+                }
+                let mut context = frames::Context::new(runtime.budget());
+                let mut receipts = normalized::Rows::new(runtime.budget());
+                let mut projections = normalized::Rows::new(runtime.budget());
+                let mut results = semantic::Output::new(runtime.budget());
+                let parent = data
                     .structural_invocations
                     .get(sf.invocation)
-                    .ok_or(ModelError::Schema("analytic selected parent"))?
-                    .clone(),
-            )?;
-        }
-        let mut context = frames::Context::new(runtime.budget());
-        let mut receipts = normalized::Rows::new(runtime.budget());
-        let mut projections = normalized::Rows::new(runtime.budget());
-        let mut results = semantic::Output::new(runtime.budget());
-        let parent = data
-            .structural_invocations
-            .get(sf.invocation)
-            .ok_or_else(|| ModelError::Invalid("analytic structural parent absent".into()))?;
-        for method in build::METHODS {
-            let (parameters, definition) = build::definition(&settings, method)?;
-            if data.definitions.get(definition.id()) != Some(&definition)
-                || data.parameters.get(parameters.id()) != Some(&parameters)
-            {
-                return Err(ModelError::Invalid(
-                    "analytic canonical definition absent".into(),
-                ));
-            }
-            let parents = frames::parents(&data, sf, method)?;
-            let (invocation, inputs, source_rows, projection_rows) = owner::Invocation::admitted(
-                parent.input,
-                parent.context,
-                definition.id(),
-                None,
-                parents.iter().map(Record::id),
-                &sources,
-                [analysis::ProjectionDefinition::builtin(
-                    projection::ProjectionName::CallableInvocation,
-                )
-                .id()],
-                runtime.budget(),
-            )?;
-            for p in parents {
-                context.sources.insert(p)?;
-            }
-            for row in inputs {
-                context.inputs.insert(row)?;
-            }
-            for row in source_rows {
-                receipts.insert(row)?;
-            }
-            for row in projection_rows {
-                projections.insert(row)?;
-            }
-            context.invocations.insert(invocation)?;
-        }
-        let frame = semantic::AnalyticFrame {
-            structural: sf.id(),
-            configuration: settings.id(),
-        };
-        let produced = if requested {
-            let graph = graphs
-                .ok_or(ModelError::Schema("requested analytic graph owner"))?
-                .graph(
-                    &access,
-                    runtime,
-                    projection::normalization::ProjectionKey {
-                        input: parent.input,
-                        context: parent.context,
-                        name: projection::ProjectionName::CallableInvocation,
-                    },
-                )?;
-            crate::stage_runtime::borrowed_cpu(access.name(), || {
-                build::produce(&data, &frame, &context.invocations, graph, runtime.budget())
-            })?
-        } else {
-            build::not_requested(
-                &data,
-                &frame,
-                &context.invocations,
-                runtime.budget(),
-                semantic::policy::RETAINED.attributes,
-            )?
-        };
-        results.extend(produced)?;
+                    .ok_or_else(|| {
+                        ModelError::Invalid("analytic structural parent absent".into())
+                    })?;
+                for method in build::METHODS {
+                    let (parameters, definition) = build::definition(&settings, method)?;
+                    if data.definitions.get(definition.id()) != Some(&definition)
+                        || data.parameters.get(parameters.id()) != Some(&parameters)
+                    {
+                        return Err(ModelError::Invalid(
+                            "analytic canonical definition absent".into(),
+                        ));
+                    }
+                    let parents = frames::parents(&data, sf, method)?;
+                    let (invocation, inputs, source_rows, projection_rows) =
+                        owner::Invocation::admitted(
+                            parent.input,
+                            parent.context,
+                            definition.id(),
+                            None,
+                            parents.iter().map(Record::id),
+                            &sources,
+                            [analysis::ProjectionDefinition::builtin(
+                                projection::ProjectionName::CallableInvocation,
+                            )
+                            .id()],
+                            runtime.budget(),
+                        )?;
+                    for p in parents {
+                        context.sources.insert(p)?;
+                    }
+                    for row in inputs {
+                        context.inputs.insert(row)?;
+                    }
+                    for row in source_rows {
+                        receipts.insert(row)?;
+                    }
+                    for row in projection_rows {
+                        projections.insert(row)?;
+                    }
+                    context.invocations.insert(invocation)?;
+                }
+                let frame = semantic::AnalyticFrame {
+                    structural: sf.id(),
+                    configuration: settings.id(),
+                };
+                let produced = if requested {
+                    let graph = graphs
+                        .ok_or(ModelError::Schema("requested analytic graph owner"))?
+                        .graph(
+                            &access,
+                            runtime,
+                            projection::normalization::ProjectionKey {
+                                input: parent.input,
+                                context: parent.context,
+                                name: projection::ProjectionName::CallableInvocation,
+                            },
+                        )?;
+                    crate::stage_runtime::borrowed_cpu(access.name(), || {
+                        build::produce(&data, &frame, &context.invocations, graph, runtime.budget())
+                    })?
+                } else {
+                    build::not_requested(
+                        &data,
+                        &frame,
+                        &context.invocations,
+                        runtime.budget(),
+                        semantic::policy::RETAINED.attributes,
+                    )?
+                };
+                results.extend(produced)?;
 
-        emit_results(&results, &output).await?;
-        emit(&results.qualifications, &output).await?;
-        if !results.qualifications.is_empty() {
-            let (c, nodes) = conditions::Diagram::always().records();
-            output.push(c).await?;
-            for n in nodes {
-                output.push(n).await?;
-            }
-        }
-        emit_context(&context, &output).await?;
-        emit(&receipts, &output).await?;
-        emit(&projections, &output).await?;
+                emit_results(&results, &output).await?;
+                emit(&results.qualifications, &output).await?;
+                if !results.qualifications.is_empty() {
+                    let (c, nodes) = conditions::Diagram::always().records();
+                    output.push(c).await?;
+                    for n in nodes {
+                        output.push(n).await?;
+                    }
+                }
+                emit_context(&context, &output).await?;
+                emit(&receipts, &output).await?;
+                emit(&projections, &output).await?;
 
-        for result in results.results.iter() {
-            let invocation = context.invocations.get(result.invocation).unwrap();
-            let definition = data.definitions.get(invocation.definition).unwrap();
-            let outcome = frames::outcome(result);
-            let domain = owner::coverage::admit(
-                invocation,
-                definition,
-                build::capability(result.method)?,
-                &admission,
-                runtime.budget(),
-            )?;
-            for scope in domain.scopes() {
-                let (r, members) = scope.expectation().records()?;
-                output.push(r).await?;
-                for r in members {
-                    output.push(r).await?;
+                for result in results.results.iter() {
+                    let invocation = context.invocations.get(result.invocation).unwrap();
+                    let definition = data.definitions.get(invocation.definition).unwrap();
+                    let outcome = frames::outcome(result);
+                    let domain = owner::coverage::admit(
+                        invocation,
+                        definition,
+                        build::capability(result.method)?,
+                        &admission,
+                        runtime.budget(),
+                    )?;
+                    for scope in domain.scopes() {
+                        let (r, members) = scope.expectation().records()?;
+                        output.push(r).await?;
+                        for r in members {
+                            output.push(r).await?;
+                        }
+                        for r in scope.observations() {
+                            output.push(r.source().clone()).await?;
+                        }
+                        let (r, members) = owner::coverage::assess(
+                            scope.expectation(),
+                            scope.observations(),
+                            outcome.status,
+                            outcome.reason,
+                            runtime.budget(),
+                        )?;
+                        output.push(r).await?;
+                        for r in members {
+                            output.push(r).await?;
+                        }
+                    }
+                    output.push(outcome).await?;
                 }
-                for r in scope.observations() {
-                    output.push(r.source().clone()).await?;
-                }
-                let (r, members) = owner::coverage::assess(
-                    scope.expectation(),
-                    scope.observations(),
-                    outcome.status,
-                    outcome.reason,
-                    runtime.budget(),
-                )?;
-                output.push(r).await?;
-                for r in members {
-                    output.push(r).await?;
-                }
+                drop(results);
+                drop(context);
+                drop(data);
+                drop(receipts);
+                drop(projections);
+                tokio::task::yield_now().await;
             }
-            output.push(outcome).await?;
         }
-        drop(results);
-        drop(context);
-        drop(data);
-        drop(receipts);
-        drop(projections);
-        tokio::task::yield_now().await;
     }
     drop(roots);
     drop(scopes);

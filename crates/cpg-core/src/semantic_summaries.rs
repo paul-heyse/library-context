@@ -167,126 +167,156 @@ pub async fn produce(
     declare_outputs(&output).await?;
     let mut frames = charged::ChargedSet::default();
     let mut frame_charge = charged::StateCharge::new(budget, "summary-output-frames");
-    for run in data.entry.runs.iter() {
-        if !frames.insert(&mut frame_charge, (run.input, run.context))? {
-            continue;
-        }
-        let parents = summary_replay::parents(&data, run.input, run.context, budget)?;
-        let key = projection::normalization::ProjectionKey {
-            input: run.input,
-            context: run.context,
-            name: projection::ProjectionName::CallableInvocation,
-        };
-        let graph = if access.profile() == Profile::Behavioral {
-            Some(
-                graphs
-                    .ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?
-                    .graph(&access, runtime, key)?,
-            )
-        } else {
-            None
-        };
-        let schedule = if access.profile() == Profile::Behavioral {
-            Some(
-                graphs
-                    .ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?
-                    .schedule(&access, runtime, key)?,
-            )
-        } else {
-            None
-        };
-        let (invocation, inputs, receipts, projections) = owner::AnalysisInvocation::admitted(
-            run.input,
-            run.context,
-            definition.id(),
-            None,
-            parents.iter().map(Record::id),
-            &sources,
-            graph.map(|_| {
-                analysis::ProjectionDefinition::builtin(
-                    projection::ProjectionName::CallableInvocation,
-                )
-                .id()
-            }),
-            budget,
-        )?;
-        let _frame = budget.reserve(
-            "summary-output-frame",
-            4096 + receipts
-                .iter()
-                .map(|row| size_of::<owner::SourceReceipt>() + row.heap_bytes())
-                .sum::<usize>()
-                + inputs.len() * size_of::<owner::AnalysisInput>()
-                + projections.len() * size_of::<owner::ProjectionInput>(),
-        )?;
-        let coverage = owner::coverage::admit(
-            &invocation,
-            definition,
-            analysis::AnalysisCapability::Summaries,
-            &coverage,
-            budget,
-        )?;
-        let grain = if let Some(scopes) = &scopes {
-            Some(scopes.frame(run.id(), budget).await?)
-        } else {
-            None
-        };
-        let selected = if let (Some(scopes), Some(grain)) = (&scopes, &grain) {
-            Some(scopes.load(&access, grain, budget).await?)
-        } else {
-            None
-        };
-        let frame_data = match access.profile() {
-            Profile::Behavioral => selected
-                .as_ref()
-                .ok_or_else(|| ModelError::Invalid("Summary selected frame absent".into()))?,
-            Profile::Catalog => &data,
-        };
-        let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
-            execution::summary_production::produce_prepared_scheduled(
-                frame_data,
-                &invocation,
-                definition,
-                access.profile(),
-                graph,
-                budget,
-                application,
-                actual,
-                schedule,
-            )
-        })?;
-        drop(selected);
-        drop(grain);
-        tokio::task::yield_now().await;
-        let mut actual_coverage = normalized::Rows::new(budget);
-        let mut actual_premises = normalized::Rows::new(budget);
-        for scope in coverage.scopes() {
-            let (row, premises) = owner::coverage::assess(
-                scope.expectation(),
-                scope.observations(),
-                result.outcome.status,
-                result.outcome.reason,
-                budget,
+    let cancellation = runtime.cancellation();
+    {
+        let mut remaining = data.entry.runs.iter().peekable();
+        while remaining.peek().is_some() {
+            let _window_roots = budget.reserve(
+                "summary-window-roots",
+                crate::analytical_scopes::WINDOW_ROOTS
+                    * (size_of::<&attribution::ProviderRun>()
+                        + size_of::<Id<attribution::ProviderRun>>()),
             )?;
-            actual_coverage.insert(row)?;
-            for row in premises {
-                actual_premises.insert(row)?;
+            let mut window_runs = Vec::with_capacity(crate::analytical_scopes::WINDOW_ROOTS);
+            for run in remaining.by_ref() {
+                if !frames.insert(&mut frame_charge, (run.input, run.context))? {
+                    continue;
+                }
+                window_runs.push(run);
+                if window_runs.len() == crate::analytical_scopes::WINDOW_ROOTS {
+                    break;
+                }
+            }
+            if window_runs.is_empty() {
+                continue;
+            }
+            let run_ids = window_runs.iter().map(|run| run.id()).collect::<Vec<_>>();
+            let window = match &scopes {
+                Some(scopes) => Some(
+                    scopes
+                        .window(&access, &run_ids, budget, &cancellation)
+                        .await?,
+                ),
+                None => None,
+            };
+            for (partition, run) in window_runs.into_iter().enumerate() {
+                let parents = summary_replay::parents(&data, run.input, run.context, budget)?;
+                let key = projection::normalization::ProjectionKey {
+                    input: run.input,
+                    context: run.context,
+                    name: projection::ProjectionName::CallableInvocation,
+                };
+                let graph = if access.profile() == Profile::Behavioral {
+                    Some(
+                        graphs
+                            .ok_or_else(|| {
+                                ModelError::Invalid("requested Summary graph absent".into())
+                            })?
+                            .graph(&access, runtime, key)?,
+                    )
+                } else {
+                    None
+                };
+                let schedule = if access.profile() == Profile::Behavioral {
+                    Some(
+                        graphs
+                            .ok_or_else(|| {
+                                ModelError::Invalid("requested Summary graph absent".into())
+                            })?
+                            .schedule(&access, runtime, key)?,
+                    )
+                } else {
+                    None
+                };
+                let (invocation, inputs, receipts, projections) =
+                    owner::AnalysisInvocation::admitted(
+                        run.input,
+                        run.context,
+                        definition.id(),
+                        None,
+                        parents.iter().map(Record::id),
+                        &sources,
+                        graph.map(|_| {
+                            analysis::ProjectionDefinition::builtin(
+                                projection::ProjectionName::CallableInvocation,
+                            )
+                            .id()
+                        }),
+                        budget,
+                    )?;
+                let _frame = budget.reserve(
+                    "summary-output-frame",
+                    4096 + receipts
+                        .iter()
+                        .map(|row| size_of::<owner::SourceReceipt>() + row.heap_bytes())
+                        .sum::<usize>()
+                        + inputs.len() * size_of::<owner::AnalysisInput>()
+                        + projections.len() * size_of::<owner::ProjectionInput>(),
+                )?;
+                let coverage = owner::coverage::admit(
+                    &invocation,
+                    definition,
+                    analysis::AnalysisCapability::Summaries,
+                    &coverage,
+                    budget,
+                )?;
+                let selected = if let Some(window) = &window {
+                    Some(window.load(partition, budget).await?)
+                } else {
+                    None
+                };
+                let frame_data = match access.profile() {
+                    Profile::Behavioral => selected.as_ref().ok_or_else(|| {
+                        ModelError::Invalid("Summary selected frame absent".into())
+                    })?,
+                    Profile::Catalog => &data,
+                };
+                let mut result = crate::stage_runtime::borrowed_cpu(access.name(), || {
+                    execution::summary_production::produce_prepared_scheduled(
+                        frame_data,
+                        &invocation,
+                        definition,
+                        access.profile(),
+                        graph,
+                        budget,
+                        application,
+                        actual,
+                        schedule,
+                    )
+                })?;
+                drop(selected);
+                tokio::task::yield_now().await;
+                let mut actual_coverage = normalized::Rows::new(budget);
+                let mut actual_premises = normalized::Rows::new(budget);
+                for scope in coverage.scopes() {
+                    let (row, premises) = owner::coverage::assess(
+                        scope.expectation(),
+                        scope.observations(),
+                        result.outcome.status,
+                        result.outcome.reason,
+                        budget,
+                    )?;
+                    actual_coverage.insert(row)?;
+                    for row in premises {
+                        actual_premises.insert(row)?;
+                    }
+                }
+                result.discharge(&actual_coverage)?;
+                publish_frame(
+                    &output,
+                    &coverage,
+                    result,
+                    actual_coverage,
+                    actual_premises,
+                    invocation,
+                    parents,
+                    inputs,
+                    receipts,
+                    projections,
+                )
+                .await?;
             }
         }
-        result.discharge(&actual_coverage)?;
-        publish_frame(
-            &output,
-            &coverage,
-            result,
-            actual_coverage,
-            actual_premises,
-            invocation,
-            parents,
-            inputs,
-            receipts,
-            projections,
-        )
-        .await?;
     }
     drop(data);
     output.finish(ProviderOutcome::Complete).await

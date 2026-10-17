@@ -1,5 +1,5 @@
 //! Store the explicit authored configuration and actual native premise projection once.
-use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
+use crate::workspace::{CheckedInputs, CompletedInputs, ProducerOutput, Workspace};
 use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::{
@@ -64,9 +64,23 @@ fn native_input<'a, R: Record>(
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         let permit = access.read_at::<R>(declaration.prefix())?;
-        crate::consumed_rows::stream_at(&permit, declaration, access, session, |_, batch| {
-            inventory.visit(R::NAME, batch)
-        })
+        let columns = NativeInventory::property_columns(R::NAME)?
+            .iter()
+            .map(|column| crate::consumed_rows::identifier(column))
+            .collect::<Vec<_>>()
+            .join(",");
+        let selected = format!(
+            "SELECT {columns} FROM {}",
+            crate::consumed_rows::identifier(&access.table_for(declaration)?)
+        );
+        crate::consumed_rows::stream_query_at(
+            &permit,
+            declaration,
+            access,
+            session,
+            &selected,
+            |_, batch| inventory.visit_properties(R::NAME, batch),
+        )
         .await
     })
 }
@@ -142,8 +156,18 @@ pub async fn native_inventory(
     access: CompletedInputs,
     output: ProducerOutput,
     runtime: &Workspace,
-    _model: &Arc<ValidatedModel>,
+    model: &Arc<ValidatedModel>,
+    checked: &CheckedInputs,
 ) -> Result<(), ModelError> {
+    // This is actual semantic admission authority over the complete model-owned native
+    // dependency closure, not a grant reconstructed from nominal row/view identities.
+    if model.digest() != runtime.model().digest() {
+        return Err(ModelError::Conflict("native inventory model authority"));
+    }
+    let required = NativeInventory::checked_inputs(access.profile(), runtime.model())?;
+    checked
+        .select(&required)?
+        .require_subset(runtime, &access)?;
     let phase = lctx_native::phase::Phase::begin("native_inventory_inputs");
     let mut inventory = NativeInventory::new(runtime.budget());
     let declarations = NativeInventory::inputs();
@@ -204,4 +228,110 @@ pub async fn embedding_configuration(
         output.push(configuration.projection().clone()).await?;
     }
     output.finish(ProviderOutcome::Complete).await
+}
+
+#[cfg(test)]
+mod native_inventory_controls {
+    use super::*;
+    use crate::workspace::WorkspaceOptions;
+    use futures::FutureExt;
+
+    #[tokio::test]
+    async fn admitted_native_inventory_empty_domain_uses_actual_checked_views_and_refuses_weakened_authority()
+     {
+        let model = Arc::new(lctx_model::domain::model().unwrap());
+        let native = crate::test_native::store();
+        let runtime =
+            Workspace::new(model.clone(), WorkspaceOptions::default(), native.clone()).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let profile = Profile::Catalog;
+            let required = NativeInventory::checked_inputs(profile, &model).unwrap();
+            let names = required
+                .iter()
+                .map(ValidationInput::name)
+                .collect::<std::collections::BTreeSet<_>>();
+            let output = runtime.output(
+                "native-property-control-facts",
+                profile,
+                ContentHash::of(b"native-property-control-facts"),
+                runtime
+                    .inputs("native-property-control-facts", profile, [])
+                    .unwrap(),
+                names,
+            );
+            // This is a genuine empty domain on completed native views, not a nominal
+            // CompletedInput authority or a mocked provider. No upper compiler journey runs.
+            output.declare_empty_outputs().await.unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+            runtime
+                .freeze_inputs_async(PublicationBoundary::Facts)
+                .await
+                .unwrap();
+            let order = PublicationOrder::planning(&[PublicationGroup::new(
+                PublicationBoundary::Facts,
+                vec!["native-property-control-facts"],
+            )])
+            .unwrap();
+            let stage = analysis::preparation::native_stage(profile, &model, &order).unwrap();
+            let access = runtime.stage_inputs(&stage, profile).unwrap();
+            let checked = runtime.checked_inputs(&access).await.unwrap();
+            let weak = checked
+                .select(&[ValidationInput::of::<AssertionQualification>(&["id"])
+                    .at_epoch(PublicationBoundary::Facts)])
+                .unwrap();
+            let refused = runtime.output(
+                "native-property-control-refused",
+                profile,
+                ContentHash::of(b"native-property-control-refused"),
+                access.clone(),
+                [NativeAssertionPremise::NAME, NativeQualification::NAME],
+            );
+            assert!(
+                native_inventory(access.clone(), refused, &runtime, &model, &weak)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                runtime.completed::<NativeAssertionPremise>().is_err(),
+                "weakened authority cannot publish even an empty successful prefix"
+            );
+            let output = runtime.output(
+                "native-property-control-inventory",
+                profile,
+                ContentHash::of(b"native-property-control-inventory"),
+                access.clone(),
+                [NativeAssertionPremise::NAME, NativeQualification::NAME],
+            );
+            native_inventory(access, output, &runtime, &model, &checked)
+                .await
+                .unwrap();
+            assert_eq!(
+                runtime
+                    .completed::<NativeAssertionPremise>()
+                    .unwrap()
+                    .rows(),
+                0
+            );
+            assert_eq!(
+                runtime.completed::<NativeQualification>().unwrap().rows(),
+                0
+            );
+        })
+        .catch_unwind()
+        .await;
+        let mut terminal = completion::Completion::default();
+        terminal.step(
+            "native property control workspace drainage",
+            runtime.drain().await,
+        );
+        terminal.merge(native.abandon_finality_report().await);
+        let cleaned = completion::complete::<()>(Ok(()), terminal);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned {
+                eprintln!("native property control cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
+    }
 }

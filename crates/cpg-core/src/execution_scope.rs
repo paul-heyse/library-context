@@ -1,11 +1,10 @@
 //! Ordered completion syntax dependencies, separated from ancestor/owner metadata.
+#[cfg(test)]
+use crate::consumed_rows::PreparedClosure;
 use crate::{
-    consumed_rows::{
-        ClosureTable, NominalClosure, PreparedClosure, PreparedEdges, identifier, stream_query_at,
-    },
+    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges, identifier},
     workspace::CompletedInputs,
 };
-use futures::future::BoxFuture;
 use lctx_model::domain::{
     analysis::native::*,
     execution::{
@@ -38,31 +37,60 @@ pub(super) struct CompletionScopes {
     body: usize,
     _charge: charged::StateCharge,
 }
-type DataReader = for<'a> fn(
-    &'a CompletedInputs,
-    &'a ValidationInput,
-    &'a PreparedClosure,
-    &'a str,
-    &'a mut CompletedEvaluations,
-) -> BoxFuture<'a, Result<(), ModelError>>;
-type RecordMatcher = fn(&ValidationInput) -> bool;
+/// Preserve every matching typed visitor in its declared order; acquisition is shared.
+fn input_visits(input: &ValidationInput) -> usize {
+    macro_rules! evaluation {($($field:ident:$ty:ty,)*) => {
+        const EVALUATION: &[fn(&ValidationInput) -> bool] = &[$(matches_record::<$ty>,)*];
+    };}
+    lctx_model::execution_evaluation_inputs!(evaluation);
+    const RECORDS: &[fn(&ValidationInput) -> bool] = &[
+        matches_record::<analysis::base_evaluation::AnalysisInvocation>,
+        matches_record::<analysis::AnalysisDefinition>,
+        matches_record::<ExpressionEvaluation>,
+        matches_record::<EvaluationSource>,
+        matches_record::<EvaluationMember>,
+        matches_record::<EvaluationOperand>,
+    ];
+    EVALUATION
+        .iter()
+        .chain(RECORDS)
+        .filter(|matches| matches(input))
+        .count()
+}
 fn matches_record<R: Record>(input: &ValidationInput) -> bool {
     input.type_id() == TypeId::of::<R>()
 }
-fn read_data<'a, R: Record>(
-    access: &'a CompletedInputs,
-    input: &'a ValidationInput,
-    scope: &'a PreparedClosure,
-    sql: &'a str,
-    data: &'a mut CompletedEvaluations,
-) -> BoxFuture<'a, Result<(), ModelError>> {
-    Box::pin(async move {
-        let permit = access.read_at::<R>(input.prefix())?;
-        stream_query_at(&permit, input, access, scope.session(), sql, |_, batch| {
-            data.visit_input(input, batch)
-        })
-        .await
-    })
+
+pub(super) struct CompletionWindow<'a> {
+    scopes: &'a CompletionScopes,
+    columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
+}
+impl CompletionWindow<'_> {
+    pub(super) fn data(
+        &self,
+        partition: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<CompletedEvaluations, ModelError> {
+        let mut data = CompletedEvaluations::new(budget);
+        for (table, input) in self.scopes.inputs.iter().enumerate() {
+            let selected = self.columns.gather(
+                &[partition],
+                table,
+                table,
+                budget,
+                cancellation,
+                &mut |_, _| true,
+            )?;
+            // Multiple declared matches remain multiple visits; only physical hydration coalesces.
+            for _ in 0..input_visits(input) {
+                for rows in selected.rows() {
+                    data.visit_input(input, rows)?;
+                }
+            }
+        }
+        Ok(data)
+    }
 }
 
 impl CompletionScopes {
@@ -331,6 +359,7 @@ impl CompletionScopes {
             ))
         }
     }
+    #[cfg(test)]
     pub(super) async fn statement(
         &self,
         id: Id<Occurrence>,
@@ -340,6 +369,7 @@ impl CompletionScopes {
             .grain(self.dependency, &predicate(id), budget)
             .await
     }
+    #[cfg(test)]
     pub(super) async fn body(
         &self,
         id: Id<CallableEntity>,
@@ -347,56 +377,74 @@ impl CompletionScopes {
     ) -> Result<PreparedClosure, ModelError> {
         self.edges.grain(self.body, &predicate(id), budget).await
     }
-    pub(super) fn data<'a>(
+    pub(super) async fn window<'a>(
         &'a self,
-        access: &'a CompletedInputs,
-        scope: &'a PreparedClosure,
-        budget: &'a resources::ResourceBudget,
-    ) -> BoxFuture<'a, Result<CompletedEvaluations, ModelError>> {
-        Box::pin(async move {
-            let mut data = CompletedEvaluations::new(budget);
-            macro_rules! evaluation {($($field:ident:$ty:ty,)*) => { const EVALUATION: &[(RecordMatcher, DataReader)] = &[$((matches_record::<$ty>, read_data::<$ty>),)*]; };}
-            lctx_model::execution_evaluation_inputs!(evaluation);
-            const RECORDS: &[(RecordMatcher, DataReader)] = &[
-                (
-                    matches_record::<analysis::base_evaluation::AnalysisInvocation>,
-                    read_data::<analysis::base_evaluation::AnalysisInvocation>,
-                ),
-                (
-                    matches_record::<analysis::AnalysisDefinition>,
-                    read_data::<analysis::AnalysisDefinition>,
-                ),
-                (
-                    matches_record::<ExpressionEvaluation>,
-                    read_data::<ExpressionEvaluation>,
-                ),
-                (
-                    matches_record::<EvaluationSource>,
-                    read_data::<EvaluationSource>,
-                ),
-                (
-                    matches_record::<EvaluationMember>,
-                    read_data::<EvaluationMember>,
-                ),
-                (
-                    matches_record::<EvaluationOperand>,
-                    read_data::<EvaluationOperand>,
-                ),
-            ];
-            for (table, input) in self.inputs.iter().enumerate() {
-                let sql = scope.select(table)?;
-
-                // Preserve every matching ordered entry; this consumer never had a
-                // first-decoder guard or a new unknown-input rejection.
-                for (_, read) in EVALUATION
-                    .iter()
-                    .chain(RECORDS)
-                    .filter(|(matches, _)| matches(input))
-                {
-                    read(access, input, scope, &sql, &mut data).await?;
+        body: bool,
+        keys: &[[u8; 16]],
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<CompletionWindow<'a>, ModelError> {
+        let mut charge = charged::StateCharge::new(budget, "completion-columnar-window");
+        charge.grow(
+            keys.len()
+                .saturating_mul(size_of::<crate::consumed_rows::PreparedRoot>())
+                .saturating_add(
+                    self.inputs
+                        .len()
+                        .saturating_mul(size_of::<Vec<arrow_array::RecordBatch>>()),
+                )
+                .saturating_add(4096),
+        )?;
+        let roots = keys
+            .iter()
+            .map(|key| crate::consumed_rows::PreparedRoot {
+                table: if body { self.body } else { self.dependency },
+                key: *key,
+                kind: crate::consumed_rows::PreparedRootKind::Physical,
+            })
+            .collect::<Vec<_>>();
+        let batch = self
+            .edges
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        drop(roots);
+        let mut rows = (0..self.inputs.len())
+            .map(|_| Vec::new())
+            .collect::<Vec<_>>();
+        lctx_compiler_store::scoped_batch::hydrate_union(
+            &batch,
+            &self.inputs,
+            budget,
+            cancellation,
+            &mut |table, input, incoming| {
+                if input_visits(input) == 0 {
+                    return Err(ModelError::Schema("completion window undeclared visitor"));
                 }
-            }
-            Ok(data)
+                let target = &mut rows[table];
+                let additional = if target.len() == target.capacity() {
+                    target.capacity().max(4)
+                } else {
+                    0
+                };
+                charge.grow(incoming.get_array_memory_size().saturating_add(
+                    additional.saturating_mul(size_of::<arrow_array::RecordBatch>()),
+                ))?;
+                target.reserve_exact(additional);
+                target.push(incoming.clone());
+                Ok(())
+            },
+        )
+        .await?;
+        Ok(CompletionWindow {
+            scopes: self,
+            columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
+                batch,
+                &self.inputs,
+                rows,
+                charge,
+                budget,
+                cancellation,
+            )?,
         })
     }
 }
@@ -678,6 +726,142 @@ mod controls {
         drop(prepared);
         assert!(budget.reserved() > 0);
         drop(last_borrower);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn completion_windows_preserve_duplicate_requests_private_bodies_and_last_borrower() {
+        let session = SessionContext::new();
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let cancellation = crate::workspace::Cancellation::default();
+        let (prepared, statement, callable, rich) = fixture(&session, &budget).await;
+        for body in [false, true] {
+            let key = if body {
+                *callable.id().bytes()
+            } else {
+                *statement.id().bytes()
+            };
+            let window = prepared
+                .window(body, &[key, key, [255; 16]], &budget, &cancellation)
+                .await
+                .unwrap();
+            let occurrence = prepared
+                .inputs
+                .iter()
+                .position(|input| input.type_id() == TypeId::of::<Occurrence>())
+                .unwrap();
+            let mut expected = None;
+            for partition in 0..2 {
+                let selected = window
+                    .columns
+                    .gather(
+                        &[partition],
+                        occurrence,
+                        occurrence,
+                        &budget,
+                        &cancellation,
+                        &mut |_, _| true,
+                    )
+                    .unwrap();
+                let rows = selected
+                    .rows()
+                    .iter()
+                    .flat_map(|batch| Occurrence::decode(batch).unwrap())
+                    .collect::<Vec<_>>();
+                assert!(rows.iter().any(|row| row.id() == statement.id()));
+                assert!(
+                    rows.iter()
+                        .all(|row| row.id() != rich.id() && row.structural_path.len() < 4)
+                );
+                if let Some(expected) = &expected {
+                    assert_eq!(&rows, expected);
+                } else {
+                    expected = Some(rows);
+                }
+                drop(window.data(partition, &budget, &cancellation).unwrap());
+            }
+            let absent = window
+                .columns
+                .gather(
+                    &[2],
+                    occurrence,
+                    occurrence,
+                    &budget,
+                    &cancellation,
+                    &mut |_, _| true,
+                )
+                .unwrap();
+            assert!(absent.rows().iter().all(|rows| rows.num_rows() == 0));
+            if body {
+                let placements = prepared
+                    .inputs
+                    .iter()
+                    .position(|input| input.type_id() == TypeId::of::<SyntaxPlacement>())
+                    .unwrap();
+                let selected = window
+                    .columns
+                    .gather(
+                        &[0],
+                        placements,
+                        placements,
+                        &budget,
+                        &cancellation,
+                        &mut |_, _| true,
+                    )
+                    .unwrap();
+                let rows = selected
+                    .rows()
+                    .iter()
+                    .flat_map(|batch| SyntaxPlacement::decode(batch).unwrap())
+                    .collect::<Vec<_>>();
+                let CallableEntity::Source { declaration, .. } = callable else {
+                    unreachable!()
+                };
+                assert_eq!(
+                    rows.iter()
+                        .filter(|row| row.parent == Some(declaration))
+                        .count(),
+                    2
+                );
+                assert!(
+                    rows.iter()
+                        .any(|row| row.field == lexical::SyntaxField::Child)
+                );
+                assert!(
+                    rows.iter()
+                        .any(|row| row.field == lexical::SyntaxField::Body)
+                );
+            }
+        }
+        let window = prepared
+            .window(false, &[*statement.id().bytes()], &budget, &cancellation)
+            .await
+            .unwrap();
+        let occurrence = prepared
+            .inputs
+            .iter()
+            .position(|input| input.type_id() == TypeId::of::<Occurrence>())
+            .unwrap();
+        let borrower = window
+            .columns
+            .gather(
+                &[0],
+                occurrence,
+                occurrence,
+                &budget,
+                &cancellation,
+                &mut |_, _| true,
+            )
+            .unwrap();
+        assert!(budget.reserved() > 0);
+        assert!(borrower.rows().iter().any(|rows| rows.num_rows() != 0));
+        drop(borrower);
+        assert!(
+            budget.reserved() > 0,
+            "window retains backing after a selected borrow finishes"
+        );
+        drop(window);
+        drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
 }

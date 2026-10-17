@@ -725,6 +725,7 @@ async fn settle_upper_pending<T>(
 
 /// Preparation borrows are owned by the launched task and selected only for its actual consumers.
 struct UpperPreparation {
+    uniform: Option<Arc<uniform::Preparation>>,
     bindings: Option<Arc<crate::analysis_bindings::PreparedBindings>>,
     local: Option<Arc<crate::local_semantics::PreparedLocal>>,
     evaluations: Option<
@@ -796,7 +797,17 @@ impl UpperTask {
             if let Some(outcome) = hit {
                 output.finish(outcome).await?;
             } else if uniform::unrequested(binding, profile, &prepared) {
-                uniform::produce(access, output, workspace, &declaration).await?;
+                uniform::produce(
+                    access,
+                    output,
+                    workspace,
+                    &declaration,
+                    shared
+                        .uniform
+                        .as_deref()
+                        .ok_or(ModelError::Conflict("uniform preparation absent"))?,
+                )
+                .await?;
             } else {
                 if analysis::owner::AnalysisOwner::resolve(binding.name())
                     .is_ok_and(|owner| owner.can_be_wholly_unrequested())
@@ -833,8 +844,16 @@ impl UpperTask {
                         .await?
                     }
                     UpperStage::Native => {
-                        crate::analysis_prepare::native_inventory(access, output, workspace, model)
-                            .await?
+                        crate::analysis_prepare::native_inventory(
+                            access,
+                            output,
+                            workspace,
+                            model,
+                            checked.as_ref().ok_or(ModelError::Conflict(
+                                "normalized native authority absent",
+                            ))?,
+                        )
+                        .await?
                     }
                     UpperStage::EmbeddingConfiguration => {
                         crate::analysis_prepare::embedding_configuration(
@@ -1432,6 +1451,19 @@ async fn compile_driver(
     let mut evaluations = None;
     let mut completed_bodies = None;
     let mut source_calls = None;
+    let mut uniform = if schedule
+        .stages()
+        .iter()
+        .filter_map(|stage| UpperStage::resolve(stage.name).ok())
+        .any(|binding| {
+            prepared
+                .as_ref()
+                .is_some_and(|prepared| uniform::unrequested(binding, profile, prepared))
+        }) {
+        Some(Arc::new(uniform::Preparation::new(workspace.budget())?))
+    } else {
+        None
+    };
     let mut pending = FuturesUnordered::new();
     let mut failure = None;
     loop {
@@ -1476,6 +1508,9 @@ async fn compile_driver(
                         let needs =
                             preparation::Needs::remaining([binding], profile, analytics_requested);
                         let shared = UpperPreparation {
+                            uniform: uniform::unrequested(binding, profile, &prepared)
+                                .then(|| uniform.as_ref().cloned())
+                                .flatten(),
                             bindings: needs.bindings.then(|| bindings.clone()).flatten(),
                             local: needs.local.then(|| local.clone()).flatten(),
                             evaluations: needs.evaluations.then(|| evaluations.clone()).flatten(),
@@ -1600,6 +1635,17 @@ async fn compile_driver(
         preparation::release_unused(&mut evaluations, needs.evaluations);
         preparation::release_unused(&mut completed_bodies, needs.bodies);
         preparation::release_unused(&mut source_calls, needs.source_calls);
+        let uniform_needed = schedule
+            .stages()
+            .iter()
+            .filter(|stage| !completed.contains(stage.name))
+            .filter_map(|stage| UpperStage::resolve(stage.name).ok())
+            .any(|binding| {
+                prepared
+                    .as_ref()
+                    .is_some_and(|prepared| uniform::unrequested(binding, profile, prepared))
+            });
+        preparation::release_unused(&mut uniform, uniform_needed);
     }
     if schedule
         .stages()

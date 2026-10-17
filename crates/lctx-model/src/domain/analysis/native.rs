@@ -35,6 +35,77 @@ macro_rules! native_pairs {
                     ValidationInput::of::<$support>(&["id"])]);)*
                 inputs
             }
+            /// The complete model-owned prerequisite closure for compact consumption. The
+            /// local order resolves declaration-only Facts references; it grants no runtime
+            /// protection or admission. Actual captured inputs must still match checked views.
+            pub fn checked_inputs(profile: stages::Profile, model: &ValidatedModel) -> Result<Vec<ValidationInput>, ModelError> {
+                let order = stages::PublicationOrder::planning(&[stages::PublicationGroup::new(
+                    stages::PublicationBoundary::Facts, vec!["native-facts-declaration"],
+                )])?;
+                let stage = super::preparation::native_stage(profile, model, &order)?;
+                dependency_closure::DependencyClosure::roots_from_uses(model, &stage.inputs)
+            }
+            /// Sufficient physical properties of already semantically admitted native facts.
+            /// This declaration conveys no admission authority; callers must protect and match
+            /// the complete native stage dependency closure before selecting these columns.
+            pub fn property_columns(name: &str) -> Result<&'static [&'static str], ModelError> {
+                if name == AssertionQualification::NAME { return Ok(&["id", "assumptions"]); }
+                $(if name == <$assertion>::NAME { return Ok(&["id", "qualification"]); }
+                if name == <$support>::NAME { return Ok(&["id", "assertion", "fidelity"]); })*
+                Err(invalid("undeclared native inventory property input"))
+            }
+            pub fn property_schema(name: &str) -> Result<arrow_schema::SchemaRef, ModelError> {
+                let schema = if name == AssertionQualification::NAME { AssertionQualification::schema() }
+                    $(else if name == <$assertion>::NAME { <$assertion>::schema() }
+                    else if name == <$support>::NAME { <$support>::schema() })*
+                    else { return Err(invalid("undeclared native inventory property input")); };
+                let fields = Self::property_columns(name)?.iter().map(|name| {
+                    schema.field_with_name(name).cloned().map_err(ModelError::codec)
+                }).collect::<Result<Vec<_>, _>>()?;
+                Ok(std::sync::Arc::new(arrow_schema::Schema::new(fields)))
+            }
+            /// Consume exact sufficient fields only after the compiler's checked-view boundary.
+            /// Independent receivers continue to use `visit`, including rich row validation.
+            pub fn visit_properties(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+                if batch.schema() != Self::property_schema(name)? {
+                    return Err(ModelError::Schema("native inventory property schema"));
+                }
+                let _decode = self.budget.reserve("native-inventory-property-decode", logical_batch_bytes(batch)?)?;
+                if name == AssertionQualification::NAME {
+                    for row in 0..batch.num_rows() {
+                        let assumptions = property_id::<assumptions::AssumptionSet>(batch, "assumptions", row)?;
+                        if assumptions != assumptions::AssumptionSet::empty_id() { return Err(invalid("native qualification needs explicit empty assumption basis")); }
+                        self.qualifications.insert(&mut self.charge, property_id(batch, "id", row)?)?;
+                    }
+                    return Ok(());
+                }
+                $(if name == <$assertion>::NAME {
+                    for row in 0..batch.num_rows() {
+                        let id = property_id::<$assertion>(batch, "id", row)?;
+                        let qualification = property_id(batch, "qualification", row)?;
+                        if self.assertions.insert(&mut self.charge, derivation::RowRef::of(id), qualification)?
+                            .is_some_and(|previous| previous != qualification) {
+                            return Err(ModelError::Conflict(<$assertion>::NAME));
+                        }
+                    }
+                    return Ok(());
+                }
+                if name == <$support>::NAME {
+                    for row in 0..batch.num_rows() {
+                        let premise = NativeAssertionPremise::$variant {
+                            assertion: property_id(batch, "assertion", row)?,
+                            support: property_id(batch, "id", row)?,
+                        };
+                        let fidelity = property_fidelity(batch, row)?;
+                        if self.supports.insert(&mut self.charge, premise.id(), (premise, fidelity))?
+                            .is_some_and(|previous| previous.1 != fidelity) {
+                            return Err(ModelError::Conflict(<$support>::NAME));
+                        }
+                    }
+                    return Ok(());
+                })*
+                Err(invalid("undeclared native inventory property input"))
+            }
             /// Native support validators stay authoritative. The producer must read confirmed
             /// facts with these validators; this projection does not reimplement attribution.
             pub fn stage_inputs(profile: stages::Profile) -> Vec<stages::RelationUse> {
@@ -86,6 +157,42 @@ macro_rules! native_pairs {
             }
         }
     };
+}
+fn property_id<R>(
+    batch: &arrow_array::RecordBatch,
+    name: &str,
+    row: usize,
+) -> Result<Id<R>, ModelError> {
+    use arrow_array::Array;
+    let column = batch
+        .column_by_name(name)
+        .and_then(|column| {
+            column
+                .as_any()
+                .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+        })
+        .filter(|column| column.value_length() == 16)
+        .ok_or(ModelError::Schema("native inventory nominal property"))?;
+    if column.is_null(row) {
+        return Err(ModelError::Schema("null native inventory property"));
+    }
+    serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+        _,
+        serde::de::value::Error,
+    >::new(column.value(row).iter().copied()))
+    .map_err(ModelError::codec)
+}
+fn property_fidelity(batch: &arrow_array::RecordBatch, row: usize) -> Result<Fidelity, ModelError> {
+    use arrow_array::Array;
+    let column = batch
+        .column_by_name("fidelity")
+        .and_then(|column| column.as_any().downcast_ref::<arrow_array::Int16Array>())
+        .ok_or(ModelError::Schema("native inventory fidelity property"))?;
+    if column.is_null(row) {
+        return Err(ModelError::Schema("null native inventory fidelity"));
+    }
+    Fidelity::from_code(column.value(row))
+        .ok_or(ModelError::Schema("native inventory fidelity code"))
 }
 /// The finite native assertion/support inventory, shared with typed producer adapters.
 #[macro_export]

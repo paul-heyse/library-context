@@ -1,6 +1,6 @@
 # Catalog upper execution: sufficient inputs and indexed consumer windows
 
-_Date: 2026-10-17. Target maturity: Proposed. Execution state: Open; no implementation or functional verification is claimed by this document._
+_Date: 2026-10-17. UC01–UC05 delivered / focused-Tested under ADR-0186; full Catalog qualification remains pending. The coordinator §6 owns actual dispositions and receipts; this companion is not a second mutable status ledger._
 
 ## 1. Responsibility and basis
 
@@ -31,9 +31,11 @@ Build on demand and publish only after complete checked traversal, exact row/EOF
 
 Property reuse preserves independent receiving: exported/detached or otherwise independently received content must earn its own checks under that receiving owner. A property valid in one checked immutable view is not a persisted universal proof. The [native plan](catalog-upper-execution-native-plan_2026-10-17.md) owns protected acquisition, lazy logical preparation, retries, originals, grouped agreement and acknowledged blocking execution; these consumers must not implement parallel versions of those responsibilities.
 
+**Implementation refinement, 2026-10-17 (ADR-0186):** the typed uniform registry fixes its preparation algorithm and matches retained actual source bindings, model/profile, operation/pool and requested/resolved epochs. The consuming producer's program/name/source ordering remain fresh invocation dependencies; treating its program as a common-fragment key would prevent sharing across owners. Source-producer implementation identity remains captured by the exact retained source. Native inventory derives its complete checked dependency closure from the actual runtime model itself, refusing foreign model/authority before compact reads. Retrieval captures selected protected inputs during preparation; window creation, rendering and original hydration cannot accept a substituted input owner.
+
 ## 3. Work packages and prerequisites
 
-All packages below are Open/Proposed. Current disposition and eventual dated evidence belong only in the coordinator §6.
+The packages below define the closure contract. Current disposition and dated evidence belong only in the coordinator §6.
 
 | Package | Required capability | Delivered change and source obligations |
 |---|---|---|

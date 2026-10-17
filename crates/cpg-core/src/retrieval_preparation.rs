@@ -1,7 +1,7 @@
 //! E0 selects actual C1 roots and canonical brief documents before decoding their rich premises.
 use crate::producer_operations;
 use crate::{
-    consumed_rows::{ClosureTable, PreparedClosure, PreparedEdges, identifier},
+    consumed_rows::{ClosureTable, PreparedEdges, identifier},
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use datafusion::prelude::SessionContext;
@@ -153,7 +153,7 @@ impl InventoryPrograms {
 }
 struct ArtifactSelection {
     sql: String,
-    _charge: Box<dyn resources::Reservation>,
+    _charge: charged::StateCharge,
 }
 impl std::ops::Deref for ArtifactSelection {
     type Target = str;
@@ -166,6 +166,8 @@ impl std::ops::Deref for ArtifactSelection {
 /// by the caller after publishing each root or brief.
 pub struct Preparation {
     pub metadata: Data,
+    captured_access: Option<CompletedInputs>,
+    _access_charge: charged::StateCharge,
     budget: resources::ResourceBudget,
     session: SessionContext,
     inputs: Vec<ValidationInput>,
@@ -232,7 +234,6 @@ fn read_metadata<'a, 'sources>(
     })
 }
 struct WindowGrain {
-    scope: PreparedClosure,
     allowed: Vec<TypeId>,
     artifacts: ArtifactSelection,
 }
@@ -240,15 +241,32 @@ struct WindowColumns {
     rows: Vec<Vec<arrow_array::RecordBatch>>,
     memberships: charged::ChargedSet<(usize, usize, [u8; 16])>,
     selected: charged::ChargedSet<(usize, [u8; 16])>,
-    consumed: Vec<crate::consumed_rows::ConsumedInputs>,
+    present: charged::ChargedSet<(usize, [u8; 16])>,
+    membership_charge: charged::StateCharge,
+    consumed: crate::consumed_rows::ConsumedInputs,
     union_consumed: crate::consumed_rows::ConsumedInputs,
     charge: charged::StateCharge,
+}
+impl WindowColumns {
+    /// Compact closure keys are candidates, including dangling forward references. The
+    /// former selected-table membership query admitted only present rows; establish that
+    /// same intersection from the single completed rich union, without a second native read.
+    fn finish_memberships(&mut self) -> Result<(), ModelError> {
+        let mut actual = charged::ChargedSet::default();
+        for &(partition, table, key) in self.memberships.iter() {
+            if self.present.contains(&(table, key)) {
+                actual.insert(&mut self.membership_charge, (partition, table, key))?;
+            }
+        }
+        self.memberships = actual;
+        Ok(())
+    }
 }
 pub struct RenderWindow<'a> {
     preparation: &'a Preparation,
     keys: Vec<[u8; 16]>,
     brief: bool,
-    columns: WindowColumns,
+    columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
 }
 impl RenderWindow<'_> {
     fn data(
@@ -262,29 +280,15 @@ impl RenderWindow<'_> {
             .ok_or(ModelError::Schema("E0 window partition"))?;
         let mut data = Data::new(budget);
         for (table, input) in self.preparation.inputs.iter().enumerate() {
-            for rows in &self.columns.rows[table] {
+            let selected =
+                self.columns
+                    .gather_selected(&[partition], table, budget, cancellation)?;
+            for rows in selected.rows() {
                 cancellation.check()?;
-                let _filter = budget.reserve(
-                    "retrieval-columnar-partition",
-                    rows.get_array_memory_size() + rows.num_rows() * 32 + 4096,
-                )?;
-                let mut mask = Vec::with_capacity(rows.num_rows());
-                for row in 0..rows.num_rows() {
-                    let key = crate::scoped_admission::column(rows, "id", row)?
-                        .ok_or(ModelError::Schema("E0 union identity"))?;
-                    mask.push(self.columns.memberships.contains(&(partition, table, key)));
-                }
-                let selected = datafusion::arrow::compute::filter_record_batch(
-                    rows,
-                    &arrow_array::BooleanArray::from(mask),
-                )
-                .map_err(ModelError::codec)?;
-                if selected.num_rows() != 0 {
-                    if self.brief && input.type_id() == TypeId::of::<catalog::CatalogMember>() {
-                        data.completion_visit(input, &selected)?;
-                    } else {
-                        data.visit_input(input, &selected)?;
-                    }
+                if self.brief && input.type_id() == TypeId::of::<catalog::CatalogMember>() {
+                    data.completion_visit(input, rows)?;
+                } else {
+                    data.visit_input(input, rows)?;
                 }
             }
         }
@@ -298,13 +302,17 @@ impl RenderWindow<'_> {
     }
     pub async fn render(
         &self,
-        access: &CompletedInputs,
         partition: usize,
         budget: &resources::ResourceBudget,
         cancellation: &crate::workspace::Cancellation,
         runtime: &Workspace,
         output: &ProducerOutput,
     ) -> Result<(Data, Output), ModelError> {
+        let access = self
+            .preparation
+            .captured_access
+            .as_ref()
+            .ok_or(ModelError::Conflict("E0 completed input owner absent"))?;
         let data = self.data(partition, budget, cancellation)?;
         let key = self.keys[partition];
         if self.brief {
@@ -331,10 +339,15 @@ impl RenderWindow<'_> {
         }
     }
 }
+#[derive(Clone, Copy)]
+struct WindowSelection<'a> {
+    grains: &'a [WindowGrain],
+    roots: &'a crate::consumed_rows::PreparedRootBatch,
+}
 type WindowLoader = for<'a> fn(
     &'a Preparation,
     &'a CompletedInputs,
-    &'a [WindowGrain],
+    WindowSelection<'a>,
     bool,
     &'a resources::ResourceBudget,
     &'a crate::workspace::Cancellation,
@@ -343,52 +356,65 @@ type WindowLoader = for<'a> fn(
 fn load_window<'a, R: Record>(
     preparation: &'a Preparation,
     access: &'a CompletedInputs,
-    grains: &'a [WindowGrain],
+    selection: WindowSelection<'a>,
     brief: bool,
     budget: &'a resources::ResourceBudget,
     cancellation: &'a crate::workspace::Cancellation,
     columns: &'a mut WindowColumns,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
-        for (partition, grain) in grains.iter().enumerate() {
-            while let Some((input, permit)) = columns.consumed[partition].next::<R>(access)? {
-                cancellation.check()?;
-                let table = preparation
-                    .inputs
-                    .iter()
-                    .position(|i| i.type_id() == input.type_id() && i.prefix() == input.prefix())
-                    .ok_or(ModelError::Schema("E0 window immutable input"))?;
-                let Some(selected) =
-                    preparation.select(&grain.scope, table, &grain.allowed, &grain.artifacts)?
-                else {
-                    continue;
-                };
-                let query = format!("SELECT id FROM ({selected}) membership");
-                crate::consumed_rows::stream_query_at(
-                    &permit,
-                    &input,
-                    access,
-                    grain.scope.session(),
-                    &query,
-                    |_, batch| {
-                        cancellation.check()?;
-                        let _transfer = budget.reserve(
-                            "retrieval-membership-transfer",
-                            batch.get_array_memory_size(),
-                        )?;
-                        for row in 0..batch.num_rows() {
-                            let key = crate::scoped_admission::column(batch, "id", row)?
-                                .ok_or(ModelError::Schema("E0 membership identity"))?;
-                            columns
-                                .memberships
-                                .insert(&mut columns.charge, (partition, table, key))?;
-                            columns.selected.insert(&mut columns.charge, (table, key))?;
+        let WindowSelection { grains, roots } = selection;
+        while let Some((input, permit)) = columns.consumed.next::<R>(access)? {
+            cancellation.check()?;
+            let table = preparation
+                .inputs
+                .iter()
+                .position(|i| i.type_id() == input.type_id() && i.prefix() == input.prefix())
+                .ok_or(ModelError::Schema("E0 window immutable input"))?;
+            preparation.collect_memberships(roots, grains, table, cancellation, columns)?;
+            let Some(query) = preparation.membership_query(grains, table, budget, cancellation)?
+            else {
+                continue;
+            };
+            crate::consumed_rows::stream_query_at(
+                &permit,
+                &input,
+                access,
+                &preparation.session,
+                &query,
+                |_, batch| {
+                    cancellation.check()?;
+                    let _transfer = budget.reserve(
+                        "retrieval-membership-transfer",
+                        batch.get_array_memory_size(),
+                    )?;
+                    let partitions = batch
+                        .column_by_name("partition_id")
+                        .and_then(|array| array.as_any().downcast_ref::<arrow_array::Int64Array>())
+                        .ok_or(ModelError::Schema("E0 membership partition"))?;
+                    use arrow_array::Array;
+                    for row in 0..batch.num_rows() {
+                        if partitions.is_null(row) {
+                            return Err(ModelError::Schema("E0 membership partition"));
                         }
-                        Ok(())
-                    },
-                )
-                .await?;
-            }
+                        let partition = usize::try_from(partitions.value(row))
+                            .map_err(|_| ModelError::Schema("E0 membership partition"))?;
+                        if partition >= grains.len() {
+                            return Err(ModelError::Schema("E0 membership partition"));
+                        }
+                        let key = crate::scoped_admission::column(batch, "id", row)?
+                            .ok_or(ModelError::Schema("E0 membership identity"))?;
+                        columns
+                            .memberships
+                            .insert(&mut columns.membership_charge, (partition, table, key))?;
+                        columns
+                            .selected
+                            .insert(&mut columns.membership_charge, (table, key))?;
+                    }
+                    Ok(())
+                },
+            )
+            .await?;
         }
         while let Some((input, permit)) = columns.union_consumed.next::<R>(access)? {
             cancellation.check()?;
@@ -397,23 +423,11 @@ fn load_window<'a, R: Record>(
                 .iter()
                 .position(|i| i.type_id() == input.type_id() && i.prefix() == input.prefix())
                 .ok_or(ModelError::Schema("E0 window union input"))?;
-            let keys = columns
-                .selected
-                .range((table, [0; 16])..=(table, [255; 16]));
-            if keys.clone().next().is_none() {
+            let Some(selected) =
+                preparation.union_query(&columns.selected, table, brief, budget)?
+            else {
                 continue;
-            }
-            let _query =
-                budget.reserve("retrieval-union-query", keys.clone().count() * 128 + 4096)?;
-            let keys = keys
-                .map(|(_, key)| format!("X'{}'", hex::encode(key)))
-                .collect::<Vec<_>>()
-                .join(",");
-            let selected = format!(
-                "SELECT * FROM {} WHERE id IN ({keys})",
-                identifier(&preparation.tables[table].alias)
-            );
-            let selected = preparation.projected(table, brief, &selected);
+            };
             crate::consumed_rows::stream_query_at(
                 &permit,
                 &input,
@@ -422,6 +436,13 @@ fn load_window<'a, R: Record>(
                 &selected,
                 |_, batch| {
                     cancellation.check()?;
+                    for row in 0..batch.num_rows() {
+                        let key = crate::scoped_admission::column(batch, "id", row)?
+                            .ok_or(ModelError::Schema("E0 hydrated identity"))?;
+                        columns
+                            .present
+                            .insert(&mut columns.membership_charge, (table, key))?;
+                    }
                     let target = &mut columns.rows[table];
                     let additional = if target.len() == target.capacity() {
                         target.capacity().max(4)
@@ -471,6 +492,17 @@ impl Preparation {
         metadata.selected()?;
         metadata.verify_evidence_frames(admission, runtime.budget())?;
         let inputs = Data::inputs();
+        let mut access_charge =
+            charged::StateCharge::new(runtime.budget(), "retrieval-completed-input-owner");
+        access_charge.grow(
+            size_of::<CompletedInputs>().saturating_add(
+                inputs
+                    .len()
+                    .saturating_mul(size_of::<ValidationInput>() + 128),
+            ),
+        )?;
+        let captured_access = access.select(&inputs)?;
+        let session = captured_access.session(runtime).await?;
         let tables: Vec<_> = inputs
             .iter()
             .map(|input| {
@@ -479,7 +511,7 @@ impl Preparation {
                         .relation(input.name())
                         .ok_or(ModelError::Schema("E0 input model relation"))?
                         .clone(),
-                    alias: access.table_for(input)?,
+                    alias: captured_access.table_for(input)?,
                 })
             })
             .collect::<Result<_, ModelError>>()?;
@@ -508,6 +540,8 @@ impl Preparation {
         .await?;
         Ok(Self {
             metadata,
+            captured_access: Some(captured_access),
+            _access_charge: access_charge,
             budget: runtime.budget().clone(),
             session,
             inputs,
@@ -562,12 +596,15 @@ impl Preparation {
     /// Rich native rows are fetched once; each owning renderer decodes its own partition.
     pub async fn render_window<'a>(
         &'a self,
-        access: &CompletedInputs,
         keys: &[[u8; 16]],
         brief: bool,
         budget: &resources::ResourceBudget,
         cancellation: &crate::workspace::Cancellation,
     ) -> Result<RenderWindow<'a>, ModelError> {
+        let access = self
+            .captured_access
+            .as_ref()
+            .ok_or(ModelError::Conflict("E0 completed input owner absent"))?;
         if !self.budget.shares_pool(budget) {
             return Err(ModelError::Conflict("E0 window budget changed"));
         }
@@ -596,10 +633,33 @@ impl Preparation {
             .batch_with_cancellation(&roots, budget, cancellation)
             .await?;
         drop(roots);
+        let headers = if brief {
+            None
+        } else {
+            Some(
+                self.headers::<c1::EvidenceRoot>(access, keys, budget)
+                    .await?,
+            )
+        };
+        let mut subject_keys = charged::ChargedSet::default();
+        if let Some(headers) = &headers {
+            for key in keys {
+                let header = build::need(headers, crate::retrieval::nominal(key)?)?;
+                subject_keys.insert(&mut charge, *header.subject.bytes())?;
+            }
+        }
+        let subject_keys = subject_keys.iter().copied().collect::<Vec<_>>();
+        let subjects = if brief {
+            None
+        } else {
+            Some(
+                self.headers::<c1::RootSubject>(access, &subject_keys, budget)
+                    .await?,
+            )
+        };
         let mut grains = Vec::with_capacity(keys.len());
-        for (partition, key) in keys.iter().enumerate() {
+        for key in keys {
             cancellation.check()?;
-            let scope = batch.partition_scope(partition, budget)?;
             let (allowed, artifacts) = if brief {
                 (
                     Data::brief_types(),
@@ -607,28 +667,32 @@ impl Preparation {
                 )
             } else {
                 let id = crate::retrieval::nominal(key)?;
-                let header = self.header::<c1::EvidenceRoot>(access, id, budget).await?;
-                let subject = self
-                    .header::<c1::RootSubject>(access, header.subject, budget)
-                    .await?;
+                let header = build::need(
+                    headers
+                        .as_ref()
+                        .ok_or(ModelError::Schema("E0 root headers"))?,
+                    id,
+                )?;
+                let subject = build::need(
+                    subjects
+                        .as_ref()
+                        .ok_or(ModelError::Schema("E0 subject headers"))?,
+                    header.subject,
+                )?;
                 (
-                    Data::root_types(&subject),
-                    self.artifacts(Some((id, &subject)), None, budget)?,
+                    Data::root_types(subject),
+                    self.artifacts(Some((id, subject)), None, budget)?,
                 )
             };
-            grains.push(WindowGrain {
-                scope,
-                allowed,
-                artifacts,
-            });
+            grains.push(WindowGrain { allowed, artifacts });
         }
         let mut columns = WindowColumns {
             rows: (0..self.inputs.len()).map(|_| Vec::new()).collect(),
             memberships: Default::default(),
             selected: Default::default(),
-            consumed: (0..keys.len())
-                .map(|_| crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget))
-                .collect::<Result<Vec<_>, _>>()?,
+            present: Default::default(),
+            membership_charge: charged::StateCharge::new(budget, "retrieval-selected-memberships"),
+            consumed: crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?,
             union_consumed: crate::consumed_rows::ConsumedInputs::new(self.inputs.clone(), budget)?,
             charge,
         };
@@ -639,7 +703,10 @@ impl Preparation {
             loader(
                 self,
                 access,
-                &grains,
+                WindowSelection {
+                    grains: &grains,
+                    roots: &batch,
+                },
                 brief,
                 budget,
                 cancellation,
@@ -647,16 +714,29 @@ impl Preparation {
             )
             .await?;
         }
-        for consumed in std::mem::take(&mut columns.consumed) {
-            consumed.finish("retrieval-window-partition")?;
-        }
+        let terminal = std::mem::replace(
+            &mut columns.consumed,
+            crate::consumed_rows::ConsumedInputs::new(vec![], budget)?,
+        );
+        terminal.finish("retrieval-window-partitions")?;
         let terminal = std::mem::replace(
             &mut columns.union_consumed,
             crate::consumed_rows::ConsumedInputs::new(vec![], budget)?,
         );
         terminal.finish("retrieval-window-union")?;
         drop(grains);
-        drop(batch);
+        columns.finish_memberships()?;
+        let schemas = self.window_schemas(brief)?;
+        let columns = lctx_compiler_store::scoped_positions::IndexedRootColumns::new_selected(
+            batch,
+            &self.inputs,
+            columns.rows,
+            &schemas,
+            &columns.memberships,
+            columns.charge,
+            budget,
+            cancellation,
+        )?;
         Ok(RenderWindow {
             preparation: self,
             keys: keys.to_vec(),
@@ -721,20 +801,31 @@ impl Preparation {
         .await
         .map_err(ModelError::codec)
     }
-    async fn header<R: Record>(
+    async fn headers<R: Record>(
         &self,
         access: &CompletedInputs,
-        id: Id<R>,
+        keys: &[[u8; 16]],
         budget: &resources::ResourceBudget,
-    ) -> Result<R, ModelError> {
+    ) -> Result<normalized::Rows<R>, ModelError> {
         let index = typed::<R>(&self.inputs)?;
         let input = &self.inputs[index];
         let permit = access.read_at::<R>(input.prefix())?;
         let mut rows = normalized::Rows::new(budget);
+        if keys.is_empty() {
+            return Ok(rows);
+        }
+        let _query = budget.reserve(
+            "retrieval-header-query",
+            keys.len().saturating_mul(192).saturating_add(4096),
+        )?;
+        let ids = keys
+            .iter()
+            .map(|key| format!("X'{}'", hex::encode(key)))
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!(
-            "SELECT * FROM {} WHERE id=X'{}'",
-            identifier(&self.tables[index].alias),
-            id.hex()
+            "SELECT * FROM {} WHERE id IN ({ids})",
+            identifier(&self.tables[index].alias)
         );
         crate::consumed_rows::stream_query_at(
             &permit,
@@ -748,7 +839,10 @@ impl Preparation {
             },
         )
         .await?;
-        Ok(build::need(&rows, id)?.clone())
+        for key in keys {
+            build::need(&rows, crate::retrieval::nominal(key)?)?;
+        }
+        Ok(rows)
     }
     fn artifacts(
         &self,
@@ -772,8 +866,8 @@ impl Preparation {
         let program = self.artifact_programs.get(kind);
         let parameters =
             scope_program::ScopeParameters(vec![scope_program::ScopeValue::Nominal(key)]);
-        let charge = budget.reserve(
-            "retrieval-artifact-query",
+        let mut charge = charged::StateCharge::new(budget, "retrieval-artifact-query");
+        charge.grow(
             crate::scope_compilation::lowering_allowance(
                 program.program(),
                 &self.tables,
@@ -805,9 +899,10 @@ impl Preparation {
             _charge: charge,
         })
     }
+    #[cfg(test)]
     fn select(
         &self,
-        scope: &PreparedClosure,
+        scope: &crate::consumed_rows::PreparedClosure,
         index: usize,
         allowed: &[TypeId],
         artifacts: &str,
@@ -833,6 +928,142 @@ impl Preparation {
             allowed.contains(&TypeId::of::<synthesis::briefs::Brief>()),
             &selected,
         )))
+    }
+    fn selected_artifacts(&self, table: usize, grain: &WindowGrain) -> bool {
+        self.inputs[table].type_id() == TypeId::of::<source::SourceArtifact>()
+            && !grain
+                .allowed
+                .contains(&TypeId::of::<catalog::CatalogCandidate>())
+    }
+    fn collect_memberships(
+        &self,
+        roots: &crate::consumed_rows::PreparedRootBatch,
+        grains: &[WindowGrain],
+        table: usize,
+        cancellation: &crate::workspace::Cancellation,
+        columns: &mut WindowColumns,
+    ) -> Result<(), ModelError> {
+        let kind = self.inputs[table].type_id();
+        for (partition, grain) in grains.iter().enumerate() {
+            cancellation.check()?;
+            if !grain.allowed.contains(&kind)
+                || kind == TypeId::of::<artifact::ArtifactChunk>()
+                || self.selected_artifacts(table, grain)
+            {
+                continue;
+            }
+            for key in roots.keys(partition, table)? {
+                cancellation.check()?;
+                columns
+                    .memberships
+                    .insert(&mut columns.membership_charge, (partition, table, key))?;
+                columns
+                    .selected
+                    .insert(&mut columns.membership_charge, (table, key))?;
+            }
+        }
+        Ok(())
+    }
+    fn membership_query(
+        &self,
+        grains: &[WindowGrain],
+        table: usize,
+        budget: &resources::ResourceBudget,
+        cancellation: &crate::workspace::Cancellation,
+    ) -> Result<Option<ArtifactSelection>, ModelError> {
+        let kind = self.inputs[table].type_id();
+        if kind != TypeId::of::<source::SourceArtifact>() {
+            return Ok(None);
+        }
+        let mut charge = charged::StateCharge::new(budget, "retrieval-artifact-membership-query");
+        charge.grow(grains.len().saturating_mul(size_of::<String>()))?;
+        let mut selections = Vec::with_capacity(grains.len());
+        for (partition, grain) in grains.iter().enumerate() {
+            cancellation.check()?;
+            if !grain.allowed.contains(&kind) || !self.selected_artifacts(table, grain) {
+                continue;
+            }
+            charge.grow(
+                grain
+                    .artifacts
+                    .sql
+                    .len()
+                    .saturating_mul(3)
+                    .saturating_add(512),
+            )?;
+            selections.push(format!("SELECT CAST({partition} AS BIGINT) AS partition_id,source AS id FROM ({}) artifact_membership", grain.artifacts.sql));
+        }
+        if selections.is_empty() {
+            return Ok(None);
+        }
+        let sql = selections.join(" UNION ALL ");
+        Ok(Some(ArtifactSelection {
+            sql,
+            _charge: charge,
+        }))
+    }
+    fn union_query(
+        &self,
+        selected: &charged::ChargedSet<(usize, [u8; 16])>,
+        table: usize,
+        brief: bool,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Option<ArtifactSelection>, ModelError> {
+        let keys = selected.range((table, [0; 16])..=(table, [255; 16]));
+        if keys.clone().next().is_none() {
+            return Ok(None);
+        }
+        let mut charge = charged::StateCharge::new(budget, "retrieval-union-query");
+        charge.grow(keys.clone().count().saturating_mul(192) + 4096)?;
+        let keys = keys
+            .map(|(_, key)| format!("X'{}'", hex::encode(key)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let selected = format!(
+            "SELECT * FROM {} WHERE id IN ({keys})",
+            identifier(&self.tables[table].alias)
+        );
+        Ok(Some(ArtifactSelection {
+            sql: self.projected(table, brief, &selected),
+            _charge: charge,
+        }))
+    }
+    fn window_schemas(&self, brief: bool) -> Result<Vec<arrow_schema::SchemaRef>, ModelError> {
+        self.inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let schema = self.tables[index].relation.schema();
+                let fields: Option<&[&str]> = if brief
+                    && input.type_id() == TypeId::of::<catalog::CatalogMember>()
+                {
+                    Some(&["id", "input", "access"])
+                } else if input.type_id() == TypeId::of::<diagnostics::RuffDiagnosticObservation>()
+                {
+                    Some(&["id", "channel", "settings"])
+                } else if input.type_id()
+                    == TypeId::of::<diagnostics::PyreflyDiagnosticObservation>()
+                {
+                    Some(&["id", "channel"])
+                } else {
+                    None
+                };
+                match fields {
+                    None => Ok(schema.clone()),
+                    Some(fields) => Ok(Arc::new(arrow_schema::Schema::new(
+                        fields
+                            .iter()
+                            .map(|name| {
+                                schema
+                                    .field_with_name(name)
+                                    .cloned()
+                                    .map_err(ModelError::codec)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ))),
+                }
+            })
+            .collect()
     }
     fn projected(&self, index: usize, brief: bool, selected: &str) -> String {
         let kind = self.inputs[index].type_id();
@@ -1227,6 +1458,8 @@ mod controls {
         .unwrap();
         let preparation = Preparation {
             metadata,
+            captured_access: None,
+            _access_charge: charged::StateCharge::new(&budget, "finite-retrieval-no-input-owner"),
             budget: budget.clone(),
             session,
             inputs,
@@ -1237,6 +1470,56 @@ mod controls {
             inventory_programs,
             brief,
         };
+        let before_guard = budget.reserved();
+        assert!(
+            matches!(
+                preparation
+                    .render_window(
+                        &[*root.id().bytes()],
+                        false,
+                        &budget,
+                        &crate::workspace::Cancellation::default()
+                    )
+                    .await,
+                Err(ModelError::Conflict("E0 completed input owner absent"))
+            ),
+            "a finite detached fixture cannot claim captured native input access"
+        );
+        assert_eq!(
+            budget.reserved(),
+            before_guard,
+            "missing native input ownership refuses before discovery or query allocation"
+        );
+        for brief in [false, true] {
+            let schemas = preparation.window_schemas(brief).unwrap();
+            for (table, input) in preparation.inputs.iter().enumerate() {
+                if input.type_id() == TypeId::of::<catalog::CatalogMember>()
+                    || input.type_id() == TypeId::of::<diagnostics::RuffDiagnosticObservation>()
+                    || input.type_id() == TypeId::of::<diagnostics::PyreflyDiagnosticObservation>()
+                {
+                    let sql = preparation.projected(
+                        table,
+                        brief,
+                        &format!(
+                            "SELECT * FROM {} WHERE FALSE",
+                            identifier(&preparation.tables[table].alias)
+                        ),
+                    );
+                    let mut stream = crate::sql::query(preparation.session(), &sql)
+                        .await
+                        .unwrap()
+                        .execute_stream()
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        stream.schema(),
+                        schemas[table],
+                        "typed projected schema matches its actual SQL loader"
+                    );
+                    while stream.try_next().await.unwrap().is_some() {}
+                }
+            }
+        }
         let mut actual = scoped(&preparation, &root, &subject, &budget).await;
         assert!(actual.source.catalog.members.is_empty());
         assert!(actual.source.core.modules.is_empty());
@@ -1277,25 +1560,37 @@ mod controls {
         let oracle = build::build(&expected, &budget).unwrap();
         actual_rows.matches(&oracle).unwrap();
         {
-            let scope = preparation
+            let roots = preparation
                 .edges
-                .grain(
-                    preparation.root,
-                    &format!("id=X'{}'", root.id().hex()),
+                .batch(
+                    &[crate::consumed_rows::PreparedRoot {
+                        table: preparation.root,
+                        key: *root.id().bytes(),
+                        kind: crate::consumed_rows::PreparedRootKind::Virtual,
+                    }; 2],
                     &budget,
                 )
                 .await
                 .unwrap();
             let selected_subject = expected.evidence.subjects.get(root.subject).unwrap();
-            let allowed = Data::root_types(selected_subject);
-            let artifacts = preparation
-                .artifacts(Some((root.id(), selected_subject)), None, &budget)
-                .unwrap();
+            let grains = (0..2)
+                .map(|_| WindowGrain {
+                    allowed: Data::root_types(selected_subject),
+                    artifacts: preparation
+                        .artifacts(Some((root.id(), selected_subject)), None, &budget)
+                        .unwrap(),
+                })
+                .collect::<Vec<_>>();
             let mut columns = WindowColumns {
                 rows: (0..preparation.inputs.len()).map(|_| Vec::new()).collect(),
                 memberships: Default::default(),
                 selected: Default::default(),
-                consumed: vec![],
+                present: Default::default(),
+                membership_charge: charged::StateCharge::new(
+                    &budget,
+                    "retrieval-selected-memberships-control",
+                ),
+                consumed: crate::consumed_rows::ConsumedInputs::new(vec![], &budget).unwrap(),
                 union_consumed: crate::consumed_rows::ConsumedInputs::new(vec![], &budget).unwrap(),
                 charge: charged::StateCharge::new(&budget, "retrieval-window-control"),
             };
@@ -1303,9 +1598,53 @@ mod controls {
                 .charge
                 .grow(preparation.inputs.len() * size_of::<Vec<arrow_array::RecordBatch>>() + 4096)
                 .unwrap();
-            for (table, _input) in preparation.inputs.iter().enumerate() {
+            let cancellation = crate::workspace::Cancellation::default();
+            for table in 0..preparation.inputs.len() {
+                preparation
+                    .collect_memberships(&roots, &grains, table, &cancellation, &mut columns)
+                    .unwrap();
                 if let Some(query) = preparation
-                    .select(&scope, table, &allowed, &artifacts)
+                    .membership_query(&grains, table, &budget, &cancellation)
+                    .unwrap()
+                {
+                    assert_eq!(
+                        preparation.inputs[table].type_id(),
+                        TypeId::of::<source::SourceArtifact>(),
+                        "normal port membership consumes prepared keys without a native read"
+                    );
+                    let mut stream = crate::sql::query(preparation.session(), &query)
+                        .await
+                        .unwrap()
+                        .execute_stream()
+                        .await
+                        .unwrap();
+                    while let Some(rows) = stream.try_next().await.unwrap() {
+                        let partitions = rows
+                            .column_by_name("partition_id")
+                            .unwrap()
+                            .as_any()
+                            .downcast_ref::<arrow_array::Int64Array>()
+                            .unwrap();
+                        for row in 0..rows.num_rows() {
+                            let key = crate::scoped_admission::column(&rows, "id", row)
+                                .unwrap()
+                                .unwrap();
+                            columns
+                                .memberships
+                                .insert(
+                                    &mut columns.membership_charge,
+                                    (partitions.value(row) as usize, table, key),
+                                )
+                                .unwrap();
+                            columns
+                                .selected
+                                .insert(&mut columns.membership_charge, (table, key))
+                                .unwrap();
+                        }
+                    }
+                }
+                if let Some(query) = preparation
+                    .union_query(&columns.selected, table, false, &budget)
                     .unwrap()
                 {
                     let mut stream = crate::sql::query(preparation.session(), &query)
@@ -1326,17 +1665,29 @@ mod controls {
                             let key = crate::scoped_admission::column(&rows, "id", row)
                                 .unwrap()
                                 .unwrap();
-                            for partition in 0..2 {
-                                columns
-                                    .memberships
-                                    .insert(&mut columns.charge, (partition, table, key))
-                                    .unwrap();
-                            }
+                            columns
+                                .present
+                                .insert(&mut columns.membership_charge, (table, key))
+                                .unwrap();
                         }
                         columns.rows[table].push(rows);
                     }
                 }
             }
+            drop(grains);
+            columns.finish_memberships().unwrap();
+            let schemas = preparation.window_schemas(false).unwrap();
+            let columns = lctx_compiler_store::scoped_positions::IndexedRootColumns::new_selected(
+                roots,
+                &preparation.inputs,
+                columns.rows,
+                &schemas,
+                &columns.memberships,
+                columns.charge,
+                &budget,
+                &crate::workspace::Cancellation::default(),
+            )
+            .unwrap();
             let window = RenderWindow {
                 preparation: &preparation,
                 keys: vec![*root.id().bytes(); 2],

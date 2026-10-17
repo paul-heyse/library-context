@@ -21,7 +21,7 @@ impl AdmissionRuntime {
         profile: Profile,
     ) -> BoxFuture<'a, Result<AnalysisUniformInputs, ModelError>> {
         Box::pin(async move {
-            let mut inputs = AnalysisUniformInputs::new(profile, self.budget());
+            let mut inputs = AnalysisUniformInputs::new(profile, self.budget())?;
             let required = AnalysisUniformInputs::inputs();
             let mut loaded = lctx_model::domain::charged::ChargedSet::default();
             let mut charge =

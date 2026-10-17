@@ -331,19 +331,12 @@ pub async fn produce(
                         .map(|index| ids.value(index).try_into().map_err(ModelError::codec))
                         .collect::<Result<Vec<[u8; 16]>, ModelError>>()?;
                     let window = preparation
-                        .render_window(&access, &keys, brief, b, &runtime.cancellation())
+                        .render_window(&keys, brief, b, &runtime.cancellation())
                         .await?;
                     let mut pending = PendingUses::new(b);
                     for (partition, root) in keys.iter().enumerate() {
                         let rendered = window
-                            .render(
-                                &access,
-                                partition,
-                                b,
-                                &runtime.cancellation(),
-                                runtime,
-                                &output,
-                            )
+                            .render(partition, b, &runtime.cancellation(), runtime, &output)
                             .await;
                         let (render, mandatory) = match rendered {
                             Err(ModelError::Resource { .. })
@@ -354,14 +347,7 @@ pub async fn produce(
                                 publish_ready(&mut pending, &output, service, &mut disposition)
                                     .await?;
                                 window
-                                    .render(
-                                        &access,
-                                        partition,
-                                        b,
-                                        &runtime.cancellation(),
-                                        runtime,
-                                        &output,
-                                    )
+                                    .render(partition, b, &runtime.cancellation(), runtime, &output)
                                     .await?
                             }
                             result => result?,

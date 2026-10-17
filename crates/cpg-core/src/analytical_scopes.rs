@@ -1,6 +1,6 @@
 //! Named analytical frames reuse compact edges; rich evidence belongs to one frame lifetime.
 use crate::{
-    consumed_rows::{ClosureTable, PreparedClosure, PreparedEdges},
+    consumed_rows::{ClosureTable, PreparedClosure, PreparedEdges, PreparedRoot, PreparedRootKind},
     workspace::CompletedInputs,
 };
 use futures::future::BoxFuture;
@@ -110,6 +110,7 @@ impl FrameScopes {
             _charge: charge,
         })
     }
+    #[cfg(test)]
     pub(super) async fn grain<R: Record>(
         &self,
         id: Id<R>,
@@ -123,6 +124,7 @@ impl FrameScopes {
             )
             .await
     }
+    #[cfg(test)]
     pub(super) fn read<'a, R: Record>(
         &'a self,
         access: &'a CompletedInputs,
@@ -140,6 +142,7 @@ impl FrameScopes {
         )
     }
 
+    #[cfg(test)]
     fn read_matching<'a>(
         &'a self,
         access: &'a CompletedInputs,
@@ -160,11 +163,172 @@ impl FrameScopes {
             Ok(())
         })
     }
+    pub(super) async fn window<'a, R: Record>(
+        &'a self,
+        access: &'a CompletedInputs,
+        ids: &[Id<R>],
+        readers: &[WindowReader],
+        budget: &'a resources::ResourceBudget,
+        cancellation: &'a crate::workspace::Cancellation,
+    ) -> Result<FrameWindow<'a>, ModelError> {
+        if ids.len() > WINDOW_ROOTS {
+            return Err(ModelError::Schema("analytical frame window bound"));
+        }
+        let mut charge = charged::StateCharge::new(budget, "analytical-frame-window-columns");
+        charge.grow(
+            ids.len() * size_of::<PreparedRoot>()
+                + self.inputs.len() * size_of::<Vec<arrow_array::RecordBatch>>()
+                + 4096,
+        )?;
+        let roots = ids
+            .iter()
+            .map(|id| PreparedRoot {
+                table: self.root,
+                key: *id.bytes(),
+                kind: PreparedRootKind::Virtual,
+            })
+            .collect::<Vec<_>>();
+        let batch = self
+            .edges
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        let mut rows = (0..self.inputs.len())
+            .map(|_| Vec::new())
+            .collect::<Vec<_>>();
+        for (table, input) in self.inputs.iter().enumerate() {
+            let reader = readers
+                .iter()
+                .find(|reader| reader.kind == input.type_id())
+                .ok_or(ModelError::Schema("analytical frame window typed reader"))?;
+            (reader.read)(
+                access,
+                input,
+                &batch.union,
+                table,
+                &mut rows[table],
+                &mut charge,
+                cancellation,
+            )
+            .await?;
+        }
+        let columns = lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
+            batch,
+            &self.inputs,
+            rows,
+            charge,
+            budget,
+            cancellation,
+        )?;
+        Ok(FrameWindow {
+            scopes: self,
+            access,
+            columns,
+            budget,
+            cancellation,
+        })
+    }
 }
 
+pub(super) const WINDOW_ROOTS: usize = 32;
+pub(super) struct FrameWindow<'a> {
+    scopes: &'a FrameScopes,
+    access: &'a CompletedInputs,
+    columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
+    budget: &'a resources::ResourceBudget,
+    cancellation: &'a crate::workspace::Cancellation,
+}
+impl FrameWindow<'_> {
+    pub(super) fn read<R: Record>(
+        &self,
+        partition: usize,
+        mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        for (table, input) in self
+            .scopes
+            .inputs
+            .iter()
+            .enumerate()
+            .filter(|(_, input)| input.type_id() == TypeId::of::<R>())
+        {
+            // Typed captured-source ownership remains checked even though hydration is shared.
+            let _permit = self.access.read_at::<R>(input.prefix())?;
+            let gathered = self.columns.gather(
+                &[partition],
+                table,
+                table,
+                self.budget,
+                self.cancellation,
+                &mut |_, _| true,
+            )?;
+            for batch in gathered.rows() {
+                self.cancellation.check()?;
+                visit(input, batch)?;
+            }
+        }
+        Ok(())
+    }
+}
+pub(super) struct WindowReader {
+    kind: TypeId,
+    read: WindowRead,
+}
+type WindowRead = for<'a> fn(
+    &'a CompletedInputs,
+    &'a ValidationInput,
+    &'a PreparedClosure,
+    usize,
+    &'a mut Vec<arrow_array::RecordBatch>,
+    &'a mut charged::StateCharge,
+    &'a crate::workspace::Cancellation,
+) -> BoxFuture<'a, Result<(), ModelError>>;
+pub(super) fn window_reader<R: Record>() -> WindowReader {
+    WindowReader {
+        kind: TypeId::of::<R>(),
+        read: read_window::<R>,
+    }
+}
+fn read_window<'a, R: Record>(
+    access: &'a CompletedInputs,
+    input: &'a ValidationInput,
+    union: &'a PreparedClosure,
+    table: usize,
+    rows: &'a mut Vec<arrow_array::RecordBatch>,
+    charge: &'a mut charged::StateCharge,
+    cancellation: &'a crate::workspace::Cancellation,
+) -> BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let permit = access.read_at::<R>(input.prefix())?;
+        crate::consumed_rows::stream_query_at(
+            &permit,
+            input,
+            access,
+            union.session(),
+            &union.select(table)?,
+            |_, batch| {
+                cancellation.check()?;
+                let additional = if rows.len() == rows.capacity() {
+                    rows.capacity().max(4)
+                } else {
+                    0
+                };
+                charge.grow(
+                    batch.get_array_memory_size()
+                        + additional * size_of::<arrow_array::RecordBatch>(),
+                )?;
+                rows.reserve_exact(additional);
+                rows.push(batch.clone());
+                Ok(())
+            },
+        )
+        .await
+    })
+}
+
+#[cfg(test)]
 type FrameVisitor<'a> = Box<
     dyn FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError> + Send + 'a,
 >;
+#[cfg(test)]
 type DeclarationReader = for<'a, 'visit> fn(
     &'a CompletedInputs,
     &'a ValidationInput,
@@ -173,6 +337,7 @@ type DeclarationReader = for<'a, 'visit> fn(
     &'a mut FrameVisitor<'visit>,
 ) -> BoxFuture<'a, Result<(), ModelError>>;
 
+#[cfg(test)]
 fn read_declaration<'a, R: Record>(
     access: &'a CompletedInputs,
     input: &'a ValidationInput,
@@ -331,168 +496,250 @@ mod controls {
         use crate::workspace::{Workspace, WorkspaceOptions};
         use stages::{PublicationBoundary, RelationUse};
         use std::sync::atomic::{AtomicBool, Ordering};
+        let native = crate::test_native::store();
         let workspace = Workspace::new(
             Arc::new(model().unwrap()),
             WorkspaceOptions::default(),
-            crate::test_native::store(),
+            native.clone(),
         )
         .unwrap();
-        let place = |name: &str| {
-            let input = input::InputRevision {
-                manifest: ContentHash::of(b"frame-reader-prefixes"),
-            };
-            let source =
-                SourceArtifact::from_bytes(input.id(), "frame.py".into(), b"x=1\n").unwrap();
-            let module = source::Module {
-                source: source.id(),
-                qualified_name: "frame".into(),
-            };
-            value::Place {
-                root: value::PlaceRoot::Global {
-                    module: module.id(),
-                    name: name.into(),
+        use futures::FutureExt;
+        let result = std::panic::AssertUnwindSafe(async {
+            let place = |name: &str| {
+                let input = input::InputRevision {
+                    manifest: ContentHash::of(b"frame-reader-prefixes"),
+                };
+                let source =
+                    SourceArtifact::from_bytes(input.id(), "frame.py".into(), b"x=1\n").unwrap();
+                let module = source::Module {
+                    source: source.id(),
+                    qualified_name: "frame".into(),
+                };
+                value::Place {
+                    root: value::PlaceRoot::Global {
+                        module: module.id(),
+                        name: name.into(),
+                    }
+                    .id(),
+                    path: value::AccessPath::empty().id(),
                 }
-                .id(),
-                path: value::AccessPath::empty().id(),
+            };
+            let first = place("facts");
+            let second = place("model");
+            for (producer, row, epoch) in [
+                (
+                    "frame-reader-facts",
+                    first.clone(),
+                    PublicationBoundary::Facts,
+                ),
+                (
+                    "frame-reader-model",
+                    second.clone(),
+                    PublicationBoundary::Model,
+                ),
+            ] {
+                let output = workspace.output(
+                    producer,
+                    stages::Profile::Catalog,
+                    ContentHash::of(producer.as_bytes()),
+                    workspace
+                        .inputs(producer, stages::Profile::Catalog, [])
+                        .unwrap(),
+                    [value::Place::NAME],
+                );
+                output.declare_async::<value::Place>().await.unwrap();
+                output.push(row).await.unwrap();
+                output
+                    .finish(stages::ProviderOutcome::Complete)
+                    .await
+                    .unwrap();
+                workspace.freeze_inputs_async(epoch).await.unwrap();
             }
-        };
-        let first = place("facts");
-        let second = place("model");
-        for (producer, row, epoch) in [
-            (
-                "frame-reader-facts",
-                first.clone(),
-                PublicationBoundary::Facts,
-            ),
-            (
-                "frame-reader-model",
-                second.clone(),
-                PublicationBoundary::Model,
-            ),
-        ] {
-            let output = workspace.output(
-                producer,
-                stages::Profile::Catalog,
-                ContentHash::of(producer.as_bytes()),
-                workspace
-                    .inputs(producer, stages::Profile::Catalog, [])
-                    .unwrap(),
-                [value::Place::NAME],
-            );
-            output.declare_async::<value::Place>().await.unwrap();
-            output.push(row).await.unwrap();
-            output
-                .finish(stages::ProviderOutcome::Complete)
+            let declaration = stages::Stage {
+                captured_binding: None,
+                name: "frame-reader-control",
+                inputs: vec![
+                    RelationUse::completed::<value::Place>().at_epoch(PublicationBoundary::Facts),
+                    RelationUse::completed::<value::Place>().at_epoch(PublicationBoundary::Model),
+                ],
+                outputs: vec![],
+                contributes: vec![],
+                coverage: vec![],
+                profiles: stages::Profile::ALL.to_vec(),
+                effect: stages::Effect::Pure,
+                code: ContentHash::of(b"frame-reader-control"),
+                configuration: ContentHash::of(b"frame-reader-configuration"),
+            };
+            let access = workspace
+                .stage_inputs(&declaration, stages::Profile::Catalog)
+                .unwrap();
+            let session = access.session(&workspace).await.unwrap();
+            let inputs = [PublicationBoundary::Facts, PublicationBoundary::Model]
+                .map(|prefix| ValidationInput::of::<value::Place>(&["id"]).at_epoch(prefix))
+                .to_vec();
+            let tables = inputs
+                .iter()
+                .map(|input| ClosureTable {
+                    relation: Relation::of::<value::Place>(),
+                    alias: access.table_for(input).unwrap(),
+                })
+                .collect();
+            let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
+            let edges = NominalClosure::new(tables)
+                .unwrap()
+                .prepare(&session, &budget)
                 .await
                 .unwrap();
-            workspace.freeze_inputs_async(epoch).await.unwrap();
-        }
-        let declaration = stages::Stage {
-            captured_binding: None,
-            name: "frame-reader-control",
-            inputs: vec![
-                RelationUse::completed::<value::Place>().at_epoch(PublicationBoundary::Facts),
-                RelationUse::completed::<value::Place>().at_epoch(PublicationBoundary::Model),
-            ],
-            outputs: vec![],
-            contributes: vec![],
-            coverage: vec![],
-            profiles: stages::Profile::ALL.to_vec(),
-            effect: stages::Effect::Pure,
-            code: ContentHash::of(b"frame-reader-control"),
-            configuration: ContentHash::of(b"frame-reader-configuration"),
-        };
-        let access = workspace
-            .stage_inputs(&declaration, stages::Profile::Catalog)
-            .unwrap();
-        let session = access.session(&workspace).await.unwrap();
-        let inputs = [PublicationBoundary::Facts, PublicationBoundary::Model]
-            .map(|prefix| ValidationInput::of::<value::Place>(&["id"]).at_epoch(prefix))
-            .to_vec();
-        let tables = inputs
-            .iter()
-            .map(|input| ClosureTable {
-                relation: Relation::of::<value::Place>(),
-                alias: access.table_for(input).unwrap(),
-            })
-            .collect();
-        let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
-        let edges = NominalClosure::new(tables)
-            .unwrap()
-            .prepare(&session, &budget)
-            .await
-            .unwrap();
-        let grain = edges
-            .grain_roots(&[(0, "TRUE".into()), (1, "TRUE".into())], &budget)
-            .await
-            .unwrap();
-        let scopes = FrameScopes {
-            inputs,
-            edges,
-            root: 0,
-            _charge: charged::StateCharge::new(&budget, "frame-reader-control"),
-        };
-        let mut observed = Vec::new();
-        scopes
-            .read::<value::Place>(&access, &grain, |input, batch| {
-                for row in <value::Place as Record>::decode(batch)? {
-                    observed.push((input.prefix(), row));
-                }
-                Ok(())
-            })
-            .await
-            .unwrap();
-        let facts: Vec<_> = observed
-            .iter()
-            .filter(|(epoch, _)| *epoch == Some(PublicationBoundary::Facts))
-            .map(|(_, row)| row.clone())
-            .collect();
-        let model: Vec<_> = observed
-            .iter()
-            .filter(|(epoch, _)| *epoch == Some(PublicationBoundary::Model))
-            .map(|(_, row)| row.clone())
-            .collect();
-        assert_eq!(facts, vec![first.clone()]);
-        assert_eq!(model.len(), 2);
-        assert!(model.contains(&first) && model.contains(&second));
-        assert_eq!(
-            observed.first().unwrap().0,
-            Some(PublicationBoundary::Facts)
-        );
-        assert!(
-            observed[1..]
+            let grain = edges
+                .grain_roots(&[(0, "TRUE".into()), (1, "TRUE".into())], &budget)
+                .await
+                .unwrap();
+            let scopes = FrameScopes {
+                inputs,
+                edges,
+                root: 0,
+                _charge: charged::StateCharge::new(&budget, "frame-reader-control"),
+            };
+            let mut observed = Vec::new();
+            scopes
+                .read::<value::Place>(&access, &grain, |input, batch| {
+                    for row in <value::Place as Record>::decode(batch)? {
+                        observed.push((input.prefix(), row));
+                    }
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            let facts: Vec<_> = observed
                 .iter()
-                .all(|(epoch, _)| *epoch == Some(PublicationBoundary::Model))
-        );
-        let mut visited = Vec::new();
-        let failure = scopes
-            .read::<value::Place>(&access, &grain, |input, _| {
-                visited.push(input.prefix());
+                .filter(|(epoch, _)| *epoch == Some(PublicationBoundary::Facts))
+                .map(|(_, row)| row.clone())
+                .collect();
+            let model: Vec<_> = observed
+                .iter()
+                .filter(|(epoch, _)| *epoch == Some(PublicationBoundary::Model))
+                .map(|(_, row)| row.clone())
+                .collect();
+            assert_eq!(facts, vec![first.clone()]);
+            assert_eq!(model.len(), 2);
+            assert!(model.contains(&first) && model.contains(&second));
+            assert_eq!(
+                observed.first().unwrap().0,
+                Some(PublicationBoundary::Facts)
+            );
+            assert!(
+                observed[1..]
+                    .iter()
+                    .all(|(epoch, _)| *epoch == Some(PublicationBoundary::Model))
+            );
+            let before_window = budget.reserved();
+            let cancellation = crate::workspace::Cancellation::default();
+            let readers = [window_reader::<value::Place>()];
+            let window = scopes
+                .window(
+                    &access,
+                    &[first.id(), first.id()],
+                    &readers,
+                    &budget,
+                    &cancellation,
+                )
+                .await
+                .unwrap();
+            let mut partitions = Vec::new();
+            for partition in 0..2 {
+                let mut selected = Vec::new();
+                window
+                    .read::<value::Place>(partition, |input, batch| {
+                        for row in value::Place::decode(batch)? {
+                            selected.push((input.prefix(), row));
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                assert!(selected.contains(&(Some(PublicationBoundary::Facts), first.clone())));
+                assert!(
+                    !selected.iter().any(|(_, row)| row == &second),
+                    "a shared physical window cannot widen the selected frame"
+                );
+                partitions.push(selected);
+            }
+            assert_eq!(
+                partitions[0], partitions[1],
+                "duplicate roots retain independent ordered partitions"
+            );
+            let mut visits = 0;
+            assert!(
+                window
+                    .read::<value::Place>(0, |_, _| {
+                        visits += 1;
+                        Err(ModelError::Conflict("indexed frame visitor refusal"))
+                    })
+                    .is_err()
+            );
+            assert_eq!(visits, 1);
+            drop(window);
+            assert_eq!(budget.reserved(), before_window);
+            assert!(
+                scopes
+                    .window(&access, &[first.id()], &[], &budget, &cancellation)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(budget.reserved(), before_window);
+            let cancelled = crate::workspace::Cancellation::default();
+            cancelled.cancel();
+            assert!(
+                scopes
+                    .window(&access, &[first.id()], &readers, &budget, &cancelled)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(budget.reserved(), before_window);
+            let mut visited = Vec::new();
+            let failure = scopes
+                .read::<value::Place>(&access, &grain, |input, _| {
+                    visited.push(input.prefix());
+                    Err(ModelError::Conflict("frame visitor refusal"))
+                })
+                .await;
+            assert!(matches!(
+                failure,
                 Err(ModelError::Conflict("frame visitor refusal"))
-            })
-            .await;
-        assert!(matches!(
-            failure,
-            Err(ModelError::Conflict("frame visitor refusal"))
-        ));
-        assert_eq!(visited, vec![Some(PublicationBoundary::Facts)]);
-        let before = budget.reserved();
-        let charge = budget.reserve("unpolled-frame-visitor", 1024).unwrap();
-        let visited = Arc::new(AtomicBool::new(false));
-        let seen = visited.clone();
-        let pending = scopes.read::<value::Place>(&access, &grain, move |_, _| {
-            let _held = &charge;
-            seen.store(true, Ordering::Relaxed);
-            Ok(())
-        });
-        assert_eq!(budget.reserved(), before + 1024);
-        assert!(!visited.load(Ordering::Relaxed));
-        drop(pending);
-        assert_eq!(budget.reserved(), before);
-        assert!(!visited.load(Ordering::Relaxed));
-        drop(grain);
-        drop(scopes);
-        assert_eq!(budget.reserved(), 0);
-        workspace.drain().await.unwrap();
+            ));
+            assert_eq!(visited, vec![Some(PublicationBoundary::Facts)]);
+            let before = budget.reserved();
+            let charge = budget.reserve("unpolled-frame-visitor", 1024).unwrap();
+            let visited = Arc::new(AtomicBool::new(false));
+            let seen = visited.clone();
+            let pending = scopes.read::<value::Place>(&access, &grain, move |_, _| {
+                let _held = &charge;
+                seen.store(true, Ordering::Relaxed);
+                Ok(())
+            });
+            assert_eq!(budget.reserved(), before + 1024);
+            assert!(!visited.load(Ordering::Relaxed));
+            drop(pending);
+            assert_eq!(budget.reserved(), before);
+            assert!(!visited.load(Ordering::Relaxed));
+            drop(grain);
+            drop(scopes);
+            assert_eq!(budget.reserved(), 0);
+        })
+        .catch_unwind()
+        .await;
+        let mut terminal = completion::Completion::default();
+        terminal.step(
+            "analytical frame control workspace drainage",
+            workspace.drain().await,
+        );
+        terminal.merge(native.abandon_finality_report().await);
+        let cleanup = completion::complete::<()>(Ok(()), terminal);
+        if let Err(panic) = result {
+            if let Err(error) = cleanup {
+                eprintln!("analytical frame control cleanup failed: {error}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleanup.unwrap();
     }
 }

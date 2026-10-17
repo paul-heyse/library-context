@@ -1749,10 +1749,15 @@ impl CheckedInputs {
     ) -> Result<(), ModelError> {
         if !Arc::ptr_eq(&self.attempt, &workspace.files)
             || self.policy != workspace.model.digest()
+            || !Arc::ptr_eq(&inputs.attempt, &workspace.files)
+            || inputs.model != workspace.model.digest()
+            || !inputs.budget.shares_pool(workspace.budget())
             || self.inputs.profile != inputs.profile
             || self.inputs.relations.iter().any(|(key, source)| {
                 inputs.relations.get(key).is_none_or(|other| {
-                    source.resolved != other.resolved || !Arc::ptr_eq(&source.source, &other.source)
+                    source.requested != other.requested
+                        || source.resolved != other.resolved
+                        || !Arc::ptr_eq(&source.source, &other.source)
                 })
             })
         {
@@ -1908,6 +1913,27 @@ impl std::ops::Deref for ResolvedInput {
     }
 }
 impl CompletedInputs {
+    /// Compatibility for immutable consumer preparation, not semantic authority or an
+    /// invocation's ordered source declaration. Both descriptors retain their actual sources;
+    /// pointer correspondence cannot outlive that protection or cross an operation/pool.
+    pub(crate) fn same_preparation_sources(&self, other: &Self) -> bool {
+        // `program` identifies the consuming producer, whose declarations remain fresh.
+        // A typed registry fixes the shared preparation algorithm; actual retained source
+        // correspondence below includes each source producer's implementation identity.
+        self.model == other.model
+            && self.profile == other.profile
+            && Arc::ptr_eq(&self.attempt, &other.attempt)
+            && self.budget.shares_pool(&other.budget)
+            && !self.relations.is_empty()
+            && self.relations.len() == other.relations.len()
+            && self.relations.iter().all(|(key, source)| {
+                other.relations.get(key).is_some_and(|candidate| {
+                    source.requested == candidate.requested
+                        && source.resolved == candidate.resolved
+                        && Arc::ptr_eq(&source.source, &candidate.source)
+                })
+            })
+    }
     fn ordered_bindings(
         &self,
     ) -> Vec<(
@@ -4676,6 +4702,147 @@ mod tests {
         output.finish(ProviderOutcome::Complete).await.unwrap();
         let completed = workspace.completed::<Package>().unwrap();
         (workspace, completed)
+    }
+    #[tokio::test]
+    async fn checked_preparation_sources_reject_foreign_context_pool_profile_epoch_and_changed_view()
+     {
+        use futures::FutureExt;
+        use lctx_model::domain::ValidationInput;
+        use lctx_model::domain::stages::PublicationBoundary;
+        let native = crate::test_native::store();
+        let workspace =
+            Workspace::new(model(), WorkspaceOptions::default(), native.clone()).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let output = workspace.output(
+                "checked-property-source",
+                Profile::Catalog,
+                ContentHash::of(b"source-one"),
+                workspace
+                    .inputs("checked-property-source", Profile::Catalog, [])
+                    .unwrap(),
+                [Package::NAME],
+            );
+            output.declare_async::<Package>().await.unwrap();
+            output
+                .push(Package {
+                    name: "first".into(),
+                })
+                .await
+                .unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+            let access = workspace
+                .inputs(
+                    "checked-property-consumer",
+                    Profile::Catalog,
+                    [Package::NAME],
+                )
+                .unwrap();
+            let required = [ValidationInput::of::<Package>(&["id"])];
+            let checked = workspace
+                .checked_inputs(&access)
+                .await
+                .unwrap()
+                .select(&required)
+                .unwrap();
+            checked.require_subset(&workspace, &access).unwrap();
+            let mut fresh_owner = access.clone();
+            fresh_owner.name = "a-distinct-owner";
+            fresh_owner.program = ContentHash::of(b"fresh-owner-program");
+            fresh_owner
+                .relations
+                .values_mut()
+                .for_each(|binding| binding.role += 10);
+            assert!(
+                access.same_preparation_sources(&fresh_owner),
+                "shared data is independent of fresh owner program/source ordering"
+            );
+            checked.require_subset(&workspace, &fresh_owner).unwrap();
+            for variant in 0..7 {
+                let mut foreign = access.clone();
+                match variant {
+                    0 => foreign.profile = Profile::Behavioral,
+                    1 => foreign.model = ContentHash::of(b"foreign-model"),
+                    2 => foreign.budget = ResourceBudget::fixed(workspace.budget.limit()).unwrap(),
+                    3 => {
+                        foreign.attempt = Arc::new(WorkspaceFiles {
+                            _directory: tempfile::tempdir().unwrap(),
+                        })
+                    }
+                    4 => {
+                        foreign.relations.values_mut().next().unwrap().resolved =
+                            Some(PublicationBoundary::Facts)
+                    }
+                    5 => {
+                        foreign.relations.values_mut().next().unwrap().requested =
+                            Some(PublicationBoundary::Facts)
+                    }
+                    _ => {
+                        let binding = foreign.relations.remove(&(Package::NAME, None)).unwrap();
+                        foreign
+                            .relations
+                            .insert((Package::NAME, Some(PublicationBoundary::Facts)), binding);
+                    }
+                }
+                assert!(
+                    !access.same_preparation_sources(&foreign),
+                    "variant {variant} cannot reuse preparation"
+                );
+                assert!(
+                    checked.require_subset(&workspace, &foreign).is_err(),
+                    "variant {variant} cannot consume checked properties"
+                );
+            }
+            let output = workspace.output(
+                "changed-property-source",
+                Profile::Catalog,
+                ContentHash::of(b"source-two"),
+                workspace
+                    .inputs("changed-property-source", Profile::Catalog, [])
+                    .unwrap(),
+                [Package::NAME],
+            );
+            // A second ordinary owner is forbidden. An explicit contribution grows the
+            // current composed view while the earlier captured view remains immutable.
+            output
+                .contribute(
+                    Batch::new(
+                        workspace.model(),
+                        vec![Package {
+                            name: "second".into(),
+                        }],
+                        workspace.budget(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+            let changed = workspace
+                .inputs(
+                    "changed-property-consumer",
+                    Profile::Catalog,
+                    [Package::NAME],
+                )
+                .unwrap();
+            assert!(!access.same_preparation_sources(&changed));
+            assert!(checked.require_subset(&workspace, &changed).is_err());
+            checked.require_subset(&workspace, &access).unwrap();
+        })
+        .catch_unwind()
+        .await;
+        let mut terminal = lctx_model::domain::completion::Completion::default();
+        terminal.step(
+            "checked preparation workspace drainage",
+            workspace.drain().await,
+        );
+        terminal.merge(native.abandon_finality_report().await);
+        let cleaned = lctx_model::domain::completion::complete::<()>(Ok(()), terminal);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned {
+                eprintln!("checked preparation cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
     }
     #[tokio::test]
     async fn sync_and_async_declarations_share_registration_before_writer_visibility() {

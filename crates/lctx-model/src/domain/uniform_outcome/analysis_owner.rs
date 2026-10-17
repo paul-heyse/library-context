@@ -4,6 +4,7 @@ use crate::domain::analysis::{
     self,
     owner::{AnalysisOwner, SelectedDefinitions},
 };
+use std::sync::Arc;
 
 /// A named consumer's selected compact premises. Proofs are supplied by lower
 /// storage admission; actual current rows independently reconstruct their domains.
@@ -131,18 +132,66 @@ impl AnalysisUniformConsumer {
     }
 }
 
+/// Physical common preparation consumed by unrequested owner production.
+#[macro_export]
+macro_rules! uniform_common_inputs {
+    ($apply:ident) => {
+        $apply! {
+            inputs:$crate::domain::input::InputRevision,
+            artifacts:$crate::domain::source::SourceArtifact,
+            uses:$crate::domain::input::ArtifactUse,
+            scopes:$crate::domain::source::CoverageScope,
+            runs:$crate::domain::attribution::ProviderRun,
+        }
+    };
+}
+/// Authored metadata fragments remain separately keyed by their actual exact source.
+#[macro_export]
+macro_rules! uniform_authored_inputs {
+    ($apply:ident) => {
+        $apply! {
+            definitions:$crate::domain::analysis::AnalysisDefinition,
+            parameters:$crate::domain::analysis::MethodParameters,
+            catalogs:$crate::domain::models::ModelCatalog,
+            analytics:$crate::domain::analysis::settings::AnalyticsConfiguration,
+            text:$crate::domain::embedding::text::TextDefinition,
+            retrieval:$crate::domain::retrieval::RetrievalDefinition,
+        }
+    };
+}
+/// An immutable value carries its allocation reservation to the last actual borrower.
+struct SharedMetadata<T> {
+    value: T,
+    _allocation: StateCharge,
+}
+impl<T> std::ops::Deref for SharedMetadata<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+impl<T> SharedMetadata<T> {
+    fn new(value: T, budget: &ResourceBudget) -> Result<Arc<Self>, ModelError> {
+        let mut charge = StateCharge::new(budget, "compact immutable metadata allocation");
+        charge.grow(size_of::<Self>() + 2 * size_of::<usize>())?;
+        Ok(Arc::new(Self {
+            value,
+            _allocation: charge,
+        }))
+    }
+}
 /// Bounded typed metadata decoded only from the caller's protected exact selected streams.
 /// This type conveys no completed binding or physical read grant.
 pub struct AnalysisUniformInputs {
     profile: stages::Profile,
-    index: analysis::expected::FrontierIndex,
-    runs: normalized::Rows<attribution::ProviderRun>,
-    definitions: normalized::Rows<analysis::AnalysisDefinition>,
-    parameters: normalized::Rows<analysis::MethodParameters>,
-    catalogs: normalized::Rows<models::ModelCatalog>,
-    analytics: normalized::Rows<analysis::settings::AnalyticsConfiguration>,
-    text: normalized::Rows<embedding::text::TextDefinition>,
-    retrieval: normalized::Rows<retrieval::RetrievalDefinition>,
+    index: Arc<SharedMetadata<analysis::expected::FrontierIndex>>,
+    runs: Arc<SharedMetadata<normalized::Rows<attribution::ProviderRun>>>,
+    definitions: Arc<SharedMetadata<normalized::Rows<analysis::AnalysisDefinition>>>,
+    parameters: Arc<SharedMetadata<normalized::Rows<analysis::MethodParameters>>>,
+    catalogs: Arc<SharedMetadata<normalized::Rows<models::ModelCatalog>>>,
+    analytics: Arc<SharedMetadata<normalized::Rows<analysis::settings::AnalyticsConfiguration>>>,
+    text: Arc<SharedMetadata<normalized::Rows<embedding::text::TextDefinition>>>,
+    retrieval: Arc<SharedMetadata<normalized::Rows<retrieval::RetrievalDefinition>>>,
     budget: resources::ResourceBudget,
 }
 /// Keep the frame membership and its reservation alive through the consumer operation.
@@ -151,21 +200,21 @@ struct FrameInventory {
     _charge: StateCharge,
 }
 impl AnalysisUniformInputs {
-    pub fn new(profile: stages::Profile, budget: &ResourceBudget) -> Self {
+    pub fn new(profile: stages::Profile, budget: &ResourceBudget) -> Result<Self, ModelError> {
         let mut index = analysis::expected::FrontierIndex::new(profile, budget);
         index.coalesce_selected_copies();
-        Self {
+        Ok(Self {
             profile,
-            index,
-            runs: normalized::Rows::new(budget),
-            definitions: normalized::Rows::new(budget),
-            parameters: normalized::Rows::new(budget),
-            catalogs: normalized::Rows::new(budget),
-            analytics: normalized::Rows::new(budget),
-            text: normalized::Rows::new(budget),
-            retrieval: normalized::Rows::new(budget),
+            index: SharedMetadata::new(index, budget)?,
+            runs: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
+            definitions: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
+            parameters: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
+            catalogs: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
+            analytics: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
+            text: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
+            retrieval: SharedMetadata::new(normalized::Rows::new(budget), budget)?,
             budget: budget.clone(),
-        }
+        })
     }
     pub fn inputs() -> Vec<ValidationInput> {
         let mut inputs = Vec::new();
@@ -181,6 +230,68 @@ impl AnalysisUniformInputs {
         inputs.sort_by_key(|input| input.name());
         inputs.dedup_by_key(|input| input.name());
         inputs
+    }
+    /// Physical production demand, distinct from independent receiving invariants.
+    pub fn common_inputs() -> Vec<ValidationInput> {
+        let mut inputs = Vec::new();
+        macro_rules! add {($($field:ident:$ty:ty,)*)=>{$(inputs.push(ValidationInput::of::<$ty>(&["id"]));)*};}
+        crate::uniform_common_inputs!(add);
+        inputs
+    }
+    pub fn authored_inputs(owner: &str) -> Result<Vec<ValidationInput>, ModelError> {
+        let owner = AnalysisOwner::resolve(owner)?;
+        let mut inputs = vec![
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+        ];
+        if matches!(
+            owner,
+            AnalysisOwner::Enriched | AnalysisOwner::Models | AnalysisOwner::Summary
+        ) {
+            inputs.push(ValidationInput::of::<models::ModelCatalog>(&["id"]));
+        }
+        if owner == AnalysisOwner::Embedding {
+            inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&[
+                "id",
+            ]));
+        }
+        if owner == AnalysisOwner::Analytic {
+            inputs.push(ValidationInput::of::<
+                analysis::settings::AnalyticsConfiguration,
+            >(&["id"]));
+        }
+        Ok(inputs)
+    }
+    /// Share only a completed exact common fragment. The source owner remains with the
+    /// operation registry; model values do not themselves confer physical read authority.
+    pub fn use_common(&mut self, prepared: &Self) -> Result<(), ModelError> {
+        if self.profile != prepared.profile || !self.budget.shares_pool(&prepared.budget) {
+            return Err(ModelError::Conflict("compact common preparation context"));
+        }
+        self.index = prepared.index.clone();
+        self.runs = prepared.runs.clone();
+        Ok(())
+    }
+    pub fn use_authored(&mut self, name: &str, prepared: &Self) -> Result<(), ModelError> {
+        if self.profile != prepared.profile || !self.budget.shares_pool(&prepared.budget) {
+            return Err(ModelError::Conflict("compact authored preparation context"));
+        }
+        macro_rules! share {($($field:ident:$ty:ty,)*)=>{$(if name == <$ty>::NAME {
+            self.$field = prepared.$field.clone(); return Ok(());
+        })*};}
+        crate::uniform_authored_inputs!(share);
+        Err(ModelError::Conflict(
+            "undeclared compact authored preparation",
+        ))
+    }
+    pub fn visit_artifact_properties(
+        &mut self,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<(), ModelError> {
+        Arc::get_mut(&mut self.index)
+            .ok_or(ModelError::Conflict("immutable compact common preparation"))?
+            .value
+            .visit_artifact_properties(batch)
     }
     /// Actual roots of a compact analysis domain. Invariant companions and foreign
     /// key premises are added by DependencyClosure, not copied from kernel inputs.
@@ -210,28 +321,71 @@ impl AnalysisUniformInputs {
     ) -> Result<(), ModelError> {
         // Compact rows are outputs being constructed/validated, never input domain selectors.
         if name != UniformNotRequested::NAME {
-            self.index.visit(name, batch)?;
+            if let Some(index) = Arc::get_mut(&mut self.index) {
+                index.value.visit(name, batch)?;
+            } else if Self::common_inputs()
+                .iter()
+                .any(|input| input.name() == name)
+                && name != attribution::ProviderRun::NAME
+            {
+                return Err(ModelError::Conflict("immutable compact common preparation"));
+            }
         }
         if name == attribution::ProviderRun::NAME {
-            self.runs.decode(batch)?;
+            Arc::get_mut(&mut self.runs)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         if name == analysis::AnalysisDefinition::NAME {
-            self.definitions.decode(batch)?;
+            Arc::get_mut(&mut self.definitions)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         if name == analysis::MethodParameters::NAME {
-            self.parameters.decode(batch)?;
+            Arc::get_mut(&mut self.parameters)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         if name == models::ModelCatalog::NAME {
-            self.catalogs.decode(batch)?;
+            Arc::get_mut(&mut self.catalogs)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         if name == analysis::settings::AnalyticsConfiguration::NAME {
-            self.analytics.decode(batch)?;
+            Arc::get_mut(&mut self.analytics)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         if name == embedding::text::TextDefinition::NAME {
-            self.text.decode(batch)?;
+            Arc::get_mut(&mut self.text)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         if name == retrieval::RetrievalDefinition::NAME {
-            self.retrieval.decode(batch)?;
+            Arc::get_mut(&mut self.retrieval)
+                .ok_or(ModelError::Conflict(
+                    "immutable compact authored preparation",
+                ))?
+                .value
+                .decode(batch)?;
         }
         Ok(())
     }
@@ -588,7 +742,7 @@ pub(crate) mod test_support {
         budget: &ResourceBudget,
     ) -> EmptyOwner {
         let model = crate::domain::model().unwrap();
-        let mut inputs = AnalysisUniformInputs::new(stages::Profile::Catalog, budget);
+        let mut inputs = AnalysisUniformInputs::new(stages::Profile::Catalog, budget).unwrap();
         let mut batches = Vec::new();
         fn add<R: Record>(
             inputs: &mut AnalysisUniformInputs,
@@ -869,7 +1023,7 @@ mod controls {
         )
         .unwrap();
         let (parameters, definition) = local_semantics::definition();
-        let mut inputs = AnalysisUniformInputs::new(Profile::Catalog, &budget);
+        let mut inputs = AnalysisUniformInputs::new(Profile::Catalog, &budget).unwrap();
         visit(&mut inputs, std::slice::from_ref(&input));
         visit(&mut inputs, std::slice::from_ref(&run));
         visit(&mut inputs, std::slice::from_ref(&definition));
@@ -996,6 +1150,133 @@ mod controls {
         }
     }
     #[test]
+    fn shared_common_metadata_constructs_fresh_empty_and_summary_domains_and_releases_last_borrower()
+     {
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        {
+            let (input, context) = test_support::input_context();
+            let local = test_support::empty_owner(AnalysisOwner::Local, &input, &context, &budget);
+            let summary =
+                test_support::empty_owner(AnalysisOwner::Summary, &input, &context, &budget);
+            let mut common = AnalysisUniformInputs::new(Profile::Catalog, &budget).unwrap();
+            for (name, batch) in &local.batches {
+                if AnalysisUniformInputs::common_inputs()
+                    .iter()
+                    .any(|required| required.name() == *name)
+                {
+                    common.visit(name, batch).unwrap();
+                }
+            }
+            let model = crate::domain::model().unwrap();
+            let order =
+                PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true))
+                    .unwrap();
+            let assemble = |kind: AnalysisOwner, batches: &[(&str, arrow_array::RecordBatch)]| {
+                let mut actual = AnalysisUniformInputs::new(Profile::Catalog, &budget).unwrap();
+                actual.use_common(&common).unwrap();
+                for required in AnalysisUniformInputs::authored_inputs(kind.name()).unwrap() {
+                    let mut authored =
+                        AnalysisUniformInputs::new(Profile::Catalog, &budget).unwrap();
+                    for (name, batch) in batches.iter().filter(|(name, _)| *name == required.name())
+                    {
+                        authored.visit(name, batch).unwrap();
+                    }
+                    actual.use_authored(required.name(), &authored).unwrap();
+                }
+                actual
+            };
+            let a = assemble(AnalysisOwner::Local, &local.batches);
+            let b = assemble(AnalysisOwner::Summary, &summary.batches);
+            assert!(Arc::ptr_eq(&a.index, &b.index));
+            assert!(Arc::ptr_eq(&a.runs, &b.runs));
+            let declarations = |kind: AnalysisOwner, actual: &AnalysisUniformInputs| {
+                let mut stage = kind
+                    .declaration(
+                        Profile::Catalog,
+                        &actual.selected().unwrap(),
+                        &model,
+                        &order,
+                    )
+                    .unwrap();
+                let mut sources = stage
+                    .inputs
+                    .iter()
+                    .map(|role| {
+                        let (view, _) = test_support::supplier_view(&model, role.name(), 0);
+                        SourceSnapshot::of_completed_view(
+                            model.relation(role.name()).unwrap(),
+                            model.digest(),
+                            &view,
+                        )
+                        .unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let first = actual
+                    .declarations(&stage, &sources)
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .clone();
+                // The same protected properties may support a different declared source
+                // order. Both role and source inventories change together; a producer
+                // cannot just reorder sources under an unchanged role declaration.
+                stage.inputs.reverse();
+                sources.reverse();
+                let reordered = actual
+                    .declarations(&stage, &sources)
+                    .unwrap()
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .clone();
+                assert_eq!(first.members, reordered.members);
+                assert_eq!(first.definitions, reordered.definitions);
+                assert_ne!(
+                    first.sources, reordered.sources,
+                    "each invocation consumes its current ordered source inventory"
+                );
+                assert_ne!(first.declaration, reordered.declaration);
+                first
+            };
+            let a_result = declarations(AnalysisOwner::Local, &a);
+            let b_result = declarations(AnalysisOwner::Summary, &b);
+            assert_eq!(a_result.members, 0, "no fabricated Python root");
+            assert_eq!(
+                b_result.members, 1,
+                "Summary retains its explicit input-level model root"
+            );
+            assert_eq!(a_result.owner, AnalysisOwner::Local.name());
+            assert_eq!(b_result.owner, AnalysisOwner::Summary.name());
+            assert_ne!(a_result.definitions, b_result.definitions);
+            assert_eq!(
+                a_result.sources, b_result.sources,
+                "equal exact source inventories legitimately have equal fingerprints across fresh owners"
+            );
+            let shared_charge = common.index._allocation.accounted_bytes();
+            drop(common);
+            assert!(budget.reserved() >= shared_charge);
+            drop(a);
+            assert_eq!(b.index._allocation.accounted_bytes(), shared_charge);
+            assert!(budget.reserved() >= shared_charge);
+            let foreign = ResourceBudget::fixed(64 << 20).unwrap();
+            assert!(
+                AnalysisUniformInputs::new(Profile::Catalog, &foreign)
+                    .unwrap()
+                    .use_common(&b)
+                    .is_err()
+            );
+            assert!(
+                AnalysisUniformInputs::new(Profile::Behavioral, &budget)
+                    .unwrap()
+                    .use_common(&b)
+                    .is_err()
+            );
+            drop(b);
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
     fn compact_catalog_reconstructs_source_roles_without_flow_or_predecessor_results() {
         let f = fixture_with_artifacts(true);
         let proof = ValidatedUniformOwner::validate_analysis_binding(
@@ -1024,7 +1305,8 @@ mod controls {
                 .iter()
                 .any(|role| role.name() == UniformNotRequested::NAME)
         );
-        let mut missing_parameters = AnalysisUniformInputs::new(Profile::Catalog, &f.budget);
+        let mut missing_parameters =
+            AnalysisUniformInputs::new(Profile::Catalog, &f.budget).unwrap();
         visit(&mut missing_parameters, std::slice::from_ref(&f.input));
         visit(&mut missing_parameters, &[local_semantics::definition().1]);
         assert!(
@@ -1243,7 +1525,7 @@ mod controls {
             )
             .is_err()
         );
-        let mut requested = AnalysisUniformInputs::new(Profile::Behavioral, &f.budget);
+        let mut requested = AnalysisUniformInputs::new(Profile::Behavioral, &f.budget).unwrap();
         visit(&mut requested, std::slice::from_ref(&f.input));
         visit(&mut requested, &[local_semantics::definition().1]);
         assert!(
@@ -1322,7 +1604,7 @@ mod controls {
         let order =
             PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true))
                 .unwrap();
-        let mut inputs = AnalysisUniformInputs::new(Profile::Catalog, &budget);
+        let mut inputs = AnalysisUniformInputs::new(Profile::Catalog, &budget).unwrap();
         let (parameters, definition) = local_semantics::definition();
         visit(&mut inputs, &[parameters]);
         visit(&mut inputs, &[definition]);
@@ -1379,7 +1661,7 @@ mod controls {
             mention_layer: false,
             knn_layer: false,
         };
-        let mut requested = AnalysisUniformInputs::new(Profile::Catalog, &budget);
+        let mut requested = AnalysisUniformInputs::new(Profile::Catalog, &budget).unwrap();
         visit(&mut requested, std::slice::from_ref(&settings));
         for method in analytics::build::METHODS {
             let (parameters, definition) = analytics::build::definition(&settings, method).unwrap();

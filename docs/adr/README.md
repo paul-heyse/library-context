@@ -105,6 +105,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0183](0183-collector-preparation-and-retention.md) | Prepare collection inputs once and retain native state through its consumers | 2026-10-17 | [§4.2](../design/sections/acquisition-and-extraction.md#section-4-2), [§15.1](../design/sections/semantic-model.md#section-15-1) | Interface-checked |  |
 | [ADR-0184](0184-exact-immutable-preparation-and-ingress-reuse.md) | Prepare immutable windows exactly and reuse compatible ingress writers | 2026-10-17 | [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§15.1](../design/sections/semantic-model.md#section-15-1) | Interface-checked |  |
 | [ADR-0185](0185-demand-scoped-native-preparation.md) | Prepare native content by demand with exact page retries and owned computation | 2026-10-17 | [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§15.1](../design/sections/semantic-model.md#section-15-1) | Interface-checked |  |
+| [ADR-0186](0186-sufficient-consumer-preparation.md) | Carry sufficient admitted properties and index exact consumer windows | 2026-10-17 | [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§15.1](../design/sections/semantic-model.md#section-15-1), [§15.11](../design/sections/semantic-model.md#section-15-11) | Interface-checked |  |
 
 ## Proposed: open choices, not accepted decisions
 

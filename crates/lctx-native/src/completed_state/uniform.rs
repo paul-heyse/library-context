@@ -24,7 +24,7 @@ impl PublishedCompletedState {
         model: &d::ValidatedModel,
         budget: &d::resources::ResourceBudget,
     ) -> Result<AnalysisUniformInputs, ModelError> {
-        let mut inputs = AnalysisUniformInputs::new(profile, budget);
+        let mut inputs = AnalysisUniformInputs::new(profile, budget)?;
         let required = AnalysisUniformInputs::inputs();
         let mut loaded = d::charged::ChargedSet::default();
         let mut charge =

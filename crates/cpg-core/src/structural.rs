@@ -142,38 +142,59 @@ pub async fn produce(
     drop(session);
     let definitions = context.definitions;
     drop(data);
-    for core in parents.iter() {
-        let grain = scopes.grain(core.id(), runtime.budget()).await?;
-        let (data, mut context) = load_grain(&scopes, &access, &grain, runtime).await?;
-        drop(grain);
-        if let Some(domain) = admission.uniform_analysis(
-            analysis::owner::AnalysisOwner::Local,
-            core.input,
-            core.context,
-            &definitions,
-            runtime.budget(),
-        )? {
-            context.admit_compact_local(domain)?;
-        }
-        let (results, receipts, projections) = derive_parent(
-            &data,
-            &mut context,
-            core,
-            &settings,
-            (graphs, &access),
-            runtime,
-            &sources,
-        )?;
-        emit_results(&results, &output).await?;
-        emit_links(&context, &receipts, &projections, &output).await?;
+    let cancellation = runtime.cancellation();
+    let mut readers = Vec::new();
+    macro_rules! window_readers {($($field:ident:$ty:ty,)*)=>{$(readers.push(crate::analytical_scopes::window_reader::<$ty>());)*};}
+    decoder_inputs!(window_readers, access.profile());
+    {
+        let mut remaining = parents.iter().peekable();
+        while remaining.peek().is_some() {
+            let _selected = runtime.budget().reserve(
+                "structural-window-roots",
+                crate::analytical_scopes::WINDOW_ROOTS
+                    * (size_of::<&analysis::catalog_core::Invocation>()
+                        + size_of::<Id<analysis::catalog_core::Invocation>>()),
+            )?;
+            let selected = remaining
+                .by_ref()
+                .take(crate::analytical_scopes::WINDOW_ROOTS)
+                .collect::<Vec<_>>();
+            let ids = selected.iter().map(|core| core.id()).collect::<Vec<_>>();
+            let window = scopes
+                .window(&access, &ids, &readers, runtime.budget(), &cancellation)
+                .await?;
+            for (partition, core) in selected.into_iter().enumerate() {
+                let (data, mut context) = load_grain(&window, &access, partition, runtime).await?;
+                if let Some(domain) = admission.uniform_analysis(
+                    analysis::owner::AnalysisOwner::Local,
+                    core.input,
+                    core.context,
+                    &definitions,
+                    runtime.budget(),
+                )? {
+                    context.admit_compact_local(domain)?;
+                }
+                let (results, receipts, projections) = derive_parent(
+                    &data,
+                    &mut context,
+                    core,
+                    &settings,
+                    (graphs, &access),
+                    runtime,
+                    &sources,
+                )?;
+                emit_results(&results, &output).await?;
+                emit_links(&context, &receipts, &projections, &output).await?;
 
-        emit_coverage(&context, &results, &admission, runtime, &output).await?;
-        drop(receipts);
-        drop(projections);
-        drop(results);
-        drop(context);
-        drop(data);
-        tokio::task::yield_now().await;
+                emit_coverage(&context, &results, &admission, runtime, &output).await?;
+                drop(receipts);
+                drop(projections);
+                drop(results);
+                drop(context);
+                drop(data);
+                tokio::task::yield_now().await;
+            }
+        }
     }
     drop(parents);
     drop(scopes);
@@ -235,31 +256,33 @@ fn declare_outputs(output: &ProducerOutput) -> BoxFuture<'_, Result<(), ModelErr
 }
 
 type ScopedLoader = for<'a> fn(
-    &'a crate::analytical_scopes::FrameScopes,
+    &'a crate::analytical_scopes::FrameWindow<'a>,
     &'a CompletedInputs,
-    &'a crate::consumed_rows::PreparedClosure,
+    usize,
     &'a mut build::Data,
     &'a mut frames::Context,
 ) -> BoxFuture<'a, Result<(), ModelError>>;
 
 fn load_scoped<'a, R: Record>(
-    scopes: &'a crate::analytical_scopes::FrameScopes,
-    access: &'a CompletedInputs,
-    grain: &'a crate::consumed_rows::PreparedClosure,
+    scopes: &'a crate::analytical_scopes::FrameWindow<'a>,
+    _access: &'a CompletedInputs,
+    grain: usize,
     data: &'a mut build::Data,
     context: &'a mut frames::Context,
 ) -> BoxFuture<'a, Result<(), ModelError>> {
-    scopes.read::<R>(access, grain, move |input, batch| {
-        data.visit_input(input, batch)?;
-        context.visit(input.name(), batch)?;
-        Ok(())
+    Box::pin(async move {
+        scopes.read::<R>(grain, move |input, batch| {
+            data.visit_input(input, batch)?;
+            context.visit(input.name(), batch)?;
+            Ok(())
+        })
     })
 }
 
 fn load_grain<'a>(
-    scopes: &'a crate::analytical_scopes::FrameScopes,
+    scopes: &'a crate::analytical_scopes::FrameWindow<'a>,
     access: &'a CompletedInputs,
-    grain: &'a crate::consumed_rows::PreparedClosure,
+    grain: usize,
     runtime: &'a Workspace,
 ) -> BoxFuture<'a, Result<(build::Data, frames::Context), ModelError>> {
     Box::pin(async move {

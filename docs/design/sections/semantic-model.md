@@ -62,6 +62,10 @@ from this architectural decision.
 
 ## §15.1 Layers, owners and mechanisms
 
+**Implemented / focused-Tested, 2026-10-17 (ADR-0186).** Production consumers declare sufficient metadata separately from semantic/receiving dependencies. Operation-local compatible preparation retains exact immutable input protection and charges; each owner constructs fresh domains, ordered sources and outcomes. Native inventory may consume model-owned compact properties only after matching actual checked semantic authority to its complete dependency closure. Independent receiving remains rich and authoritative. Owning indexed windows bind exact full/property schemas and actual filtered partitions to retained backing; body order, negative domains and Summary semantics remain unchanged. The [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns UC01–UC05 evidence and remaining qualification.
+
+> Decision: ADR-0186
+
 **Implemented / focused-Tested, 2026-10-17 (ADR-0185).** Native audited membership and full six-family identity are distinct consumer demands under one normalization authority. Groupwise nominal payload agreement compares complete typed selected rows before reference-family consumption, retaining null/nested/list/order semantics, all original-owner observations and atomic pending-premise publication. Blocking placement changes execution ownership, not semantic admission. Full Catalog qualification remains separately pending with the [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
 
 > Decision: ADR-0185
@@ -942,6 +946,10 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 <a id="section-15-11"></a>
 
 ## §15.11 Compilation and physical realization
+
+**Implemented / focused-Tested, 2026-10-17 (ADR-0186).** Common uniform metadata and compatible authored fragments live with actual selected upper consumers and surviving borrowers. C0 metadata avoids discarded rich inputs. Native inventory reuses exact checked normalized predicates while preserving semantic dependency declarations and independent receiving. Retrieval, Completion and frame adapters use bounded shared acquisition plus exact indexed partitions, retaining the existing window policy and ordered semantic integration. Wider overlap remains separately owned by US02.
+
+> Decision: ADR-0186
 
 **Implemented / focused Tested, 2026-10-09 (ADR-0141); coordinated acceptance open.** Exact declared-input bindings share compatible
 immutable preparation while semantic checks remain independently owned. Local contribution
