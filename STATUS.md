@@ -8,9 +8,9 @@ The previous five efficiency plans are superseded for execution; immutable histo
 Prior CE80 is delivered; CE90/CE99 transfer to RE90/RE99. Existing implementation/focused passes remain scoped.
 Latest reconstruction: 1 passed/6 timed out after 900s; native obligations and original Unknowns protected.
 Historical SurrealDB ~143GB resident private memory remains unclassified. Candidate and default regenerated; default `232319…739293` passed with23 separate discard acknowledgements.
-Current: compiler, analysis, backup and production atomic native source integrated; all three worktrees merged and removed.
+Current: compiler, analysis, backup, atomic native and checked audit-pin context source integrated; all auxiliary worktrees merged and removed.
 Native atomic/race/recovery/handoff controls and final focused Summary/capture run `232832…feb49a` passed; candidate disposal `001146…8bb848` passed authenticated drain/shutdown/discard/release.
-Independent review accepts inspected source; compile `234325…b5ceb4` and strict Clippy `001711…53c733` passed before follow-ups. Final `002012…41899e`: model/analytics passed; provider timeouts/zero-charge failure exposed fixture and redundant-work fixes. Affected acceptance/hygiene remain open at coordinator §6.
+Independent review accepts inspected source; compile `234325…b5ceb4` and strict Clippy `001711…53c733` passed before follow-ups. Final `002012…41899e`: model/analytics/flow passed; extraction failed88 passed/1 failed/162 timed out, new attachment retained. Fixture/redundant-work fixes await rerun; compiler stack overflows are under investigation. Acceptance/hygiene remain open at coordinator §6.
 Embedding inference, submitted MCP runtime, real-library/operator adoption and paused older-track execution remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)

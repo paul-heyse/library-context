@@ -332,8 +332,10 @@ normal concurrency. Coverage inventory accounts for177 Rust targets and63 select
 with no unexpected omission; five submitted-MCP Python files and embedding inference remain
 excluded. Full strict Clippy is the separate passed receipt above. Selected coverage is complete;
 global qualification is not claimed, and execution outcomes remain pending.
-The full model and analytics boundaries **passed**. Provider extraction has reported actual
-360-second timeouts and retry conflicts; its enclosing outcome remains pending. A separate
+The full model, analytics and provider-flow boundaries **passed**. Provider extraction **failed**:
+251 run,88 passed,1 assertion failed,162 timed out and1 skipped; enclosing fixture ownership is
+retained in attachment `2faec210-e023-4b36-b2e0-b76f1f2911d4` (198 Complete/162 Started at its
+recorded checkpoint). These counts do not establish live executors or authorize release. A separate
 Resource-negative control reached its semantic/finality assertions but failed strict zero-charge
 release (2700 bytes): acknowledged operation failures incorrectly suppressed an otherwise safe SDK
 engine join. `b3d8ce74` composes operation/finality before the existing recursive cleanup-permission
@@ -359,13 +361,22 @@ RN03/approved RC03: one successful post-pin generation/validity check can remain
 actual live audit pin. Native admission/drainage excludes supported invalidators; closing, source,
 client/target/pool and pin checks remain mandatory. Constructor capture alone is insufficient.
 Fresh selector and semantic earning and independent receiving CAS remain strict. Implementation
-is isolated in the owned `runtime-context-pin` worktree; source review, merge, affected validation,
+is integrated by `c681594a`; the fully merged `runtime-context-pin` worktree and branch are removed.
+Independent source review accepts the post-pin comparison, actual native drain exclusion, local
+closing checks and genuine earned-source-to-independent-receiver handoff. Affected validation,
 full current compile/Clippy and final handback remain open.
+Compiler acceptance binaries predate these final follow-ups. Eight preparation/lifetime fixture
+assertions are corrected by `7425458f`/`6eb0f01d`: native preparation uses its actual pool while
+typed hydration retains the original narrow allowances; lazy adjacency remains charged through
+the final prepared/source borrower. Actual reruns remain pending. Several Catalog cases separately
+abort with stack overflow after acknowledged native calls; source diagnosis is open. Neither
+stack overrides nor timeout/concurrency changes are selected.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
-Current service status observed23 protected attachments rather than the inherited16; all remain
-protected until the existing authenticated service owner determines their exact disposition. Current
-boot differs from their retained receipts; no local deletion or rewritten Unknown follows.
+The earlier service observation of23 protected attachments was separately settled by authenticated
+RE80 shutdown/discard as recorded above. New acceptance attachments, including `2faec210…`, retain
+their own unresolved obligations; historical discard does not settle a later owner. No local
+deletion or rewritten Unknown follows from host exit or these retained counts.
 
 | Runtime source finding | Disposition / responsible component | Closure boundary |
 |---|---|---|

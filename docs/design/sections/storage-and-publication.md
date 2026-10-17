@@ -368,15 +368,14 @@ under controlled writes; independent semantic admission remains strict. Privileg
 require quiescence and rebuilding affected state. Native prerequisite controls passed before route
 replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
 
-**Accepted context target / implementation pending, 2026-10-16.** A native audit pin protects an
+**Implemented / Interface-checked, functional acceptance pending, 2026-10-16.** A native audit pin protects an
 observed generation and validity epoch only after a successful post-acquisition comparison.
 Authorized context changes require the native admission cut and drainage, which excludes a live
 audit pin. Preserving scopes reuse that checked context through the same actual pin/client/target/
 pool and open source; closing rejects reuse before remote release acknowledges. Constructor capture,
 local leases and allocation identity alone supply no authority. Fresh view-specific and independent
 semantic admission checks remain strict; receiving still earns its final native CAS. Arbitrary live
-administrative edits require quiescence/rebuild. The runtime coordinator owns implementation and
-actual acceptance; no measured speed claim follows from this target.
+administrative edits require quiescence/rebuild. The runtime coordinator owns actual acceptance; no measured speed claim follows from this target.
 
 > Decision: ADR-0181, ADR-0178
 
