@@ -922,7 +922,7 @@ mod attempt_cut_controls {
                 .unwrap(),
         )
         .unwrap();
-        let conflict = cut.commit().await.err().expect("older full cut must conflict with later committed atomic apply");
+        let conflict = cut.commit().await.expect_err("older full cut must conflict with later committed atomic apply");
         assert!(retryable_conflict(&conflict), "expected conclusive native write conflict, not an unknown transport failure: {conflict}");
         let delayed = make(fresh_identity("stripe-delayed-apply").unwrap());
         let cut = client.as_ref().clone().begin().await.unwrap();

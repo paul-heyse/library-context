@@ -202,25 +202,6 @@ fn complete_transfer_pages(
     }
     Ok(())
 }
-#[cfg(test)]
-mod transfer_controls {
-    use super::*;
-    fn page(range: std::ops::Range<usize>, operation: u8, issuance: IssuanceEra) -> TransferPage {
-        TransferPage { range, request: NativeRequest { issuance, operation: ContentHash([operation; 32]), request: ContentHash([operation.wrapping_add(1); 32]) } }
-    }
-    #[test]
-    fn receiving_requires_every_exact_page_not_last_page_or_total_count() {
-        let issuance = IssuanceEra { generation: ContentHash([1; 32]), era: 1 };
-        let pages = [page(0..2, 1, issuance), page(2..4, 2, issuance), page(4..5, 3, issuance)];
-        complete_transfer_pages(5, &pages, issuance).unwrap();
-        assert!(complete_transfer_pages(5, &pages[2..], issuance).is_err());
-        assert!(complete_transfer_pages(5, &pages[..2], issuance).is_err());
-        assert!(complete_transfer_pages(5, &[page(0..3, 1, issuance), page(2..4, 2, issuance)], issuance).is_err());
-        assert!(complete_transfer_pages(5, &[page(0..3, 1, issuance), page(3..5, 1, issuance)], issuance).is_err());
-        let foreign = IssuanceEra { generation: ContentHash([2; 32]), era: 1 };
-        assert!(complete_transfer_pages(5, &[page(0..2, 1, issuance), page(2..5, 2, foreign)], issuance).is_err());
-    }
-}
 pub(crate) async fn transfer_expected_many(
     pin: &std::sync::Arc<ReaderPin>,
     records: Vec<std::sync::Arc<ExpectedRecord>>,
@@ -425,4 +406,24 @@ pub(crate) async fn attach_contributors(
         variables,
     )
     .await
+}
+
+#[cfg(test)]
+mod transfer_controls {
+    use super::*;
+    fn page(range: std::ops::Range<usize>, operation: u8, issuance: IssuanceEra) -> TransferPage {
+        TransferPage { range, request: NativeRequest { issuance, operation: ContentHash([operation; 32]), request: ContentHash([operation.wrapping_add(1); 32]) } }
+    }
+    #[test]
+    fn receiving_requires_every_exact_page_not_last_page_or_total_count() {
+        let issuance = IssuanceEra { generation: ContentHash([1; 32]), era: 1 };
+        let pages = [page(0..2, 1, issuance), page(2..4, 2, issuance), page(4..5, 3, issuance)];
+        complete_transfer_pages(5, &pages, issuance).unwrap();
+        assert!(complete_transfer_pages(5, &pages[2..], issuance).is_err());
+        assert!(complete_transfer_pages(5, &pages[..2], issuance).is_err());
+        assert!(complete_transfer_pages(5, &[page(0..3, 1, issuance), page(2..4, 2, issuance)], issuance).is_err());
+        assert!(complete_transfer_pages(5, &[page(0..3, 1, issuance), page(3..5, 1, issuance)], issuance).is_err());
+        let foreign = IssuanceEra { generation: ContentHash([2; 32]), era: 1 };
+        assert!(complete_transfer_pages(5, &[page(0..2, 1, issuance), page(2..5, 2, foreign)], issuance).is_err());
+    }
 }
