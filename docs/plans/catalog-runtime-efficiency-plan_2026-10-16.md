@@ -391,11 +391,16 @@ source changed during that build, stable-source rerun `20261017T013103.609Z-6aa8
 **passed** all9, including never-polled shutdown, concrete-body refusal/cleanup, delivery, panic,
 cancellation and sibling progress. This does not establish actual normalized-frontier closure.
 Python/document leaves `20261017T013143.776Z-c0e08f`: Pyrefly and agent lint **passed**; Ruff
-**failed** on three formatting lines awaiting final turn-end; ADR/docs **failed** because retained
+**failed** on three E501 lines, corrected by `a4fddd65`; ADR/docs **failed** because retained
 ADR-0145/0165 still consume retired ADR-0173 metadata. ADR-0173 is restored as a superseded
 reference record while those historical consumers remain; current governing references still use
-ADR-0178. Accepted decision bodies are unchanged. Native follow-up controls
-`20261017T013121.932Z-5e6618` are running.
+ADR-0178. Accepted decision bodies are unchanged. Correction rerun `20261017T013352.292Z-816b89` **passed** Ruff/ADR lint; docs found a missing
+consumed checkpoint fragment, restored by `0b5e1973`; exact docs rerun
+`20261017T013429.454Z-a177a8` **passed**. Native follow-up controls
+`20261017T013121.932Z-5e6618` **failed during compilation**, no tests ran: two scalar boolean
+observations used an unsupported SDK result type. `5e6ce1d6` preserves exact true/false assertions
+while taking native `Value` results; affected rerun is pending. Full keep-going workspace check
+`20261017T013311.050Z-c10f51` observed the same pre-correction errors and continues independently.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 The earlier service observation of23 protected attachments was separately settled by authenticated
