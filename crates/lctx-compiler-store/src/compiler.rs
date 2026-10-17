@@ -10060,10 +10060,24 @@ mod completion_tests {
         let receiver = NativeCompilerStore::begin(&config, Frontier::Facts, &factory).await.unwrap();
         let connections = [source.client.connection_completion().unwrap(), receiver.client.connection_completion().unwrap()];
         let result = std::panic::AssertUnwindSafe(async {
-            let view = CompletedView::new("packages".into(), BTreeSet::new(), 0)?;
+            let relation = Relation::of::<d::input::Package>();
+            let contribution = source.begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: format!("declaration-reuse-{}", source.attempt.hex()),
+                profile: OutputProfile::Specific(d::stages::Profile::Catalog),
+                model: d::model()?.digest(),
+                implementation: ContentHash::of(b"acknowledged declaration reuse control"),
+                configuration: None,
+                inputs: vec![],
+                outputs: [relation.name().into()].into(),
+            }).await?;
+            let views = source.complete_contribution(
+                contribution, ProviderOutcome::Complete, std::slice::from_ref(&relation),
+                &BTreeMap::new(), &budget,
+            ).await?;
+            let view = views[relation.name()].clone();
             let lease = source.admit_mutation("declaration reuse control", true)?;
             let mappings = lease.within(async {
-                source.declare_completed_views(&[&view], &budget).await?;
                 let _gate = source.root_gates([view.identity], &budget).await?;
                 let (mappings, _charge) = source.selected_view_mappings(&view, &budget).await?;
                 assert!(source.has_successful_view_declaration(&view, &mappings, &budget)?);
@@ -10075,13 +10089,11 @@ mod completion_tests {
                 assert!(!source.has_successful_view_declaration(&unequal, &mappings, &budget)?);
                 let mut unequal_mappings = d::charged::StateCharge::new(&budget, "declaration unequal mapping control");
                 unequal_mappings.grow(1024)?;
+                let mut unequal_selection = mappings.as_slice().to_vec();
+                assert_eq!(unequal_selection.len(), 1);
+                unequal_selection[0].physical = ContentHash::of(b"different physical mapping");
                 let unequal_mappings = SelectedViewMappings::Live(Arc::new(RetainedViewMappings {
-                    mappings: vec![lctx_native::installed_view::ContributorRealization {
-                        view: view.identity,
-                        logical: ContentHash::of(b"different logical mapping"),
-                        physical: ContentHash::of(b"different physical mapping"),
-                        incarnation: 1,
-                    }],
+                    mappings: unequal_selection,
                     _charge: unequal_mappings,
                 }));
                 assert!(!source.has_successful_view_declaration(&view, &unequal_mappings, &budget)?);
