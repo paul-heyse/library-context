@@ -75,9 +75,7 @@ impl StageExecution {
         let recovery = lctx_native::control::capture_recovery_scope();
         let (launch, launched) = tokio::sync::oneshot::channel();
         let (result, terminal) = tokio::sync::oneshot::channel();
-        let task = tokio::spawn(async move {
-            let _task_charge = task_charge;
-            let _delivery_charge = delivery_charge;
+        let task = async move {
             let run = async move {
                 // The actual JoinHandle is registered before useful execution is admitted.
                 launched.await.map_err(ModelError::codec)?;
@@ -91,7 +89,12 @@ impl StageExecution {
                 }
             }).await;
             let _ = result.send(observed);
-        }.with_tracing_context(context.clone()));
+        }.with_tracing_context(context.clone());
+        // Destroy the entire task (including an unpolled body and sender) before
+        // releasing either grant; async capture/local ordering is not this contract.
+        let task = tokio::spawn(lctx_native::continuation::retain(
+            task, (task_charge, delivery_charge),
+        ));
         let joined = async move {
             task.await.map_err(|error| std::sync::Arc::new(ModelError::Cause(Box::new(error))))
         }.with_tracing_context(context).boxed().shared();
@@ -286,6 +289,46 @@ mod tests {
         assert!(completed.load(Ordering::Acquire));
         assert!(budget.reserved() < BODY_BYTES,
             "the concrete body allocation is released after actual task finality");
+        drop(tasks);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn unpolled_runtime_shutdown_destroys_body_before_releasing_its_grant() {
+        use std::sync::atomic::AtomicUsize;
+        struct ObserveDrop {
+            budget: ResourceBudget,
+            observed: Arc<AtomicUsize>,
+        }
+        impl Drop for ObserveDrop {
+            fn drop(&mut self) {
+                self.observed.store(self.budget.reserved(), Ordering::Release);
+            }
+        }
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let tasks = StageExecution::new(&budget);
+        let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let observed = Arc::new(AtomicUsize::new(0));
+        let polled = Arc::new(AtomicBool::new(false));
+        let entered = polled.clone();
+        let payload = ObserveDrop { budget: budget.clone(), observed: observed.clone() };
+        let result = {
+            let _runtime = runtime.enter();
+            tasks.spawn(super::super::Cancellation::default(), async move {
+                entered.store(true, Ordering::Release);
+                drop(payload);
+                Ok(())
+            }).unwrap()
+        };
+        let retained = budget.reserved();
+        drop(runtime);
+        assert!(!polled.load(Ordering::Acquire));
+        assert_eq!(observed.load(Ordering::Acquire), retained,
+            "an unpolled producer's destructor must still have its full task reservation");
+        assert!(futures::executor::block_on(result).is_err());
+        for join in tasks.seal().unwrap() {
+            assert!(futures::executor::block_on(join).is_err());
+        }
         drop(tasks);
         assert_eq!(budget.reserved(), 0);
     }
