@@ -318,7 +318,7 @@ mod call_scope_controls {
             access,
         { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_event_inputs!(inventory); inventory },
         );
-        macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare::<$ty>().unwrap();)*};}
+        macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare_async::<$ty>().await.unwrap();)*};}
         lctx_model::normalized_event_inputs!(declare);
         macro_rules! push {($($row:expr),* $(,)?) => {$(output.push($row).await.unwrap();)*};}
         push!(
@@ -341,7 +341,7 @@ mod call_scope_controls {
             owner
         );
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        runtime.freeze_inputs(PublicationBoundary::Facts).unwrap();
+        runtime.freeze_inputs_async(PublicationBoundary::Facts).await.unwrap();
         let mut declaration = event_normalization::stage(Profile::Catalog);
         declaration.inputs = EventData::stage_inputs()
             .into_iter()
@@ -419,6 +419,29 @@ mod call_scope_controls {
                 .contains("crosses qualification context or scope"),
             "{error}"
         );
+        drop(error);
+        drop(missing);
+        drop(receivers);
+        drop(selected);
+        assert_eq!(small.reserved(), 0);
+        drop(scopes);
+        drop(session);
+        drop(access);
+        let budget = runtime.budget().clone();
+        let native = runtime.native().clone();
+        let connection = native
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        runtime.drain().await.unwrap();
+        native.abandon().await.unwrap();
+        drop(runtime);
+        drop(native);
+        connection.wait().await.unwrap();
+        drop(connection);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn empty_owner_indices_are_not_interchangeable_across_attempt_budgets() {
