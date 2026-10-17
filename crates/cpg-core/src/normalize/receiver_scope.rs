@@ -44,7 +44,8 @@ impl ReceiverScopes {
         &'a self,
         access: &'a CompletedInputs,
         target: Id<CallTarget>,
-        budget: &'a resources::ResourceBudget,
+        preparation_budget: &'a resources::ResourceBudget,
+        data_budget: &'a resources::ResourceBudget,
     ) -> BoxFuture<'a, Result<ReceiverData, ModelError>> {
         Box::pin(async move {
             let root = self.inner.table_for::<CallTarget>()?;
@@ -56,9 +57,9 @@ impl ReceiverScopes {
             let scope = self
                 .inner
                 .edges()
-                .grain(root, &format!("id=X'{bytes}'"), budget)
+                .grain(root, &format!("id=X'{bytes}'"), preparation_budget)
                 .await?;
-            let mut data = ReceiverData::new(budget);
+            let mut data = ReceiverData::new(data_budget);
             load_receiver_data(self, access, &scope, &mut data).await?;
             Ok(data)
         })
@@ -259,8 +260,14 @@ mod receiver_scope_controls {
         let scopes = ReceiverScopes::prepare(&access, &session, &model, runtime.budget())
             .await
             .unwrap();
+        // Native acquisition and prepared closure reuse retain their actual owner pool.
+        // This separate ceiling bounds the selected rich typed hydration and output:
+        // decoding the unrelated 128 KiB source path cannot fit within it.
         let small = resources::ResourceBudget::fixed(32 << 10).unwrap();
-        let selected = scopes.data(&access, target.id(), &small).await.unwrap();
+        let selected = scopes
+            .data(&access, target.id(), runtime.budget(), &small)
+            .await
+            .unwrap();
         assert_eq!(selected.targets.len(), 1);
         assert_eq!(selected.artifacts.len(), 1);
         assert_eq!(selected.artifacts.get(artifact.id()), Some(&artifact));

@@ -96,11 +96,12 @@ impl CallScopes {
         &'a self,
         access: &'a CompletedInputs,
         root: Id<R>,
-        budget: &'a resources::ResourceBudget,
+        preparation_budget: &'a resources::ResourceBudget,
+        data_budget: &'a resources::ResourceBudget,
     ) -> BoxFuture<'a, Result<EventData, ModelError>> {
         Box::pin(async move {
-            let grain = self.grain(root, budget).await?;
-            let mut data = EventData::new(budget);
+            let grain = self.grain(root, preparation_budget).await?;
+            let mut data = EventData::new(data_budget);
             load_event(self, access, &grain, &mut data).await?;
             Ok(data)
         })
@@ -370,9 +371,12 @@ mod call_scope_controls {
             ValidationInput::of::<AssertionQualification>(&["id"])
                 .at_epoch(PublicationBoundary::Summary),
         );
+        // Keep native acquisition and prepared closure reuse in their actual owner pool.
+        // The separate ceiling bounds selected rich typed hydration and normalization,
+        // preserving the exclusion of unrelated source payload.
         let small = resources::ResourceBudget::fixed(96 << 10).unwrap();
         let selected = scopes
-            .event_data(&access, target.id(), &small)
+            .event_data(&access, target.id(), runtime.budget(), &small)
             .await
             .unwrap();
         assert_eq!(selected.artifacts.len(), 1);
