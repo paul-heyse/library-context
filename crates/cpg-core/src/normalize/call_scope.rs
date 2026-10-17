@@ -166,6 +166,7 @@ mod call_scope_controls {
     use super::*;
     use crate::workspace::{Workspace, WorkspaceOptions};
     use lctx_model::domain::{
+        artifact::ArtifactChunk,
         assertion::*,
         attribution::*,
         calls::*,
@@ -316,10 +317,17 @@ mod call_scope_controls {
             Profile::Catalog,
             ContentHash::of(b"call-scope-control"),
             access,
-        { let mut inventory=Vec::new(); macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_event_inputs!(inventory); inventory },
+        { let mut inventory=vec![ArtifactChunk::NAME]; macro_rules! inventory {($($field:ident:$ty:ty,)*) => {$(inventory.push(<$ty>::NAME);)*};} lctx_model::normalized_event_inputs!(inventory); inventory },
         );
         macro_rules! declare {($($field:ident:$ty:ty,)*) => {$(output.declare_async::<$ty>().await.unwrap();)*};}
         lctx_model::normalized_event_inputs!(declare);
+        output.declare_async::<ArtifactChunk>().await.unwrap();
+        for chunk in ArtifactChunk::split(&artifact, b"call")
+            .unwrap()
+            .chain(ArtifactChunk::split(&unrelated, b"foreign").unwrap())
+        {
+            output.push(chunk).await.unwrap();
+        }
         macro_rules! push {($($row:expr),* $(,)?) => {$(output.push($row).await.unwrap();)*};}
         push!(
             artifact.clone(),
