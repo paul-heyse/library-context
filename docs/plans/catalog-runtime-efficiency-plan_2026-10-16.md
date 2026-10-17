@@ -426,15 +426,35 @@ source records; `f8f44159` declares/supplies both streams without weakening read
 `25cd9e0a-d4c5-4285-a4bb-d90bfb8b7277` retains native Unknown after the assertion panic. The same
 synchronous batch-iterator boundary is corrected by `2dbc6b0e`; independent source review accepts
 all three adapters and both fixture corrections. Combined actual CallScope, wide-batch and producer
-controls `20261017T020628.411Z-ee130a` and refreshed full keep-going compile
-`20261017T020628.756Z-06e795` are running. All three later native attachments remain
-protected; fresh full compile/strict Clippy and final enclosing acceptance remain required.
+controls `20261017T020628.411Z-ee130a` **passed** all 12 cases, with enclosing fixture and host
+cleanup confirmed. CallScope reached its semantic assertions, strict original-byte completion and
+zero-charge teardown; synchronous batches exercised order, errors, EOF and release. Refreshed full
+workspace/all-target keep-going compile `20261017T020628.756Z-06e795` and strict Clippy
+`20261017T020820.327Z-848195` **passed**, without warnings/errors and with host cleanup confirmed.
+
+Approved exact default regeneration `20261017T020954.067Z-ed921b` **passed** through authenticated
+host/executor shutdown and discard. Current generation is
+`ea82ade5fe60bd3078a6e8ac46439a12cda496d260f73feac94fdc0e5f9ae2e4`, journal
+`f48b8e325a5b677dcfec6f90618555262f6d7a05406af4e5d0c3ba6d360f7c7d`, same pinned peer and
+installation. Main/validation check/open and host cleanup passed. The three later attachments
+`f339481b-bb73-44a9-adc4-922c69b01b3c`, `de405073-4543-4c72-8fc6-bb12bf36c789` and
+`25cd9e0a-d4c5-4285-a4bb-d90bfb8b7277` are released through separately validated discard
+acknowledgements; their original failure/Unknown observations remain unchanged. No new campaign
+or operator adoption occurred. Any subsequent acceptance attachment has its own obligation.
+
+Root formatting/generation completed before final acceptance, committed as `ad3ab48a` (mechanical
+Rust formatting; Hakari unchanged). Native environment refresh `20261017T021104.009Z-d38095`
+**passed**, host cleanup confirmed. Outstanding selected-complete acceptance
+`20261017T021707.714Z-3e0358` is running as `just verify --rerun 20261017T002012.086Z-41899e`,
+with the same exact target, release profile, normal concurrency and exclusions. Already-passed
+model/analytics/provider-flow boundaries retain their dated scope; failed/not-run boundaries are
+selected for this rerun. Post-format full compile `20261017T021745.812Z-09977e` is running.
+
 RN04's read-only source/host decision is in the native companion: no leak established, historical
-143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
-The earlier service observation of23 protected attachments was separately settled by authenticated
-RE80 shutdown/discard as recorded above. New acceptance attachments, including `2faec210…`, retain
-their own unresolved obligations; historical discard does not settle a later owner. No local
-deletion or rewritten Unknown follows from host exit or these retained counts.
+143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory
+claim. Cited runs and native captures retain permanent `citation:catalog-runtime-efficiency` holds
+through existing storage owners. Historical target discard never authorizes release of a later
+owner or rewriting an original Unknown.
 
 | Runtime source finding | Disposition / responsible component | Closure boundary |
 |---|---|---|
@@ -447,7 +467,7 @@ deletion or rewritten Unknown follows from host exit or these retained counts.
 | [R:F07](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F07) | open; publisher/RP01 | Exact source finalized before carrier; failed finalization retains Unknown and unpublished output |
 | [R:F08](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F08) | open; Base/RA00 | Shared discovery/typed support preserves root universes, once-only effects and singleton feasibility |
 | [R:F09](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09) | implemented/focused-Tested; Summary/RA01–RA02; integrated acceptance open | Exact endpoint/support factoring preserves necessary output; ordinary/recursive consumers must reach their assertions |
-| [I:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03) | bridge implemented/focused-Tested; batch implemented/Interface-checked; integrated acceptance open; compiler-store/cpg-core/CX01/RE90 | Repeated synchronous handoffs progress under inherited Tokio context; async/native fairness, cancellation, actual drainage and CallScope semantic assertions remain |
+| [I:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03) | bridge and batch implemented/focused-Tested; integrated acceptance open; compiler-store/cpg-core/CX01/RE90 | Repeated synchronous handoffs progress under inherited Tokio context; async/native fairness, cancellation, actual drainage and CallScope semantic assertions remain |
 
 The following E obligations are transferred with their implemented or decided baseline, **not
 promoted to enclosing verified closure**. RE90 owns remaining verification and any scope-owned

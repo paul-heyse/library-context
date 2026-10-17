@@ -230,13 +230,22 @@ final acceptance. A later target-state mutation invalidates the affected accepta
 
 The later stale-binary acceptance run was stopped after material source repairs. Approved exact
 default replacement `20261017T012711.701Z-53365f` **passed** on 2026-10-17, with authenticated
-shutdown/discard and host cleanup confirmed. Current generation is
+shutdown/discard and host cleanup confirmed. Its generation was
 `c3ff2d7df87dadc02167479b95fd5fcbd4ac6e9590a2a3f619fd87e77251aa4b`; journal
 `f49200d7cfcfd9194f4ef583c3416b82938c4bf1c96df6e21a906f684873e2d7` retains the operation and
 separate discard acknowledgements for `2faec210-e023-4b36-b2e0-b76f1f2911d4` and
 `4f3b2fcf-9059-42a1-89c5-ef23484bce10`. Original failure/Unknown observations remain unchanged.
-Main/validation checks and admission reopening passed. RE90 must qualify this current target;
-predecessor passes remain dated at their own scopes.
+Main/validation checks and admission reopening passed. A subsequent approved exact default replacement `20261017T020954.067Z-ed921b` **passed** after
+all workers drained. Its current generation is
+`ea82ade5fe60bd3078a6e8ac46439a12cda496d260f73feac94fdc0e5f9ae2e4`, journal
+`f48b8e325a5b677dcfec6f90618555262f6d7a05406af4e5d0c3ba6d360f7c7d`, same exact installation
+and pinned peer. Separate discard acknowledgements settle the later CallScope timeout/probe/byte-fixture
+attachments `f339481b-bb73-44a9-adc4-922c69b01b3c`, `de405073-4543-4c72-8fc6-bb12bf36c789`
+and `25cd9e0a-d4c5-4285-a4bb-d90bfb8b7277`; original failed/Unknown outcomes remain unchanged.
+Main/validation check/open and host cleanup passed. Native refresh `20261017T021104.009Z-d38095`
+passed after formatting. RE90's outstanding selected-complete rerun is `20261017T021707.714Z-3e0358`;
+predecessor passes remain dated at their own scopes. No target mutation may follow accepted final-state
+evidence without reopening the affected boundary.
 
 ## 6. RE90 — Integrated functional acceptance
 
