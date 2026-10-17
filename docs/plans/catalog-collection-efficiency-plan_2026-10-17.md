@@ -170,13 +170,76 @@ includes all consumers, error paths and removal of replaced code, not an isolate
 
 ## 6. Sole disposition and current checkpoint
 
-**Current, 2026-10-17: PC00 complete; PA00/PA01/TF00/TF01/TF02 implemented and focused-Tested.**
-Execution baseline was main `d6e5c9e55fe34e23f4d117042fbce9e43b139df8`. All changes are integrated
-on shared main; no auxiliary worktree was created. Full selected native acceptance remains open
-because the run below has timeouts. Later PA02–PA05/TF03 investigations, NI00–NI03 native work,
-PC90/PC99 and full validation remain outside this authorized slice. This section alone owns
-current disposition for P, R, IR:F03 and inherited E scope. Delivered runtime improvements remain
-baseline; their wider acceptance has not been promoted.
+**Current,2026-10-17: PC00 complete; PA00–PA05/TF00–TF03 implemented and focused-Tested.**
+This slice began on main `15f5d2c1a7487769f4df02863ce7554c5315973e`; all contributions are
+integrated in the shared tree, with no auxiliary worktrees. PA02–PA05/TF03 decisions are settled
+below and in [ADR-0183](../adr/0183-collector-preparation-and-retention.md). Current source includes
+shared immutable Ruff preparation, within-encounter display reuse, early dependency function
+payload selection with complete capture bases, narrow retained syntax, exhaustive shared kinds,
+direct reference partitions and owning per-source flow inputs. Type limits, output/failure semantics,
+normal concurrency and deadlines are unchanged. No schema/codebook change or measured speed claim.
+NI00–NI03, PC90/PC99, full Catalog/selected-complete acceptance and native recovery remain later scope.
+The previous selected native failure and both protected Unknown attachments below are unchanged.
+
+The exact fork revisions are Ruff `c5254df81fc140dba1b1e80e1ae492b0cde887d0` and Pyrefly
+`b8a668daf1e100cc666b31c77d5bdbb70e319380`, at unchanged upstream versions and parents. New
+immutable branches, aggregate patches, producer identities and the scoped lockfile move are
+integrated; unrelated resolution changes were restored. Both fork checks passed. Owned source
+checkouts are retained run outputs `20261017T054425.156Z-6bfccc/ruff` and
+`20261017T055114.450Z-ed64bd/pyrefly`, with no runtime fallback. Repository compile and strict keep-going Clippy passed. Native Ruff preparation equivalence
+and Pyrefly selected payload/base/capture equivalence each passed1; integrated-pin flow controls
+passed60 and extraction controls passed39/25 skipped. Dependency checks, docs486 pages/zero link
+errors and ADR lint110 records passed. Native environment refresh and turn-end passed; final
+formatted source also passed full compile, strict Clippy and Python hygiene.
+Independent source review accepted the selected seams; a preparation-charge drop-order issue was
+corrected and rechecked, with no remaining material findings at Interface-checked strength.
+
+**Current focused evidence,2026-10-17; managed runs retain the authoritative logs:**
+
+| Outcome | Command / run | Established boundary |
+|---|---|---|
+| passed | `cargo check --release --workspace --all-targets --keep-going`; `20261017T062743.351Z-a1cd2e` | Full workspace/all-target compile on final formatted source and exact pins; initial repaired compile also passed `061736…2d6ec1` |
+| passed | `cargo nextest run --release -p cpg-extract --lib --test bundle --test ruff_context -E 'test(lookup_controls) \| test(event_index_controls) \| test(lexical_evidence_is_exact) \| test(cancellation_controls) \| test(occurrence_preparation_controls) \| test(presentation_controls) \| test(retention_controls) \| test(preparation_controls) \| test(source_buffer_controls) \| test(exact_public_paths_keep_all_duplicates_and_enclosures) \| test(selected_payloads_keep_full_report_capture_eligibility) \| binary(bundle) \| binary(ruff_context)'`; `20261017T062119.052Z-4b1c25` | 39 passed/25 skipped: real native generic/recursive/chosen/candidate type limits, complete-base capture parity, exact selection, transferred syntax, diagnostic/refusal parity, source geometry/hash/admission and prior shared seams |
+| passed | `cargo nextest run --release -p cpg-flow --lib --test flow_shapes --test capture_timing --test call_paths`; `20261017T062243.991Z-396b8c` | 60 passed/0 skipped against both final pins: ownership/release, missing/foreign admission, exhaustive kinds, real cleared-AST wildcard reparse, and preserved prior flow/callback/cancellation behavior |
+| passed | Owned Ruff `cargo +nightly-2026-09-29 test --release --locked --manifest-path …/crates/ruff_linter/Cargo.toml --lib semantic_facts::tests::shared_source_preparation_preserves_standalone_rows_and_stop_statistics --target-dir $LCTX_RUN_DIR/target`; `20261017T054903.301Z-7cd21d` | 1 native seam control passed; source checkout `054425…6bfccc`, exact published source differs only by formatting |
+| passed | Owned Pyrefly `cargo +nightly-2026-09-29 test --release --manifest-path …/pyrefly/Cargo.toml --lib selected_function_payloads_equal_full_report_with_complete_bases_and_captures --config 'patch.crates-io.allocative.path="/home/paul/library-context/third_party/allocative"' --target-dir $LCTX_RUN_DIR/target`; `20261017T060617.402Z-9c3c6d` | 1 native control passed: cold selected/full payload equality, complete classes/globals/bases, nested/decorated captures, overrides and selector refusal; existing allocative backport only for standalone bootstrap; generated test lock not committed |
+| passed | `just clippy`; `20261017T062743.348Z-6605d5` | Final formatted release workspace/all-target keep-going `-D warnings`, entirely clear; initial repaired pass `061850…ded13b` remains scoped evidence |
+| passed | `just deps`; `20261017T062023.657Z-1583bd` | Exact nominal families, both tag+aggregate-patch checks, classified native environment reads, bans/sources, no unused direct dependencies, Hakari consistency |
+| passed | `just ruff`, `just types`; `20261017T062743.352Z-39dfeb`, `20261017T062743.345Z-90576b` | Final Python lint and warnings-inclusive Pyrefly, including the updated fork family policy |
+| passed | `just docs-check`; `20261017T062914.223Z-616416`; `just adr-lint` | Final 486 canonical pages/zero link errors; 110 ADR records, exact governed-section references |
+| passed | `just ready`; `20261017T062629.956Z-9c4743`; `just turn-end`; `20261017T062555.344Z-4ecac1` | Current checkout native extension refreshed after source/pin change; normal environment readiness, generated ADR/Hakari and formatting passed; no platform compatibility campaign |
+| not_run | Full Catalog, selected-complete, assembled qualification, native-store matrix and cold-binding runtime control | Outside this authorized slice; source/DB-free evidence does not discharge protected native Unknowns or inherited acceptance |
+
+Initial failed runs remain retained: standalone Pyrefly bootstrap `060121…164488` exposed the
+already-vendored allocative fix prerequisite; `060235…958c75` exposed test key inference errors.
+Repository `061535…86fc76` exposed two test compile errors, corrected before the passed compile.
+Extraction `061535…d5ef47` passed36/failed3: tests had assumed RowBudget before invalid-syntax
+validation and excluded charge accounting metadata; both expectations were corrected. Its provider
+source identity comparison overlapped source edits; the stable-tree rerun passed all39. Strict
+Clippy `061736…4594e9`, dependency `061923…dffbcf` and docs `062310…b185f0` failures were repaired
+without allowances, ignored dependencies or weakened production contracts. Native standalone
+workspaces emitted upstream deprecation/future-incompatibility warnings; these are not a clean
+upstream-workspace hygiene claim. The repository strict Clippy result is separately clear.
+Every cited completed run has confirmed host cleanup/no survivors; source/captures remain retained
+for `citation:catalog-collection-efficiency`. No database or operator effect occurred in this slice.
+
+| Package / subdecision | Selected route and closure boundary | Retained alternative / revisit trigger |
+|---|---|---|
+| PA02 preparation | One admitted Locator/Stylist/Indexer across separate observer and real enabled/disabled diagnostics; ends after context rows | Traversal fusion unselected: observer stopping gates deferred/final work. Revisit a native recording-only stop with exact statistics, full diagnostics and cancellation |
+| PA03 construction/presentation | Reuse only current Other/Truncated display; every encounter, native lookup, row and first-registration effect remains | Cross-encounter/structural memo unselected: complete context/depth/remaining-work/effect replay is absent. Revisit a pure bounded interface exposing those effects |
+| PA04 selective payload | Select exact keys/names/enclosures before signatures/decorators; complete classes/globals/MRO and full base capture eligibility remain; roots/taps full | Revisit selection only if native eligibility or qualified-name/closure contracts change |
+| PA04 retention/promotions | Keep post-wave Everything and progressive actual dependency closure | Pre-eviction replacement unselected: generic hook can follow AST eviction; callbacks repeat before final epoch/rebuild. Revisit native final-epoch rich ownership, lazy readiness and joined cancellation |
+| PA05 syntax/kinds | Move only declarations/parameters/formals/calls; shared exhaustive latest-family mapping removes debug formatting/code scan | Whole-inventory clone and second retained call copy removed; emitted rows keep required ownership; embedded Ruff stays separate |
+| PA05 original tokens | Keep recovery-aware transient parser | Canonical token lifetime ends in the prior provider phase. Revisit an existing retained handoff; source-kind/options alone do not prove token mismatch |
+| TF03 partition/preparation | One complete read domain; direct ordered reference buckets retain duplicates/foreign context; preparation ends after compact runtime classification | Native scalar/source reads would need a proven complete closure; compact classification lifetime does not justify another cache protocol |
+| TF03 original inputs | Bounded admitted captured reads and runtime insertions; owning inputs release text/maps after each module's callbacks; complete transformed VFS prepared first | VFS/Program/native dependency owners remain independent; no RSS claim |
+| TF03 AST/query placement | Retain AST cache and serial top-level queries | A real late wildcard query reparses after clearing; speculative queries violate refusal-before-next-query. Revisit when lazy borrowers end or an equivalent stopping capability exists |
+
+**Previous slice,2026-10-17: PC00/PA00/PA01/TF00–TF02 focused-Tested.**
+Its execution baseline was main `d6e5c9e55fe34e23f4d117042fbce9e43b139df8`, delivered as `15f5d2c1`.
+The following receipts retain that source and scope; they do not qualify the new pin/source changes.
+This section alone owns current disposition for P, R, IR:F03 and inherited E scope. Delivered
+runtime improvements remain baseline; their wider acceptance has not been promoted.
 
 PA00 replaces repeated searches with charged first/ordered/ambiguity-preserving correspondence in
 `type_records.rs`, `ruff_lexical.rs` and native lexical support. PA01 shares one root-module Pysa
@@ -227,7 +290,7 @@ its publication or pin-close receipt, adding narrow phase diagnostics only if th
 distinguish waiting from retry work. No retry, deadline extension or concurrency cap is implied. Cited captures use
 `citation:catalog-collection-efficiency`; full files remain authoritative.
 
-All other new implementation/decision packages are open, not started. The residual attempt-lock
+All NI00–NI03 and PC90/PC99 packages remain open, not started in this slice. The residual attempt-lock
 lead is open under NI00; immutable per-record preparation/deferred search under NI01; ingress
 preparation and bounded quadratic coalescing under NI02. NI03's wider native
 acceptance is not established by the scoped ready observation; the protected checkpoint below
@@ -241,11 +304,11 @@ source leads is a confirmed safe-removal or measured timeout diagnosis.
 | [P:F04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F04) | implemented / focused-Tested; PA01; selected native matrix incomplete | Shared stable preparation, specialized collector parity and no call-only dependency acquisition |
 | [P:F05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F05) | implemented / focused-Tested; TF01 | Cancellation reaches real producer work; typed refusal, joined drainage and no completed success on abandonment |
 | [P:F06](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F06) | implemented / focused-Tested; TF02; selected native matrix incomplete | Raw owned growth admitted before allocation, meaningful consumption, live charges and distinct operational/model failure |
-| [P:I01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I01) | open — Scheduled decision plus supported delivery; PA02 | Independent diagnostic completeness/suppression/fix channels survive selected sharing or justified retain |
-| [P:I02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I02) | open — Scheduled decision plus supported delivery; PA03 | Qualified context/type/truncation behavior; no display-key or encounter-insensitive memo |
-| [P:I03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I03) | open — Scheduled decision plus supported delivery; PA04 | Complete selected facts, native requirements, epochs and finality at selected retention seam |
-| [P:I04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I04) | open — Scheduled decision plus supported delivery; TF03 | Full virtual import context, callback order/failure and bounded results under selected source/module route |
-| [P:I05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I05) | open — Scheduled decision plus supported delivery; PA05 | Exact consumed fields, kinds and malformed parser recovery under selected copy/token route |
+| [P:I01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I01) | decision/delivery complete; focused-Tested; PA02 | Native prepared/standalone equivalence plus actual two-channel diagnostic/refusal/lifetime controls; observer fusion explicitly retained as unselected |
+| [P:I02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I02) | decision/delivery complete; focused-Tested; PA03 | Four presentation/native-context controls cover depth31–33, work around100000, recursive/generic and chosen/candidate effects; only same-encounter display reuse selected |
+| [P:I03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I03) | decision/delivery complete; focused-Tested; PA04; persistent acceptance deferred | Native selected/full payload parity and full-base capture control passed; exact name/enclosure selection tested. Stable post-wave Everything/progressive closure retained on source evidence; persistent matrix deferred |
+| [P:I04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I04) | decision/delivery complete; focused-Tested; TF03; persistent acceptance deferred | Source preparation/geometry/admission controls and owning flow release/refusal controls passed; real late wildcard reparse supports retained AST; full universe/serial query contract unchanged |
+| [P:I05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I05) | decision/delivery complete; focused-Tested; PA05 | Two transferred-backing/refusal controls, exhaustive nominal mapping and recovery-aware flow controls passed; existing original-token parse retained with explicit lifetime trigger |
 
 Runtime production through `0a4da0f3` includes RN00–RN03, CX00/CX01, RA00–RA02 and RP00/RP01;
 the independent [integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)

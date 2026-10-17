@@ -6,7 +6,7 @@ current disposition and execution state. This document develops **TF00–TF03**,
 review **P:F02, P:F03, P:F05, P:F06 and P:I04**. `P` means the
 [Python fact-collection target review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md),
 not the runtime review's similarly numbered findings. Package descriptions below are requirements,
-not a second status ledger. TF00/TF01/TF02 execution is authorized; TF03 remains later scope.
+not a second status ledger. TF00–TF03 execution is authorized; coordinator §6 owns current evidence.
 Actual evidence and operation limits are recorded by the coordinator.
 
 ## 1. Scope and assessed foundations
@@ -316,6 +316,22 @@ behavior/resource lifetime, not measured speed or general capacity.
 ## 6. TF03 — Qualify source partitioning, retention and module-query placement
 
 **Source:** [P:I04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I04).
+**Selected, 2026-10-17 ([ADR-0183](../adr/0183-collector-preparation-and-retention.md)):** retain
+one complete canonical read domain and directly partition references into ordered source buckets.
+Foreign target/owner/occurrence dictionaries remain available. Drop import/name preparation after
+compact runtime classifications; transfer each source's admitted original text/runtime maps into
+`AdmittedInput`. Pre-admit captured reads, unique runtime insertions and container growth; bounded
+geometry/EOF/hash checks refuse stale input without unbounded reads. Prepare the full transformed
+VFS before queries, then release originals after each module's callbacks. The prepared VFS/Program
+and native dependency caches keep their own lifetimes. No borrowed uncharged runner remains.
+
+Retain AST caching: the actual pinned native wildcard/export query reparses a cleared module.
+Retain serial top-level queries: refusal must prevent the next query, and an ordered buffer cannot
+undo speculative work. Compact runtime classifications remain until their last consumer without
+another cache/release protocol. Revisit AST release when no remaining lazy borrower can reparse;
+revisit parallel placement only with unchanged callback-before-next-query stopping, or an explicitly
+accepted contract change. Coordinator §6 owns implementation disposition and actual controls.
+
 This package consumes working TF00/TF01/TF02. It must investigate and then either implement the
 supported selected route or record a justified retained design and revisit trigger at coordinator §6;
 merely leaving an unexamined optimization list is not its completion outcome.

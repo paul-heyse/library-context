@@ -278,7 +278,7 @@ impl<F: FnMut(SyntaxEvent) -> Result<(), ModelError>> Emitter<'_, F> {
             source: self.invocation.source.id(),
             start: start as i64,
             end: end as i64,
-            syntax_kind: syntax_kind(node.kind()),
+            syntax_kind: kind(node.kind()),
             role,
             structural_path: self.path.clone(),
         };
@@ -766,111 +766,7 @@ fn details(node: AnyNodeRef<'_>) -> Vec<(SyntaxDetail, Option<Literal>)> {
 
 /// The model's kind for a Ruff node kind.
 pub(crate) fn kind(k: NodeKind) -> SyntaxKind {
-    syntax_kind(k)
-}
-#[deny(clippy::wildcard_enum_match_arm)]
-fn syntax_kind(k: NodeKind) -> SyntaxKind {
-    macro_rules! map {
-        ($($v:ident),+ $(,)?) => {
-            match k { $(NodeKind::$v => SyntaxKind::$v,)+ }
-        };
-    }
-    map!(
-        ModModule,
-        ModExpression,
-        StmtFunctionDef,
-        StmtClassDef,
-        StmtReturn,
-        StmtDelete,
-        StmtTypeAlias,
-        StmtAssign,
-        StmtAugAssign,
-        StmtAnnAssign,
-        StmtFor,
-        StmtWhile,
-        StmtIf,
-        StmtWith,
-        StmtMatch,
-        StmtRaise,
-        StmtTry,
-        StmtAssert,
-        StmtImport,
-        StmtImportFrom,
-        StmtGlobal,
-        StmtNonlocal,
-        StmtExpr,
-        StmtPass,
-        StmtBreak,
-        StmtContinue,
-        StmtIpyEscapeCommand,
-        ExprBoolOp,
-        ExprNamed,
-        ExprBinOp,
-        ExprUnaryOp,
-        ExprLambda,
-        ExprIf,
-        ExprDict,
-        ExprSet,
-        ExprListComp,
-        ExprSetComp,
-        ExprDictComp,
-        ExprGenerator,
-        ExprAwait,
-        ExprYield,
-        ExprYieldFrom,
-        ExprCompare,
-        ExprCall,
-        ExprFString,
-        ExprTString,
-        ExprStringLiteral,
-        ExprBytesLiteral,
-        ExprNumberLiteral,
-        ExprBooleanLiteral,
-        ExprNoneLiteral,
-        ExprEllipsisLiteral,
-        ExprAttribute,
-        ExprSubscript,
-        ExprStarred,
-        ExprName,
-        ExprList,
-        ExprTuple,
-        ExprSlice,
-        ExprIpyEscapeCommand,
-        ExceptHandlerExceptHandler,
-        InterpolatedElement,
-        InterpolatedStringLiteralElement,
-        PatternMatchValue,
-        PatternMatchSingleton,
-        PatternMatchSequence,
-        PatternMatchMapping,
-        PatternMatchClass,
-        PatternMatchStar,
-        PatternMatchAs,
-        PatternMatchOr,
-        TypeParamTypeVar,
-        TypeParamTypeVarTuple,
-        TypeParamParamSpec,
-        InterpolatedStringFormatSpec,
-        PatternArguments,
-        PatternKeyword,
-        Comprehension,
-        Arguments,
-        Parameters,
-        Parameter,
-        ParameterWithDefault,
-        Keyword,
-        Alias,
-        WithItem,
-        MatchCase,
-        Decorator,
-        ElifElseClause,
-        TypeParams,
-        FString,
-        TString,
-        StringLiteral,
-        BytesLiteral,
-        Identifier,
-    )
+    cpg_flow::syntax_kind(k)
 }
 
 /// The pinned Pyrefly fork commit and the Ruff line its retained AST comes from.
@@ -878,4 +774,4 @@ pub use lctx_model::domain::producer_contract::facts::PYREFLY_REVISION;
 
 /// The exact native source patch participates in the declared producer build fingerprint.
 pub const PYREFLY_PATCH_SHA256: &str =
-    "178788fc11391c4a638306b06ba9433f15a6950dbdc184c6c5042959896e0391";
+    "56dd801d6078c243a10d5daaea9fe8387026ce431b9ee7a6448af1ef6bc3e03a";

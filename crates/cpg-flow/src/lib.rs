@@ -80,13 +80,147 @@ pub struct RuntimeContext {
     pub platform: String,
 }
 
-/// One module to index: its path relative to the release, and the text Pyrefly parsed.
+/// The model syntax kind for the pinned latest Ruff family.
+#[deny(clippy::wildcard_enum_match_arm)]
+pub fn syntax_kind(k: ruff_python_ast_ty::NodeKind) -> lctx_model::domain::source::SyntaxKind {
+    use lctx_model::domain::source::SyntaxKind;
+    use ruff_python_ast_ty::NodeKind;
+    macro_rules! map {
+        ($($v:ident),+ $(,)?) => {
+            match k { $(NodeKind::$v => SyntaxKind::$v,)+ }
+        };
+    }
+    map!(
+        ModModule,
+        ModExpression,
+        StmtFunctionDef,
+        StmtClassDef,
+        StmtReturn,
+        StmtDelete,
+        StmtTypeAlias,
+        StmtAssign,
+        StmtAugAssign,
+        StmtAnnAssign,
+        StmtFor,
+        StmtWhile,
+        StmtIf,
+        StmtWith,
+        StmtMatch,
+        StmtRaise,
+        StmtTry,
+        StmtAssert,
+        StmtImport,
+        StmtImportFrom,
+        StmtGlobal,
+        StmtNonlocal,
+        StmtExpr,
+        StmtPass,
+        StmtBreak,
+        StmtContinue,
+        StmtIpyEscapeCommand,
+        ExprBoolOp,
+        ExprNamed,
+        ExprBinOp,
+        ExprUnaryOp,
+        ExprLambda,
+        ExprIf,
+        ExprDict,
+        ExprSet,
+        ExprListComp,
+        ExprSetComp,
+        ExprDictComp,
+        ExprGenerator,
+        ExprAwait,
+        ExprYield,
+        ExprYieldFrom,
+        ExprCompare,
+        ExprCall,
+        ExprFString,
+        ExprTString,
+        ExprStringLiteral,
+        ExprBytesLiteral,
+        ExprNumberLiteral,
+        ExprBooleanLiteral,
+        ExprNoneLiteral,
+        ExprEllipsisLiteral,
+        ExprAttribute,
+        ExprSubscript,
+        ExprStarred,
+        ExprName,
+        ExprList,
+        ExprTuple,
+        ExprSlice,
+        ExprIpyEscapeCommand,
+        ExceptHandlerExceptHandler,
+        InterpolatedElement,
+        InterpolatedStringLiteralElement,
+        PatternMatchValue,
+        PatternMatchSingleton,
+        PatternMatchSequence,
+        PatternMatchMapping,
+        PatternMatchClass,
+        PatternMatchStar,
+        PatternMatchAs,
+        PatternMatchOr,
+        TypeParamTypeVar,
+        TypeParamTypeVarTuple,
+        TypeParamParamSpec,
+        InterpolatedStringFormatSpec,
+        PatternArguments,
+        PatternKeyword,
+        Comprehension,
+        Arguments,
+        Parameters,
+        Parameter,
+        ParameterWithDefault,
+        Keyword,
+        Alias,
+        WithItem,
+        MatchCase,
+        Decorator,
+        ElifElseClause,
+        TypeParams,
+        FString,
+        TString,
+        StringLiteral,
+        BytesLiteral,
+        Identifier,
+    )
+}
+
+/// One module to index: its path relative to the release and captured original text.
 #[derive(Debug, Clone)]
 pub struct Input {
     pub path: String,
     pub text: String,
     /// Name-load spans whose lexical resolution proves a runtime-special binding.
     pub runtime: RuntimeBindings,
+}
+
+impl Input {
+    /// Required coverage for already admitted owned backing; this does not admit allocation.
+    pub fn owned_bytes(&self) -> usize {
+        self.path
+            .capacity()
+            .saturating_add(self.text.capacity())
+            .saturating_add(self.runtime.owned_bytes())
+    }
+}
+
+/// A source and the admission acquired before constructing its owned backing.
+/// Moving this value transfers its reservation without cloning source or runtime maps.
+#[derive(Debug)]
+pub struct AdmittedInput {
+    input: Input,
+    charge: StateCharge,
+}
+impl AdmittedInput {
+    pub fn new(input: Input, charge: StateCharge) -> Result<Self, ModelError> {
+        if charge.budget().is_none() || charge.reserved() < input.owned_bytes() {
+            return Err(ModelError::Conflict("flow input backing was not admitted"));
+        }
+        Ok(Self { input, charge })
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -99,6 +233,39 @@ pub struct RuntimeBindings {
     /// Name loads resolved by the lexical provider to these exact builtins.
     pub builtin_type: BTreeSet<Span>,
     pub builtin_classes: BTreeMap<String, BTreeSet<Span>>,
+}
+
+impl RuntimeBindings {
+    /// Conservative tree-node allowance plus its span payload, reserved before insertion.
+    pub const SPAN_ENTRY_BYTES: usize = 128 + size_of::<Span>();
+    /// Cover a whole node per distinct class, including spare key/value slots. The pinned
+    /// Rust B-tree uses 11 slots and 12 child edges; 16 words cover edges, header and padding.
+    /// This excludes separately admitted String/span-set backing and is not allocator/RSS usage.
+    pub const CLASS_ENTRY_BYTES: usize =
+        16 * size_of::<usize>() + 11 * (size_of::<String>() + size_of::<BTreeSet<Span>>());
+
+    /// Required coverage of tree slots and strings; this does not admit allocation.
+    pub fn owned_bytes(&self) -> usize {
+        let spans = [
+            &self.checking_names,
+            &self.typing_modules,
+            &self.sys_modules,
+            &self.os_modules,
+            &self.builtin_type,
+        ]
+        .into_iter()
+        .fold(0usize, |bytes, set| {
+            bytes.saturating_add(set.len().saturating_mul(Self::SPAN_ENTRY_BYTES))
+        });
+        self.builtin_classes
+            .iter()
+            .fold(spans, |bytes, (name, set)| {
+                bytes
+                    .saturating_add(Self::CLASS_ENTRY_BYTES)
+                    .saturating_add(name.capacity())
+                    .saturating_add(set.len().saturating_mul(Self::SPAN_ENTRY_BYTES))
+            })
+    }
 }
 
 /// A byte span of the module's text.
@@ -390,9 +557,12 @@ fn rename_impl(text: &str, resources: Option<&Resources<'_>>) -> Result<(String,
 }
 
 /// Prepare the complete virtual universe, then synchronously visit one module at a time.
+/// Inputs transfer their pre-admitted owned backing; each original/runtime buffer releases after
+/// its module callbacks finish. The caller retains admission for the input vector's capacity.
+/// Transformed virtual sources remain available to every later native dependency query.
 /// Operational failures abort the attempt; model failures retain exact input correspondence.
 pub fn visit_modules<E, G>(
-    inputs: &[Input],
+    inputs: Vec<AdmittedInput>,
     context: &RuntimeContext,
     budget: &ResourceBudget,
     check: &dyn Fn() -> Result<(), ModelError>,
@@ -413,6 +583,17 @@ pub fn visit_modules<E, G>(
         if inputs.is_empty() {
             return Ok(());
         }
+        for input in &inputs {
+            if !input
+                .charge
+                .budget()
+                .is_some_and(|owner| owner.shares_pool(budget))
+            {
+                return Err(VisitError::Operational(FlowOperationalError::Model(
+                    ModelError::Conflict("flow input foreign attempt pool"),
+                )));
+            }
+        }
         use salsa::Database as _;
         let _registration;
         let mut db = FlowDb::new();
@@ -420,7 +601,8 @@ pub fn visit_modules<E, G>(
         let resources = Resources::new(budget, check);
         let mut prepared = Vec::new();
         let mut preparation_charge = StateCharge::new(budget, "flow_prepared_sources");
-        for input in inputs {
+        for admitted in &inputs {
+            let input = &admitted.input;
             let _scratch = resources.scope();
             resources.checkpoint();
             slots(&mut prepared, &mut preparation_charge, 1);
@@ -451,7 +633,8 @@ pub fn visit_modules<E, G>(
         resources.grow(context.platform.len() + 1024);
         let settings = program_settings(&db, context);
         let program = Program::from_settings(&db, &settings);
-        for (input_index, (input, prepared)) in inputs.iter().zip(prepared).enumerate() {
+        for (input_index, (admitted, prepared)) in inputs.into_iter().zip(prepared).enumerate() {
+            let input = &admitted.input;
             resources.checkpoint();
             match prepared {
                 Ok((path, n, hash, byte_len)) => module(
@@ -475,6 +658,7 @@ pub fn visit_modules<E, G>(
                     ModuleEvent::ModuleFailure(&ModuleFailure { detail }),
                 ),
             }
+            drop(admitted);
             resources.checkpoint();
         }
         Ok(())
@@ -632,16 +816,10 @@ fn module(
     }
     impl<'a> SourceOrderVisitor<'a> for Places<'_> {
         fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
-            use lctx_model::domain::{
-                Codebook,
-                source::{OccurrenceRole, SyntaxKind},
-            };
+            use lctx_model::domain::source::OccurrenceRole;
             let _scratch = self.resources.scope();
             self.resources.checkpoint();
-            let name = self.resources.format(format_args!("{:?}", node.kind()));
-            let kind = (0..128)
-                .filter_map(SyntaxKind::from_code)
-                .find(|k| self.resources.format(format_args!("{k:?}")) == name);
+            let kind = Some(syntax_kind(node.kind()));
             let role = match node {
                 AnyNodeRef::ExprName(n) => match n.ctx {
                     ExprContext::Load => OccurrenceRole::Read,
@@ -1939,8 +2117,8 @@ mod test_support;
 #[cfg(test)]
 mod settings_tests {
     use super::{
-        BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, program_settings,
-        visit_modules,
+        BindingKind, FlowDb, FlowOperationalError, Input, ModelError, ModuleEvent, Program,
+        ResourceBudget, RuntimeBindings, RuntimeContext, VisitError, program_settings,
     };
     use ruff_db::system::DbWithWritableSystem;
     use ty_module_resolver::{ModuleName, resolve_module_confident};
@@ -1981,6 +2159,232 @@ mod settings_tests {
             text: text.into(),
             runtime: RuntimeBindings::default(),
         }
+    }
+
+    // Raw fixtures are copied only after admission; production has no borrowed-input runner.
+    fn visit_modules<E, G>(
+        inputs: &[Input],
+        context: &RuntimeContext,
+        budget: &ResourceBudget,
+        check: &dyn Fn() -> Result<(), ModelError>,
+        register: impl Fn(salsa::CancellationToken) -> G,
+        visit: impl for<'a> FnMut(usize, ModuleEvent<'a>) -> Result<(), E>,
+    ) -> Result<(), VisitError<E>> {
+        let (inputs, _backing) = crate::test_support::admit_inputs(inputs, budget)
+            .map_err(|error| VisitError::Operational(FlowOperationalError::Model(error)))?;
+        super::visit_modules(inputs, context, budget, check, register, visit)
+    }
+
+    #[test]
+    fn syntax_kind_mapping_preserves_scalar_and_uncommon_kinds() {
+        use lctx_model::domain::{Codebook, source::SyntaxKind};
+        use ruff_python_ast_ty::NodeKind;
+        for (native, expected, code) in [
+            (NodeKind::ModModule, SyntaxKind::ModModule, 0),
+            (NodeKind::ExprName, SyntaxKind::ExprName, 55),
+            (
+                NodeKind::InterpolatedElement,
+                SyntaxKind::InterpolatedElement,
+                61,
+            ),
+            (
+                NodeKind::PatternMatchMapping,
+                SyntaxKind::PatternMatchMapping,
+                66,
+            ),
+            (
+                NodeKind::TypeParamParamSpec,
+                SyntaxKind::TypeParamParamSpec,
+                73,
+            ),
+            (
+                NodeKind::ParameterWithDefault,
+                SyntaxKind::ParameterWithDefault,
+                81,
+            ),
+            (NodeKind::TString, SyntaxKind::TString, 90),
+            (NodeKind::Identifier, SyntaxKind::Identifier, 93),
+        ] {
+            assert_eq!(super::syntax_kind(native), expected);
+            assert_eq!(SyntaxKind::from_code(code), Some(expected));
+        }
+    }
+
+    #[test]
+    fn admitted_inputs_reject_missing_backing_and_foreign_pool_before_native_work() {
+        let unadmitted = input("source.py", "x = 1\n");
+        assert!(matches!(
+            super::AdmittedInput::new(unadmitted, Default::default()),
+            Err(ModelError::Conflict(_))
+        ));
+        let owner = budget();
+        let other = budget();
+        let (inputs, backing) =
+            crate::test_support::admit_inputs(&[input("source.py", "x = 1\n")], &owner).unwrap();
+        EVENTS.with_borrow_mut(Vec::clear);
+        let result = super::visit_modules::<(), _>(
+            inputs,
+            &context(),
+            &other,
+            &|| panic!("foreign input reached checkpoint"),
+            |_| panic!("foreign input registered native handle"),
+            |_, _| panic!("foreign input emitted"),
+        );
+        assert!(matches!(
+            result,
+            Err(VisitError::Operational(FlowOperationalError::Model(
+                ModelError::Conflict(_)
+            )))
+        ));
+        EVENTS.with_borrow(|events| assert!(events.is_empty()));
+        drop(backing);
+        assert_eq!(owner.reserved(), 0);
+        assert_eq!(other.reserved(), 0);
+    }
+
+    #[test]
+    fn original_source_charges_end_after_each_module_callback() {
+        use lctx_model::domain::resources::{Reservation, ResourcePool};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        #[derive(Debug)]
+        struct SourcePool {
+            inner: ResourceBudget,
+            sources: Arc<AtomicUsize>,
+        }
+        #[derive(Debug)]
+        struct SourceReservation {
+            inner: Box<dyn Reservation>,
+            sources: Arc<AtomicUsize>,
+        }
+        impl Drop for SourceReservation {
+            fn drop(&mut self) {
+                self.sources.fetch_sub(self.inner.size(), Ordering::SeqCst);
+            }
+        }
+        impl Reservation for SourceReservation {
+            fn size(&self) -> usize {
+                self.inner.size()
+            }
+            fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
+                let previous = self.inner.size();
+                self.inner.try_resize(bytes)?;
+                if bytes >= previous {
+                    self.sources.fetch_add(bytes - previous, Ordering::SeqCst);
+                } else {
+                    self.sources.fetch_sub(previous - bytes, Ordering::SeqCst);
+                }
+                Ok(())
+            }
+        }
+        impl ResourcePool for SourcePool {
+            fn reserve(
+                &self,
+                owner: &'static str,
+                bytes: usize,
+            ) -> Result<Box<dyn Reservation>, ModelError> {
+                let inner = self.inner.reserve(owner, bytes)?;
+                if owner == "flow-test-input" {
+                    self.sources.fetch_add(bytes, Ordering::SeqCst);
+                    Ok(Box::new(SourceReservation {
+                        inner,
+                        sources: self.sources.clone(),
+                    }))
+                } else {
+                    Ok(inner)
+                }
+            }
+            fn reserved(&self) -> usize {
+                self.inner.reserved()
+            }
+            fn limit(&self) -> usize {
+                self.inner.limit()
+            }
+        }
+        for first in ["x = 1\ny = x\n", "TYPE_CHECKIN_ = 1\n"] {
+            let sources = Arc::new(AtomicUsize::new(0));
+            let resources = ResourceBudget::from_pool(Arc::new(SourcePool {
+                inner: budget(),
+                sources: sources.clone(),
+            }))
+            .unwrap();
+            let inputs = [input("first.py", first), input("later.py", "z = 2\n")];
+            let first_bytes = inputs[0].owned_bytes();
+            let later_bytes = inputs[1].owned_bytes();
+            let mut completed = 0;
+            visit_modules(
+                &inputs,
+                &context(),
+                &resources,
+                &|| Ok(()),
+                |_| (),
+                |ix, event| {
+                    assert_eq!(
+                        sources.load(Ordering::SeqCst),
+                        if ix == 0 {
+                            first_bytes + later_bytes
+                        } else {
+                            later_bytes
+                        }
+                    );
+                    if matches!(event, ModuleEvent::End(_) | ModuleEvent::ModuleFailure(_)) {
+                        completed += 1;
+                    }
+                    Ok::<_, ()>(())
+                },
+            )
+            .unwrap();
+            assert_eq!(completed, 2);
+            assert_eq!(sources.load(Ordering::SeqCst), 0);
+            assert_eq!(resources.reserved(), 0);
+        }
+    }
+
+    #[test]
+    fn clearing_native_ast_reparses_for_a_later_wildcard_query() {
+        use ruff_db::{files::system_path_to_file, parsed::parsed_module};
+        use ty_python_core::{ProgramFile, semantic_index};
+        let mut db = FlowDb::new();
+        db.write_file("/flow/exporter.py", "VALUE = 1\n").unwrap();
+        db.write_file(
+            "/flow/consumer.py",
+            "from exporter import *\nresult = VALUE\n",
+        )
+        .unwrap();
+        let program = Program::from_settings(&db, &program_settings(&db, &context()));
+        let exporter = ProgramFile::new(
+            &db,
+            system_path_to_file(&db, "/flow/exporter.py").unwrap(),
+            program,
+        );
+        let consumer = ProgramFile::new(
+            &db,
+            system_path_to_file(&db, "/flow/consumer.py").unwrap(),
+            program,
+        );
+        let native = parsed_module(&db, exporter.python_file(&db));
+        let outstanding = native.load(&db);
+        semantic_index(&db, exporter);
+        native.clear();
+        // Pinned ParsedModule Debug exposes ArcSwap's stored option without calling load.
+        // A subsequent load would itself reparse, so it cannot establish query timing.
+        assert!(format!("{native:?}").contains("ArcSwapAny(None)"));
+        semantic_index(&db, consumer);
+        assert!(
+            !format!("{native:?}").contains("ArcSwapAny(None)"),
+            "the late exported-name query rebuilt the cleared dependency AST"
+        );
+        let rebuilt = native.load(&db);
+        assert!(!std::ptr::eq(outstanding.syntax(), rebuilt.syntax()));
+        assert_eq!(
+            outstanding.suite().len(),
+            1,
+            "existing borrower remains valid"
+        );
+        assert_eq!(rebuilt.suite().len(), 1);
+        assert_eq!(outstanding.tokens().as_ref(), rebuilt.tokens().as_ref());
     }
 
     #[test]

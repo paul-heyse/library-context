@@ -125,7 +125,19 @@ control retains the actual failure/cancellation owner; native registrations and 
 with that owner through return/unwind. The extraction owner defines the physical group boundary;
 model meaning, required candidate completeness and completed visibility remain unchanged.
 
-> Decision: ADR-0168, ADR-0179, ADR-0182
+**Flow preparation ownership (Implemented / focused-Tested, 2026-10-17).** One complete
+declared-input stream supplies foreign identity and attachment context; references partition directly
+into ordered source buckets without deduplication. Import/name preparation ends after compact
+runtime classifications are built. Original text/runtime bindings transfer with their per-source
+admission into an owning runner. Captured length and hash are checked with a bounded read before
+native use. The complete transformed virtual universe is prepared first, then each original copy
+ends after its synchronous module callbacks. A refusal still prevents the next top-level query;
+lazy cross-file queries remain available. Native AST caching remains because later wildcard queries
+can reconstruct cleared parses. Opaque native heap and VFS lifetimes remain independent; admission
+does not certify RSS. The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns focused evidence and the deferred persistent/native acceptance boundary.
+
+> Decision: ADR-0168, ADR-0179, ADR-0182, ADR-0183
 
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require

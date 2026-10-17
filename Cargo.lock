@@ -1311,8 +1311,6 @@ dependencies = [
  "ruff_linter",
  "ruff_python_ast 0.0.14",
  "ruff_python_ast 0.0.16",
- "ruff_python_codegen",
- "ruff_python_index",
  "ruff_python_parser 0.0.14",
  "ruff_python_parser 0.0.16",
  "ruff_python_semantic",
@@ -5700,7 +5698,7 @@ dependencies = [
 [[package]]
 name = "pyrefly"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "anstream 0.6.21",
  "anyhow",
@@ -5769,7 +5767,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_build"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -5791,7 +5789,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_bundled"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "anyhow",
  "sha2",
@@ -5803,7 +5801,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_config"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "anyhow",
  "clap",
@@ -5837,7 +5835,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_derive"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5847,7 +5845,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_glean_schema"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "serde",
  "serde_json",
@@ -5857,7 +5855,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_graph"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "dupe",
  "pyrefly_util",
@@ -5867,7 +5865,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_python"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "anyhow",
  "clap",
@@ -5895,7 +5893,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_types"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "compact_str 0.10.0",
  "dupe",
@@ -5916,7 +5914,7 @@ dependencies = [
 [[package]]
 name = "pyrefly_util"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "anstream 0.6.21",
  "anyhow",
@@ -6530,7 +6528,7 @@ dependencies = [
 [[package]]
 name = "ruff_annotate_snippets"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "anstyle",
  "memchr",
@@ -6555,7 +6553,7 @@ dependencies = [
 [[package]]
 name = "ruff_cache"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "char_str",
  "filetime",
@@ -6569,7 +6567,7 @@ dependencies = [
 [[package]]
 name = "ruff_db"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "anstyle",
  "arc-swap",
@@ -6620,7 +6618,7 @@ dependencies = [
 [[package]]
 name = "ruff_diagnostics"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "get-size2",
  "is-macro",
@@ -6631,7 +6629,7 @@ dependencies = [
 [[package]]
 name = "ruff_index"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "get-size2",
  "ruff_macros",
@@ -6641,7 +6639,7 @@ dependencies = [
 [[package]]
 name = "ruff_linter"
 version = "0.16.10"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -6700,7 +6698,7 @@ dependencies = [
 [[package]]
 name = "ruff_macros"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "heck 0.5.0",
  "itertools 0.15.0",
@@ -6714,7 +6712,7 @@ dependencies = [
 [[package]]
 name = "ruff_memory_usage"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "get-size2",
 ]
@@ -6739,7 +6737,7 @@ dependencies = [
 [[package]]
 name = "ruff_notebook"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "anyhow",
  "rand 0.10.3",
@@ -6755,7 +6753,7 @@ dependencies = [
 [[package]]
 name = "ruff_options_metadata"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 
 [[package]]
 name = "ruff_python_ast"
@@ -6784,7 +6782,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_ast"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "aho-corasick",
  "arrayvec",
@@ -6809,7 +6807,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_codegen"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "ruff_python_ast 0.0.16",
  "ruff_python_literal",
@@ -6821,7 +6819,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_edits"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "ruff_python_ast 0.0.16",
  "ruff_source_file 0.0.16",
@@ -6831,7 +6829,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_importer"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "anyhow",
  "ruff_diagnostics 0.0.16",
@@ -6845,7 +6843,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_index"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "ruff_python_ast 0.0.16",
  "ruff_python_trivia 0.0.16",
@@ -6856,7 +6854,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_literal"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "icu_properties",
@@ -6891,7 +6889,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_parser"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "bstr",
@@ -6914,7 +6912,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_semantic"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "is-macro",
@@ -6932,7 +6930,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_stdlib"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "unicode-ident",
@@ -6954,7 +6952,7 @@ dependencies = [
 [[package]]
 name = "ruff_python_trivia"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
@@ -6968,7 +6966,7 @@ dependencies = [
 [[package]]
 name = "ruff_ranged_value"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "get-size2",
  "ruff_db",
@@ -6992,7 +6990,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_file"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "get-size2",
  "memchr",
@@ -7013,7 +7011,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "get-size2",
  "serde",
@@ -8835,7 +8833,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "tsp_types"
 version = "1.4.0-dev.3"
-source = "git+https://github.com/paul-heyse/pyrefly?rev=63cda076956013cd0bd1d0d05c785f747fe6adc0#63cda076956013cd0bd1d0d05c785f747fe6adc0"
+source = "git+https://github.com/paul-heyse/pyrefly?rev=b8a668daf1e100cc666b31c77d5bdbb70e319380#b8a668daf1e100cc666b31c77d5bdbb70e319380"
 dependencies = [
  "lsp-server",
  "serde",
@@ -8872,7 +8870,7 @@ checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
 [[package]]
 name = "ty_combine"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "ordermap",
  "ruff_db",
@@ -8883,7 +8881,7 @@ dependencies = [
 [[package]]
 name = "ty_ide"
 version = "0.0.0"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "compact_str 0.10.0",
@@ -8919,7 +8917,7 @@ dependencies = [
 [[package]]
 name = "ty_module_resolver"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "anyhow",
  "camino",
@@ -8945,7 +8943,7 @@ dependencies = [
 [[package]]
 name = "ty_project"
 version = "0.0.0"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -8992,7 +8990,7 @@ dependencies = [
 [[package]]
 name = "ty_python_core"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "bitvec",
@@ -9023,7 +9021,7 @@ dependencies = [
 [[package]]
 name = "ty_python_semantic"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "bitflags 2.13.2",
  "char_str",
@@ -9068,7 +9066,7 @@ dependencies = [
 [[package]]
 name = "ty_site_packages"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "camino",
  "colored",
@@ -9089,7 +9087,7 @@ dependencies = [
 [[package]]
 name = "ty_static"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "ruff_macros",
 ]
@@ -9097,7 +9095,7 @@ dependencies = [
 [[package]]
 name = "ty_vendored"
 version = "0.0.16"
-source = "git+https://github.com/paul-heyse/ruff?rev=9080ee7a82a4ec7359ba2ade60839ef1108a2968#9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+source = "git+https://github.com/paul-heyse/ruff?rev=c5254df81fc140dba1b1e80e1ae492b0cde887d0#c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 dependencies = [
  "path-slash",
  "ruff_db",

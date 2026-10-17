@@ -5,14 +5,16 @@ use lctx_model::domain::{
     resources::{Reservation, ResourceBudget},
     source::SourceArtifact,
 };
-use ruff_linter::semantic_facts::{Incomplete, Settings, Sink, TraversalStats, observe_parsed};
+use ruff_linter::semantic_facts::{
+    Incomplete, Settings, Sink, SourcePreparation, TraversalStats, observe_prepared,
+};
 use ruff_python_ast_latest::{ModModule, PySourceType, PythonVersion};
 use ruff_python_parser_latest::{ParseOptions, Parsed, parse_unchecked};
 use std::path::{Path, PathBuf};
 
 pub use lctx_model::domain::producer_contract::facts::RUFF_REVISION;
 pub const RUFF_PATCH_SHA256: &str =
-    "b6bb67f9d297dda222a5b7c983b553424fed37ed6e31e90aa797bde9d0bb9b2e";
+    "764749fa0a34dd0329fd004e534e9bacae40f22dd337fdc8501e95eae44efcff";
 
 /// These are interpretation inputs, never discovered from ambient files or process state.
 #[derive(Clone, serde::Serialize)]
@@ -39,6 +41,19 @@ pub struct CanonicalSyntax<'a> {
     source: &'a str,
     settings: Settings,
     _parse: Box<dyn Reservation>,
+}
+/// One source/token preparation borrowed by the distinct native diagnostic and contextual runs.
+/// Syntax-only consumers retain `CanonicalSyntax` without constructing this view.
+pub struct PreparedCanonicalSyntax<'c, 's> {
+    canonical: &'c CanonicalSyntax<'s>,
+    preparation: SourcePreparation<'s>,
+    _preparation: Box<dyn Reservation>,
+}
+impl<'c, 's> std::ops::Deref for PreparedCanonicalSyntax<'c, 's> {
+    type Target = CanonicalSyntax<'s>;
+    fn deref(&self) -> &Self::Target {
+        self.canonical
+    }
 }
 impl<'a> CanonicalSyntax<'a> {
     pub fn parse(
@@ -107,6 +122,29 @@ impl<'a> CanonicalSyntax<'a> {
     pub fn parsed(&self) -> &Parsed<ModModule> {
         &self.parsed
     }
+    pub fn prepare(
+        &self,
+        budget: &ResourceBudget,
+    ) -> Result<PreparedCanonicalSyntax<'_, 'a>, ModelError> {
+        // Covers source-derived token/line indexes, style and their spare capacity. The
+        // separate native diagnostic allowance still owns each diagnostic computation.
+        let bytes = self
+            .source
+            .len()
+            .checked_mul(32)
+            .and_then(|bytes| bytes.checked_add(65536))
+            .ok_or_else(|| {
+                ModelError::Invalid("shared Ruff preparation allowance overflow".into())
+            })?;
+        let reservation = budget.reserve("canonical-ruff-source-preparation", bytes)?;
+        Ok(PreparedCanonicalSyntax {
+            canonical: self,
+            preparation: SourcePreparation::new(self.source, &self.parsed),
+            _preparation: reservation,
+        })
+    }
+}
+impl PreparedCanonicalSyntax<'_, '_> {
     pub fn diagnostics(
         &self,
         artifact: &SourceArtifact,
@@ -120,15 +158,21 @@ impl<'a> CanonicalSyntax<'a> {
         }
         crate::diagnostic_records::ruff(
             artifact,
-            self.source,
             &self.parsed,
             &self.settings,
             qualification,
             budget,
+            &self.preparation,
         )
     }
     pub fn observe(&self, sink: &mut dyn Sink) -> Result<TraversalStats, Incomplete> {
-        observe_parsed(self.source, &self.parsed, &self.settings, sink)
+        observe_prepared(
+            self.source,
+            &self.parsed,
+            &self.settings,
+            &self.preparation,
+            sink,
+        )
     }
 }
 use lctx_model::domain::Record;
@@ -156,7 +200,7 @@ pub struct ContextRows {
     _charge: lctx_model::domain::charged::StateCharge,
     native: crate::ruff_lexical::NativeRows,
 }
-impl CanonicalSyntax<'_> {
+impl PreparedCanonicalSyntax<'_, '_> {
     pub fn context_rows(
         &self,
         spans: &crate::syntax_records::Spans,

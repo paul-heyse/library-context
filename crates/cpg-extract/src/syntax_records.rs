@@ -297,6 +297,40 @@ pub struct Records {
     pub sets: Vec<(LiteralSet, Vec<LiteralSetMember>)>,
 }
 
+/// The only syntax backing needed after source records are emitted. Calls and type lowering
+/// borrow this one inventory; emitted-only families do not survive their writer.
+#[derive(Debug, Default)]
+pub struct RetainedSyntax {
+    pub declarations: Vec<DeclarationObservation>,
+    pub parameters: Vec<ParameterSyntaxObservation>,
+    pub formals: Vec<(Id<Occurrence>, Id<Occurrence>)>,
+    pub calls: Vec<(CallSyntax, Vec<CallArgument>)>,
+    _charge: Option<lctx_model::domain::charged::StateCharge>,
+}
+impl Records {
+    pub fn retain_for_consumers(
+        &mut self,
+        budget: &lctx_model::domain::resources::ResourceBudget,
+    ) -> Result<RetainedSyntax, ModelError> {
+        use lctx_model::domain::HeapSize;
+        let mut charge = lctx_model::domain::charged::StateCharge::new(budget, "retained-syntax");
+        let bytes = self
+            .declarations
+            .heap_bytes()
+            .saturating_add(self.parameters.heap_bytes())
+            .saturating_add(self.formals.heap_bytes())
+            .saturating_add(self.calls.heap_bytes());
+        charge.grow(bytes)?;
+        Ok(RetainedSyntax {
+            declarations: std::mem::take(&mut self.declarations),
+            parameters: std::mem::take(&mut self.parameters),
+            formals: std::mem::take(&mut self.formals),
+            calls: std::mem::take(&mut self.calls),
+            _charge: Some(charge),
+        })
+    }
+}
+
 /// The imported module as an absolute name, relative levels resolved against `module`; `None` when
 /// they climb past its top package.
 pub fn absolute_module(
@@ -837,3 +871,104 @@ impl<'t> SourceOrderVisitor<'t> for Walker<'_> {
 }
 
 type SpanEvents = HashMap<(i64, i64), Vec<(SyntaxKind, OccurrenceRole, Id<Occurrence>)>>;
+
+#[cfg(test)]
+mod retention_controls {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    fn inventory() -> Records {
+        let call = CallSyntax {
+            qualification: id(1),
+            site: id(2),
+            callee: id(3),
+            arguments: lctx_model::domain::ContentHash::of(b"arguments"),
+            in_annotation: false,
+        };
+        Records {
+            declarations: vec![DeclarationObservation {
+                qualification: id(1),
+                declaration: id(4),
+                name: id(5),
+                kind: DeclarationKind::Function,
+                parent: None,
+                overload: false,
+                docstring: None,
+            }],
+            parameters: vec![ParameterSyntaxObservation {
+                qualification: id(1),
+                function: id(4),
+                parameter: id(6),
+                ordinal: 0,
+                kind: ParameterKind::PositionalOrKeyword,
+                default: None,
+                default_literal: None,
+                annotation: Some(id(7)),
+            }],
+            formals: vec![(id(6), id(8))],
+            calls: vec![(
+                call.clone(),
+                vec![CallArgument {
+                    call: call.id(),
+                    ordinal: 0,
+                    kind: ArgumentKind::Keyword,
+                    keyword: Some("value".into()),
+                    value: id(9),
+                }],
+            )],
+            literals: vec![Literal::String {
+                value: "emitted-only".into(),
+            }],
+            computed_all: vec![id(10)],
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn calls_and_types_share_transferred_backing_after_emitted_only_rows_drop() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut source = inventory();
+        let calls = source.calls.as_ptr();
+        let arguments = source.calls[0].1.as_ptr();
+        let retained = source.retain_for_consumers(&budget).unwrap();
+        assert_eq!(retained.calls.as_ptr(), calls);
+        assert_eq!(retained.calls[0].1.as_ptr(), arguments);
+        assert_eq!(retained.declarations[0].name, id(5));
+        assert_eq!(retained.parameters[0].annotation, Some(id(7)));
+        assert_eq!(retained.formals, [(id(6), id(8))]);
+        assert_eq!(retained.calls[0].1[0].keyword.as_deref(), Some("value"));
+        assert!(
+            source.declarations.is_empty()
+                && source.parameters.is_empty()
+                && source.formals.is_empty()
+                && source.calls.is_empty()
+        );
+        assert_eq!(
+            source.literals,
+            [Literal::String {
+                value: "emitted-only".into()
+            }]
+        );
+        assert_eq!(source.computed_all, [id(10)]);
+        drop(source);
+        assert!(budget.reserved() > 0);
+        assert_eq!(retained.calls[0].0.site, id(2));
+        drop(retained);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn refused_retention_does_not_take_any_consumer_backing() {
+        let budget = ResourceBudget::fixed(1).unwrap();
+        let mut source = inventory();
+        let calls = source.calls.as_ptr();
+        assert!(matches!(
+            source.retain_for_consumers(&budget),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(source.calls.as_ptr(), calls);
+        assert_eq!(source.declarations.len(), 1);
+        assert_eq!(source.parameters.len(), 1);
+        assert_eq!(source.formals.len(), 1);
+        assert_eq!(budget.reserved(), 0);
+    }
+}

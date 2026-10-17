@@ -83,7 +83,7 @@ FAMILY = re.compile(
 
 # ADR-0118: exact nominal sources, not just equal crate version strings.
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
-RUFF_REVISION = "9080ee7a82a4ec7359ba2ade60839ef1108a2968"
+RUFF_REVISION = "c5254df81fc140dba1b1e80e1ae492b0cde887d0"
 RUFF_SOURCE = f"git+https://github.com/paul-heyse/ruff?rev={RUFF_REVISION}#{RUFF_REVISION}"
 EXTRA_FAMILIES: list[ExtraFamily] = [
     {

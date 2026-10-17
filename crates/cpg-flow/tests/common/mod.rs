@@ -241,6 +241,22 @@ fn slots<T>(
     Ok(())
 }
 
+/// Fixture copies enter the same admitted owning boundary as production.
+pub fn admit_inputs(
+    inputs: &[Input],
+    budget: &ResourceBudget,
+) -> Result<(Vec<cpg_flow::AdmittedInput>, StateCharge), ModelError> {
+    let mut values = Vec::new();
+    let mut backing = StateCharge::new(budget, "flow-test-input-vector");
+    slots(&mut values, &mut backing, inputs.len())?;
+    for input in inputs {
+        let mut charge = StateCharge::new(budget, "flow-test-input");
+        charge.grow(input.owned_bytes())?;
+        values.push(cpg_flow::AdmittedInput::new(input.clone(), charge)?);
+    }
+    Ok((values, backing))
+}
+
 pub fn index_with_budget(
     inputs: &[Input],
     context: &RuntimeContext,
@@ -257,6 +273,8 @@ pub fn index_with_budget(
             .modules
             .push(ModuleFlow::new(&input.path, budget).map_err(VisitError::Consumer)?);
     }
+    let (inputs, _input_backing) = admit_inputs(inputs, budget)
+        .map_err(|error| VisitError::Operational(cpg_flow::FlowOperationalError::Model(error)))?;
     cpg_flow::visit_modules(
         inputs,
         context,

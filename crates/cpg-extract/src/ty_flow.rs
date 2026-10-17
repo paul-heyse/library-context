@@ -136,19 +136,70 @@ struct Index {
     declarations: Vec<DeclarationObservation>,
     bindings: BTreeMap<Id<BindingEvent>, BindingObservation>,
     events: BTreeMap<Id<BindingEvent>, BindingEvent>,
-    identifiers: BTreeMap<Id<Occurrence>, String>,
     targets: BTreeMap<Id<LexicalTarget>, LexicalTarget>,
     resolutions: BTreeMap<Id<Occurrence>, Vec<LexicalResolution>>,
-    references: Vec<ReferenceObservation>,
-    imports: Vec<ImportAliasObservation>,
     runtime_imports: BTreeMap<Id<BindingEvent>, RuntimeSpecial>,
-    source_imports: SourceIndex<usize>,
-    source_identifiers: SourceIndex<Id<Occurrence>>,
-    source_references: SourceIndex<usize>,
+    source_references: SourceIndex<ReferenceObservation>,
     source_scopes: SourceIndex<Id<LexicalScope>>,
     scope_bindings: BTreeMap<Id<LexicalScope>, Vec<Id<BindingEvent>>>,
     occurrence_bindings: BTreeMap<Id<Occurrence>, Vec<Id<BindingEvent>>>,
     owner_declarations: BTreeMap<Id<Occurrence>, Vec<usize>>,
+}
+/// Only import classification needs these source spelling/alias preparations. They do not
+/// survive construction of the compact cross-source binding classification map.
+struct RuntimePreparation {
+    identifiers: BTreeMap<Id<Occurrence>, String>,
+    imports: Vec<ImportAliasObservation>,
+    source_imports: SourceIndex<usize>,
+    source_identifiers: SourceIndex<Id<Occurrence>>,
+    _charge: StateCharge,
+}
+impl RuntimePreparation {
+    fn import_special(
+        &self,
+        event: &BindingEvent,
+        occurrences: &Occurrences,
+    ) -> Option<RuntimeSpecial> {
+        let site = occurrences.get(&event.site)?;
+        let source = site.source;
+        let alias = self
+            .source_imports
+            .get(&source)
+            .into_iter()
+            .flatten()
+            .map(|position| &self.imports[*position])
+            .find(|i| {
+                occurrences.get(&i.alias).is_some_and(|a| {
+                    a.source == site.source && a.start <= site.start && a.end >= site.end
+                })
+            })?;
+        let alias_site = occurrences.get(&alias.alias)?;
+        let is_from = occurrences.get(&alias.statement)?.syntax_kind == SyntaxKind::StmtImportFrom;
+        let imported = self
+            .source_identifiers
+            .get(&source)
+            .into_iter()
+            .flatten()
+            .find(|id| {
+                occurrences.get(id).is_some_and(|o| {
+                    o.source == alias_site.source
+                        && o.start == alias_site.start
+                        && o.end <= alias_site.end
+                })
+            })
+            .and_then(|id| self.identifiers.get(id))
+            .map(String::as_str);
+        let special = match (alias.resolved_module.as_deref(), is_from, imported) {
+            (Some("typing" | "typing_extensions"), true, Some("TYPE_CHECKING")) => {
+                RuntimeSpecial::Checking
+            }
+            (Some("typing" | "typing_extensions"), false, _) => RuntimeSpecial::Typing,
+            (Some("sys"), false, _) => RuntimeSpecial::Sys,
+            (Some("os"), false, _) => RuntimeSpecial::Os,
+            _ => return None,
+        };
+        Some(special)
+    }
 }
 impl Index {
     fn new<S: ProviderSink + 'static>(context: &mut StageContext<S>) -> Result<Self, ModelError> {
@@ -201,12 +252,33 @@ impl Index {
         for row in read::<LexicalResolution, _>(context, &mut charge)? {
             resolutions.entry(row.read).or_default().push(row);
         }
-        let references: Vec<ReferenceObservation> = read(context, &mut charge)?;
-        let imports: Vec<ImportAliasObservation> = read(context, &mut charge)?;
-        let identifiers: BTreeMap<_, _> = read::<SyntaxObservation, _>(context, &mut charge)?
-            .into_iter()
-            .map(|o| (o.occurrence, o.spelling))
-            .collect();
+        let mut source_references = BTreeMap::new();
+        // Partition the one declared stream directly, retaining encounter order (including
+        // duplicate references) without a global row vector plus position vectors.
+        for batch in context.input::<ReferenceObservation>()? {
+            for reference in batch?.rows() {
+                if let Some(site) = occurrences.get(&reference.read) {
+                    charge.grow(
+                        (size_of::<ReferenceObservation>() + reference.heap_bytes() + 128)
+                            .saturating_mul(4),
+                    )?;
+                    push(
+                        &mut source_references,
+                        &mut charge,
+                        site.source,
+                        reference.clone(),
+                    )?;
+                }
+            }
+        }
+        let mut preparation_charge =
+            StateCharge::new(context.budget(), "ty_flow_runtime_preparation");
+        let imports: Vec<ImportAliasObservation> = read(context, &mut preparation_charge)?;
+        let identifiers: BTreeMap<_, _> =
+            read::<SyntaxObservation, _>(context, &mut preparation_charge)?
+                .into_iter()
+                .map(|o| (o.occurrence, o.spelling))
+                .collect();
         // Derived lookup partitions preserve each original collection's order and predicates.
         // Reserve before retaining each key/slot; these indexes own no additional semantic facts.
         fn push<K: Ord, V>(
@@ -226,21 +298,32 @@ impl Index {
         let mut source_imports = BTreeMap::new();
         for (position, import) in imports.iter().enumerate() {
             if let Some(site) = occurrences.get(&import.alias) {
-                push(&mut source_imports, &mut charge, site.source, position)?;
+                push(
+                    &mut source_imports,
+                    &mut preparation_charge,
+                    site.source,
+                    position,
+                )?;
             }
         }
         let mut source_identifiers = BTreeMap::new();
         for id in identifiers.keys() {
             if let Some(site) = occurrences.get(id) {
-                push(&mut source_identifiers, &mut charge, site.source, *id)?;
+                push(
+                    &mut source_identifiers,
+                    &mut preparation_charge,
+                    site.source,
+                    *id,
+                )?;
             }
         }
-        let mut source_references = BTreeMap::new();
-        for (position, reference) in references.iter().enumerate() {
-            if let Some(site) = occurrences.get(&reference.read) {
-                push(&mut source_references, &mut charge, site.source, position)?;
-            }
-        }
+        let preparation = RuntimePreparation {
+            _charge: preparation_charge,
+            identifiers,
+            imports,
+            source_imports,
+            source_identifiers,
+        };
         let mut source_scopes = BTreeMap::new();
         for (id, scope) in &scopes {
             if let Some(site) = occurrences.get(&scope.owner) {
@@ -267,8 +350,6 @@ impl Index {
         let mut index = Self {
             _charge: charge,
             runtime_imports: BTreeMap::new(),
-            source_imports,
-            source_identifiers,
             source_references,
             source_scopes,
             scope_bindings,
@@ -281,16 +362,16 @@ impl Index {
             events,
             targets,
             resolutions,
-            references,
-            imports,
-            identifiers,
         };
         for event in index.events.values() {
-            if let Some(special) = index.import_special(event) {
+            if let Some(special) = preparation.import_special(event, &index.occurrences) {
                 index._charge.grow(192)?;
                 index.runtime_imports.insert(event.id(), special);
             }
         }
+        // The compact classification map has its own Index charge. No import/spelling
+        // preparation or its reservation remains live during native module collection.
+        drop(preparation);
         Ok(index)
     }
     fn scope(
@@ -379,7 +460,6 @@ impl Index {
             .get(&site.source)
             .into_iter()
             .flatten()
-            .map(|position| &self.references[*position])
             .find(|r| {
                 r.name == place.root
                     && self.occurrences.get(&r.read).is_some_and(|o| {
@@ -440,57 +520,24 @@ impl Index {
             name: place.root.clone(),
         })
     }
-    fn import_special(&self, event: &BindingEvent) -> Option<RuntimeSpecial> {
-        let site = self.occurrences.get(&event.site)?;
-        let source = site.source;
-        let alias = self
-            .source_imports
-            .get(&source)
-            .into_iter()
-            .flatten()
-            .map(|position| &self.imports[*position])
-            .find(|i| {
-                self.occurrences.get(&i.alias).is_some_and(|a| {
-                    a.source == site.source && a.start <= site.start && a.end >= site.end
-                })
-            })?;
-        let alias_site = self.occurrences.get(&alias.alias)?;
-        let is_from =
-            self.occurrences.get(&alias.statement)?.syntax_kind == SyntaxKind::StmtImportFrom;
-        let imported = self
-            .source_identifiers
-            .get(&source)
-            .into_iter()
-            .flatten()
-            .find(|id| {
-                self.occurrences.get(id).is_some_and(|o| {
-                    o.source == alias_site.source
-                        && o.start == alias_site.start
-                        && o.end <= alias_site.end
-                })
-            })
-            .and_then(|id| self.identifiers.get(id))
-            .map(String::as_str);
-        let special = match (alias.resolved_module.as_deref(), is_from, imported) {
-            (Some("typing" | "typing_extensions"), true, Some("TYPE_CHECKING")) => {
-                RuntimeSpecial::Checking
+    fn runtime(
+        &self,
+        source: Id<SourceArtifact>,
+        charge: &mut StateCharge,
+    ) -> Result<cpg_flow::RuntimeBindings, ModelError> {
+        fn span(
+            set: &mut std::collections::BTreeSet<Span>,
+            value: Span,
+            charge: &mut StateCharge,
+        ) -> Result<(), ModelError> {
+            if !set.contains(&value) {
+                charge.grow(cpg_flow::RuntimeBindings::SPAN_ENTRY_BYTES)?;
+                set.insert(value);
             }
-            (Some("typing" | "typing_extensions"), false, _) => RuntimeSpecial::Typing,
-            (Some("sys"), false, _) => RuntimeSpecial::Sys,
-            (Some("os"), false, _) => RuntimeSpecial::Os,
-            _ => return None,
-        };
-        Some(special)
-    }
-    fn runtime(&self, source: Id<SourceArtifact>) -> cpg_flow::RuntimeBindings {
+            Ok(())
+        }
         let mut out = cpg_flow::RuntimeBindings::default();
-        for reference in self
-            .source_references
-            .get(&source)
-            .into_iter()
-            .flatten()
-            .map(|position| &self.references[*position])
-        {
+        for reference in self.source_references.get(&source).into_iter().flatten() {
             let Some(occurrence) = self
                 .occurrences
                 .get(&reference.read)
@@ -531,37 +578,87 @@ impl Index {
             if !resolutions.iter().all(|r| classify(r) == Some(special)) {
                 continue;
             }
-            let span = Span {
+            let location = Span {
                 start: occurrence.start as u32,
                 end: occurrence.end as u32,
             };
             match special {
                 RuntimeSpecial::Checking => {
-                    out.checking_names.insert(span);
+                    span(&mut out.checking_names, location, charge)?;
                 }
                 RuntimeSpecial::Typing => {
-                    out.typing_modules.insert(span);
+                    span(&mut out.typing_modules, location, charge)?;
                 }
                 RuntimeSpecial::Sys => {
-                    out.sys_modules.insert(span);
+                    span(&mut out.sys_modules, location, charge)?;
                 }
                 RuntimeSpecial::Os => {
-                    out.os_modules.insert(span);
+                    span(&mut out.os_modules, location, charge)?;
                 }
                 RuntimeSpecial::Type => {
-                    out.builtin_type.insert(span);
+                    span(&mut out.builtin_type, location, charge)?;
                 }
                 RuntimeSpecial::Class => {
-                    out.builtin_classes
-                        .entry(reference.name.clone())
-                        .or_default()
-                        .insert(span);
+                    if let Some(set) = out.builtin_classes.get_mut(&reference.name) {
+                        span(set, location, charge)?;
+                    } else {
+                        charge.grow(
+                            cpg_flow::RuntimeBindings::CLASS_ENTRY_BYTES
+                                .saturating_add(reference.name.len())
+                                .saturating_add(cpg_flow::RuntimeBindings::SPAN_ENTRY_BYTES),
+                        )?;
+                        let mut set = std::collections::BTreeSet::new();
+                        set.insert(location);
+                        out.builtin_classes.insert(reference.name.clone(), set);
+                    }
                 }
             }
         }
-        out
+        Ok(out)
     }
 }
+/// Read only the captured geometry. Both retained source backing and temporary path growth
+/// are admitted before allocation; a changed file cannot grow an unbounded read buffer.
+fn read_captured_source(
+    artifact: &SourceArtifact,
+    root: &std::path::Path,
+    charge: &mut StateCharge,
+) -> Result<Vec<u8>, ModelError> {
+    use std::io::Read;
+    let byte_len =
+        usize::try_from(artifact.byte_len).map_err(|_| invalid("invalid ty source byte length"))?;
+    let path_bytes = root
+        .as_os_str()
+        .len()
+        .saturating_add(artifact.path.len())
+        .saturating_add(8)
+        .saturating_mul(2);
+    charge.grow(
+        byte_len
+            .saturating_add(artifact.path.len())
+            .saturating_add(128)
+            .saturating_add(path_bytes),
+    )?;
+    let mut file = std::fs::File::open(root.join(&artifact.path)).map_err(ModelError::codec)?;
+    charge.release(path_bytes);
+    let mut bytes = vec![0; byte_len];
+    file.read_exact(&mut bytes).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::UnexpectedEof {
+            invalid("ty input shrank below captured geometry")
+        } else {
+            ModelError::codec(error)
+        }
+    })?;
+    let mut extra = [0];
+    if file.read(&mut extra).map_err(ModelError::codec)? != 0 {
+        return Err(invalid("ty input grew beyond captured geometry"));
+    }
+    if ContentHash::of(&bytes) != artifact.content {
+        return Err(invalid("ty input differs from capture"));
+    }
+    Ok(bytes)
+}
+
 impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError> {
         macro_rules! declare {($($ty:ty),+)=>{$(context.declare::<$ty>()?;)+}}
@@ -599,9 +696,20 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
             }
             context.contribute(surface.clone())?;
             let roots = crate::pyrefly_stage::roots(input)?;
+            let mut charge = StateCharge::new(context.budget(), "ty_flow_input_slots");
             let mut native_inputs = Vec::new();
             let mut admitted = Vec::new();
-            let mut charge = StateCharge::new(context.budget(), "ty_flow_source_buffers");
+            fn reserve_slot<T>(
+                values: &mut Vec<T>,
+                charge: &mut StateCharge,
+            ) -> Result<(), ModelError> {
+                if values.len() == values.capacity() {
+                    let capacity = values.capacity().saturating_mul(2).max(4);
+                    charge.grow((capacity - values.capacity()).saturating_mul(size_of::<T>()))?;
+                    values.reserve_exact(capacity - values.len());
+                }
+                Ok(())
+            }
             for artifact in roots {
                 context.check_cancelled()?;
                 let scope = CoverageScope::Artifact {
@@ -621,12 +729,9 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
                     partial = true;
                     continue;
                 }
-                charge.grow(artifact.byte_len as usize + artifact.path.len() + 128)?;
-                let bytes = std::fs::read(input.captured().root().join(&artifact.path))
-                    .map_err(ModelError::codec)?;
-                if ContentHash::of(&bytes) != artifact.content {
-                    return Err(invalid("ty input differs from capture"));
-                }
+                let mut source_charge = StateCharge::new(context.budget(), "ty_flow_source_buffer");
+                let bytes =
+                    read_captured_source(artifact, input.captured().root(), &mut source_charge)?;
                 let text = match String::from_utf8(bytes) {
                     Ok(s) => s,
                     Err(_) => {
@@ -643,11 +748,18 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
                         continue;
                     }
                 };
-                native_inputs.push(cpg_flow::Input {
-                    path: artifact.path.clone(),
-                    text,
-                    runtime: index.runtime(artifact.id()),
-                });
+                let runtime = index.runtime(artifact.id(), &mut source_charge)?;
+                let native_input = cpg_flow::AdmittedInput::new(
+                    cpg_flow::Input {
+                        path: artifact.path.clone(),
+                        text,
+                        runtime,
+                    },
+                    source_charge,
+                )?;
+                reserve_slot(&mut native_inputs, &mut charge)?;
+                reserve_slot(&mut admitted, &mut charge)?;
+                native_inputs.push(native_input);
                 admitted.push(artifact);
             }
             context.check_cancelled()?;
@@ -655,7 +767,7 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
             let control = context.control();
             let mut module: Option<ModuleState> = None;
             cpg_flow::visit_modules(
-                &native_inputs,
+                native_inputs,
                 &cpg_flow::RuntimeContext {
                     python_version: version,
                     platform: analysis.python_platform.clone(),
@@ -1876,5 +1988,323 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod preparation_controls {
+    use super::*;
+    use lctx_model::domain::resources::ResourceBudget;
+
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    fn occurrence(source: u8, start: i64, end: i64, kind: SyntaxKind, path: i32) -> Occurrence {
+        Occurrence {
+            source: id(source),
+            start,
+            end,
+            syntax_kind: kind,
+            role: OccurrenceRole::Syntax,
+            structural_path: vec![path],
+        }
+    }
+    fn index(rows: Vec<Occurrence>, budget: &ResourceBudget) -> Index {
+        let mut charge = StateCharge::new(budget, "flow-index-control");
+        charge
+            .grow(
+                rows.capacity() * size_of::<Occurrence>()
+                    + rows.iter().map(HeapSize::heap_bytes).sum::<usize>(),
+            )
+            .unwrap();
+        let positions = rows
+            .iter()
+            .enumerate()
+            .map(|(position, row)| (row.id(), position))
+            .collect();
+        Index {
+            _charge: StateCharge::new(budget, "flow-index-control-lookups"),
+            occurrences: Occurrences {
+                prepared: crate::bundle::PreparedOccurrences {
+                    rows,
+                    _charge: charge,
+                },
+                positions,
+            },
+            scopes: BTreeMap::new(),
+            declarations: vec![],
+            bindings: BTreeMap::new(),
+            events: BTreeMap::new(),
+            targets: BTreeMap::new(),
+            resolutions: BTreeMap::new(),
+            runtime_imports: BTreeMap::new(),
+            source_references: BTreeMap::new(),
+            source_scopes: BTreeMap::new(),
+            scope_bindings: BTreeMap::new(),
+            occurrence_bindings: BTreeMap::new(),
+            owner_declarations: BTreeMap::new(),
+        }
+    }
+    fn reference(read: &Occurrence, name: &str) -> ReferenceObservation {
+        ReferenceObservation {
+            qualification: id(9),
+            read: read.id(),
+            scope: id(10),
+            parent: id(11),
+            field: SyntaxField::Child,
+            name: name.into(),
+        }
+    }
+    fn resolve(index: &mut Index, read: Id<Occurrence>, target: LexicalTarget) {
+        let key = target.id();
+        index.targets.insert(key, target);
+        index
+            .resolutions
+            .entry(read)
+            .or_default()
+            .push(LexicalResolution {
+                qualification: id(9),
+                read,
+                target: key,
+                captured: true,
+            });
+    }
+
+    #[test]
+    fn preparation_drops_after_foreign_import_classification_and_references_keep_first_order() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let read = occurrence(1, 0, 1, SyntaxKind::ExprName, 0);
+        let later = occurrence(1, 0, 1, SyntaxKind::ExprName, 1);
+        let local_owner = occurrence(1, 0, 20, SyntaxKind::ModModule, 2);
+        let foreign_owner = occurrence(2, 0, 40, SyntaxKind::ModModule, 3);
+        let statement = occurrence(2, 0, 35, SyntaxKind::StmtImportFrom, 4);
+        let alias = occurrence(2, 19, 35, SyntaxKind::Alias, 5);
+        let imported = occurrence(2, 19, 32, SyntaxKind::Identifier, 6);
+        let binding_site = occurrence(2, 33, 35, SyntaxKind::Identifier, 7);
+        let mut index = index(
+            vec![
+                read.clone(),
+                later.clone(),
+                local_owner.clone(),
+                foreign_owner.clone(),
+                statement.clone(),
+                alias.clone(),
+                imported.clone(),
+                binding_site.clone(),
+            ],
+            &budget,
+        );
+        let local = LexicalScope {
+            owner: local_owner.id(),
+            kind: LexicalScopeKind::Module,
+        };
+        let foreign = LexicalScope {
+            owner: foreign_owner.id(),
+            kind: LexicalScopeKind::Module,
+        };
+        index.scopes.insert(local.id(), local.clone());
+        index.scopes.insert(foreign.id(), foreign.clone());
+        let event = BindingEvent {
+            site: binding_site.id(),
+            name: "guard".into(),
+        };
+        index.events.insert(event.id(), event.clone());
+        index.bindings.insert(
+            event.id(),
+            BindingObservation {
+                qualification: id(9),
+                event: event.id(),
+                scope: foreign.id(),
+                kind: BindingEventKind::FromImport,
+                ordinal: 0,
+                value: None,
+                static_branch: None,
+                static_polarity: None,
+            },
+        );
+        let mut preparation_charge = StateCharge::new(&budget, "flow-runtime-preparation-control");
+        preparation_charge.grow(4096).unwrap();
+        let preparation = RuntimePreparation {
+            _charge: preparation_charge,
+            identifiers: BTreeMap::from([(imported.id(), "TYPE_CHECKING".into())]),
+            imports: vec![ImportAliasObservation {
+                qualification: id(9),
+                statement: statement.id(),
+                alias: alias.id(),
+                level: 0,
+                resolved_module: Some("typing".into()),
+            }],
+            source_imports: BTreeMap::from([(id(2), vec![0])]),
+            source_identifiers: BTreeMap::from([(id(2), vec![imported.id()])]),
+        };
+        assert!(matches!(
+            preparation.import_special(&event, &index.occurrences),
+            Some(RuntimeSpecial::Checking)
+        ));
+        index._charge.grow(192).unwrap();
+        index
+            .runtime_imports
+            .insert(event.id(), RuntimeSpecial::Checking);
+        let before = budget.reserved();
+        let released = preparation._charge.accounted_bytes();
+        drop(preparation);
+        assert_eq!(budget.reserved(), before - released);
+        assert!(index.runtime_imports.contains_key(&event.id()));
+        resolve(
+            &mut index,
+            read.id(),
+            LexicalTarget::Binding { event: event.id() },
+        );
+        resolve(
+            &mut index,
+            later.id(),
+            LexicalTarget::Builtin {
+                name: "type".into(),
+                variable: false,
+            },
+        );
+        let first = reference(&read, "guard");
+        let second = reference(&later, "guard");
+        index
+            .source_references
+            .insert(id(1), vec![first.clone(), second.clone(), first.clone()]);
+        assert_eq!(
+            index.source_references[&id(1)],
+            vec![first.clone(), second, first]
+        );
+        let place = native::Place {
+            root: "guard".into(),
+            segments: vec![],
+        };
+        assert_eq!(
+            index.root(local.id(), &place, read.id()).unwrap(),
+            PlaceRoot::Local {
+                scope: foreign_owner.id(),
+                name: "guard".into()
+            }
+        );
+        let mut runtime_charge = StateCharge::new(&budget, "flow-runtime-control");
+        let runtime = index.runtime(id(1), &mut runtime_charge).unwrap();
+        let location = Span { start: 0, end: 1 };
+        assert_eq!(
+            runtime.checking_names,
+            std::collections::BTreeSet::from([location])
+        );
+        assert_eq!(
+            runtime.builtin_type,
+            std::collections::BTreeSet::from([location])
+        );
+        assert_eq!(
+            runtime_charge.reserved(),
+            2 * cpg_flow::RuntimeBindings::SPAN_ENTRY_BYTES,
+            "duplicate reference observations do not retain duplicate runtime backing"
+        );
+        drop(runtime);
+        drop(runtime_charge);
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn runtime_requires_candidate_agreement_and_admits_unique_class_backing_before_clone() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let read = occurrence(1, 4, 7, SyntaxKind::ExprName, 0);
+        let ambiguous = occurrence(1, 10, 14, SyntaxKind::ExprName, 1);
+        let mut index = index(vec![read.clone(), ambiguous.clone()], &budget);
+        resolve(
+            &mut index,
+            read.id(),
+            LexicalTarget::Builtin {
+                name: "int".into(),
+                variable: false,
+            },
+        );
+        resolve(
+            &mut index,
+            ambiguous.id(),
+            LexicalTarget::Builtin {
+                name: "int".into(),
+                variable: false,
+            },
+        );
+        resolve(
+            &mut index,
+            ambiguous.id(),
+            LexicalTarget::Builtin {
+                name: "type".into(),
+                variable: false,
+            },
+        );
+        index.source_references.insert(
+            id(1),
+            vec![
+                reference(&read, "int"),
+                reference(&read, "int"),
+                reference(&ambiguous, "type"),
+            ],
+        );
+        let mut charge = StateCharge::new(&budget, "runtime-class-control");
+        let runtime = index.runtime(id(1), &mut charge).unwrap();
+        assert_eq!(
+            runtime.builtin_classes,
+            BTreeMap::from([(
+                "int".into(),
+                std::collections::BTreeSet::from([Span { start: 4, end: 7 }])
+            )])
+        );
+        assert!(runtime.builtin_type.is_empty());
+        assert_eq!(
+            charge.reserved(),
+            cpg_flow::RuntimeBindings::CLASS_ENTRY_BYTES
+                + 3
+                + cpg_flow::RuntimeBindings::SPAN_ENTRY_BYTES
+        );
+        assert_eq!(charge.reserved(), runtime.owned_bytes());
+        let refused = ResourceBudget::fixed(1).unwrap();
+        let mut refusal_charge = StateCharge::new(&refused, "runtime-refused-control");
+        assert!(matches!(
+            index.runtime(id(1), &mut refusal_charge),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(refused.reserved(), 0);
+        drop(runtime);
+        drop(charge);
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
+    }
+}
+
+#[cfg(test)]
+mod source_buffer_controls {
+    use super::*;
+    #[test]
+    fn captured_source_growth_shrink_and_same_length_change_are_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let source = b"x = 1\n";
+        let revision = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
+        let artifact =
+            SourceArtifact::from_bytes(revision.id(), "sample.py".into(), source).unwrap();
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        for bytes in [source.as_slice(), b"x = 1\nextra", b"x", b"x = 2\n"] {
+            std::fs::write(root.path().join("sample.py"), bytes).unwrap();
+            let mut charge = StateCharge::new(&budget, "source-buffer-control");
+            let result = read_captured_source(&artifact, root.path(), &mut charge);
+            if bytes == source {
+                assert_eq!(result.unwrap(), source);
+            } else {
+                assert!(matches!(result, Err(ModelError::Invalid(_))));
+            }
+            assert!(charge.reserved() >= source.len());
+            drop(charge);
+            assert_eq!(budget.reserved(), 0);
+        }
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
+        let mut charge = StateCharge::new(&budget, "source-buffer-refusal");
+        assert!(matches!(
+            read_captured_source(&artifact, &root.path().join("missing"), &mut charge),
+            Err(ModelError::Resource { .. })
+        ));
+        drop(charge);
+        assert_eq!(budget.reserved(), 0);
     }
 }

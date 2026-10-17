@@ -53,38 +53,36 @@ reqwest = { version = "=0.12.28", default-features = false }
 
 # ADR-0117/0118: native Pyrefly keeps embedded registry Ruff 0.0.14.
 # Latest Ruff/ty use one nominal fork source; no AST type crosses the adapter boundary.
-pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
-pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
-pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
-pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
-pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
-pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "63cda076956013cd0bd1d0d05c785f747fe6adc0" }
+pyrefly = { git = "https://github.com/paul-heyse/pyrefly", rev = "b8a668daf1e100cc666b31c77d5bdbb70e319380" }
+pyrefly_build = { git = "https://github.com/paul-heyse/pyrefly", rev = "b8a668daf1e100cc666b31c77d5bdbb70e319380" }
+pyrefly_config = { git = "https://github.com/paul-heyse/pyrefly", rev = "b8a668daf1e100cc666b31c77d5bdbb70e319380" }
+pyrefly_python = { git = "https://github.com/paul-heyse/pyrefly", rev = "b8a668daf1e100cc666b31c77d5bdbb70e319380" }
+pyrefly_types = { git = "https://github.com/paul-heyse/pyrefly", rev = "b8a668daf1e100cc666b31c77d5bdbb70e319380" }
+pyrefly_util = { git = "https://github.com/paul-heyse/pyrefly", rev = "b8a668daf1e100cc666b31c77d5bdbb70e319380" }
 ruff_python_ast = "=0.0.14"
 ruff_python_parser = "=0.0.14"
 ruff_source_file = "=0.0.14"
 ruff_text_size = "=0.0.14"
 # Fork pin: independent Ruff/ty observational seams; revisit when upstream exposes equivalent contracts.
 # salsa and both macro crates must remain one type-sharing family at 0.28.5.
-ruff_python_stdlib = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_ide = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_project = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968", default-features = false }
-ruff_python_ast_ty = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_text_size_ty = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_parser_ty = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
+ruff_python_stdlib = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_ide = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_project = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0", default-features = false }
+ruff_python_ast_ty = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_text_size_ty = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_parser_ty = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
 salsa = { version = "=0.28.5", default-features = false, features = ["compact_str", "macros", "salsa_unstable", "inventory", "ordermap"] }
-ruff_index_latest = { package = "ruff_index", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_ast_latest = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_codegen_latest = { package = "ruff_python_codegen", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_index_latest = { package = "ruff_python_index", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_parser_latest = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_text_size_latest = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
+ruff_index_latest = { package = "ruff_index", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_ast_latest = { package = "ruff_python_ast", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_parser_latest = { package = "ruff_python_parser", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_text_size_latest = { package = "ruff_text_size", git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
 # Id derivation (DESIGN §3.4.1); Pyrefly pins the same exact version.
 blake3 = "=1.8.6"
 xxhash-rust = { version = "=0.8.19", default-features = false, features = ["xxh3"] }
@@ -196,31 +194,31 @@ surrealdb-types = { path = "third_party/surrealdb-types" }
 tonic = { path = "third_party/tonic" }
 
 # Keep all reachable published latest-family crates at the same nominal source.
-ruff_annotate_snippets = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_cache = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_diagnostics = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_index = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_macros = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_memory_usage = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_notebook = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_ast = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_codegen = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_edits = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_importer = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_index = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_literal = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_parser = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_stdlib = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_python_trivia = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_combine = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_site_packages = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_static = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
-ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "9080ee7a82a4ec7359ba2ade60839ef1108a2968" }
+ruff_annotate_snippets = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_cache = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_db = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_diagnostics = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_index = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_linter = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_macros = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_memory_usage = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_notebook = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_ast = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_codegen = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_edits = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_importer = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_index = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_literal = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_parser = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_semantic = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_stdlib = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_python_trivia = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_ranged_value = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_source_file = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ruff_text_size = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_combine = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_module_resolver = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_site_packages = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_static = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }
+ty_vendored = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0" }

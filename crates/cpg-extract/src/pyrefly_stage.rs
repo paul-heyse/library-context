@@ -821,9 +821,10 @@ fn session<S: ProviderSink + 'static>(
             &run,
             &surfaces[&FactFamily::Types],
         )?;
+        let prepared = canonical.prepare(context.budget())?;
         write_diagnostics(
             context,
-            canonical.diagnostics(artifact, &qualification, context.budget())?,
+            prepared.diagnostics(artifact, &qualification, context.budget())?,
             &ruff_run,
             &ruff_context_surface,
         )?;
@@ -862,10 +863,11 @@ fn session<S: ProviderSink + 'static>(
             Ok(_) => {
                 let control = context.control();
                 let mut contextual =
-                    canonical.context_rows(&spans, &qualification, context.budget(), &|| {
+                    prepared.context_rows(&spans, &qualification, context.budget(), &|| {
                         control.check()
                     })?;
-                let records = syntax_records::records(
+                drop(prepared);
+                let mut records = syntax_records::records(
                     ast,
                     &module_name,
                     is_package,
@@ -911,9 +913,8 @@ fn session<S: ProviderSink + 'static>(
                     &records.parameters,
                     &records.formals,
                 )?;
-                let call_syntax = records.calls.clone();
-                let type_syntax = records.clone();
-                write_records(context, records, &|family, subject| {
+                let retained_syntax = records.retain_for_consumers(context.budget())?;
+                write_records(context, records, &retained_syntax, &|family, subject| {
                     support(family, subject)
                 })?;
                 cancellation.check()?;
@@ -1034,7 +1035,7 @@ fn session<S: ProviderSink + 'static>(
                             provider,
                             &locator,
                             &spans,
-                            &call_syntax,
+                            &retained_syntax.calls,
                             &mut natives,
                             context.budget(),
                         )?;
@@ -1060,7 +1061,7 @@ fn session<S: ProviderSink + 'static>(
                         &qualification,
                         &analysis,
                         provider,
-                        &type_syntax,
+                        &retained_syntax,
                         &spans,
                         &mut natives,
                         context.budget(),
@@ -1851,7 +1852,7 @@ fn definitions(
     let module_name = module_name.as_str();
     use pyrefly::report::pysa::{
         class::{ClassId, get_all_classes, get_class_mro},
-        export_module_definitions,
+        export_module_definitions, export_module_definitions_selected,
         override_graph::create_reversed_override_graph_for_module,
     };
     let module_ids = &transaction
@@ -1861,7 +1862,19 @@ fn definitions(
     let this = natives.module(module_name, handle.path())?;
     let current = module_ids.get_from_handle(handle);
     let overrides = create_reversed_override_graph_for_module(pysa);
-    let definitions = export_module_definitions(pysa, captured, &overrides);
+    let mut selection = None;
+    let definitions = if let Some((keys, names)) = keep.filter(|_| tap.is_none()) {
+        export_module_definitions_selected(pysa, captured, &overrides, |classes, functions| {
+            let (selected, functions) = symbol_records::select_definitions(
+                classes, functions, keys, names, expand_mro, budget,
+            )?;
+            selection = Some(selected);
+            Ok::<_, ModelError>(functions)
+        })?
+    } else {
+        // Root modules and an explicitly requested native report retain the full export.
+        export_module_definitions(pysa, captured, &overrides)
+    };
     if let Some(tap) = tap {
         let graphs = pyrefly::report::pysa::export_module_call_graphs(pysa, captured);
         let report = serde_json::json!({ "definitions": serde_json::to_value(&definitions).map_err(ModelError::codec)?,
@@ -1938,16 +1951,24 @@ fn definitions(
         }
         natives.module(&name.to_string(), found.path())
     };
-    let kept = keep.map(|(keys, names)| {
-        let mut kept = keys.clone();
-        for name in names {
-            kept.extend(symbol_records::qualified(&definitions, name));
-        }
-        if expand_mro {
-            kept.extend(symbol_records::class_keys(&definitions));
-        }
-        kept
-    });
+    if selection.is_none()
+        && let Some((keys, names)) = keep
+    {
+        selection = Some(
+            symbol_records::select_definitions(
+                &definitions.class_definitions,
+                &pysa
+                    .resolver
+                    .current_module_solutions()
+                    .function_base_definitions,
+                keys,
+                names,
+                expand_mro,
+                budget,
+            )?
+            .0,
+        );
+    }
     let mut records = symbol_records::records(
         &definitions,
         this,
@@ -1957,11 +1978,14 @@ fn definitions(
         &complete,
         &origins,
         linking,
-        kept.as_ref(),
+        selection.as_ref().map(|selection| &selection.keys),
         budget,
     )?;
     records.captures = Some(crate::capture_records::records(
-        &definitions,
+        &pysa
+            .resolver
+            .current_module_solutions()
+            .function_base_definitions,
         captured,
         this,
         current,
@@ -2188,6 +2212,7 @@ type Support = (
 fn write_records<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     records: syntax_records::Records,
+    retained: &syntax_records::RetainedSyntax,
     support: &dyn Fn(FactFamily, lctx_model::domain::Id<Occurrence>) -> Support,
 ) -> Result<(), ModelError> {
     macro_rules! with_support {
@@ -2208,7 +2233,7 @@ fn write_records<S: ProviderSink + 'static>(
         };
     }
     with_support!(
-        records.declarations,
+        retained.declarations.iter().cloned(),
         DeclarationSupport,
         FactFamily::Syntax,
         declaration
@@ -2232,7 +2257,7 @@ fn write_records<S: ProviderSink + 'static>(
         statement
     );
     with_support!(
-        records.parameters,
+        retained.parameters.iter().cloned(),
         ParameterSyntaxSupport,
         FactFamily::Signatures,
         parameter
@@ -2243,7 +2268,7 @@ fn write_records<S: ProviderSink + 'static>(
         FactFamily::Syntax,
         target
     );
-    for (call, arguments) in records.calls {
+    for (call, arguments) in &retained.calls {
         let (run, surface, evidence) = support(FactFamily::Syntax, call.site);
         context.emit(CallSyntaxSupport {
             assertion: call.id(),
@@ -2254,9 +2279,9 @@ fn write_records<S: ProviderSink + 'static>(
             mode: ExtractionMode::NativeTraversal,
             fidelity: Fidelity::NativeStructural,
         })?;
-        context.emit(call)?;
+        context.emit(call.clone())?;
         for argument in arguments {
-            context.emit(argument)?;
+            context.emit(argument.clone())?;
         }
     }
     for literal in records.literals {
@@ -2753,7 +2778,7 @@ fn types(
     qualification: &AssertionQualification,
     context_info: &AnalysisContext,
     provider: &Provider,
-    syntax: &syntax_records::Records,
+    syntax: &syntax_records::RetainedSyntax,
     spans: &Spans,
     natives: &mut Natives,
     budget: &lctx_model::domain::resources::ResourceBudget,

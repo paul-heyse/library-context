@@ -656,9 +656,18 @@ index b40693e20..cd72dcab9 100644
  // code references types via `crate::pysa_report_capnp::...`.
  #[allow(clippy::all)]
 diff --git a/pyrefly/lib/report/pysa.rs b/pyrefly/lib/report/pysa.rs
-index 7cbd586ff..8018d0173 100644
+index 7cbd586ff..caae3d223 100644
 --- a/pyrefly/lib/report/pysa.rs
 +++ b/pyrefly/lib/report/pysa.rs
+@@ -73,7 +73,7 @@ use crate::report::pysa::function::FunctionId;
+ use crate::report::pysa::function::FunctionRef;
+ use crate::report::pysa::function::ModuleFunctionDefinitions;
+ use crate::report::pysa::function::export_all_functions;
+-use crate::report::pysa::function::export_function_definitions;
++use crate::report::pysa::function::export_function_definitions_selected;
+ use crate::report::pysa::global_variable::GlobalVariable;
+ use crate::report::pysa::global_variable::ModuleGlobalVariables;
+ use crate::report::pysa::global_variable::collect_global_variables_for_module;
 @@ -220,6 +220,8 @@ pub struct PysaReporter {
      pub type_of_expressions_directory: PathBuf,
      pub call_graphs_directory: PathBuf,
@@ -686,6 +695,233 @@ index 7cbd586ff..8018d0173 100644
          let info_filename = match handle.path().details() {
              ModulePathDetails::Namespace(_) => None,
              _ => Some(PathBuf::from(format!(
+@@ -361,15 +367,214 @@ pub fn export_module_definitions(
+     captured_variables: &ModuleCapturedVariables<FunctionRef>,
+     reversed_override_graph: &ModuleReversedOverrideGraph,
+ ) -> PysaModuleDefinitions {
++    export_module_definitions_with_selection(
++        context,
++        captured_variables,
++        reversed_override_graph,
++        |_, _| Ok::<_, std::convert::Infallible>(None),
++    )
++    .unwrap()
++}
++
++/// Select heavy function payloads from the complete borrowed base inventory and exported classes.
++/// Classes, globals, capture discovery and native module solutions remain complete.
++pub fn export_module_definitions_selected<E>(
++    context: &ModuleContext,
++    captured_variables: &ModuleCapturedVariables<FunctionRef>,
++    reversed_override_graph: &ModuleReversedOverrideGraph,
++    select: impl FnOnce(
++        &HashMap<ClassId, ClassDefinition>,
++        &ModuleFunctionDefinitions<FunctionBaseDefinition>,
++    ) -> Result<HashSet<FunctionId>, E>,
++) -> Result<PysaModuleDefinitions, E> {
++    export_module_definitions_with_selection(
++        context,
++        captured_variables,
++        reversed_override_graph,
++        |classes, functions| select(classes, functions).map(Some),
++    )
++}
++
++#[cfg(test)]
++mod selected_definition_controls {
++    use dupe::Dupe;
++
++    use super::*;
++    use crate::report::pysa::captured_variable::CaptureKind;
++    use crate::report::pysa::captured_variable::collect_captured_variables_for_module;
++    use crate::report::pysa::context::ModuleAnswersContext;
++    use crate::report::pysa::context::PysaResolver;
++    use crate::report::pysa::override_graph::create_reversed_override_graph_for_module;
++    use crate::state::require::Require;
++    use crate::test::util::TestEnv;
++
++    #[test]
++    fn selected_function_payloads_equal_full_report_with_complete_bases_and_captures() {
++        let mut env = TestEnv::new();
++        env.add(
++            "selected",
++            r#"
++global_value: int = 3
++def decorate(f):
++    return f
++def outer(x: int) -> int:
++    @decorate
++    def inner(y: int) -> int:
++        return x + y + global_value
++    class Nested:
++        def method(self) -> int:
++            return inner(1)
++    return inner(2)
++class Base:
++    def method(self, value: int) -> int:
++        return value
++class Child(Base):
++    def method(self, value: int) -> int:
++        return value + global_value
++def unused(value: str) -> str:
++    return value
++"#,
++        );
++        let (state, get_handle) = env
++            .with_default_require_level(Require::Everything)
++            .to_state();
++        let transaction = state.transaction();
++        let handles = transaction.handles();
++        let module_ids = ModuleIds::new(&handles);
++        let handle = get_handle("selected");
++        let resolver =
++            PysaResolver::new_for_test(&transaction, &module_ids, handle.dupe(), &handles);
++        let context = ModuleContext {
++            answers_context: ModuleAnswersContext::create(handle, &transaction, &module_ids),
++            resolver: &resolver,
++        };
++        let captured = collect_captured_variables_for_module(&context);
++        let overrides = create_reversed_override_graph_for_module(&context);
++        let mut selected_ids = HashSet::new();
++        // Select before the first full export, so equivalence cannot rely on its warmed payloads.
++        let selected = export_module_definitions_selected(
++            &context,
++            &captured,
++            &overrides,
++            |classes, bases| {
++                assert!(classes.values().any(|class| class.name == "Nested"));
++                assert!(
++                    bases
++                        .as_map()
++                        .values()
++                        .any(|base| base.name.as_str() == "unused")
++                );
++                selected_ids = bases
++                    .as_map()
++                    .iter()
++                    .filter_map(|(id, base)| {
++                        matches!(base.name.as_str(), "outer" | "inner" | "method")
++                            .then_some(id.clone())
++                    })
++                    .collect();
++                Ok::<_, std::convert::Infallible>(selected_ids.clone())
++            },
++        )
++        .unwrap();
++        let full = export_module_definitions(&context, &captured, &overrides);
++        assert_eq!(selected.class_definitions, full.class_definitions);
++        assert_eq!(selected.global_variables, full.global_variables);
++        assert_eq!(
++            selected.function_definitions.as_map().len(),
++            selected_ids.len()
++        );
++        assert!(full.function_definitions.as_map().len() > selected_ids.len());
++        let bases = &resolver
++            .current_module_solutions()
++            .function_base_definitions;
++        assert_eq!(
++            bases.as_map().len(),
++            full.function_definitions.as_map().len()
++        );
++        for (id, definition) in full.function_definitions.as_map() {
++            assert_eq!(bases.get(id), Some(&definition.base));
++            assert_eq!(
++                selected.function_definitions.get(id),
++                selected_ids.contains(id).then_some(definition)
++            );
++        }
++        let (inner_id, inner) = selected
++            .function_definitions
++            .as_map()
++            .iter()
++            .find(|(_, definition)| definition.base.name.as_str() == "inner")
++            .unwrap();
++        assert!(matches!(
++            inner.base.parent,
++            scope::ScopeParent::Function { .. }
++        ));
++        assert!(!inner.undecorated_signatures.is_empty());
++        assert!(!inner.decorator_callees.is_empty());
++        assert!(
++            inner
++                .captured_variables
++                .iter()
++                .any(|capture| capture.name.as_str() == "x")
++        );
++        let inner_ref = FunctionRef {
++            module_id: full.module_id,
++            module_name: full.module_name,
++            function_id: inner_id.clone(),
++            function_name: inner.base.name.clone(),
++        };
++        let inner_captures = captured.get(&inner_ref).unwrap();
++        assert!(matches!(
++            inner_captures.get(&Name::new("x")),
++            Some(CaptureKind::Local(_))
++        ));
++        assert!(matches!(
++            inner_captures.get(&Name::new("global_value")),
++            Some(CaptureKind::Global)
++        ));
++        assert!(
++            selected
++                .function_definitions
++                .as_map()
++                .values()
++                .any(|definition| definition.overridden_base_method.is_some())
++        );
++        let refused =
++            export_module_definitions_selected(&context, &captured, &overrides, |_, _| {
++                Err::<HashSet<FunctionId>, _>("selection refused")
++            });
++        assert!(matches!(refused, Err("selection refused")));
++    }
++}
++
++fn export_module_definitions_with_selection<E>(
++    context: &ModuleContext,
++    captured_variables: &ModuleCapturedVariables<FunctionRef>,
++    reversed_override_graph: &ModuleReversedOverrideGraph,
++    select: impl FnOnce(
++        &HashMap<ClassId, ClassDefinition>,
++        &ModuleFunctionDefinitions<FunctionBaseDefinition>,
++    ) -> Result<Option<HashSet<FunctionId>>, E>,
++) -> Result<PysaModuleDefinitions, E> {
+     let global_variables_exported = export_global_variables(
+         &context.resolver.current_module_solutions().global_variables,
+         context,
+     );
+     let class_definitions = export_all_classes(context);
++    let selected = select(
++        &class_definitions,
++        &context
++            .resolver
++            .current_module_solutions()
++            .function_base_definitions,
++    )?;
+     let captured_variables = export_captured_variables_for_module(captured_variables);
+-    let function_definitions =
+-        export_function_definitions(&captured_variables, reversed_override_graph, context);
+-    PysaModuleDefinitions {
++    let function_definitions = export_function_definitions_selected(
++        &captured_variables,
++        reversed_override_graph,
++        context,
++        selected.as_ref(),
++    );
++    Ok(PysaModuleDefinitions {
+         format_version: 1,
+         module_id: context.answers_context.module_id,
+         module_name: context.answers_context.module_info.name(),
+@@ -377,7 +582,7 @@ pub fn export_module_definitions(
+         function_definitions,
+         class_definitions,
+         global_variables: global_variables_exported,
+-    }
++    })
+ }
+ 
+ pub fn export_module_type_of_expressions(context: &ModuleContext) -> PysaModuleTypeOfExpressions {
 diff --git a/pyrefly/lib/report/pysa/call_graph.rs b/pyrefly/lib/report/pysa/call_graph.rs
 index d79b3fff5..f92283439 100644
 --- a/pyrefly/lib/report/pysa/call_graph.rs
@@ -701,6 +937,46 @@ index d79b3fff5..f92283439 100644
  }
  
  #[derive(Debug, PartialEq, Eq, Clone, Hash, PartialOrd, Ord)]
+diff --git a/pyrefly/lib/report/pysa/function.rs b/pyrefly/lib/report/pysa/function.rs
+index 272e6331a..5178e41cf 100644
+--- a/pyrefly/lib/report/pysa/function.rs
++++ b/pyrefly/lib/report/pysa/function.rs
+@@ -7,6 +7,7 @@
+ 
+ use std::borrow::Cow;
+ use std::collections::HashMap;
++use std::collections::HashSet;
+ use std::ops::Not;
+ 
+ use dupe::Dupe;
+@@ -900,6 +901,17 @@ pub fn export_function_definitions(
+     captured_variables: &HashMap<FunctionRef, Vec<CapturedVariableRef<FunctionRef>>>,
+     reversed_override_graph: &ModuleReversedOverrideGraph,
+     context: &ModuleContext,
++) -> ModuleFunctionDefinitions<FunctionDefinition> {
++    export_function_definitions_selected(captured_variables, reversed_override_graph, context, None)
++}
++
++/// Export payloads only after their native base-definition keys have been selected.
++/// Selection does not change the module's complete base-definition inventory.
++pub(super) fn export_function_definitions_selected(
++    captured_variables: &HashMap<FunctionRef, Vec<CapturedVariableRef<FunctionRef>>>,
++    reversed_override_graph: &ModuleReversedOverrideGraph,
++    context: &ModuleContext,
++    selected: Option<&HashSet<FunctionId>>,
+ ) -> ModuleFunctionDefinitions<FunctionDefinition> {
+     let mut function_definitions = ModuleFunctionDefinitions::new();
+ 
+@@ -908,6 +920,9 @@ pub fn export_function_definitions(
+             continue;
+         }
+         let current_function = function.as_function_ref(&context.answers_context);
++        if selected.is_some_and(|selected| !selected.contains(&current_function.function_id)) {
++            continue;
++        }
+         let current_module_solutions = context.resolver.current_module_solutions();
+         let function_base_definition = current_module_solutions
+             .function_base_definitions
 diff --git a/pyrefly/lib/state/state.rs b/pyrefly/lib/state/state.rs
 index 2cf7ec113..e130e8250 100644
 --- a/pyrefly/lib/state/state.rs

@@ -17,8 +17,8 @@ pub const TY_FLOW: &str = "ty_flow";
 pub const DOCUMENTS: &str = "documents";
 pub const DEPLOYMENT: &str = "deployment";
 pub const ASSEMBLE: &str = "assemble";
-pub const PYREFLY_REVISION: &str = "63cda076956013cd0bd1d0d05c785f747fe6adc0;ruff=0.0.14";
-pub const RUFF_REVISION: &str = "9080ee7a82a4ec7359ba2ade60839ef1108a2968";
+pub const PYREFLY_REVISION: &str = "b8a668daf1e100cc666b31c77d5bdbb70e319380;ruff=0.0.14";
+pub const RUFF_REVISION: &str = "c5254df81fc140dba1b1e80e1ae492b0cde887d0";
 pub const TY_REVISION: &str = "ty_python_core 0.0.16 (ruff 0.0.16, salsa 0.28.5)";
 pub const FAMILIES: [FactFamily; 6] = [
     FactFamily::Syntax,

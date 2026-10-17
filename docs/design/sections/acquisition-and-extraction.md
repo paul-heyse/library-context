@@ -300,7 +300,7 @@ drainage limit. Opaque analyzer/model/BDD allocations are not a whole-process RS
 The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 owns focused evidence and the deferred full acceptance boundary.
 
-> Decision: ADR-0182
+> Decision: ADR-0182, ADR-0183
 
 **Implemented selected source characterization**, 2026-10-03. The independent Ruff parse
 also supplies configured F821/F401/F841 observations, including retained `noqa` suppression.
@@ -359,6 +359,18 @@ observer emits owned node/context and final binding/reference rows after deferre
 passes. Supplemental unused branch/export emissions are retired in fork `9080ee7a`; native BindingKind::Export and reference typing context remain. Five-case retained-fact and actual lint-diagnostic parity passed, 2026-10-04; current linked consumer qualification is pending. Observer work/row limits expose explicit Partial coverage. Provider cancellation and attempt resource refusal abort the operation; initial parsing is
 an indivisible upstream call. String-annotation nodes retain their distinct origin.
 
+**Implemented / focused-Tested, 2026-10-17:** an admitted prepared view shares native
+Locator, Stylist and Indexer between the contextual observer and both diagnostic computations.
+The observer keeps its empty-rule configuration and stopping statistics; Noqa-enabled and disabled
+diagnostics remain separate complete computations. Preparation ends after contextual collection.
+The immutable fork and aggregate patch are attributed through [pins](../../pins.md). Declarations,
+parameters, formal links and calls move into one charged retained inventory for calls/types; other
+syntax ends with emission. Canonical and flow adapters share one exhaustive latest-family kind
+mapping. Embedded Pyrefly Ruff remains nominally separate. Original-token flow renaming retains its
+recovery-aware parse because canonical tokens end in the preceding provider phase.
+
+> Decision: ADR-0183
+
 Pyrefly's retained embedded AST supplies native adapter queries. Owned correspondence checks
 snapshot/view, range, model node kind, role, context and uniqueness. Containers, formal declarations
 and native/synthetic slots have distinct identities. Varargs may be their own formal; missing
@@ -400,6 +412,16 @@ supply independently pinned capability contracts and do not carry repository wir
   `export_module_definitions` and `export_module_call_graphs` are the functions behind
   `--report-pysa`. The in-memory structs equal the CLI's JSON (**Tested**, 2026-09-22: 257 of 257
   modules; definitions equal as sets).
+- **Selected dependency payloads (Implemented / focused-Tested, 2026-10-17).** Untapped
+  dependencies select function keys, qualified names and lexical enclosures from the complete
+  borrowed base inventory before native signature/decorator payload construction. Complete
+  classes/globals and MRO remain available. Captures use the complete native base eligibility,
+  including referenced symbols outside selected heavy payloads. Roots and diagnostic taps retain
+  full reports. Progressive waves and post-wave Everything retain actual discovered closure and
+  stable rich AST/answer context; provisional solver callbacks do not establish final-epoch facts.
+  Type construction keeps every encounter and its depth32/work100000 effects; only the same
+  Other/Truncated encounter's display is reused for presentation. No cross-encounter memo is used.
+  [ADR-0183](../../adr/0183-collector-preparation-and-retention.md) records these choices.
 - **Locations → bytes.** Every `PysaLocation` is converted with its module's `LineIndex` (§3.4).
 - **Join key.** `pysa_calls` joins `call_syntax` on the **full call-expression range**. Every
   call it leaves unmatched in the 2026-09-22 measurement was inside an annotation, which Pysa's

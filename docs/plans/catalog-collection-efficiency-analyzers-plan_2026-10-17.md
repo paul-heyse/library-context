@@ -5,7 +5,7 @@ collection work for the [collection coordinator](catalog-collection-efficiency-p
 The coordinator's [§6](catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 is the sole owner of finding disposition and current execution state;
 this document defines packages and their completion evidence, without a second progress ledger.
-PA00/PA01 execution is authorized; the coordinator records its evidence and remaining scope.
+PA00–PA05 execution is authorized; the coordinator records evidence and remaining scope.
 Plan approval and focused controls do not qualify the whole compiler.
 
 The source is the [Python fact-collection target review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md)
@@ -229,7 +229,16 @@ is required. Include failure between consumers to expose premature release or bo
 
 ### PA02 — Ruff preparation sharing decision and selected implementation
 
-**Proposed qualified investigation.** Compare three concrete routes at the locked fork: retain
+**Selected, 2026-10-17 ([ADR-0183](../adr/0183-collector-preparation-and-retention.md)):** share
+immutable source preparation, preserving the independent empty-rule observer and both real Noqa
+computations. `PreparedCanonicalSyntax` owns the admitted Locator/Stylist/Indexer lifetime and
+ends after context rows. Native `observe_prepared` keeps the same validation, stop statistics and
+checkpoints. Fusion remains rejected: observer exhaustion gates deferred/final work, while both
+diagnostic channels must complete; detaching those semantics would require another traversal or
+shadow state. Revisit if an existing native observer can stop recording independently of semantic
+completion with exact statistics and cancellation. Coordinator §6 owns current evidence and disposition.
+
+The investigation compared three concrete routes at the locked fork: retain
 the current three Checker computations; share immutable preparation while keeping two diagnostic
 computations; or collect observations during a compatible diagnostic traversal while preserving
 the pair's full diagnostics. Source proof must identify which configuration/rule-dependent
@@ -264,7 +273,15 @@ An unspecified future probe or a partially wired optional shared path is not com
 
 ### PA03 — Type construction and presentation decision
 
-**Proposed qualified investigation.** After PA00, separate repeated lookup cost from repeated
+**Selected, 2026-10-17 (ADR-0183):** reuse only the current Other/Truncated encounter's exact
+display for presentation. Every recursive encounter, work increment, first registration, native
+lookup and output effect remains. Broader memoization is unselected: final identity
+does not encode depth/remaining work/variable state or native context, and structural interning
+cannot avoid constructing its children. Native-type keys retain recursive graphs and still need
+effect replay. Revisit with a pure bounded construction interface that exposes those effects and
+complete context; no display-key cache or changed limit is scheduled. Coordinator §6 owns evidence.
+
+After PA00, separate repeated lookup cost from repeated
 term/list/presentation construction. Inspect `Builder::{term,build,sequence,slots,signature_variants}`
 and call candidate lowering. Compare retaining encounter-driven construction, reusing only safe
 presentation/structural products while replaying all required encounter effects, and module-local
@@ -292,7 +309,18 @@ reach the coordinator before dependent implementation.
 
 ### PA04 — Dependency selection and retained-state decision
 
-**Proposed qualified investigation.** Settle two related choices explicitly: can dependency
+**Selected, 2026-10-17 (ADR-0183):** select untapped dependency functions before heavy native
+signature/decorator/capture projection using complete classes and borrowed base definitions. Keep
+the original qualified-name/lexical-enclosure selection, full class/global/MRO context and complete
+base capture eligibility; already referenced functions outside selected payloads remain eligible.
+Roots and PysaTap retain full export. The two independent retained decisions are post-wave Everything
+and progressive actual closure: generic solver hooks may follow AST eviction, and reporter callbacks
+may repeat before a final epoch or after rebuild. Eager Everything for potential dependencies would
+expand the live universe before actual demand. Revisit with native final-epoch, rich-data ownership
+and cancellation/join guarantees, rather than adding a snapshot queue/scheduler. Coordinator §6
+owns the immutable fork identities, focused controls and deferred persistent acceptance.
+
+The investigation settled two related choices explicitly: can dependency
 definitions avoid full report construction before their keep filter, and can retention/promotion
 or pre-eviction extraction reduce the combined live set while preserving rich facts? Inspect
 `session`'s selected dependency waves/keep expansion and `definitions` alongside the locked
@@ -334,7 +362,16 @@ change discovered here goes to the coordinator before dependent implementation.
 
 ### PA05 — Syntax copy, token and node-kind decisions
 
-**Proposed qualified investigation and selected implementation.** Make three explicit decisions
+**Selected, 2026-10-17 (ADR-0183):** move declarations/parameters/formals/calls into charged
+`RetainedSyntax`, borrowed by call/type consumers, and emit other syntax without a complete copy.
+Use `cpg_flow::syntax_kind` as the shared exhaustive latest-family mapping; remove flow's debug-name
+formatting and code scan. Keep recovery-aware token parsing: the existing canonical token lifetime
+ends in the prior provider phase, so there is no borrowed input to hand off. Different parser/source
+settings are correspondence questions, not proof that token streams differ. Revisit when a named
+consumer already retains canonical original tokens through flow; do not add a persisted token dataset
+or extend the whole canonical AST solely for this reuse. Coordinator §6 owns current evidence.
+
+The investigation makes three explicit decisions
 because the equivalence premises differ:
 
 1. **Syntax ownership.** Inventory every consumed field after `write_records` and compare

@@ -2,7 +2,7 @@
 #![deny(clippy::wildcard_enum_match_arm)]
 use crate::{
     natives::Natives,
-    syntax_records::{Records as Syntax, Spans},
+    syntax_records::{RetainedSyntax as Syntax, Spans},
 };
 use lctx_model::domain::{
     assertion::AssertionQualification,
@@ -388,6 +388,15 @@ struct Builder<'a, 'r> {
 }
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
+}
+/// Reuse only the display computed for this encounter, never a previous native type result.
+/// Both rows still own their payload; structural terms still invoke the native formatter.
+fn presentation_display(row: &TypeTerm, render: impl FnOnce() -> String) -> String {
+    if let TypeTerm::Other { display, .. } | TypeTerm::Truncated { display, .. } = row {
+        display.clone()
+    } else {
+        render()
+    }
 }
 fn required(r: &Required) -> bool {
     match r {
@@ -1044,12 +1053,13 @@ impl Builder<'_, '_> {
         };
         self.out.hold(&row)?;
         self.index.term(built.id, self.out.terms.len())?;
+        let display = presentation_display(&row, || ty.to_string());
         self.out.terms.push(row);
         let presentation = TypePresentation {
             qualification: self.qualification.id(),
             scope: self.qualification.scope,
             term: built.id,
-            display: ty.to_string(),
+            display,
             detail: None,
         };
         self.out.hold(&presentation)?;
@@ -2543,6 +2553,318 @@ impl Builder<'_, '_> {
 }
 
 #[cfg(test)]
+mod presentation_controls {
+    use super::*;
+    use std::{cell::Cell, path::Path};
+
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+
+    #[test]
+    fn display_only_rows_reuse_the_current_encounter_without_native_reformatting() {
+        let render_count = Cell::new(0);
+        let render = || {
+            render_count.set(render_count.get() + 1);
+            "native structural display".to_owned()
+        };
+        let other = TypeTerm::Other {
+            provider: id(1),
+            context: id(2),
+            variant: "materialization".into(),
+            display: "current opaque display".into(),
+        };
+        let truncated = TypeTerm::Truncated {
+            provider: id(1),
+            context: id(2),
+            reason: ObligationKind::BudgetReached,
+            display: "current truncated display".into(),
+        };
+        assert_eq!(
+            presentation_display(&other, render),
+            "current opaque display"
+        );
+        assert_eq!(
+            presentation_display(&truncated, render),
+            "current truncated display"
+        );
+        assert_eq!(render_count.get(), 0);
+        assert_eq!(
+            presentation_display(&TypeTerm::None, render),
+            "native structural display"
+        );
+        assert_eq!(render_count.get(), 1);
+    }
+
+    /// Exercise the actual native context and production Builder without persistence.
+    fn with_builder(fixture: &str, inspect: impl FnOnce(&mut Builder<'_, '_>, &str)) {
+        use pyrefly::{
+            report::pysa::{
+                PysaFormat, PysaReporter,
+                context::{ModuleAnswersContext, PysaResolver},
+                module::ModuleIds,
+            },
+            state::{require::Require, state::State},
+        };
+        use pyrefly_config::{
+            config::{ConfigFile, ConfigSource},
+            finder::ConfigFinder,
+        };
+        use pyrefly_python::{
+            module_path::ModulePath,
+            sys_info::{PythonPlatform, PythonVersion},
+        };
+        use pyrefly_util::{arc_id::ArcId, thread_pool::ThreadCount};
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/python")
+            .join(fixture)
+            .canonicalize()
+            .unwrap();
+        let root = path.parent().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let mut config = ConfigFile {
+            source: ConfigSource::File(root.join("pyrefly.toml")),
+            search_path_from_args: vec![root.to_path_buf()],
+            disable_search_path_heuristics: true,
+            disable_project_excludes_heuristics: true,
+            enable_fallback_search_path: false,
+            ..ConfigFile::default()
+        };
+        config.python_environment.python_version = Some(PythonVersion::new(3, 14, 7));
+        config.python_environment.python_platform = Some(PythonPlatform::new("linux"));
+        config.python_environment.site_package_path = Some(vec![]);
+        config.interpreters.skip_interpreter_query = true;
+        assert!(config.configure().is_empty());
+        let handle = config.handle_from_module_path(ModulePath::filesystem(path.clone()));
+        let state = State::new(
+            ConfigFinder::new_constant(ArcId::new(config)),
+            ThreadCount::Inline,
+        );
+        let mut transaction = state.new_transaction(Require::Exports, None);
+        transaction.set_pysa_reporter(Some(Box::new(PysaReporter {
+            module_ids: ModuleIds::new(std::slice::from_ref(&handle)),
+            pysa_directory: Default::default(),
+            definitions_directory: Default::default(),
+            type_of_expressions_directory: Default::default(),
+            call_graphs_directory: Default::default(),
+            format: PysaFormat::Json,
+            write_files: false,
+        })));
+        transaction.run(std::slice::from_ref(&handle), Require::Everything, None);
+        let module_ids = &transaction.pysa_reporter().unwrap().module_ids;
+        let resolver = PysaResolver::new(&transaction, module_ids, handle.clone());
+        let context = ModuleContext {
+            answers_context: ModuleAnswersContext::create(handle, &transaction, module_ids),
+            resolver: &resolver,
+        };
+        let qualification = AssertionQualification {
+            context: id(1),
+            scope: id(2),
+            condition: id(3),
+            modality: lctx_model::domain::attribution::Modality::Definite,
+            approximation: lctx_model::domain::assertion::Approximation::Exact,
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+        };
+        let provider = Provider {
+            tool: "native-type-control".into(),
+            revision: "pinned".into(),
+            build_digest: ContentHash::of(b"native-type-control"),
+        };
+        let input = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
+        let artifacts = [lctx_model::domain::source::SourceArtifact::from_bytes(
+            input.id(),
+            path.file_name().unwrap().to_str().unwrap().into(),
+            text.as_bytes(),
+        )
+        .unwrap()];
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let mut natives = Natives::new(
+            provider.id(),
+            qualification.context,
+            [(root, artifacts.as_slice())],
+            &budget,
+        )
+        .unwrap();
+        let mut resolve = |_: &mut Natives, _: ModuleName| Ok(id(4));
+        let mut builder = Builder {
+            context: &context,
+            qualification: &qualification,
+            provider: &provider,
+            natives: &mut natives,
+            resolve: &mut resolve,
+            out: Records::new(&budget),
+            variables: BTreeSet::new(),
+            work: 0,
+            index: TypeIndex::new(&budget),
+        };
+        inspect(&mut builder, &text);
+        drop(builder);
+        drop(natives);
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "type products and indexes end with their module epoch"
+        );
+    }
+
+    #[test]
+    fn native_encounters_preserve_depth_work_order_and_opaque_descendants() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                with_builder("native_generics/api.py", |builder, _| {
+                    for depth in [31, 32] {
+                        assert!(!builder.term(&Type::None, depth).unwrap().opaque);
+                    }
+                    assert!(builder.term(&Type::None, 33).unwrap().opaque);
+                    let subtree =
+                        Type::Tuple(Tuple::Concrete(vec![Type::None, Type::Materialization]));
+                    let shallow = builder.term(&subtree, 0).unwrap();
+                    assert!(shallow.opaque);
+                    let after_shallow = builder.work;
+                    let deep = builder.term(&subtree, 32).unwrap();
+                    assert!(deep.opaque);
+                    assert_ne!(
+                        shallow.id, deep.id,
+                        "a previously shallow subtree must still be truncated when encountered deep"
+                    );
+                    assert_eq!(builder.work, after_shallow + 3);
+                    builder.work = 99_998;
+                    assert!(!builder.term(&Type::None, 0).unwrap().opaque);
+                    assert_eq!(builder.work, 99_999);
+                    assert!(builder.term(&subtree, 0).unwrap().opaque);
+                    assert_eq!(
+                        builder.work, 100_002,
+                        "children still count after crossing the cumulative limit"
+                    );
+                    assert!(builder.term(&Type::None, 0).unwrap().opaque);
+                    assert_eq!(builder.work, 100_003);
+                    assert_eq!(builder.out.terms.len(), builder.out.presentations.len());
+                    for (term, (presentation, fidelity)) in
+                        builder.out.terms.iter().zip(&builder.out.presentations)
+                    {
+                        assert_eq!(presentation.term, term.id());
+                        assert_eq!(presentation.qualification, builder.qualification.id());
+                        if let TypeTerm::Other { display, .. }
+                        | TypeTerm::Truncated { display, .. } = term
+                        {
+                            assert_eq!(&presentation.display, display);
+                            assert_eq!(*fidelity, Fidelity::DisplayOnly);
+                        }
+                    }
+                    builder
+                        .observe(id(5), TypeRole::CallResult, false, &Type::Materialization)
+                        .unwrap();
+                    assert_eq!(
+                        builder.out.observations.last().unwrap().1,
+                        Fidelity::DisplayOnly
+                    );
+                    assert_eq!(builder.out.boundaries.last().unwrap().0, Some(id(5)));
+                });
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn native_generic_and_recursive_products_retain_encounter_effects() {
+        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
+            with_builder("native_generics/api.py", |builder, _| {
+                use pyrefly::binding::binding::Key;
+                let context = &builder.context.answers_context;
+                let types: BTreeMap<_, _> = pyrefly::report::pysa::function::get_all_decorated_functions(context)
+                    .filter_map(|function| {
+                        let name = context.module_info.code_at(function.undecorated.identifier.range()).to_owned();
+                        if !matches!(name.as_str(), "choose" | "preserve" | "recursive") {
+                            return None;
+                        }
+                        let key = context.bindings().key_to_idx(&Key::Definition(function.undecorated.identifier));
+                        Some((name, context.answers.get_type_at(key).unwrap()))
+                    }).collect();
+                assert_eq!(types.len(), 3);
+                for (name, ty) in &types {
+                    let first = builder.term(ty, 0).unwrap();
+                    let work = builder.work;
+                    let variables = builder.out.variables.len();
+                    let restrictions = builder.out.restrictions.len();
+                    let rows = builder.out.terms.len();
+                    let again = builder.term(ty, 0).unwrap();
+                    assert_eq!(first.id, again.id, "same native context: {name}");
+                    assert_eq!(builder.out.presentations.last().unwrap().0.display, ty.to_string());
+                    assert!(builder.work > work, "repeated types count encounters: {name}");
+                    assert!(builder.out.terms.len() > rows, "raw row multiplicity remains: {name}");
+                    assert_eq!(builder.out.variables.len(), variables, "first-registration variables: {name}");
+                    assert_eq!(builder.out.restrictions.len(), restrictions, "first-registration restrictions: {name}");
+                }
+                assert!(builder.out.variables.iter().any(|variable| variable.name == "Choice"));
+                assert!(builder.out.restrictions.iter().any(|(restriction, _)| restriction.kind == TypeRestrictionKind::Constraint));
+                assert!(builder.out.restrictions.iter().any(|(restriction, _)| restriction.kind == TypeRestrictionKind::Default));
+                assert!(builder.out.terms.iter().any(|term| matches!(term, TypeTerm::TypeAliasReference { name, .. } if name == "Recursive")));
+            });
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn native_chosen_and_candidate_terms_count_work_independently_at_the_limit() {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                with_builder("native_overload_origins/cases.py", |builder, text| {
+                    use ruff_text_size::{TextRange, TextSize};
+                    let call = text.find("choose(1)").unwrap();
+                    let range = TextRange::new(
+                        TextSize::new((call + "choose".len()) as u32),
+                        TextSize::new((call + "choose(1)".len()) as u32),
+                    );
+                    let answers = &builder.context.answers_context.answers;
+                    let chosen = answers.get_chosen_overload_trace(range).expect(
+                        "a native chosen callable, not a candidate relabelled as selection",
+                    );
+                    let trace = answers.get_native_overload_trace(range).unwrap();
+                    assert_eq!(trace.candidates.len(), 2);
+                    assert_eq!(trace.closest_ordinal, 0);
+                    let selected = builder.term(&chosen, 0).unwrap();
+                    assert!(!selected.opaque);
+                    let candidate = Type::Callable(Box::new(trace.candidates[0].callable.clone()));
+                    let same = builder.term(&candidate, 0).unwrap();
+                    assert_eq!(
+                        selected.id, same.id,
+                        "this resolved chosen callable matches its original candidate"
+                    );
+                    builder.work = 99_999;
+                    let crossing = builder.term(&candidate, 0).unwrap();
+                    assert!(
+                        crossing.opaque,
+                        "the root admits at 100000; child encounters cross the bound"
+                    );
+                    assert_ne!(crossing.id, same.id);
+                    let work = builder.work;
+                    let next = builder
+                        .term(
+                            &Type::Callable(Box::new(trace.candidates[1].callable.clone())),
+                            0,
+                        )
+                        .unwrap();
+                    assert!(next.opaque);
+                    assert_eq!(
+                        builder.work,
+                        work + 1,
+                        "the following candidate truncates at its root"
+                    );
+                    assert!(matches!(
+                        builder.out.terms.last(),
+                        Some(TypeTerm::Truncated { .. })
+                    ));
+                });
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+}
+
+#[cfg(test)]
 mod lookup_controls {
     use super::*;
     use lctx_model::domain::{
@@ -2576,7 +2898,7 @@ mod lookup_controls {
             default_literal: None,
             annotation: None,
         };
-        let syntax = Syntax {
+        let mut syntax = crate::syntax_records::Records {
             declarations: vec![
                 declaration.clone(),
                 DeclarationObservation {
@@ -2592,8 +2914,9 @@ mod lookup_controls {
                 },
             ],
             formals: vec![(id(4), id(7)), (id(4), id(8))],
-            ..Syntax::default()
+            ..crate::syntax_records::Records::default()
         };
+        let syntax = syntax.retain_for_consumers(&budget).unwrap();
         let mut spans = Spans::new(&budget);
         let argument = Occurrence {
             source: id(9),

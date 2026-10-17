@@ -1,7 +1,10 @@
 //! The current linked consumer reuses a verified snapshot, not a scratch-only fork API.
 use cpg_extract::ruff_context::{CanonicalSyntax, ContextSettings};
 use lctx_model::domain::{
-    attribution::AnalysisContext, resources::ResourceBudget, source::SourceArtifact, *,
+    attribution::AnalysisContext,
+    resources::ResourceBudget,
+    source::{CoverageScope, SourceArtifact},
+    *,
 };
 use ruff_linter::semantic_facts::{Fact, Sink, StopReason};
 use ruff_text_size_latest::Ranged;
@@ -36,7 +39,7 @@ fn artifact(text: &str) -> SourceArtifact {
 fn populated_context_keeps_alias_resolution_final_tables_and_exact_snapshot() {
     let source = "from typing import TYPE_CHECKING as TC\nfrom typing import final as fin\nif TC:\n    annotation_only = 1\n    annotation_only\n@fin\ndef f():\n    return missing\nfin = 0\nfin\n__all__ = ['f']\n";
     let b = ResourceBudget::fixed(16 << 20).unwrap();
-    let syntax = CanonicalSyntax::parse(
+    let canonical = CanonicalSyntax::parse(
         &artifact(source),
         source,
         &context(),
@@ -44,6 +47,7 @@ fn populated_context_keeps_alias_resolution_final_tables_and_exact_snapshot() {
         &b,
     )
     .unwrap();
+    let syntax = canonical.prepare(&b).unwrap();
     assert_eq!(syntax.module().body.len(), 7);
     let mut rows = Rows::default();
     let stats = syntax.observe(&mut rows).unwrap();
@@ -92,6 +96,7 @@ fn populated_context_keeps_alias_resolution_final_tables_and_exact_snapshot() {
         .is_err()
     );
     drop(syntax);
+    drop(canonical);
     assert_eq!(b.reserved(), 0);
 }
 #[test]
@@ -107,7 +112,7 @@ fn cancellation_and_limits_never_certify_complete_context() {
     }
     let source = "x = 1\n";
     let b = ResourceBudget::fixed(1 << 20).unwrap();
-    let syntax = CanonicalSyntax::parse(
+    let canonical = CanonicalSyntax::parse(
         &artifact(source),
         source,
         &context(),
@@ -118,6 +123,7 @@ fn cancellation_and_limits_never_certify_complete_context() {
         &b,
     )
     .unwrap();
+    let syntax = canonical.prepare(&b).unwrap();
     assert_eq!(
         syntax.observe(&mut Cancel).unwrap_err().reason,
         StopReason::Cancelled
@@ -139,7 +145,7 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
     let artifact = artifact(source);
     let context = context();
     let budget = ResourceBudget::fixed(16 << 20).unwrap();
-    let syntax = CanonicalSyntax::parse(
+    let canonical = CanonicalSyntax::parse(
         &artifact,
         source,
         &context,
@@ -147,6 +153,7 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
         &budget,
     )
     .unwrap();
+    let syntax = canonical.prepare(&budget).unwrap();
     let provider = cpg_extract::ruff_context::provider();
     let (run, _) = ProviderRun::new(
         provider.id(),
@@ -210,7 +217,7 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
     );
     let mut foreign = artifact.clone();
     foreign.path = "foreign.py".into();
-    let foreign_syntax = CanonicalSyntax::parse(
+    let foreign_canonical = CanonicalSyntax::parse(
         &foreign,
         source,
         &context,
@@ -218,6 +225,7 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
         &budget,
     )
     .unwrap();
+    let foreign_syntax = foreign_canonical.prepare(&budget).unwrap();
     assert!(
         foreign_syntax
             .context_rows(&spans, &qualification, &budget, &|| Ok(()))
@@ -239,4 +247,132 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
         structural_path: vec![999],
     };
     assert!(spans.insert(&occurrence).is_err());
+}
+
+#[test]
+fn shared_source_preparation_is_explicit_admitted_and_released() {
+    let source = "x = 1\nx\n";
+    let budget = ResourceBudget::fixed(1 << 20).unwrap();
+    let canonical = CanonicalSyntax::parse(
+        &artifact(source),
+        source,
+        &context(),
+        ContextSettings::default(),
+        &budget,
+    )
+    .unwrap();
+    let parsed_bytes = budget.reserved();
+    assert_eq!(
+        canonical.module().body.len(),
+        2,
+        "syntax-only use needs no source preparation"
+    );
+    let refused = ResourceBudget::fixed(1).unwrap();
+    assert!(matches!(
+        canonical.prepare(&refused),
+        Err(ModelError::Resource { .. })
+    ));
+    assert_eq!(refused.reserved(), 0);
+    assert_eq!(budget.reserved(), parsed_bytes);
+    let prepared = canonical.prepare(&budget).unwrap();
+    assert!(budget.reserved() > parsed_bytes);
+    drop(prepared);
+    assert_eq!(budget.reserved(), parsed_bytes);
+    drop(canonical);
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
+fn shared_preparation_keeps_both_diagnostic_channels_after_observer_exhaustion() {
+    use lctx_model::domain::{assertion::*, attribution::*, conditions::Diagram, diagnostics::*};
+    for (source, expected_stop) in [
+        (
+            "import os  # noqa: F401\nmissing\ndef f():\n    unused = 1\n    return absent\n",
+            StopReason::RowBudget,
+        ),
+        (
+            "from os import (\n    path,  # noqa: F401\n    environ,\n)\n",
+            StopReason::RowBudget,
+        ),
+        ("def broken(:\n    missing\n", StopReason::InvalidSyntax),
+    ] {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let artifact = artifact(source);
+        let context = context();
+        let canonical = CanonicalSyntax::parse(
+            &artifact,
+            source,
+            &context,
+            ContextSettings {
+                maximum_rows: 1,
+                ..ContextSettings::default()
+            },
+            &budget,
+        )
+        .unwrap();
+        let prepared = canonical.prepare(&budget).unwrap();
+        let qualification = AssertionQualification {
+            assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+            context: context.id(),
+            scope: CoverageScope::Artifact {
+                artifact: artifact.id(),
+            }
+            .id(),
+            condition: Diagram::always().id(),
+            modality: Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let before = prepared
+            .diagnostics(&artifact, &qualification, &budget)
+            .unwrap();
+        let stopped = prepared.observe(&mut Rows::default()).unwrap_err();
+        assert_eq!(stopped.reason, expected_stop);
+        let after = prepared
+            .diagnostics(&artifact, &qualification, &budget)
+            .unwrap();
+        assert_eq!(
+            (
+                &before.ruff,
+                &before.subjects,
+                &before.annotations,
+                &before.evidence
+            ),
+            (
+                &after.ruff,
+                &after.subjects,
+                &after.annotations,
+                &after.evidence
+            )
+        );
+        if source.starts_with("import os") {
+            assert!(
+                after
+                    .ruff
+                    .iter()
+                    .any(|row| row.rule == SelectedRuffRule::UnusedImport
+                        && row.channel == DiagnosticChannel::RuffNoqaSuppressed)
+            );
+            assert!(
+                after
+                    .ruff
+                    .iter()
+                    .any(|row| row.rule == SelectedRuffRule::UndefinedName
+                        && row.message.contains("absent")
+                        && row.channel == DiagnosticChannel::Emitted)
+            );
+            assert!(
+                after
+                    .ruff
+                    .iter()
+                    .any(|row| row.rule == SelectedRuffRule::UnusedVariable
+                        && row.message.contains("unused")
+                        && row.channel == DiagnosticChannel::Emitted)
+            );
+        }
+        drop(after);
+        drop(before);
+        drop(prepared);
+        drop(canonical);
+        assert_eq!(budget.reserved(), 0);
+    }
 }

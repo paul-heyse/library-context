@@ -9,16 +9,15 @@ use lctx_model::domain::{
 };
 use ruff_db::diagnostic::{Diagnostic, Severity, Span};
 use ruff_linter::{
-    Locator, directives,
+    directives,
     package::PackageRoot,
     registry::Rule,
+    semantic_facts::SourcePreparation,
     settings::{LinterSettings, TargetVersion, flags::Noqa, rule_table::RuleTable},
     source_kind::SourceKind,
     suppression::Suppressions,
 };
 use ruff_python_ast_latest::{ModModule, PySourceType};
-use ruff_python_codegen_latest::Stylist;
-use ruff_python_index_latest::Indexer;
 use ruff_python_parser_latest::Parsed;
 use std::collections::BTreeMap;
 pub struct Records {
@@ -105,12 +104,13 @@ pub(crate) fn location(span: Option<EvidenceSourceSpanId>) -> DiagnosticLocation
 }
 pub fn ruff(
     artifact: &SourceArtifact,
-    source: &str,
     parsed: &Parsed<ModModule>,
     native: &ruff_linter::semantic_facts::Settings,
     q: &AssertionQualification,
     budget: &ResourceBudget,
+    preparation: &SourcePreparation<'_>,
 ) -> Result<Records, ModelError> {
+    let source = preparation.locator().contents();
     let mut out = Records::new(budget);
     // All inputs are captured. Never call Default/for_rules, which read Ruff's cached cwd.
     let mut settings =
@@ -130,16 +130,16 @@ pub fn ruff(
         .and_then(|n| n.checked_add(65536))
         .ok_or_else(|| ModelError::Invalid("selected Ruff diagnostic allowance overflow".into()))?;
     let _native = budget.reserve("selected-ruff-diagnostic-native", allowance)?;
-    let locator = Locator::new(source);
-    let stylist = Stylist::from_tokens(parsed.tokens(), source);
-    let indexer = Indexer::from_tokens(parsed.tokens(), source);
+    let locator = preparation.locator();
+    let stylist = preparation.stylist();
+    let indexer = preparation.indexer();
     let directives = directives::extract_directives(
         parsed.tokens(),
         directives::Flags::from_settings(&settings),
-        &locator,
-        &indexer,
+        locator,
+        indexer,
     );
-    let suppressions = Suppressions::from_tokens(source, parsed.tokens(), &indexer, &settings);
+    let suppressions = Suppressions::from_tokens(source, parsed.tokens(), indexer, &settings);
     let kind = SourceKind::Python {
         code: source.to_owned(),
         is_stub: native.source_type == PySourceType::Stub,
@@ -148,9 +148,9 @@ pub fn ruff(
         ruff_linter::linter::check_path(
             &native.path,
             native.package_root.as_deref().map(PackageRoot::root),
-            &locator,
-            &stylist,
-            &indexer,
+            locator,
+            stylist,
+            indexer,
             &directives,
             &settings,
             noqa,

@@ -16,8 +16,11 @@ use lctx_model::domain::{
 };
 use pyrefly::report::pysa::{
     PysaModuleDefinitions,
-    class::{ClassRef, PysaClassMro},
-    function::{FunctionParameter, FunctionParameters, FunctionRef},
+    class::{ClassDefinition, ClassId, ClassRef, PysaClassMro},
+    function::{
+        FunctionBaseDefinition, FunctionId, FunctionParameter, FunctionParameters, FunctionRef,
+        ModuleFunctionDefinitions,
+    },
     location::PysaLocation,
     module::ModuleId,
     scope::ScopeParent,
@@ -25,7 +28,7 @@ use pyrefly::report::pysa::{
 use pyrefly_python::module_name::ModuleName;
 use ruff_source_file::{LineIndex, OneIndexed, PositionEncoding, SourceLocation};
 use ruff_text_size::{TextRange, TextSize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 fn invalid(message: String) -> ModelError {
     ModelError::Invalid(message)
@@ -268,17 +271,182 @@ fn qualified_names(definitions: &PysaModuleDefinitions) -> BTreeMap<String, Stri
     }
     result
 }
-pub fn qualified(definitions: &PysaModuleDefinitions, name: &str) -> Vec<String> {
-    qualified_names(definitions)
-        .into_iter()
-        .filter_map(|(key, n)| (n == name).then_some(key))
-        .collect()
+/// Selection is retained through native export and record lowering, including its admission.
+pub struct DefinitionSelection {
+    pub keys: BTreeSet<String>,
+    charge: lctx_model::domain::charged::StateCharge,
 }
-pub fn class_keys(definitions: &PysaModuleDefinitions) -> impl Iterator<Item = String> + '_ {
-    definitions
-        .class_definitions
+
+struct DefinitionNode<'a> {
+    name: &'a str,
+    parent: Option<String>,
+}
+
+fn select_keys(
+    nodes: &BTreeMap<String, DefinitionNode<'_>>,
+    keys: &BTreeSet<String>,
+    names: &[String],
+    selection: &mut DefinitionSelection,
+) -> Result<(), ModelError> {
+    // One reusable path, not every definition's potentially long qualified name at once.
+    selection.charge.grow(
+        nodes
+            .len()
+            .saturating_mul(size_of::<&str>().saturating_mul(8)),
+    )?;
+    if !names.is_empty() {
+        let path_bytes = nodes.values().fold(nodes.len(), |size, node| {
+            size.saturating_add(node.name.len())
+        });
+        selection.charge.grow(
+            nodes
+                .len()
+                .saturating_mul(size_of::<&str>().saturating_mul(8))
+                .saturating_add(path_bytes),
+        )?;
+        let mut parts = Vec::with_capacity(nodes.len());
+        let mut seen = BTreeSet::new();
+        let mut qualified = String::with_capacity(path_bytes);
+        for key in nodes.keys() {
+            parts.clear();
+            seen.clear();
+            qualified.clear();
+            let mut at = Some(key.as_str());
+            while let Some(current) = at {
+                if !seen.insert(current) {
+                    parts.clear();
+                    break;
+                }
+                let Some(node) = nodes.get(current) else {
+                    parts.clear();
+                    break;
+                };
+                parts.push(node.name);
+                at = node.parent.as_deref();
+            }
+            for (index, part) in parts.iter().rev().enumerate() {
+                if index > 0 {
+                    qualified.push('.');
+                }
+                qualified.push_str(part);
+            }
+            if !parts.is_empty() && names.iter().any(|name| name == &qualified) {
+                insert_selected_key(selection, key)?;
+            }
+        }
+    }
+    for key in keys {
+        insert_selected_key(selection, key)?;
+    }
+    // The same lexical parent closure used by records; an unknown initial key stays unstated.
+    // Snapshot only starts that exist, so closure does not turn an unknown key into a definition.
+    selection.charge.grow(
+        selection
+            .keys
+            .len()
+            .saturating_mul(size_of::<String>().saturating_mul(4))
+            .saturating_add(
+                selection
+                    .keys
+                    .iter()
+                    .fold(0usize, |size, key| size.saturating_add(key.len())),
+            ),
+    )?;
+    let starts: Vec<_> = selection
+        .keys
+        .iter()
+        .filter(|key| nodes.contains_key(*key))
+        .cloned()
+        .collect();
+    for key in starts {
+        let mut at = nodes.get(&key).and_then(|node| node.parent.as_deref());
+        let mut seen = BTreeSet::new();
+        while let Some(parent) = at {
+            if !seen.insert(parent) {
+                break;
+            }
+            insert_selected_key(selection, parent)?;
+            at = nodes.get(parent).and_then(|node| node.parent.as_deref());
+        }
+    }
+    Ok(())
+}
+
+fn insert_selected_key(selection: &mut DefinitionSelection, key: &str) -> Result<(), ModelError> {
+    if !selection.keys.contains(key) {
+        selection.charge.grow(
+            size_of::<String>()
+                .saturating_mul(8)
+                .saturating_add(key.len().saturating_mul(2)),
+        )?;
+        selection.keys.insert(key.to_owned());
+    }
+    Ok(())
+}
+
+/// Select exact public names and their enclosing definitions before native signature expansion.
+/// The complete borrowed base inventory is still available independently for capture lowering.
+pub fn select_definitions(
+    classes: &HashMap<ClassId, ClassDefinition>,
+    functions: &ModuleFunctionDefinitions<FunctionBaseDefinition>,
+    keys: &BTreeSet<String>,
+    names: &[String],
+    expand_mro: bool,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<(DefinitionSelection, HashSet<FunctionId>), ModelError> {
+    let mut selection = DefinitionSelection {
+        keys: BTreeSet::new(),
+        charge: lctx_model::domain::charged::StateCharge::new(
+            budget,
+            "native-definition-selection",
+        ),
+    };
+    let count = classes.len().saturating_add(functions.as_map().len());
+    // Native serialized ids/parent keys contain at most three u32 components. Names are borrowed.
+    selection.charge.grow(
+        count.saturating_mul(
+            size_of::<(String, DefinitionNode<'_>)>()
+                .saturating_mul(8)
+                .saturating_add(128),
+        ),
+    )?;
+    let mut nodes = BTreeMap::new();
+    for (id, class) in classes {
+        let key = id.to_int().to_string();
+        if expand_mro {
+            insert_selected_key(&mut selection, &key)?;
+        }
+        nodes.insert(
+            key,
+            DefinitionNode {
+                name: &class.name,
+                parent: parent_key(&class.parent),
+            },
+        );
+    }
+    for (id, function) in functions.as_map() {
+        nodes.insert(
+            id.serialize_to_string(),
+            DefinitionNode {
+                name: function.name.as_str(),
+                parent: parent_key(&function.parent),
+            },
+        );
+    }
+    select_keys(&nodes, keys, names, &mut selection)?;
+    selection.charge.grow(
+        functions
+            .as_map()
+            .len()
+            .saturating_mul(size_of::<FunctionId>().saturating_mul(8).saturating_add(64)),
+    )?;
+    let selected = functions
+        .as_map()
         .keys()
-        .map(|id| id.to_int().to_string())
+        .filter(|id| selection.keys.contains(&id.serialize_to_string()))
+        .cloned()
+        .collect();
+    Ok((selection, selected))
 }
 
 /// The records of `definitions`, the module `module`. `complete` states, per class id, whether its
@@ -761,3 +929,104 @@ pub fn parameter_docs(
 }
 
 type ParameterIndex = HashMap<Id<Occurrence>, Vec<(i64, Id<Occurrence>, ParameterKind)>>;
+
+#[cfg(test)]
+mod definition_selection_controls {
+    use super::*;
+
+    #[test]
+    fn exact_public_paths_keep_all_duplicates_and_enclosures_without_inventing_broken_paths() {
+        let nodes = BTreeMap::from([
+            (
+                "F:1".into(),
+                DefinitionNode {
+                    name: "outer",
+                    parent: None,
+                },
+            ),
+            (
+                "7".into(),
+                DefinitionNode {
+                    name: "Nested",
+                    parent: Some("F:1".into()),
+                },
+            ),
+            (
+                "F:2".into(),
+                DefinitionNode {
+                    name: "method",
+                    parent: Some("7".into()),
+                },
+            ),
+            (
+                "F:3".into(),
+                DefinitionNode {
+                    name: "method",
+                    parent: Some("7".into()),
+                },
+            ),
+            (
+                "F:4".into(),
+                DefinitionNode {
+                    name: "unused",
+                    parent: None,
+                },
+            ),
+            (
+                "F:5".into(),
+                DefinitionNode {
+                    name: "broken",
+                    parent: Some("absent".into()),
+                },
+            ),
+            (
+                "F:6".into(),
+                DefinitionNode {
+                    name: "cycle",
+                    parent: Some("F:6".into()),
+                },
+            ),
+        ]);
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let mut selected = DefinitionSelection {
+            keys: BTreeSet::new(),
+            charge: lctx_model::domain::charged::StateCharge::new(&budget, "selection-control"),
+        };
+        select_keys(
+            &nodes,
+            &BTreeSet::from(["unknown".into()]),
+            &[
+                "outer.Nested.method".into(),
+                "broken".into(),
+                "cycle".into(),
+            ],
+            &mut selected,
+        )
+        .unwrap();
+        assert_eq!(
+            selected.keys,
+            BTreeSet::from([
+                "F:1".into(),
+                "7".into(),
+                "F:2".into(),
+                "F:3".into(),
+                "unknown".into()
+            ])
+        );
+        assert!(budget.reserved() > 0);
+        drop(selected);
+        assert_eq!(budget.reserved(), 0);
+        let small = lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
+        let mut refused = DefinitionSelection {
+            keys: BTreeSet::new(),
+            charge: lctx_model::domain::charged::StateCharge::new(&small, "selection-control"),
+        };
+        assert!(matches!(
+            select_keys(&nodes, &BTreeSet::new(), &["outer".into()], &mut refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert!(refused.keys.is_empty());
+        drop(refused);
+        assert_eq!(small.reserved(), 0);
+    }
+}
