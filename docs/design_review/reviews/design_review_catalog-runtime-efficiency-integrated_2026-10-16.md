@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: assembled target review
 
-**Accept scoped, Interface-checked, 2026-10-16; latest bounded source reassessment `9297f305` (2026-10-17 UTC), following `2dbc6b0e` / `f8f44159`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; §13 accepts the mechanical facts-future ownership refinement at source strength. Functional acceptance remains pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Accept scoped, Interface-checked, 2026-10-16; latest bounded source reassessment `a9a6db1a` / `cf9b97ef`, with control correction `967cf1eb` (2026-10-17 UTC).** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; §13 accepts the mechanical facts-future ownership refinement at source strength. Sections 14–15 assess terminal reference settlement, cleanup/pin bulk lowering and the stopped-release control at source strength. Functional acceptance and native concurrency closure remain pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
@@ -472,3 +472,61 @@ release versus installation cut in both orders and closed-era/history overlap, a
 native concurrency controls at normal concurrency. Removing this write does not establish remedy
 sufficiency for the observed failures. Builds, tests and services were **not_run by this reviewer**;
 no measured benefit or enclosing functional acceptance follows. Additional rule impacts: none.
+
+## 15. Cleanup/pin bulk lowering and stopped-release control reassessment
+
+**Accept scoped, Interface-checked, 2026-10-17 UTC.** Independent comparison of `a9a6db1a` with its
+parent covers `control.rs`, `control/cleanup.rs`, `control/coordination.rs` and
+`control/retirement.rs`. Separate inspection covers the control-only `cf9b97ef` extension and its
+SDK decoding correction `967cf1eb`. No material production correctness regression was found;
+earlier judgments and findings retain their named source boundaries.
+
+Cleanup preserves exact origin/owner/page equality, physical incarnation/phase checks and the
+protected-origin exclusions. Every distinct remaining attempt target still calls `native_touch`,
+retaining the full 64-stripe cut and predicate write. Ordinary targets retain the same exact
+`native_predicate:[$record]` identity, scalar `ONLY ... FOR UPDATE` read, MAX refusal,
+absent-to-one insertion and existing-row increment
+([coordination.rs](../../../crates/lctx-native/src/control/coordination.rs), lines 81–95;
+[cleanup.rs](../../../crates/lctx-native/src/control/cleanup.rs), lines 186–199). The private
+lowering variables do not collide with the inspected enclosing authorization/schema locals.
+The unchanged retirement page already uses this scalar-lock/bulk-increment pattern; sharing it
+does not import retirement-specific lineage or child-recreation authority.
+
+All nomination guard, job and item checks precede bulk mutations; duplicate-item refusal strengthens
+the complete-root count. Job creation, item insertion and exact hold-ID deletion remain in one
+owner-effect transaction. Pin release retains its separately committed released fence and derives
+deletion IDs solely from selected actual holds belonging to that pin
+([retirement.rs](../../../crates/lctx-native/src/control/retirement.rs), lines 247–266, 790–828;
+[control.rs](../../../crates/lctx-native/src/control.rs), lines 624–657). Both paths retain complete
+owner-effect wire preflight. Cleanup retains its row/byte window check; pin pages remain bounded
+to 128 hold IDs. New predicate-row, ID and observed-row arrays add transient native state proportional
+to the page: at most `2H+1` pin targets or `3H+1` cleanup targets before deduplication. Wire admission
+does not measure that native scratch footprint. Fewer individual predicate/item/deletion dispatches
+are visible in source; peak memory, numerical dispatch estimates and speed are not Measured.
+
+The pin control challenges owner/object overlap, a complete foreign-attempt cut, exhausted-predicate
+rollback, absent-to-one insertion and surviving foreign holds. Existing distinct-origin/owner cleanup
+controls retain foreign-target cuts. Strengthened cleanup refusals cover phase/incarnation/page,
+root-count, duplicate-item, predicate exhaustion and late item collision, asserting rollback of jobs,
+items, holds, ordinary predicates and origin stripes (`cleanup.rs`, lines 629–720, 722–784, 786–918).
+These are source-inspected controls; small cases do not establish maximum-width/large-ID memory
+behavior or concurrent overlap.
+
+`cf9b97ef` enrolls an actual receipt-bound successor signal owner. The stopped original token is
+never reset: checked parent recovery consumes the original sidecar only after exact settlement,
+and new production preparation still refuses. Sidecar paths match the existing recipient/reader
+correspondence checks. Cleanup drains the original owned session before completing the successor
+receipt. The control models an observed commit followed by stopped release, not transport
+acknowledgement loss; ordinary resolved native history remains, so it is not zero-persistence
+([recovery_controls.rs](../../../crates/lctx-native/src/control/authorization/recovery_controls.rs),
+lines 315–454 at `cf9b97ef`). Coordinator-reported full check `1ea6e1` and focused native selection
+`c66542` **failed during build; no tests ran**: the SDK's indexed result does not support
+`take<Object>`. The inspected `967cf1eb` correction changes only those two reads to `take<Value>`
+with strict `Value::Object` matching and explicit schema refusal; semantic assertions are unchanged.
+It establishes neither a successful rebuild nor an executed control pass.
+
+**Runtime acceptance and native concurrency closure remain pending with the coordinator.** No
+result is inferred for its subsequent checks. Builds, tests and services were **not_run by this
+reviewer**. Normal-concurrency reruns and the existing cut/compaction/collision/finality expectations
+remain necessary; these source refinements do not establish remedy sufficiency for historical
+failures or enclosing functional qualification. Additional rule impacts: none.
