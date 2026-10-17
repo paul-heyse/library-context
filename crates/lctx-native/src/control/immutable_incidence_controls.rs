@@ -138,9 +138,13 @@ fn revision(row: &Value) -> Result<i64, ModelError> {
 }
 
 async fn predicate(client: &Surreal<Client>, target: &RecordId) -> Result<Value, ModelError> {
-    let mut response = client.query("LET $id=type::record('native_predicate',[$target]); SELECT * FROM ONLY $id")
-        .bind(("target", target.clone())).await.map_err(ModelError::codec)?
-        .check().map_err(ModelError::codec)?;
+    let mut response = client
+        .query("LET $id=type::record('native_predicate',[$target]); SELECT * FROM ONLY $id")
+        .bind(("target", target.clone()))
+        .await
+        .map_err(ModelError::codec)?
+        .check()
+        .map_err(ModelError::codec)?;
     response.take(1).map_err(ModelError::codec)
 }
 async fn stripes(client: &Surreal<Client>, owner: &RecordId) -> Result<Vec<Object>, ModelError> {
@@ -151,8 +155,15 @@ async fn stripes(client: &Surreal<Client>, owner: &RecordId) -> Result<Vec<Objec
     assert_eq!(rows.len(), coordination::ADMISSION_STRIPES);
     Ok(rows)
 }
-async fn incidence_snapshot(client: &Surreal<Client>, records: Vec<RecordId>, owner: &RecordId) -> Result<Object, ModelError> {
-    let guards = records.iter().map(|id| guard_id(&Value::RecordId(id.clone()))).collect::<Result<Vec<_>,_>>()?;
+async fn incidence_snapshot(
+    client: &Surreal<Client>,
+    records: Vec<RecordId>,
+    owner: &RecordId,
+) -> Result<Object, ModelError> {
+    let guards = records
+        .iter()
+        .map(|id| guard_id(&Value::RecordId(id.clone())))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut response = client.query("LET $predicates=$records.map(|$record| type::record('native_predicate',[$record])); RETURN {records:(SELECT * FROM $records ORDER BY id),guards:(SELECT * FROM $guards ORDER BY id),predicates:(SELECT * FROM $predicates ORDER BY id),stripes:(SELECT * FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$owner ORDER BY slot)}")
         .bind(("records", records)).bind(("guards", guards)).bind(("owner", owner.clone()))
         .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
@@ -163,7 +174,8 @@ async fn incidence_snapshot(client: &Surreal<Client>, records: Vec<RecordId>, ow
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn immutable_bulk_incidence_preserves_equal_replay_new_holders_and_context_free_attempt_cuts() {
+async fn immutable_bulk_incidence_preserves_equal_replay_new_holders_and_context_free_attempt_cuts()
+{
     run_case("bulk immutable exact incidence", |fixture| async move {
         let first = fixture.first.attempt();
         let second = fixture.second.attempt();
