@@ -448,7 +448,15 @@ Rust formatting; Hakari unchanged). Native environment refresh `20261017T021104.
 `20261017T021707.714Z-3e0358` is running as `just verify --rerun 20261017T002012.086Z-41899e`,
 with the same exact target, release profile, normal concurrency and exclusions. Already-passed
 model/analytics/provider-flow boundaries retain their dated scope; failed/not-run boundaries are
-selected for this rerun. Post-format full compile `20261017T021745.812Z-09977e` is running.
+selected for this rerun. Post-format full compile `20261017T021745.812Z-09977e` and strict Clippy
+`20261017T021931.655Z-c67566` **passed**, without warnings/errors and with host cleanup confirmed.
+The separate extraction test codegen emitted `recursion_depth_exceeding_limit` in nine downstream
+targets: the facts scheduler exposed the full provider/output Send proof across its crate boundary.
+`9297f305` moves its existing boxed task into a private explicit `BoxFuture` helper, with unchanged
+allocation count, laziness, scheduling, tracing and completion. Independent source review accepts
+that bounded correction. The running extraction binaries precede this correction; their dated
+results remain evidence, while affected current-source codegen and functional reruns remain required.
+No recursion-limit increase, warning allowance or unsafe auto-trait implementation is used.
 
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory
