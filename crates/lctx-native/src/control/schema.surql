@@ -241,16 +241,24 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
     LET $changed=array::concat($prepared,$original_prepared).filter(|$entry| $entry.existing=NONE).map(|$entry| $entry.row);
     LET $changed_blobs=array::distinct($changed.filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob));
     LET $targets=array::distinct(array::concat(array::flatten($changed.map(|$row| fn::native_incidence_targets($row))),$changed_blobs));
-    FOR $target IN $targets {
-        fn::native_touch_admitted($target,$context);
-        // First creation already advanced its physical incarnation above. New
-        // incidence on an existing immutable endpoint advances the guard once;
-        // existing equal holds/rows are absent from this changed target set.
-        IF $context=NONE OR $target!=$context.attempt {
-            LET $entries=$deferred.filter(|$entry| $entry.record=$target);
-            IF array::len($entries)>0 AND ($entries[0].phase='active' OR array::len($changed.filter(|$row| $row.id=$target))=0) { LET $guard_id=$entries[0].guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807 { THROW 'native changed incidence guard invalid'; }; UPDATE $guard_id SET revision+=1 RETURN NONE; };
-        };
-    };
+    // Declared-target admission above covers every changed endpoint, including
+    // equal rows. Ordinary attempts use their wrapper's one-stripe participant;
+    // context-free attempt endpoints retain their complete cut and predicate write.
+    IF $context=NONE { FOR $target IN $targets.filter(|$record| $record!=NONE AND record::table($record)='native_attempt') { fn::native_touch($target); }; };
+    LET $predicate_rows=$targets.filter(|$record| $record!=NONE AND record::table($record)!='native_attempt').map(|$record| {id:type::record('native_predicate',[$record]),revision:1});
+    LET $predicate_ids=$predicate_rows.map(|$row| $row.id);
+    LET $actual_predicates=$predicate_ids.map(|$id| (SELECT id,revision FROM ONLY $id FOR UPDATE)).filter(|$row| $row!=NONE);
+    IF array::len(SELECT * FROM $actual_predicates WHERE revision>=9223372036854775807)>0 { THROW 'native predicate revision exhausted'; };
+    // Preserve the first deferred entry and the exact old qualifying condition.
+    // Host expectation preparation rejects different records sharing one physical
+    // guard, and targets are distinct, so accepted packets advance each guard once.
+    LET $changed_ids=$changed.map(|$row| $row.id);
+    LET $guard_entries=$targets.filter(|$target| $context=NONE OR $target!=$context.attempt).map(|$target| {target:$target,entry:($deferred.filter(|$entry| $entry.record=$target)[0] ?? NONE)}).filter(|$candidate| $candidate.entry!=NONE AND ($candidate.entry.phase='active' OR $candidate.target NOT IN $changed_ids));
+    LET $guard_ids=$guard_entries.map(|$candidate| $candidate.entry.guard);
+    LET $actual_guards=$guard_ids.map(|$id| (SELECT * FROM ONLY $id FOR UPDATE));
+    IF array::len($actual_guards.filter(|$guard| $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807))>0 { THROW 'native changed incidence guard invalid'; };
+    IF array::len($predicate_rows)>0 { INSERT INTO native_predicate $predicate_rows ON DUPLICATE KEY UPDATE revision+=1 RETURN NONE; };
+    IF array::len($guard_ids)>0 { UPDATE $guard_ids SET revision+=1 RETURN NONE; };
     LET $attempts=array::distinct($rows.filter(|$row| record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging']).map(|$row| $row.attempt));
     FOR $attempt IN $attempts { IF $attempt=NONE OR (SELECT VALUE id FROM ONLY $attempt)=NONE { THROW 'native incidence attempt missing'; }; };
     LET $contributions=array::distinct(array::concat($rows.filter(|$row| record::table($row.id)='compiler_membership').map(|$row| $row.contribution),$all.filter(|$row| record::table($row.id)='native_hold' AND record::table($row.owner)='compiler_contribution').map(|$row| $row.owner)));

@@ -137,6 +137,120 @@ fn revision(row: &Value) -> Result<i64, ModelError> {
     )
 }
 
+async fn predicate(client: &Surreal<Client>, target: &RecordId) -> Result<Value, ModelError> {
+    let mut response = client.query("LET $id=type::record('native_predicate',[$target]); SELECT * FROM ONLY $id")
+        .bind(("target", target.clone())).await.map_err(ModelError::codec)?
+        .check().map_err(ModelError::codec)?;
+    response.take(1).map_err(ModelError::codec)
+}
+async fn stripes(client: &Surreal<Client>, owner: &RecordId) -> Result<Vec<Object>, ModelError> {
+    let mut response = client.query("SELECT * FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$owner ORDER BY slot")
+        .bind(("owner", owner.clone())).await.map_err(ModelError::codec)?
+        .check().map_err(ModelError::codec)?;
+    let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
+    assert_eq!(rows.len(), coordination::ADMISSION_STRIPES);
+    Ok(rows)
+}
+async fn incidence_snapshot(client: &Surreal<Client>, records: Vec<RecordId>, owner: &RecordId) -> Result<Object, ModelError> {
+    let guards = records.iter().map(|id| guard_id(&Value::RecordId(id.clone()))).collect::<Result<Vec<_>,_>>()?;
+    let mut response = client.query("LET $predicates=$records.map(|$record| type::record('native_predicate',[$record])); RETURN {records:(SELECT * FROM $records ORDER BY id),guards:(SELECT * FROM $guards ORDER BY id),predicates:(SELECT * FROM $predicates ORDER BY id),stripes:(SELECT * FROM native_attempt_stripe WITH INDEX attempt_stripes WHERE attempt=$owner ORDER BY slot)}")
+        .bind(("records", records)).bind(("guards", guards)).bind(("owner", owner.clone()))
+        .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    response.take(1).map_err(ModelError::codec)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn immutable_bulk_incidence_preserves_equal_replay_new_holders_and_context_free_attempt_cuts() {
+    run_case("bulk immutable exact incidence", |fixture| async move {
+        let first = fixture.first.attempt();
+        let second = fixture.second.attempt();
+        let owner1 = RecordId::new("native_attempt", first.hex());
+        let owner2 = RecordId::new("native_attempt", second.hex());
+        let owner1_before = physical(&fixture.client, &owner1).await?;
+        let owner2_before = physical(&fixture.client, &owner2).await?;
+        let (target, row) = external(&format!("{}-bulk-holder", first.hex()));
+        let install = |attempt, owner, row| ImmutableWindows::new(vec![row], Some(attempt), None, Some(owner)).next().unwrap();
+        install_window(&fixture.client, Some(first), install(first, owner1.clone(), row.clone())?, None).await?;
+        let first_guard = physical(&fixture.client, &target).await?;
+        let first_predicate = predicate(&fixture.client, &target).await?;
+        assert_eq!(revision(&first_predicate)?, 1, "row and its first hold share one changed-target increment");
+        install_window(&fixture.client, Some(first), install(first, owner1.clone(), row.clone())?, None).await?;
+        assert_eq!(physical(&fixture.client, &target).await?, first_guard);
+        assert_eq!(predicate(&fixture.client, &target).await?, first_predicate);
+        install_window(&fixture.client, Some(second), install(second, owner2.clone(), row.clone())?, None).await?;
+        let next_guard = physical(&fixture.client, &target).await?;
+        assert_eq!(revision(&next_guard)?, revision(&first_guard)?+1, "a new holder advances the existing endpoint guard once");
+        assert_eq!(revision(&predicate(&fixture.client, &target).await?)?, revision(&first_predicate)?+1);
+        assert_eq!(next_guard.as_object().unwrap().get("incarnation"), first_guard.as_object().unwrap().get("incarnation"));
+        assert_eq!(read_row(&fixture.client, &target).await?, row);
+        for owner in [&owner1, &owner2] {
+            assert_eq!(revision(&predicate(&fixture.client, &hold_record_id(owner, &target)?).await?)?, 1);
+        }
+        assert_eq!(physical(&fixture.client, &owner1).await?, owner1_before);
+        assert_eq!(physical(&fixture.client, &owner2).await?, owner2_before);
+        let before1 = stripes(&fixture.client, &owner1).await?;
+        let before2 = stripes(&fixture.client, &owner2).await?;
+        // An installation-owned hold legitimately addresses distinct attempts.
+        // Unlike admitted windows, both endpoints must retain complete cuts.
+        hold(&fixture.client, None, owner2.clone(), vec![owner1.clone()]).await?;
+        for (owner, before) in [(&owner1, before1), (&owner2, before2)] {
+            for (after, before) in stripes(&fixture.client, owner).await?.iter().zip(before) {
+                assert_eq!(authorization::int_field(after, "revision")?, authorization::int_field(&before, "revision")?+1);
+            }
+        }
+        Ok(())
+    }.boxed()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn immutable_bulk_incidence_tail_maxima_and_collision_roll_back_every_address() {
+    run_case("bulk immutable late rollback", |fixture| async move {
+        let first = fixture.first.attempt();
+        let second = fixture.second.attempt();
+        let owner1 = RecordId::new("native_attempt", first.hex());
+        let owner2 = RecordId::new("native_attempt", second.hex());
+        for damage in ["predicate_max", "guard_max", "collision"] {
+            let (tail, row) = external(&format!("{}-bulk-tail-{damage}", first.hex()));
+            ensure_rows(&fixture.client, Some(first), vec![row.clone()]).await?;
+            hold(&fixture.client, Some(first), owner1.clone(), vec![tail.clone()]).await?;
+            let (fresh, fresh_row) = external(&format!("{}-bulk-prefix-{damage}", second.hex()));
+            let mut wanted = row.as_object().unwrap().clone();
+            if damage == "collision" {
+                wanted.insert("canonical", surrealdb::types::Bytes::from(b"different full immutable bytes".to_vec()));
+            }
+            let (mut sql, mut bindings) = immutable_row_plan(Some(second), None, vec![fresh_row, Value::Object(wanted)])?
+                .ok_or(ModelError::Schema("bulk immutable control rows"))?;
+            let (_, holds, hold_bindings) = hold_plan(Some(second), vec![(owner2.clone(), fresh.clone()), (owner2.clone(), tail.clone())])?
+                .ok_or(ModelError::Schema("bulk immutable control holds"))?;
+            merge_plan_bindings(&mut bindings, hold_bindings)?;
+            sql = join_immutable_holds(&sql, &holds);
+            // These owned mutations occur AFTER the real wrapper's expectation
+            // checks and roll back with this transaction. They reveal the body's
+            // predicate/guard overflow checks rather than a prior wrapper refusal.
+            let prefix = match damage {
+                "predicate_max" => "LET $control_predicate=type::record('native_predicate',[$control_target]); UPSERT $control_predicate SET revision=9223372036854775807 RETURN NONE; ",
+                "guard_max" => "UPDATE $control_guard SET revision=9223372036854775807 RETURN NONE; ",
+                _ => "",
+            };
+            bindings.insert("control_target", tail.clone());
+            bindings.insert("control_guard", guard_id(&Value::RecordId(tail.clone()))?);
+            let records = vec![fresh.clone(), tail.clone(), hold_record_id(&owner2, &fresh)?, hold_record_id(&owner2, &tail)?, owner2.clone()];
+            let before = incidence_snapshot(&fixture.client, records.clone(), &owner2).await?;
+            let error = effect_for_owner(&fixture.client, EffectOwner::OpenAttempt(second), &format!("{prefix}{sql}"), bindings).await.unwrap_err();
+            let expected = match damage {
+                "predicate_max" => "native predicate revision exhausted",
+                "guard_max" => "native changed incidence guard invalid",
+                _ => "native immutable address collision",
+            };
+            assert!(error.to_string().contains(expected), "{damage}: {error}");
+            assert!(error.permits_storage_cleanup(), "known rollback must settle its actual request: {error}");
+            assert_eq!(incidence_snapshot(&fixture.client, records, &owner2).await?, before,
+                "{damage}: rows, holds, physical/predicate revisions and attempt participation all roll back");
+        }
+        Ok(())
+    }.boxed()).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn reused_window_writer_refuses_after_complete_owner_cut() {
     run_case("reused immutable writer owner cut", |fixture| async move {
