@@ -62,6 +62,10 @@ from this architectural decision.
 
 ## §15.1 Layers, owners and mechanisms
 
+**Implemented / focused-Tested, 2026-10-17 (ADR-0185).** Native audited membership and full six-family identity are distinct consumer demands under one normalization authority. Groupwise nominal payload agreement compares complete typed selected rows before reference-family consumption, retaining null/nested/list/order semantics, all original-owner observations and atomic pending-premise publication. Blocking placement changes execution ownership, not semantic admission. Full Catalog qualification remains separately pending with the [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
+
+> Decision: ADR-0185
+
 **Accepted target, 2026-10-07.** `lctx-model` owns semantic
 records, graph mappings, canonical keys, conditions, domain operations and invariants. `cpg-extract`
 and `cpg-flow` own independent native observations; `cpg-core` owns cumulative persisted

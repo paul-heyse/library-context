@@ -28,7 +28,6 @@ pub struct EarnedContributionSet {
     contributors: BTreeMap<ContentHash, Arc<crate::control::ExpectedRecord>>,
     selector: ContentHash,
     members: crate::ordered_rows::PreparedPointRows,
-    _prepared: Vec<super::audit::LogicalContributorRows>,
     pub(super) _charge: StateCharge,
 }
 impl EarnedContributionSet {
@@ -174,102 +173,97 @@ impl HeldInstalledView {
         let owner = RecordId::new("native_pin", pin.identity.hex());
         let mut charge = StateCharge::new(budget, "receiving independent exact selector");
         charge.grow(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>())?;
-        let (selector, owner) =
-            match &self.owner {
-                InstalledViewOwner::Earned { set } => {
-                    charge.grow(
-                        super::view_heap(&self.selector.view).saturating_add(
-                            self.selector
-                                .mappings
-                                .len()
-                                .saturating_mul(std::mem::size_of::<ContributorRealization>()),
-                        ),
-                    )?;
-                    let mut state =
-                        StateCharge::new(budget, "receiving immutable contributor preparation");
-                    state.grow(
-                        set.contributors
+        let (selector, owner) = match &self.owner {
+            InstalledViewOwner::Earned { set } => {
+                charge.grow(
+                    super::view_heap(&self.selector.view).saturating_add(
+                        self.selector
+                            .mappings
                             .len()
-                            .saturating_mul(1024)
-                            .saturating_add(set._prepared.len().saturating_mul(
-                                std::mem::size_of::<super::audit::LogicalContributorRows>(),
-                            ))
-                            .saturating_add(std::mem::size_of::<EarnedContributionSet>() + 512),
-                    )?;
-                    let copied = EarnedContributionSet {
-                        pin: pin.clone(),
-                        owner,
-                        // A new receiving pin cannot inherit the source's checked
-                        // context lifetime. Its existing fresh remote route remains.
-                        context_lifetime: None,
-                        generation: set.generation,
-                        validity_epoch: set.validity_epoch,
-                        contributors: set.contributors.clone(),
-                        selector: set.selector,
-                        members: set.members.clone(),
-                        _prepared: set._prepared.clone(),
-                        _charge: state,
-                    };
-                    (
-                        HeldSelector::Earned(self.completion().clone()),
-                        InstalledViewOwner::Earned {
-                            set: Arc::new(copied),
-                        },
-                    )
-                }
-                InstalledViewOwner::Physical {
-                    expected,
-                    completed,
-                    ..
-                } => (
-                    HeldSelector::Retained(self.retained_completion()?.clone()),
-                    InstalledViewOwner::Recovery {
-                        expected: expected.clone(),
-                        inventory: completed.inventory.clone(),
-                        pin: pin.clone(),
-                        owner,
+                            .saturating_mul(std::mem::size_of::<ContributorRealization>()),
+                    ),
+                )?;
+                let mut state =
+                    StateCharge::new(budget, "receiving immutable contributor preparation");
+                state.grow(
+                    set.contributors
+                        .len()
+                        .saturating_mul(1024)
+                        .saturating_add(std::mem::size_of::<EarnedContributionSet>() + 512),
+                )?;
+                let copied = EarnedContributionSet {
+                    pin: pin.clone(),
+                    owner,
+                    // A new receiving pin cannot inherit the source's checked
+                    // context lifetime. Its existing fresh remote route remains.
+                    context_lifetime: None,
+                    generation: set.generation,
+                    validity_epoch: set.validity_epoch,
+                    contributors: set.contributors.clone(),
+                    selector: set.selector,
+                    members: set.members.clone(),
+                    _charge: state,
+                };
+                (
+                    HeldSelector::Earned(self.completion().clone()),
+                    InstalledViewOwner::Earned {
+                        set: Arc::new(copied),
                     },
-                ),
-                InstalledViewOwner::Frozen {
-                    expected,
-                    completed,
-                    ..
-                } => (
-                    HeldSelector::Retained(self.retained_completion()?.clone()),
-                    InstalledViewOwner::Recovery {
-                        expected: expected.clone(),
-                        inventory: completed.inventory.clone(),
-                        pin: pin.clone(),
-                        owner,
-                    },
-                ),
-                InstalledViewOwner::Published {
-                    expected,
-                    completed,
-                    ..
-                } => (
-                    HeldSelector::Retained(self.retained_completion()?.clone()),
-                    InstalledViewOwner::Recovery {
-                        expected: expected.clone(),
-                        inventory: completed.shared_inventory(),
-                        pin: pin.clone(),
-                        owner,
-                    },
-                ),
+                )
+            }
+            InstalledViewOwner::Physical {
+                expected,
+                completed,
+                ..
+            } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
                 InstalledViewOwner::Recovery {
-                    expected,
-                    inventory,
-                    ..
-                } => (
-                    HeldSelector::Retained(self.retained_completion()?.clone()),
-                    InstalledViewOwner::Recovery {
-                        expected: expected.clone(),
-                        inventory: inventory.clone(),
-                        pin: pin.clone(),
-                        owner,
-                    },
-                ),
-            };
+                    expected: expected.clone(),
+                    inventory: completed.inventory.clone(),
+                    pin: pin.clone(),
+                    owner,
+                },
+            ),
+            InstalledViewOwner::Frozen {
+                expected,
+                completed,
+                ..
+            } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery {
+                    expected: expected.clone(),
+                    inventory: completed.inventory.clone(),
+                    pin: pin.clone(),
+                    owner,
+                },
+            ),
+            InstalledViewOwner::Published {
+                expected,
+                completed,
+                ..
+            } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery {
+                    expected: expected.clone(),
+                    inventory: completed.shared_inventory(),
+                    pin: pin.clone(),
+                    owner,
+                },
+            ),
+            InstalledViewOwner::Recovery {
+                expected,
+                inventory,
+                ..
+            } => (
+                HeldSelector::Retained(self.retained_completion()?.clone()),
+                InstalledViewOwner::Recovery {
+                    expected: expected.clone(),
+                    inventory: inventory.clone(),
+                    pin: pin.clone(),
+                    owner,
+                },
+            ),
+        };
         Ok(Self {
             client: pin.client().clone(),
             selector,
@@ -300,25 +294,18 @@ pub async fn select_live_view_scoped(
         // Contributor-local alias integrity is reusable; composed exact-set reachability
         // is checked before selector authority is published, including cross-owner paths.
         super::audit::audit_aliases_scoped(&reader, &closure, budget, audit).await?;
-        let prepared =
-            super::audit::prepare_closure_scoped(&reader, &closure, budget, audit).await?;
         let members =
             super::audit::selected_prepared_members(&closure, view, budget, audit).await?;
         let selector = super::realization_id(view, mappings)?;
-        let members = members.point_index(budget)?;
+        let members = audit.prepare_member_points(members).await?;
         let mut charge = StateCharge::new(budget, "earned exact contributor capability");
         charge.grow(
-                closure
-                    .contributors
-                    .len()
-                    .saturating_mul(1024)
-                    .saturating_add(
-                        prepared.len().saturating_mul(std::mem::size_of::<
-                            super::audit::LogicalContributorRows,
-                        >()),
-                    )
-                    .saturating_add(4096),
-            )?;
+            closure
+                .contributors
+                .len()
+                .saturating_mul(1024)
+                .saturating_add(4096),
+        )?;
         let set = Arc::new(EarnedContributionSet {
             pin: audit.borrow_pin()?,
             context_lifetime: Some(audit.checked_context_lifetime(&reader, budget)?),
@@ -328,7 +315,6 @@ pub async fn select_live_view_scoped(
             contributors: super::audit::protected_contributors(&closure, audit)?,
             selector,
             members,
-            _prepared: prepared,
             _charge: charge,
         });
         // Native metadata, whole outputs and selected membership were independently
@@ -640,7 +626,6 @@ mod tests {
                     contributors: BTreeMap::new(),
                     selector: ContentHash([3; 32]),
                     members: prepared.point_index(&budget).unwrap(),
-                    _prepared: vec![],
                     _charge: state,
                 }),
             },

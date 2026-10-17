@@ -1,6 +1,6 @@
 # Catalog upper execution: native preparation and admission
 
-**Proposed implementation plan, 2026-10-17.** This standalone companion develops native
+**Implemented / focused-Tested, 2026-10-17.** This standalone companion specifies native
 execution changes from the [upper-execution review](../design_review/reviews/design_review_catalog-upper-execution-performance-target_2026-10-17.md).
 The [coordinator](catalog-upper-execution-plan_2026-10-17.md) owns shared contracts, approved
 rule directions, dependencies and the sole §6 disposition ledger. This document does not
@@ -14,8 +14,8 @@ operation pins, successful-work coalescing with failed-flight eviction, bounded 
 ordering and independent receiving admission. These are foundations to extend, not competing
 systems to replace. The [storage owner §6.1](../design/sections/storage-and-publication.md#61-admitted-content-and-native-publication)
 and [semantic owner §15.1](../design/sections/semantic-model.md#section-15-1) remain architectural
-authorities. Review remedies and packages below are Proposed; no production change or new
-functional test is claimed by this plan.
+authorities. This paragraph describes the authoring baseline; current UN01–UN05 implementation,
+verification and remaining work are recorded only in [coordinator §6](catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
 
 | Current mechanism | Source and assessed mismatch |
 |---|---|
@@ -153,14 +153,7 @@ content, semantic keys and canonical layout/source metadata before original work
 ordered cursor and exact EOF contract. Remove scalar payload queries and unconditional absent
 family probes from this completion path.
 
-Extend the existing completion operation with charged successful blob preparation keyed by
-complete blob identity, checked incarnation/revision and actual protection context. Share it
-across membership pages and both original-bearing families while that operation remains live.
-Every distinct layout still validates declaration, source association, hold and pending-piece
-drainage; cached blob bytes do not settle those obligations. A completed flag alone never proves
-byte integrity. Conclusively observed same-incarnation premise changes follow existing owned
-recapture/revalidation; retirement, ABA, remote uncertainty and unrelated errors cannot authorize
-a new effect or a reused success.
+Implement one sealed operation over spillable exact layout IDs and compact blob/layout work. Validate each distinct layout's source association and hold, then drain all pending layout work before completing unique blobs. This shares work across pages and both original-bearing families without a retained revision cache or invalidation from later own drains. Every blob preserves its exact incarnation/revision CAS and independent byte readback. Conclusively observed same-incarnation premise changes follow existing owned recapture/revalidation; retirement, ABA, remote uncertainty and unrelated errors cannot authorize another effect or reused success. A completed flag alone never proves byte integrity.
 
 Independently extend receiving `audit_original` so a protected byte acquisition feeds compatible
 full-blob and range-hash obligations together. Use the existing `original_bytes_batch/read_ranges`
@@ -268,5 +261,5 @@ Completion requires all named consumers migrated, superseded paths removed, exac
 trust contracts preserved, package-specific focused controls passed and consequential decisions
 recorded at their architecture owner. I04 closes with an explicit full-demand consumer map; I05
 closes with supported equality/mechanism evidence. I09 frequency evidence may remain unmeasured
-without blocking justified corrections. Record actual outcomes only in coordinator §6; all
-packages are initially **Open**, checks **not_run**, and no source finding is newly closed here.
+without blocking justified corrections. Record actual outcomes only in coordinator §6; package
+requirements above remain the closure contract rather than a second mutable status register.

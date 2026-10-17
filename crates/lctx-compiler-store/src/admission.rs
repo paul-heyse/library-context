@@ -2315,75 +2315,86 @@ impl AdmissionRuntime {
         let tables = inputs.reference_targets()?;
         let mut prepared =
             reference_preparation::PreparedReferenceTargets::new(self, session, owned);
-        // A union of reference targets cannot hide conflicting nominal payloads.
-        // Captured companions carry independently protected canonical rows; each
-        // selected copy of their IDs must preserve every typed field as well.
-        for (position, (left_identity, (left_relation, left_table))) in tables.iter().enumerate() {
-            let matching = tables
-                .iter()
-                .skip(position + 1)
-                .any(|(_, (right, _))| right.name() == left_relation.name());
-            let left_empty = if matching {
-                match owned {
-                    Some(owned) => owned.earned_empty(self, session, left_identity).await?,
-                    None => false,
-                }
-            } else {
-                false
-            };
-            for (right_identity, (right_relation, right_table)) in tables.iter().skip(position + 1)
-            {
-                self.cancellation.check()?;
-                if left_relation.name() != right_relation.name() {
-                    continue;
-                }
-                if left_relation
+        // Agreement is one relation-group operation, not one query per pair.
+        // These private inputs retain full typed rows and never supply owner authority.
+        let _groups = self.budget().reserve(
+            "reference agreement groups",
+            tables.len().saturating_mul(256).saturating_add(512),
+        )?;
+        let mut groups = BTreeMap::<&str, Vec<(&ContentHash, &(Relation, String))>>::new();
+        for (identity, target) in &tables {
+            groups
+                .entry(target.0.name())
+                .or_default()
+                .push((identity, target));
+        }
+        for targets in groups.values() {
+            let relation = &targets[0].1.0;
+            if targets.len() < 2
+                || relation
                     .schema()
                     .fields()
                     .iter()
                     .all(|field| field.name() == "id")
+            {
+                continue;
+            }
+            let mut local_tables = Vec::with_capacity(targets.len());
+            for (identity, (other, table)) in targets {
+                self.cancellation.check()?;
+                if other.schema().as_ref() != relation.schema().as_ref() {
+                    return Err(ModelError::Schema("reference agreement schema differs"));
+                }
+                if let Some(owned) = owned
+                    && owned.earned_empty(self, session, identity).await?
                 {
                     continue;
                 }
-                if let Some(owned) = owned {
-                    if left_empty {
-                        owned.check_empty(self, session, left_identity).await?;
-                        continue;
-                    }
-                    if owned.earned_empty(self, session, right_identity).await? {
-                        continue;
-                    }
+                local_tables.push(prepared.input(**identity, other, table).await?);
+            }
+            // Original owners bracket the private preparation, including earned-empty inputs.
+            if let Some(owned) = owned {
+                for (identity, _) in targets {
+                    owned.check_empty(self, session, identity).await?;
                 }
-                // Complete-empty authority needs no SQL preparation. Format only
-                // the comparison that will actually be planned and executed.
-                let left_local = prepared
-                    .input(*left_identity, left_relation, left_table)
-                    .await?;
-                let right_local = prepared
-                    .input(*right_identity, right_relation, right_table)
-                    .await?;
-                let Some(sql) =
-                    nominal_payload_conflict_sql(left_relation.schema(), &left_local, &right_local)
-                else {
-                    continue;
-                };
-                if let Some(owned) = owned {
-                    owned.check_empty(self, session, left_identity).await?;
-                    owned.check_empty(self, session, right_identity).await?;
-                }
-                let mut stream = crate::sql::query(prepared.session(), &sql)
-                    .await
-                    .map_err(ModelError::codec)?
-                    .execute_stream()
-                    .await
-                    .map_err(ModelError::codec)?;
-                while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-                    self.cancellation.check()?;
-                    if batch.num_rows() > 0 {
-                        return Err(ModelError::Conflict(
-                            "selected nominal reference payloads conflict",
-                        ));
-                    }
+            }
+            let columns_bytes = relation
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| field.name().len().saturating_mul(2).saturating_add(4))
+                .sum::<usize>();
+            let query_bytes = local_tables
+                .iter()
+                .map(|table| {
+                    table
+                        .len()
+                        .saturating_mul(2)
+                        .saturating_add(columns_bytes)
+                        .saturating_add(64)
+                })
+                .sum::<usize>()
+                .saturating_add(columns_bytes)
+                .saturating_add(256);
+            let _query = self.budget().reserve(
+                "reference agreement query",
+                query_bytes.saturating_mul(4).saturating_add(1024),
+            )?;
+            let Some(sql) = nominal_payload_conflict_sql(relation.schema(), &local_tables) else {
+                continue;
+            };
+            let mut stream = crate::sql::query(prepared.session(), &sql)
+                .await
+                .map_err(crate::sql::model_error)?
+                .execute_stream()
+                .await
+                .map_err(crate::sql::model_error)?;
+            while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
+                self.cancellation.check()?;
+                if batch.num_rows() > 0 {
+                    return Err(ModelError::Conflict(
+                        "selected nominal reference payloads conflict",
+                    ));
                 }
             }
         }
@@ -3008,32 +3019,29 @@ impl MemoryPool for BudgetMemoryPool {
 
 fn nominal_payload_conflict_sql(
     schema: &arrow_schema::Schema,
-    left: &str,
-    right: &str,
+    tables: &[String],
 ) -> Option<String> {
+    if tables.len() < 2 || schema.fields().iter().all(|field| field.name() == "id") {
+        return None;
+    }
     let quote = crate::consumed_rows::identifier;
-    let differences = schema
+    let columns = schema
         .fields()
         .iter()
-        .filter(|field| field.name() != "id")
-        .map(|field| {
-            format!(
-                // sqlparser's DISTINCT FROM RHS consumes an expression. Group each
-                // null-sensitive comparison so OR joins boolean predicates only.
-                "(l.{} IS DISTINCT FROM r.{})",
-                quote(field.name()),
-                quote(field.name())
-            )
-        })
+        .map(|field| quote(field.name()))
         .collect::<Vec<_>>()
-        .join(" OR ");
-    (!differences.is_empty()).then(|| {
-        format!(
-            "SELECT l.id FROM {} l JOIN {} r ON l.id=r.id WHERE {differences} LIMIT 1",
-            quote(left),
-            quote(right)
-        )
-    })
+        .join(", ");
+    let union = tables
+        .iter()
+        .map(|table| format!("SELECT {columns} FROM {}", quote(table)))
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ");
+    // Whole-row DISTINCT retains NULL as a value. Counting variants afterwards avoids
+    // COUNT(DISTINCT payload)'s NULL omission and compares every complete typed column.
+    Some(format!(
+        "SELECT id FROM (SELECT DISTINCT {columns} FROM ({union}) AS selected_payloads) \
+         AS payload_variants GROUP BY id HAVING COUNT(*) > 1 LIMIT 1"
+    ))
 }
 
 fn poisoned() -> ModelError {
@@ -3145,6 +3153,271 @@ mod reference_empty_controls {
         );
         assert_eq!(scratch.reserved(), 0);
     }
+    // Independent oracle retained only in controls: the previous field-wise semantics.
+    fn pair_payload_conflict_sql(schema: &arrow_schema::Schema, left: &str, right: &str) -> String {
+        let quote = crate::consumed_rows::identifier;
+        let differences = schema
+            .fields()
+            .iter()
+            .filter(|field| field.name() != "id")
+            .map(|field| {
+                format!(
+                    "(l.{} IS DISTINCT FROM r.{})",
+                    quote(field.name()),
+                    quote(field.name())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        format!(
+            "SELECT l.id FROM {} l JOIN {} r ON l.id=r.id WHERE {differences} LIMIT 1",
+            quote(left),
+            quote(right)
+        )
+    }
+    async fn has_payload_conflict(session: &SessionContext, sql: &str) -> bool {
+        crate::sql::query(session, sql)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap()
+            .iter()
+            .any(|batch| batch.num_rows() != 0)
+    }
+    #[tokio::test]
+    async fn grouped_payload_agreement_matches_typed_pair_oracle_for_nested_nulls_and_zero() {
+        let session = SessionContext::new();
+        let fixture = |score: &str, nested: &str, ordered: &str, optional: &str| {
+            format!(
+                "SELECT 1 AS id, CAST({score} AS DOUBLE) AS score, {nested} AS nested, \
+             {ordered} AS ordered, CAST({optional} AS BIGINT) AS optional"
+            )
+        };
+        let nested =
+            "named_struct('name', 'value', 'items', make_array(1, CAST(NULL AS BIGINT), 2))";
+        let ordered = "make_array(1, CAST(NULL AS BIGINT), 2)";
+        let base = fixture("0.0", nested, ordered, "NULL");
+        let batch = crate::sql::query(&session, &base)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap()
+            .remove(0);
+        let schema = batch.schema();
+        session.register_batch("first", batch.clone()).unwrap();
+        session.register_batch("duplicate", batch.clone()).unwrap();
+        session
+            .register_batch("empty", RecordBatch::new_empty(schema.clone()))
+            .unwrap();
+        // An ID absent from all other inputs is not a disagreement.
+        let absent = crate::sql::query(&session, &base.replace("1 AS id", "2 AS id"))
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap()
+            .remove(0);
+        session.register_batch("absent", absent).unwrap();
+        let tables = ["first", "duplicate", "empty", "absent", "late"].map(String::from);
+        for (query, expected) in [
+            (base.clone(), false),
+            (fixture("-0.0", nested, ordered, "NULL"), false),
+            (fixture("0.0", nested, ordered, "7"), true),
+            (
+                fixture(
+                    "0.0",
+                    nested,
+                    "make_array(2, CAST(NULL AS BIGINT), 1)",
+                    "NULL",
+                ),
+                true,
+            ),
+            (
+                fixture(
+                    "0.0",
+                    "named_struct('name', 'changed', 'items', make_array(1, CAST(NULL AS BIGINT), 2))",
+                    ordered,
+                    "NULL",
+                ),
+                true,
+            ),
+            (
+                fixture(
+                    "0.0",
+                    "named_struct('name', 'value', 'items', make_array(1, 3, 2))",
+                    ordered,
+                    "NULL",
+                ),
+                true,
+            ),
+        ] {
+            session.deregister_table("late").unwrap();
+            let batch = crate::sql::query(&session, &query)
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap()
+                .remove(0);
+            session.register_batch("late", batch).unwrap();
+            let mut pairwise = false;
+            for (position, left) in tables.iter().enumerate() {
+                for right in tables.iter().skip(position + 1) {
+                    pairwise |= has_payload_conflict(
+                        &session,
+                        &pair_payload_conflict_sql(&schema, left, right),
+                    )
+                    .await;
+                }
+            }
+            let grouped = nominal_payload_conflict_sql(&schema, &tables).unwrap();
+            assert!(
+                !grouped.contains(" JOIN "),
+                "one union/group operation replaces pair joins"
+            );
+            assert_eq!(
+                has_payload_conflict(&session, &grouped).await,
+                pairwise,
+                "{query}"
+            );
+            assert_eq!(pairwise, expected, "explicit typed fixture: {query}");
+        }
+        // A NULL list/struct is distinct from a present container; two NULL containers
+        // compare equal. Exercise validity, rather than only nullable child values.
+        for field in ["nested", "ordered"] {
+            let original = crate::sql::query(&session, &base)
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap()
+                .remove(0);
+            let index = schema.index_of(field).unwrap();
+            let nullable_schema = Arc::new(arrow_schema::Schema::new(
+                schema
+                    .fields()
+                    .iter()
+                    .enumerate()
+                    .map(|(position, field)| {
+                        field
+                            .as_ref()
+                            .clone()
+                            .with_nullable(position == index || field.is_nullable())
+                    })
+                    .collect::<Vec<_>>(),
+            ));
+            let mut columns = original.columns().to_vec();
+            columns[index] = arrow_array::new_null_array(schema.field(index).data_type(), 1);
+            let null_container = RecordBatch::try_new(nullable_schema, columns).unwrap();
+            session.deregister_table("first").unwrap();
+            session.deregister_table("duplicate").unwrap();
+            session.register_batch("first", original.clone()).unwrap();
+            session.register_batch("duplicate", original).unwrap();
+            session.deregister_table("late").unwrap();
+            session
+                .register_batch("late", null_container.clone())
+                .unwrap();
+            let grouped = nominal_payload_conflict_sql(&schema, &tables).unwrap();
+            let pair = pair_payload_conflict_sql(&schema, "first", "late");
+            assert!(
+                has_payload_conflict(&session, &pair).await,
+                "NULL {field} differs from present"
+            );
+            assert!(
+                has_payload_conflict(&session, &grouped).await,
+                "group retains NULL {field} variant"
+            );
+            for table in ["first", "duplicate"] {
+                session.deregister_table(table).unwrap();
+                session
+                    .register_batch(table, null_container.clone())
+                    .unwrap();
+            }
+            assert!(
+                !has_payload_conflict(&session, &pair).await,
+                "NULL {field} equals NULL"
+            );
+            assert!(
+                !has_payload_conflict(&session, &grouped).await,
+                "group agrees on NULL {field}"
+            );
+        }
+        assert!(nominal_payload_conflict_sql(&schema, &["empty".into()]).is_none());
+    }
+    #[tokio::test]
+    async fn grouped_payload_agreement_preserves_nested_float_total_order_with_null_children() {
+        use arrow_array::builder::{Float64Builder, ListBuilder};
+        use arrow_array::{ArrayRef, Float64Array, Int64Array, StructArray};
+        use arrow_schema::{DataType, Field, Schema};
+        let batch = |list_zero: f64, struct_zero: f64, deep_zero: f64| {
+            let list = |zero| {
+                let mut list = ListBuilder::new(Float64Builder::new());
+                list.values().append_value(zero);
+                list.values().append_null();
+                list.append(true);
+                Arc::new(list.finish()) as ArrayRef
+            };
+            let ordered = list(list_zero);
+            let nested = Arc::new(StructArray::from(vec![
+                (
+                    Arc::new(Field::new("value", DataType::Float64, false)),
+                    Arc::new(Float64Array::from(vec![struct_zero])) as ArrayRef,
+                ),
+                (
+                    Arc::new(Field::new("missing", DataType::Float64, true)),
+                    Arc::new(Float64Array::from(vec![None::<f64>])) as ArrayRef,
+                ),
+            ])) as ArrayRef;
+            let deep_items = list(deep_zero);
+            let deep = Arc::new(StructArray::from(vec![(
+                Arc::new(Field::new("items", deep_items.data_type().clone(), false)),
+                deep_items,
+            )])) as ArrayRef;
+            let columns = vec![
+                Arc::new(Int64Array::from(vec![1])) as ArrayRef,
+                ordered,
+                nested,
+                deep,
+            ];
+            let schema = Arc::new(Schema::new(
+                ["id", "ordered", "nested", "deep"]
+                    .into_iter()
+                    .zip(&columns)
+                    .map(|(name, column)| Field::new(name, column.data_type().clone(), false))
+                    .collect::<Vec<_>>(),
+            ));
+            RecordBatch::try_new(schema, columns).unwrap()
+        };
+        let session = SessionContext::new();
+        let first = batch(0.0, 0.0, 0.0);
+        let schema = first.schema();
+        session.register_batch("first", first.clone()).unwrap();
+        session.register_batch("duplicate", first).unwrap();
+        let tables = ["first", "duplicate", "late"].map(String::from);
+        // Construct arrays directly so negative-zero bits cannot be erased by SQL
+        // constant folding. Pinned nested IS DISTINCT FROM uses totalOrder, unlike
+        // its top-level float path, and grouping must preserve that distinction.
+        for (late, expected) in [
+            (batch(0.0, 0.0, 0.0), false),
+            (batch(-0.0, 0.0, 0.0), true),
+            (batch(0.0, -0.0, 0.0), true),
+            (batch(0.0, 0.0, -0.0), true),
+        ] {
+            session.deregister_table("late").unwrap();
+            session.register_batch("late", late).unwrap();
+            let pair = pair_payload_conflict_sql(&schema, "first", "late");
+            let grouped = nominal_payload_conflict_sql(&schema, &tables).unwrap();
+            let original = has_payload_conflict(&session, &pair).await;
+            assert_eq!(original, expected, "nested NULL/float comparator contract");
+            assert_eq!(
+                has_payload_conflict(&session, &grouped).await,
+                original,
+                "grouping retains exact nested comparator semantics"
+            );
+        }
+    }
     #[tokio::test]
     async fn nominal_payload_comparisons_group_binary_boolean_and_nullable_predicates() {
         use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray};
@@ -3182,7 +3455,7 @@ mod reference_empty_controls {
         session
             .register_batch(left, batch([[7; 16]; 2], [true; 2], [Some([9; 16]), None]))
             .unwrap();
-        let sql = nominal_payload_conflict_sql(&schema, left, right).unwrap();
+        let sql = nominal_payload_conflict_sql(&schema, &[left.into(), right.into()]).unwrap();
         for (payload, active, nullable, expected) in [
             ([[7; 16]; 2], [true; 2], [Some([9; 16]), None], None),
             (
@@ -3240,8 +3513,7 @@ mod reference_empty_controls {
         assert!(
             nominal_payload_conflict_sql(
                 &Schema::new(vec![Field::new("id", DataType::FixedSizeBinary(16), false)]),
-                left,
-                right
+                &[left.into(), right.into()]
             )
             .is_none(),
             "an identity-only relation has no payload to compare"
@@ -3492,7 +3764,8 @@ mod reference_empty_controls {
                 )
                 .await
                 .unwrap();
-            let sql = nominal_payload_conflict_sql(relation.schema(), &left, &right).unwrap();
+            let sql =
+                nominal_payload_conflict_sql(relation.schema(), &[left.clone(), right]).unwrap();
             let batches = crate::sql::query(prepared.session(), &sql)
                 .await
                 .unwrap()
@@ -3507,6 +3780,124 @@ mod reference_empty_controls {
             );
         }
         drop(prepared);
+        lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
+    }
+    #[tokio::test]
+    async fn grouped_reference_admission_reads_three_owners_once_and_refuses_late_conflict() {
+        let relation = Relation::of::<ReferencePayload>();
+        let model = Arc::new(
+            ValidatedModel::declared(vec![Relation::of::<Package>(), relation.clone()]).unwrap(),
+        );
+        let runtime = runtime(model, None);
+        let package = Package {
+            name: "target".into(),
+        };
+        let row = ReferencePayload {
+            key: 1,
+            payload: package.id(),
+            active: true,
+            nullable: None,
+            members: vec![1, 2],
+        };
+        let mut inputs = selected(
+            &runtime,
+            vec![
+                CompletedView::new(
+                    ReferencePayload::NAME.into(),
+                    [ContentHash::of(b"first")].into(),
+                    1,
+                )
+                .unwrap(),
+            ],
+        );
+        for (boundary, seed) in [
+            (PublicationBoundary::Facts, b"second".as_slice()),
+            (PublicationBoundary::Dispatch, b"third".as_slice()),
+        ] {
+            let mut later = selected(
+                &runtime,
+                vec![
+                    CompletedView::new(
+                        ReferencePayload::NAME.into(),
+                        [ContentHash::of(seed)].into(),
+                        1,
+                    )
+                    .unwrap(),
+                ],
+            );
+            inputs.relations.insert(
+                (ReferencePayload::NAME, Some(boundary)),
+                later.relations.pop_first().unwrap().1,
+            );
+        }
+        inputs
+            .companions
+            .insert(Package::NAME, companion(&[package]));
+        for conflict in [false, true] {
+            let session = SessionContext::new_with_config_rt(
+                runtime.context.copied_config(),
+                runtime.context.runtime_env(),
+            );
+            let mut counters = Vec::new();
+            for ((name, prefix), selected) in &inputs.relations {
+                let mut selected_row = row.clone();
+                if conflict && *prefix == Some(PublicationBoundary::Dispatch) {
+                    selected_row.members.reverse();
+                }
+                let scans = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                session
+                    .register_table(
+                        ValidationInputs::table(name, *prefix),
+                        Arc::new(CountingReferenceTable {
+                            inner: datafusion::datasource::MemTable::try_new(
+                                selected.relation.schema().clone(),
+                                vec![vec![ReferencePayload::encode(&[selected_row]).unwrap()]],
+                            )
+                            .unwrap(),
+                            scans: scans.clone(),
+                        }),
+                    )
+                    .unwrap();
+                counters.push(scans);
+            }
+            for table in inputs.companions.values() {
+                session
+                    .register_table(
+                        table.table(),
+                        Arc::new(
+                            datafusion::datasource::MemTable::try_new(
+                                table.relation.schema().clone(),
+                                vec![table.batches.clone()],
+                            )
+                            .unwrap(),
+                        ),
+                    )
+                    .unwrap();
+            }
+            let result = runtime
+                .validate_references(&session, &[], &inputs, None)
+                .await;
+            if conflict {
+                assert!(matches!(
+                    result,
+                    Err(ModelError::Conflict(
+                        "selected nominal reference payloads conflict"
+                    ))
+                ));
+            } else {
+                result.unwrap();
+            }
+            assert!(
+                counters
+                    .iter()
+                    .all(|counter| counter.load(Ordering::SeqCst) == 1),
+                "agreement and downstream references share each original acquisition"
+            );
+            assert!(
+                runtime.memo.checked.lock().unwrap().0.is_empty(),
+                "receiving preparation publishes no portable proof"
+            );
+        }
         lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
     }
     #[tokio::test]

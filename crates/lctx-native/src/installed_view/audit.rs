@@ -102,6 +102,12 @@ struct WorkOwner {
     close_gate: tokio::sync::Mutex<()>,
     context_checked: std::sync::atomic::AtomicBool,
     context_gate: tokio::sync::Mutex<()>,
+    blocking: std::sync::Mutex<
+        Vec<(
+            crate::acknowledged_candidates::BlockingTerminal,
+            Box<dyn d::resources::Reservation>,
+        )>,
+    >,
 }
 type PreparationWorker = (
     u64,
@@ -112,6 +118,10 @@ type PreparationWorker = (
 struct WorkerDrain {
     workers: Vec<PreparationWorker>,
     terminal: d::completion::Completion,
+    blocking: Vec<(
+        crate::acknowledged_candidates::BlockingTerminal,
+        Box<dyn d::resources::Reservation>,
+    )>,
 }
 #[derive(Clone)]
 pub struct InstallationAudit {
@@ -126,6 +136,7 @@ pub struct InstallationAudit {
     recovery_views:
         SharedMap<ContentHash, SharedRecoveryIngredient<ObservedView, ContributionDescriptor>>,
     logical_contributors: SharedMap<RecordId, LogicalContributorRows>,
+    membership_contributors: SharedMap<RecordId, AuditedContributorMembership>,
     family_roots: SharedMap<(usize, ContentHash), d::completed_identity::CompletedFamilyRoot>,
     selected_members: SharedMap<ContentHash, PreparedSelectedMembers>,
     aliases: SharedMap<(), ScopedAliasRows>,
@@ -136,7 +147,7 @@ pub struct InstallationAudit {
             crate::ordered_rows::PreparedRows,
         ),
     >,
-    blobs: SharedMap<RecordId, i64>,
+    blobs: SharedMap<RecordId, PreparedBlobObservation>,
     budget: ResourceBudget,
     charge: SharedCharge,
     blob_observations: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -279,6 +290,7 @@ impl InstallationAudit {
             recovery_contributors: SharedMap::new(),
             recovery_views: SharedMap::new(),
             logical_contributors: SharedMap::new(),
+            membership_contributors: SharedMap::new(),
             family_roots: SharedMap::new(),
             selected_members: SharedMap::new(),
             aliases: SharedMap::new(),
@@ -306,6 +318,7 @@ impl InstallationAudit {
                 close_gate: tokio::sync::Mutex::new(()),
                 context_checked: std::sync::atomic::AtomicBool::new(false),
                 context_gate: tokio::sync::Mutex::new(()),
+                blocking: std::sync::Mutex::new(Vec::new()),
             }),
             worker: false,
         })
@@ -699,6 +712,63 @@ impl InstallationAudit {
     pub async fn close_drained(&self) -> Result<(), ModelError> {
         self.close().await
     }
+    fn blocking_observer(
+        &self,
+    ) -> Result<
+        impl FnOnce(crate::acknowledged_candidates::BlockingTerminal) + Send + 'static,
+        ModelError,
+    > {
+        self.pin.ensure_live()?;
+        let charge = self
+            .budget
+            .reserve("installation blocking terminal ownership", 1024)?;
+        let work = self.work.clone();
+        // Retain each admitted record and its charge until close drains the registry;
+        // pruning only entries would leave the Vec's retained capacity uncharged.
+        Ok(move |terminal| work.blocking.lock().unwrap().push((terminal, charge)))
+    }
+    async fn blocking<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&ResourceBudget) -> Result<T, ModelError> + Send + 'static,
+    ) -> Result<T, ModelError> {
+        // External callers register beneath the close gate. Accepted audit workers
+        // already keep close waiting and must not acquire their parent's gate.
+        let _admission = if self.worker {
+            None
+        } else {
+            Some(self.work.close_gate.lock().await)
+        };
+        self.pin.ensure_live()?;
+        if self.closed.load(std::sync::atomic::Ordering::Acquire)
+            || (!self.worker
+                && !self
+                    .work
+                    .accepting
+                    .load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Err(ModelError::Conflict(
+                "installation audit closed to blocking preparation",
+            ));
+        }
+        let input = self.budget.reserve(
+            "installation blocking unit inputs",
+            std::mem::size_of_val(&work).saturating_add(1024),
+        )?;
+        crate::acknowledged_candidates::run_registered(
+            &self.budget,
+            self.clone(),
+            self.blocking_observer()?,
+            input,
+            work,
+        )
+        .await
+    }
+    pub(crate) async fn prepare_member_points(
+        &self,
+        rows: crate::ordered_rows::PreparedRows,
+    ) -> Result<crate::ordered_rows::PreparedPointRows, ModelError> {
+        self.blocking(move |budget| rows.point_index(budget)).await
+    }
     async fn drain_workers(&self) -> Result<(), ModelError> {
         {
             let _registry = self.work.flights.lock().unwrap();
@@ -736,15 +806,52 @@ impl InstallationAudit {
                 }
             }
         }
+        loop {
+            if pending.blocking.is_empty() {
+                std::mem::swap(
+                    &mut pending.blocking,
+                    &mut *self.work.blocking.lock().unwrap(),
+                );
+            }
+            let Some((terminal, _)) = pending.blocking.last_mut() else {
+                break;
+            };
+            let result = terminal.clone().await.map_err(ModelError::SharedCause);
+            pending.blocking.pop();
+            pending
+                .terminal
+                .step("installation blocking preparation terminal", result);
+        }
         d::completion::complete(Ok(()), std::mem::take(&mut pending.terminal))
     }
     pub async fn close(&self) -> Result<(), ModelError> {
+        self.close_releasing(self.pin.release()).await
+    }
+    async fn close_releasing(
+        &self,
+        release: impl std::future::Future<Output = Result<(), ModelError>>,
+    ) -> Result<(), ModelError> {
         let _close = self.work.close_gate.lock().await;
-        self.drain_workers().await?;
-        self.pin.release().await?;
-        self.closed
-            .store(true, std::sync::atomic::Ordering::Release);
-        Ok(())
+        let drained = self.drain_workers().await;
+        if drained
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
+            self.retain_unknown();
+            return drained;
+        }
+        let released = release.await;
+        if released.is_ok() {
+            self.closed
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+        let mut terminal = d::completion::Completion::default();
+        terminal.step(
+            "installation audit pin release after worker drainage",
+            released,
+        );
+        d::completion::complete(drained, terminal)
     }
     pub(crate) fn borrow_pin(
         &self,
@@ -806,8 +913,107 @@ pub(crate) struct LogicalContributorRows {
     contribution: crate::ordered_rows::PreparedRows,
     // The complete canonical RecordId::Ord run remains the six-family hash input.
     memberships: crate::ordered_rows::PreparedRows,
-    relation_memberships: std::sync::Arc<PreparedMembershipRelations>,
     backing: crate::ordered_rows::PreparedRows,
+}
+struct AuditedContributorMembership {
+    memberships: crate::ordered_rows::PreparedRows,
+    relation_memberships: std::sync::Arc<PreparedMembershipRelations>,
+    _charge: StateCharge,
+}
+/// A bounded admitted transfer feeds the existing acknowledged sorting owner.
+struct AuditRows {
+    sort: crate::acknowledged_candidates::AsyncPhysicalSort,
+    rows: Vec<Value>,
+    transfer: Box<dyn d::resources::Reservation>,
+    budget: ResourceBudget,
+}
+impl AuditRows {
+    async fn new(
+        audit: &InstallationAudit,
+        budget: &ResourceBudget,
+        row_bytes: usize,
+    ) -> Result<Self, ModelError> {
+        if !audit.shares_pool(budget) {
+            return Err(ModelError::Conflict("audit sort foreign resource owner"));
+        }
+        let _admission = if audit.worker {
+            None
+        } else {
+            Some(audit.work.close_gate.lock().await)
+        };
+        audit.pin.ensure_live()?;
+        if audit.closed.load(std::sync::atomic::Ordering::Acquire)
+            || (!audit.worker
+                && !audit
+                    .work
+                    .accepting
+                    .load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Err(ModelError::Conflict(
+                "installation audit closed to sort preparation",
+            ));
+        }
+        let transfer = budget.reserve("audit sort batch", 0)?;
+        let sort =
+            crate::acknowledged_candidates::AsyncPhysicalSort::new_registered_with_row_bytes(
+                budget,
+                audit.clone(),
+                audit.blocking_observer()?,
+                row_bytes,
+            )
+            .await?;
+        Ok(Self {
+            sort,
+            rows: Vec::new(),
+            transfer,
+            budget: budget.clone(),
+        })
+    }
+    async fn push(&mut self, row: Value) -> Result<(), ModelError> {
+        let bytes = crate::acknowledged_candidates::physical_bytes(&row)?;
+        let capacity = if self.rows.len() == self.rows.capacity() {
+            self.rows.capacity().saturating_mul(2).max(1)
+        } else {
+            self.rows.capacity()
+        };
+        self.transfer.try_resize(
+            self.transfer.size().saturating_add(bytes).saturating_add(
+                capacity
+                    .saturating_sub(self.rows.capacity())
+                    .saturating_mul(std::mem::size_of::<Value>()),
+            ),
+        )?;
+        if capacity > self.rows.capacity() {
+            self.rows.reserve_exact(capacity - self.rows.len());
+        }
+        self.rows.push(row);
+        if self.rows.len() >= crate::loader::NATIVE_WINDOW_ROWS
+            || self.transfer.size() >= d::resources::TRANSFER_BYTES
+        {
+            self.flush().await?;
+        }
+        Ok(())
+    }
+    async fn flush(&mut self) -> Result<(), ModelError> {
+        if self.rows.is_empty() {
+            return Ok(());
+        }
+        let rows = std::mem::take(&mut self.rows);
+        let transfer = std::mem::replace(
+            &mut self.transfer,
+            self.budget.reserve("audit sort batch", 0)?,
+        );
+        self.sort.push_batch_reserved(rows, transfer).await
+    }
+    async fn finish(mut self) -> Result<crate::ordered_rows::PreparedRows, ModelError> {
+        self.flush().await?;
+        self.sort.prepare_terminal().await
+    }
+}
+impl crate::originals::BlobChunkSink for AuditRows {
+    fn push(&mut self, row: Value) -> futures::future::BoxFuture<'_, Result<(), ModelError>> {
+        AuditRows::push(self, row).boxed()
+    }
 }
 /// A derived access layout beneath the exact contributor preparation. All rows
 /// have reached the canonical run's EOF before an absent relation means empty.
@@ -899,6 +1105,10 @@ struct PreparedSelectedMembers {
     rows: crate::ordered_rows::PreparedRows,
     count: u64,
     content: ContentHash,
+}
+struct PreparedBlobObservation {
+    incarnation: i64,
+    chunks: crate::ordered_rows::PreparedPointRows,
 }
 impl Drop for InstallationAudit {
     fn drop(&mut self) {
@@ -2603,11 +2813,14 @@ pub(crate) async fn assure_boundary_closure(
     budget: &ResourceBudget,
     audit: &InstallationAudit,
     scope: &mut ClosureInspectionScope,
+    full: bool,
 ) -> Result<crate::ordered_rows::PreparedRows, ModelError> {
     scope.check(reader, audit, budget).await?;
-    audit_memberships_in_context(reader, closure, budget, audit).await?;
+    audit_memberships_demand(reader, closure, budget, audit, full).await?;
     let aliases = audit_aliases_in_context(reader, closure, budget, audit).await?;
-    prepare_closure_in_context(reader, closure, budget, audit).await?;
+    if full {
+        prepare_closure_in_context(reader, closure, budget, audit).await?;
+    }
     scope.check_local(reader, audit, budget)?;
     Ok(aliases)
 }
@@ -2625,6 +2838,15 @@ async fn audit_memberships_in_context(
     closure: &InspectedClosure,
     budget: &ResourceBudget,
     audit: &InstallationAudit,
+) -> Result<(), ModelError> {
+    audit_memberships_demand(reader, closure, budget, audit, false).await
+}
+async fn audit_memberships_demand(
+    reader: &NativeReader<()>,
+    closure: &InspectedClosure,
+    budget: &ResourceBudget,
+    audit: &InstallationAudit,
+    full: bool,
 ) -> Result<(), ModelError> {
     audit.check(reader, budget)?;
     for expected in closure.contributors.values() {
@@ -2647,10 +2869,16 @@ async fn audit_memberships_in_context(
                     let result = async {
                         let expected = worker_expected(&reader, &input, &budget).await?;
                         let descriptor = descriptor::<CompletedContribution>(expected.row())?;
-                        let fresh =
-                            audit_one_contributor(&reader, &descriptor, &expected, &budget, &owner)
-                                .await?;
-                        Ok(fresh.then_some(protected))
+                        let fresh = audit_one_contributor(
+                            &reader,
+                            &descriptor,
+                            &expected,
+                            &budget,
+                            &owner,
+                            full,
+                        )
+                        .await?;
+                        Ok(fresh.map(|products| (protected, products)))
                     }
                     .await;
                     let mut terminal = d::completion::Completion::default();
@@ -2660,7 +2888,18 @@ async fn audit_memberships_in_context(
                     );
                     let prepared = d::completion::complete(result, terminal)?;
                     owner.pin.ensure_live()?;
-                    if let Some(prepared) = prepared {
+                    if let Some((prepared, (membership, logical))) = prepared {
+                        owner
+                            .membership_contributors
+                            .insert(prepared.record().clone(), membership);
+                        if let Some(logical) = logical {
+                            owner
+                                .logical_contributors
+                                .insert(prepared.record().clone(), logical);
+                            owner
+                                .logical_contribution_observations
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
                         owner
                             .contributors
                             .insert_arc(prepared.record().clone(), prepared);
@@ -2682,7 +2921,8 @@ async fn audit_one_contributor(
     expected: &ExpectedRecord,
     budget: &ResourceBudget,
     audit: &InstallationAudit,
-) -> Result<bool, ModelError> {
+    full: bool,
+) -> Result<Option<(AuditedContributorMembership, Option<LogicalContributorRows>)>, ModelError> {
     use d::{Key, KeySink, completed::OutputContent};
     audit.ensure_context(reader, budget).await?;
     let owner = expected.record().clone();
@@ -2698,7 +2938,7 @@ async fn audit_one_contributor(
                 "reused installed contributor premise changed",
             ));
         }
-        return Ok(false);
+        return Ok(None);
     }
     audit.pin.protect(owner.clone()).await?;
     let protected = crate::control::inspect_expected_read(reader, owner.clone(), budget)
@@ -2731,6 +2971,13 @@ async fn audit_one_contributor(
         .collect::<BTreeMap<_, _>>();
     let mut after_relation = String::new();
     let mut after_key = String::new();
+    let owners = BTreeMap::from([(owner.clone(), descriptor.clone())]);
+    let mut memberships = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
+    let mut backing = if full {
+        Some(AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?)
+    } else {
+        None
+    };
     let mut variables = Variables::new();
     variables.insert("owner", owner.clone());
     let statements=vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner ORDER BY relation,semantic_key".into()];
@@ -2795,17 +3042,26 @@ async fn audit_one_contributor(
             let _ = node;
             after_relation = relation;
             after_key = key;
+            memberships
+                .push(crate::completed_logical_rows::normalize(
+                    "compiler_membership",
+                    row,
+                    &owners,
+                )?)
+                .await?;
             window.push(row.clone());
             if window.len() >= crate::loader::NATIVE_WINDOW_ROWS
                 || charge.reserved() >= d::resources::TRANSFER_BYTES
             {
-                audit_membership_window(reader, &owner, &window, budget, audit).await?;
+                audit_membership_window(reader, &owner, &window, budget, audit, backing.as_mut())
+                    .await?;
                 window.clear();
                 charge = StateCharge::new(budget, "installed membership window");
             }
         }
         if !window.is_empty() {
-            audit_membership_window(reader, &owner, &window, budget, audit).await?;
+            audit_membership_window(reader, &owner, &window, budget, audit, backing.as_mut())
+                .await?;
         }
         Ok::<_, ModelError>(())
     }
@@ -2847,7 +3103,55 @@ async fn audit_one_contributor(
             .saturating_mul(4)
             .saturating_add(512),
     )?;
-    Ok(true)
+    let memberships = memberships.finish().await?;
+    let partition_input = memberships.clone();
+    let pin = audit.pin.clone();
+    let relation_memberships = std::sync::Arc::new(
+        audit
+            .blocking(move |budget| {
+                PreparedMembershipRelations::prepare(&partition_input, budget, || pin.ensure_live())
+            })
+            .await?,
+    );
+    let logical = if let Some(backing) = backing {
+        let mut contribution = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
+        contribution
+            .push(crate::completed_logical_rows::normalize(
+                "compiler_contribution",
+                expected.row(),
+                &owners,
+            )?)
+            .await?;
+        Some(LogicalContributorRows {
+            contribution: contribution.finish().await?,
+            memberships: memberships.clone(),
+            backing: backing.finish().await?,
+        })
+    } else {
+        None
+    };
+    let mut metadata = StateCharge::new(budget, "audited contributor membership metadata");
+    metadata.grow(
+        std::mem::size_of::<(RecordId, AuditedContributorMembership)>()
+            .saturating_mul(11)
+            .saturating_add(crate::selection::node_bytes(expected.record()))
+            .saturating_add(128),
+    )?;
+    if logical.is_some() {
+        audit.charge.grow(
+            std::mem::size_of::<(RecordId, LogicalContributorRows)>()
+                .saturating_mul(11)
+                .saturating_add(1024),
+        )?;
+    }
+    Ok(Some((
+        AuditedContributorMembership {
+            memberships,
+            relation_memberships,
+            _charge: metadata,
+        },
+        logical,
+    )))
 }
 /// Stream exact point sets and require one active guard for every requested key.
 /// Canonical payloads remain streamed; only small correspondence metadata is retained.
@@ -3017,6 +3321,7 @@ async fn audit_membership_window(
     members: &[Value],
     budget: &ResourceBudget,
     audit: &InstallationAudit,
+    mut logical_backing: Option<&mut AuditRows>,
 ) -> Result<(), ModelError> {
     let mut metadata = BTreeMap::new();
     let mut charge = StateCharge::new(budget, "installed set backing correspondence");
@@ -3117,6 +3422,11 @@ async fn audit_membership_window(
                     endpoints.insert(id.clone(), endpoint);
                 }
             }
+            if node.table.as_str() == "compiler_record"
+                && let Some(sort) = logical_backing.as_mut()
+            {
+                sort.push(row).await?;
+            }
         }
         if seen.len() != metadata.len() {
             return Err(ModelError::Conflict("installed membership backing missing"));
@@ -3146,6 +3456,7 @@ fn audit_original<'a>(
             .await?
             .ok_or(ModelError::Conflict("installed original layout"))?;
         crate::originals::validate_layout(reader, &layout).await?;
+        crate::completed_state::require_hold(reader, &layout.id, &layout.blob.id()).await?;
         if !crate::originals::header(reader, &layout.blob).await? {
             return Err(ModelError::Conflict("installed original incomplete blob"));
         }
@@ -3157,25 +3468,12 @@ fn audit_original<'a>(
         if original.len as u64 != remaining.min(d::artifact::ARTIFACT_CHUNK_BYTES as u64) {
             return Err(ModelError::Conflict("installed original coverage"));
         }
-        let mut hash = d::ContentHasher::default();
-        let mut offset = 0;
-        while offset < original.len {
-            let length = (original.len - offset).min(256 << 10);
-            let bytes = reader
-                .original_bytes(source, original.start + offset as u64, length)
-                .await?;
-            hash.update(&bytes);
-            offset += length;
-        }
-        if hash.finish() != original.digest {
-            return Err(ModelError::Conflict("installed original content digest"));
-        }
         let blob = layout.blob.id();
         let premise = crate::originals::active_blob_premise(reader, &layout.blob).await?;
         if audit
             .blobs
             .get(&blob)
-            .is_some_and(|observed| *observed != premise)
+            .is_some_and(|observed| observed.incarnation != premise)
         {
             return Err(ModelError::Conflict(
                 "installed original protected incarnation changed",
@@ -3188,6 +3486,7 @@ fn audit_original<'a>(
         );
         key.part(b"incarnation", &premise.to_le_bytes());
         let key = key.finish();
+        let blob_id = blob.clone();
         let blob = layout.blob.clone();
         let worker_budget = budget.clone();
         audit
@@ -3199,7 +3498,7 @@ fn audit_original<'a>(
                         if owner
                             .blobs
                             .get(&blob.id())
-                            .is_some_and(|observed| *observed == premise)
+                            .is_some_and(|observed| observed.incarnation == premise)
                         {
                             return Ok(None);
                         }
@@ -3214,7 +3513,17 @@ fn audit_original<'a>(
                             barrier.observed.wait().await;
                             barrier.resume.wait().await;
                         }
-                        crate::originals::validate_blob(&reader, &blob, &worker_budget).await?;
+                        let mut scanned =
+                            AuditRows::new(&owner, &worker_budget, crate::ordered_rows::ROW_BYTES)
+                                .await?;
+                        crate::originals::scan_blob_to_sink(
+                            &reader,
+                            &blob,
+                            &worker_budget,
+                            &mut scanned,
+                        )
+                        .await?;
+                        let chunks = owner.prepare_member_points(scanned.finish().await?).await?;
                         if crate::originals::active_blob_premise(&reader, &blob).await? != premise {
                             return Err(ModelError::Conflict(
                                 "installed original observation premise changed",
@@ -3226,15 +3535,21 @@ fn audit_original<'a>(
                                 .saturating_mul(4)
                                 .saturating_add(128),
                         )?;
-                        Ok(Some(blob.id()))
+                        Ok(Some((blob.id(), chunks)))
                     }
                     .await;
                     let mut terminal = d::completion::Completion::default();
                     terminal.step("complete blob worker reader close", reader.close().await);
                     let prepared = d::completion::complete(result, terminal)?;
                     owner.pin.ensure_live()?;
-                    if let Some(blob) = prepared {
-                        owner.blobs.insert(blob, premise);
+                    if let Some((blob, chunks)) = prepared {
+                        owner.blobs.insert(
+                            blob,
+                            PreparedBlobObservation {
+                                incarnation: premise,
+                                chunks,
+                            },
+                        );
                         owner
                             .blob_observations
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -3242,6 +3557,15 @@ fn audit_original<'a>(
                     Ok(())
                 }
                 .boxed()
+            })
+            .await?;
+        let prepared = audit.blobs.get(&blob_id).ok_or(ModelError::Conflict(
+            "installed original blob preparation absent",
+        ))?;
+        let (start, len, digest) = (original.start, original.len as u64, original.digest);
+        audit
+            .blocking(move |budget| {
+                crate::originals::check_scanned_chunk(&prepared.chunks, start, len, digest, budget)
             })
             .await?;
         Ok(())
@@ -3330,6 +3654,12 @@ mod tests {
         )
         .await
         .unwrap();
+        let receiving_audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
         let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async {
             let sources = Relation::of::<SourceArtifact>();
             let chunks = Relation::of::<ArtifactChunk>();
@@ -3341,35 +3671,18 @@ mod tests {
                 .collect();
             let producer = store.begin_contribution(specification).await.unwrap();
             let bytes = [store.attempt().0.as_slice(), b"completed blob peer replay"].concat();
-            let source = SourceArtifact::from_bytes(
+            // More than one 32-row producer page, with two original-bearing
+            // families and distinct layouts sharing exactly one small blob.
+            let source_rows = (0..37).map(|ordinal| SourceArtifact::from_bytes(
                 InputRevision::from_entries(vec![]).unwrap().id(),
-                "peer.bin".into(),
-                &bytes,
-            )
-            .unwrap();
-            let chunk = ArtifactChunk {
-                artifact: source.id(),
-                ordinal: 0,
-                body: EvidenceBytes(bytes.clone()),
-            };
-            store
-                .write_batch(
-                    &producer,
-                    &sources,
-                    &SourceArtifact::encode(std::slice::from_ref(&source)).unwrap(),
-                    &budget,
-                )
-                .await
-                .unwrap();
-            store
-                .write_batch(
-                    &producer,
-                    &chunks,
-                    &ArtifactChunk::encode(&[chunk]).unwrap(),
-                    &budget,
-                )
-                .await
-                .unwrap();
+                format!("peer-{ordinal}.bin"), &bytes,
+            ).unwrap()).collect::<Vec<_>>();
+            let source = source_rows[0].clone();
+            let chunk_rows = source_rows.iter().map(|source| ArtifactChunk {
+                artifact: source.id(), ordinal: 0, body: EvidenceBytes(bytes.clone()),
+            }).collect::<Vec<_>>();
+            store.write_batch(&producer, &sources, &SourceArtifact::encode(&source_rows).unwrap(), &budget).await.unwrap();
+            store.write_batch(&producer, &chunks, &ArtifactChunk::encode(&chunk_rows).unwrap(), &budget).await.unwrap();
             let views = store
                 .complete_contribution(
                     producer,
@@ -3380,6 +3693,8 @@ mod tests {
                 )
                 .await
                 .unwrap();
+            assert_eq!(views[sources.name()].rows, 37);
+            assert_eq!(views[chunks.name()].rows, 37);
             let view = &views[chunks.name()];
             let held = store.installed_view(view, &budget).await.unwrap();
             let mappings: Vec<ContributorRealization> =
@@ -3424,6 +3739,84 @@ mod tests {
             );
             observed.unwrap();
             assert_eq!(audit.observations(), (1, 1));
+            assert_eq!(audit.logical_contribution_observations(), 0);
+            let selected = selected_prepared_members(&closure, view, &budget, &audit).await.unwrap();
+            let mut cursor = selected.cursor_with_budget(&budget).unwrap();
+            let mut actual_chunks = BTreeMap::new();
+            let mut pointer_charge = StateCharge::new(&budget, "native backing refusal control pointers");
+            pointer_charge.grow(37 * std::mem::size_of::<Value>() + 32 * std::mem::size_of::<RecordId>()) .unwrap();
+            let mut pointers = Vec::with_capacity(37);
+            let mut expected_backing = BTreeMap::new();
+
+            while let Some(row) = cursor.next_row().unwrap() {
+                let row = row.as_object().unwrap();
+                let Some(Value::String(key)) = row.get("semantic_key") else { panic!("selected chunk key"); };
+                let Some(Value::String(content)) = row.get("content") else { panic!("selected chunk content"); };
+                assert!(actual_chunks.insert(key.clone(), content.clone()).is_none());
+                let Some(Value::RecordId(node)) = row.get("node") else { panic!("selected chunk backing node"); };
+                let mut pointer = surrealdb::types::Object::new(); pointer.insert("id", node.clone());
+                let pointer = Value::Object(pointer);
+                pointer_charge.grow(crate::loader::native_bytes(&pointer).saturating_mul(8).saturating_add(key.len() + content.len() + 512)).unwrap();
+                pointers.push(pointer);
+                assert!(expected_backing.insert(node.clone(), (key.clone(), content.clone())).is_none());
+
+            }
+            let expected_chunks = chunk_rows.iter().map(|chunk| {
+                // Explicit native canonical declaration from the fixture, independently
+                // of the production adapter's metadata projection or typed record hash.
+                let mut declared = surrealdb::types::Object::new();
+                declared.insert("__type", "artifact_chunks");
+                declared.insert("artifact", chunk.artifact.bytes().iter().map(|byte| i64::from(*byte)).collect::<Vec<_>>());
+                declared.insert("ordinal", 0i64);
+                declared.insert("original", RecordId::new("original", d::graph::EntityId::of(chunk.artifact).0.hex()));
+                declared.insert("start", 0u64);
+                declared.insert("len", bytes.len() as u64);
+                declared.insert("digest", ContentHash::of(&bytes).hex());
+                let encoded = serde_json::to_vec(&Value::Object(declared)).unwrap();
+                (hex::encode(chunk.id().bytes()), ContentHash::of(&encoded).hex())
+            }).collect::<BTreeMap<_, _>>();
+            assert_eq!(actual_chunks, expected_chunks, "all explicit chunk identities and contents survive cross-page blob reuse");
+            let limited = ResourceBudget::scoped(&budget, 2 << 20).unwrap();
+            let mut backing = AuditRows::new(&audit, &budget, d::resources::MAX_ROW_BYTES).await.unwrap();
+            append_backing_page(&reader, &pointers[..4], &limited, &mut backing).await.unwrap();
+            assert_eq!(limited.reserved(), 0, "accepted first-page arenas transfer and release before the later refusal");
+            let later_ids = pointers[4..36].iter().map(|row| {
+                let Some(Value::RecordId(id)) = row.as_object().unwrap().get("id") else { panic!("exact backing pointer"); };
+                id.clone()
+            }).collect::<Vec<_>>();
+            match crate::control::held::inspect_expected_page_read(&reader, &later_ids, &limited).await {
+                Err(crate::control::held::PageAcquireFailure::Reducible(ModelError::Resource { .. })) => {},
+                Err(error) => panic!("actual retained-page admission must be reducible: {error:?}"),
+                Ok(_) => panic!("32 conservative retained arenas plus correspondence must exceed 2 MiB"),
+            }
+            assert_eq!(limited.reserved(), 0, "failed exact page reached transport drainage and released provisional observations");
+            append_backing_page(&reader, &pointers[4..36], &limited, &mut backing).await.unwrap();
+            assert_eq!(limited.reserved(), 0, "successful split pages retain no receiving allocation prefix");
+            append_backing_page(&reader, &pointers[36..], &limited, &mut backing).await.unwrap();
+            assert_eq!(limited.reserved(), 0);
+            let completed = backing.finish().await.unwrap();
+            let mut completed = completed.cursor_with_budget(&budget).unwrap();
+            let mut actual_backing = BTreeMap::new();
+            while let Some(row) = completed.next_row().unwrap() {
+                let original = validate_state_row("compiler_record", &row).unwrap().unwrap();
+                assert_eq!(original.start, 0);
+                assert_eq!(original.len, bytes.len());
+                assert_eq!(original.digest, ContentHash::of(&bytes));
+                let row = row.as_object().unwrap();
+                let Some(Value::RecordId(id)) = row.get("id") else { panic!("completed backing identity"); };
+                let Some(Value::String(key)) = row.get("semantic_key") else { panic!("completed backing key"); };
+                let Some(Value::String(content)) = row.get("content") else { panic!("completed backing content"); };
+                assert!(actual_backing.insert(id.clone(), (key.clone(), content.clone())).is_none());
+            }
+            assert_eq!(actual_backing, expected_backing, "the accepted four-row prefix plus split later page and final row preserve exactly 37 canonical records");
+            assert_eq!(audit.observations(), (1, 1));
+            assert_eq!(audit.logical_contribution_observations(), 0, "later-page allocation fallback never restarts contributor membership assurance");
+
+            audit_memberships_scoped(&reader, &closure, &budget, &receiving_audit).await.unwrap();
+            assert_eq!(receiving_audit.observations(), (1, 1),
+                "fresh receiving boundary independently scans once despite 37 layouts and both original families");
+            assert_eq!(receiving_audit.logical_contribution_observations(), 0);
+
             audit_memberships_scoped(&reader, &closure, &budget, &audit)
                 .await
                 .unwrap();
@@ -3480,7 +3873,8 @@ mod tests {
                         &inspected,
                         &budget,
                         &closing_audit,
-                        &mut scope
+                        &mut scope,
+                        true
                     )
                 ),
                 close,
@@ -3497,6 +3891,10 @@ mod tests {
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("peer blob reader close", reader.close().await);
         cleanup.step("peer blob audit pin close", audit.close().await);
+        cleanup.step(
+            "independent receiving blob audit pin close",
+            receiving_audit.close().await,
+        );
         cleanup.step("closing blob audit pin close", closing_audit.close().await);
         cleanup.step("peer blob other pin close", peer.release().await);
         cleanup.step("peer blob attempt cleanup", store.abandon().await);
@@ -3587,7 +3985,7 @@ mod tests {
                 inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut first)
                     .await
                     .unwrap();
-            let aliases = assure_boundary_closure(&reader, &closure, &budget, &audit, &mut first)
+            let aliases = assure_boundary_closure(&reader, &closure, &budget, &audit, &mut first, true)
                 .await
                 .unwrap();
             let roots = logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit)
@@ -3611,7 +4009,7 @@ mod tests {
                 inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated)
                     .await
                     .unwrap();
-            assure_boundary_closure(&reader, &again, &budget, &audit, &mut repeated)
+            assure_boundary_closure(&reader, &again, &budget, &audit, &mut repeated, true)
                 .await
                 .unwrap();
             assert!(std::sync::Arc::ptr_eq(&direct, &audit.recovery_views.get(&view.identity).unwrap()), "direct view preparation is reused within its actual protected operation");
@@ -4061,6 +4459,18 @@ mod tests {
         )
         .await
         .unwrap();
+        let fused_audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
+        let failed_blocking_audit = crate::control::with_recovery_scope(
+            observer_lease.recovery_scope().clone(),
+            InstallationAudit::new(client.clone(), &budget),
+        )
+        .await
+        .unwrap();
         let result = crate::control::with_recovery_scope(observer_lease.recovery_scope().clone(), std::panic::AssertUnwindSafe(async{
             let relation=Relation::of::<Package>();let mut specification=contribution("late-terminal",vec![]).spec;specification.outputs=[relation.name().into()].into();
             let producer=store.begin_contribution(specification).await.unwrap();
@@ -4074,13 +4484,30 @@ mod tests {
             assert!(format!("{failed:?}").contains("late independent membership audit control"),"{failed:?}");
             assert_eq!(audit.observations(),(0,0),"valid provisional membership never becomes a complete observation before its physical terminal");
             audit_memberships_scoped(&reader,&closure,&budget,&audit).await.unwrap();assert_eq!(audit.observations(),(1,0));
+            let selected = selected_prepared_members(&closure, view, &budget, &audit).await.unwrap();
+            let mut selected = selected.cursor_with_budget(&budget).unwrap();
+            let mut selected_count = 0;
+            while selected.next_row().unwrap().is_some() { selected_count += 1; }
+            assert_eq!(selected_count, rows.len());
+            assert_eq!(audit.logical_contribution_observations(), 0,
+                "complete selected memberships demand no full logical backing preparation");
+
             let aliases = audit_aliases_scoped(&reader, &closure, &budget, &audit).await.unwrap();
             let cold_aliases = audit_aliases(&reader, &closure, &budget).await.unwrap();
             let cold = logical_roots(&reader, &closure, &[], &cold_aliases, &budget).await.unwrap();
+            let mut fused_inspections = ClosureInspectionScope::new(&fused_audit, &budget).unwrap();
+            let fused_aliases = assure_boundary_closure(&reader, &closure, &budget, &fused_audit, &mut fused_inspections, true).await.unwrap();
+            let fused = logical_roots_scoped(&reader, &closure, &[], &fused_aliases, &budget, &fused_audit).await.unwrap();
+            assert_eq!(fused, cold, "fresh full demand preserves independently reconstructed roots");
+            assert_eq!(fused_audit.observations(), (1, 0), "fresh full demand fuses contributor assurance once");
+            assert_eq!(fused_audit.logical_contribution_observations(), 1);
+            assert_eq!(logical_roots_scoped(&reader, &closure, &[], &fused_aliases, &budget, &fused_audit).await.unwrap(), cold);
+            assert_eq!(fused_audit.logical_contribution_observations(), 1, "full reuse cannot normalize the contributor twice");
+
             let failed = LATE_MEMBERSHIP_FAILURE.scope(true,
                 logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit),
             ).await.unwrap_err();
-            assert!(format!("{failed:?}").contains("late logical contributor fragment control"), "{failed:?}");
+            assert!(format!("{failed:?}").contains("late logical backing preparation control"), "{failed:?}");
             assert_eq!(audit.logical_contribution_observations(), 0);
             assert!(audit.logical_contributors.is_empty(), "provisional normalized rows cannot publish a fragment before terminal success");
             let overlapping = vec![&closure; 17];
@@ -4116,10 +4543,23 @@ mod tests {
             let reused = audit_aliases_scoped(&reader, &closure, &budget, &audit).await.unwrap();
             assert_eq!(logical_roots_scoped(&reader, &closure, &[], &reused, &budget, &audit).await.unwrap(), cold);
             assert_eq!(audit.alias_observations(), 1);
+            let failure = failed_blocking_audit.blocking(|_| Err::<(), _>(ModelError::Conflict("native blocking semantic control"))).await.unwrap_err();
+            assert!(format!("{failure:?}").contains("native blocking semantic control"));
+            let closed = failed_blocking_audit.close().await.unwrap_err();
+            assert!(format!("{closed:?}").contains("native blocking semantic control"),
+                "actual blocking terminal failure remains observable during close");
+            assert!(failed_blocking_audit.pin.ensure_live().is_err(),
+                "confirmed semantic worker failure still permits authenticated native pin release");
+
         }).catch_unwind()).await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("terminal audit reader close", reader.close().await);
         cleanup.step("terminal audit pin close", audit.close().await);
+        cleanup.step("terminal fused audit pin close", fused_audit.close().await);
+        cleanup.step(
+            "terminal failed blocking audit final close",
+            failed_blocking_audit.close().await,
+        );
         cleanup.step("terminal audit attempt cleanup", store.abandon().await);
         let observer_completion = observer_lease.complete_with(&cleanup).await;
         cleanup.step(
@@ -4309,7 +4749,7 @@ mod tests {
                 let closure = inspect_closure(&reader, view, mappings, &budget).await.unwrap();
                 audit_memberships_scoped(&reader, &closure, &budget, &audit).await.unwrap();
                 let aliases = audit_aliases_scoped(&reader, &closure, &budget, &audit).await.unwrap();
-                prepare_closure_scoped(&reader, &closure, &budget, &audit).await.unwrap();
+                prepare_closure_in_context(&reader, &closure, &budget, &audit).await.unwrap();
                 alias_runs.push(aliases);
                 closures.push(closure);
             }
@@ -4768,18 +5208,30 @@ async fn audit_aliases_inner(
         seed_runs.push(previous.0.clone());
         alias_runs.push(previous.1.clone());
     }
-    let aliases =
-        crate::ordered_rows::PreparedRows::union_prepared(&alias_runs, budget, || Ok(()))?;
-    let empty = aliases.frame_cursor(budget)?.next_frame()?.is_none();
+    let pin = audit.pin.clone();
+    let aliases = audit
+        .blocking(move |budget| {
+            // Run handles and their reservation follow the actual worker, including
+            // lost waiters. All union, cursor and graph scratch I/O lives here.
+            let _runs = run_charge;
+            pin.ensure_live()?;
+            let aliases =
+                crate::ordered_rows::PreparedRows::union_prepared(&alias_runs, budget, || {
+                    pin.ensure_live()
+                })?;
+            let empty = aliases.frame_cursor(budget)?.next_frame()?.is_none();
+            if !empty {
+                let seeds =
+                    crate::ordered_rows::PreparedRows::union_prepared(&seed_runs, budget, || {
+                        pin.ensure_live()
+                    })?;
+                audit_alias_reachability(seeds, &aliases, budget)?;
+            }
+            pin.ensure_live()?;
+            Ok(aliases)
+        })
+        .await?;
     audit.check(_reader, budget)?;
-    // Complete empty alias inventories have no reachability obligations. Their
-    // native proofs above and the outer exact-owner checks still apply, while
-    // composing all membership seeds and visiting them would establish nothing.
-    if empty {
-        return Ok(aliases);
-    }
-    let seeds = crate::ordered_rows::PreparedRows::union_prepared(&seed_runs, budget, || Ok(()))?;
-    audit_alias_reachability(seeds, &aliases, budget)?;
     Ok(aliases)
 }
 async fn prepare_local_aliases(
@@ -4850,14 +5302,17 @@ async fn prepare_local_aliases_window(
     )>,
     ModelError,
 > {
-    use crate::ordered_rows::SortedRows;
     use d::completion::{Completion, complete};
     let owner = expected.record().clone();
     if audit.local_aliases.contains_key(&owner) {
         return Ok(None);
     }
-    let mut seeds = SortedRows::with_budget(budget)?;
-    let mut aliases = SortedRows::with_budget(budget)?;
+    let mut seeds = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES)
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))?;
+    let mut aliases = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES)
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))?;
     if include_seeds {
         let mut variables = Variables::new();
         variables.insert("owner", owner.clone());
@@ -4865,7 +5320,10 @@ async fn prepare_local_aliases_window(
             vec!["SELECT node AS id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?)?;
         let result = async {
             while let Some(row) = members.next().await? {
-                seeds.push(row)?;
+                seeds
+                    .push(row)
+                    .await
+                    .map_err(|error| ModelError::Cause(Box::new(error)))?;
             }
             Ok::<_, ModelError>(())
         }
@@ -4919,8 +5377,14 @@ async fn prepare_local_aliases_window(
         holds.drain_transport().await,
     );
     complete(result, completion)?;
-    let seeds = seeds.finish()?.into_prepared();
-    let aliases = aliases.finish()?.into_prepared();
+    let seeds = seeds
+        .finish()
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))?;
+    let aliases = aliases
+        .finish()
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))?;
     let current = crate::control::inspect_expected_read(reader, owner.clone(), budget)
         .await?
         .ok_or(ModelError::Conflict(
@@ -5018,15 +5482,23 @@ async fn audit_local_alias_window(
     owner: &RecordId,
     ids: &[RecordId],
     budget: &ResourceBudget,
-    aliases: &mut crate::ordered_rows::SortedRows,
+    aliases: &mut AuditRows,
 ) -> Result<(), ModelError> {
     let mut actual = crate::control::inspect_expected_window_read(reader, ids, budget).await?;
     let mut requests = AliasWindowRequests::new(budget);
+    let batch_charge = budget.reserve(
+        "installed alias owned transfer",
+        ids.len().saturating_mul(std::mem::size_of::<(
+            Value,
+            Box<dyn d::resources::Reservation>,
+        )>()),
+    )?;
+    let mut rows = Vec::with_capacity(ids.len());
     for id in ids {
         let expected = actual.take_required(id)?;
         requests.observe(expected.row(), owner)?;
         let (row, arena) = expected.into_owned_row();
-        aliases.push_owned(row, arena)?;
+        rows.push((row, arena));
     }
     actual.finish()?;
     // Each target and heterogeneous incidence is observed once per bounded alias page.
@@ -5080,7 +5552,19 @@ async fn audit_local_alias_window(
             audit_endpoint_window(reader, owner, &expected, budget).await?;
         }
     }
-    backing.finish()
+    backing.finish()?;
+    // Publish no alias prefix before every source, target, hold and endpoint in
+    // this page validates. A failed ordering command is terminal, never a signal
+    // to replay a poisoned builder through the alias capacity fallback.
+    aliases
+        .flush()
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))?;
+    aliases
+        .sort
+        .push_owned_batch_reserved(rows, batch_charge)
+        .await
+        .map_err(|error| ModelError::Cause(Box::new(error)))
 }
 fn audit_alias_reachability(
     seeds: crate::ordered_rows::PreparedRows,
@@ -5111,6 +5595,7 @@ pub(crate) async fn logical_roots(
 /// Reuse only normalized row fragments beneath this operation's exact protected
 /// contributors. Every root still merges and hashes its own six complete families.
 #[cfg(test)]
+#[cfg(test)]
 pub(crate) async fn logical_roots_scoped(
     reader: &NativeReader<()>,
     closure: &InspectedClosure,
@@ -5128,171 +5613,228 @@ async fn prepare_logical_contributor(
     expected: &ExpectedRecord,
     owners: &BTreeMap<RecordId, CompletedContribution>,
     budget: &ResourceBudget,
+    audit: &InstallationAudit,
 ) -> Result<LogicalContributorRows, ModelError> {
-    let mut window = crate::loader::NATIVE_WINDOW_ROWS;
-    loop {
-        match prepare_logical_contributor_window(reader, expected, owners, budget, window).await {
-            // This entire effect-free attempt has dropped its provisional sorters
-            // and observations. A poisoned sorter never participates in retry.
-            Err(error) if window > 1 && terminal_local_resource(&error) => {
-                window = (window / 2).max(1);
-            }
-            result => return result,
-        }
-    }
-}
-fn terminal_local_resource(mut error: &ModelError) -> bool {
-    // Owned streams share their terminal driver error. This wrapper adds no
-    // finalization state; Completion and contextual Cause must remain opaque.
-    while let ModelError::SharedCause(inner) = error {
-        error = inner.as_ref();
-    }
-    matches!(error, ModelError::Resource { .. })
-}
-async fn prepare_logical_contributor_window(
-    reader: &NativeReader<()>,
-    expected: &ExpectedRecord,
-    owners: &BTreeMap<RecordId, CompletedContribution>,
-    budget: &ResourceBudget,
-    window: usize,
-) -> Result<LogicalContributorRows, ModelError> {
-    use crate::ordered_rows::SortedRows;
-    use d::completion::{Completion, complete};
-    let mut contribution =
-        SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
-    let mut memberships =
-        SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
-    let mut backing = SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
-    let mut backing_ids = SortedRows::with_budget(budget)?;
-    {
-        let _decode = budget.reserve(
-            "logical contributor fragment normalization",
-            crate::loader::native_bytes(expected.row())
-                .saturating_mul(32)
-                .saturating_add(65536),
-        )?;
-        validate_state_row("compiler_contribution", expected.row())?;
-        contribution.push(crate::completed_logical_rows::normalize(
+    let compact =
+        audit
+            .membership_contributors
+            .get(expected.record())
+            .ok_or(ModelError::Conflict(
+                "logical demand requires audited memberships",
+            ))?;
+    let mut contribution = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
+    contribution
+        .push(crate::completed_logical_rows::normalize(
             "compiler_contribution",
             expected.row(),
             owners,
-        )?)?;
+        )?)
+        .await?;
+    let mut ids = AuditRows::new(audit, budget, crate::ordered_rows::ROW_BYTES).await?;
+    let mut members = crate::acknowledged_candidates::AsyncOrderedRows::new_registered(
+        compact.memberships.clone(),
+        budget,
+        audit.clone(),
+        audit.blocking_observer()?,
+    )
+    .await?;
+    let result = async {
+        loop {
+            let batch = members
+                .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
+                .await?;
+            if batch.is_empty() {
+                break;
+            }
+            for row in batch {
+                let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node"))
+                else {
+                    return Err(ModelError::Schema("logical backing member node"));
+                };
+                if node.table.as_str() == "compiler_record" {
+                    let mut pointer = surrealdb::types::Object::new();
+                    pointer.insert("id", node.clone());
+                    ids.push(Value::Object(pointer)).await?;
+                }
+            }
+        }
+        ids.finish().await
     }
-    let mut variables = Variables::new();
-    variables.insert("owner", expected.record().clone());
-    let statements = vec![
-        "SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner"
-            .into(),
-    ];
-    #[cfg(test)]
-    let statements = {
-        let mut statements = statements;
+    .await;
+    let mut terminal = d::completion::Completion::default();
+    terminal.step("logical membership cursor terminal", members.drain().await);
+    let ids = d::completion::complete(result, terminal)?;
+    let mut cursor = crate::acknowledged_candidates::AsyncOrderedRows::new_registered(
+        ids,
+        budget,
+        audit.clone(),
+        audit.blocking_observer()?,
+    )
+    .await?;
+    let mut backing = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
+    let result = async {
+        loop {
+            let batch = cursor.next_batch(crate::loader::NATIVE_WINDOW_ROWS).await?;
+            if batch.is_empty() {
+                break;
+            }
+            append_backing_page(reader, &batch, budget, &mut backing).await?;
+        }
+        #[cfg(test)]
         if LATE_MEMBERSHIP_FAILURE
             .try_with(|enabled| *enabled)
             .unwrap_or(false)
         {
-            statements.push("THROW 'late logical contributor fragment control'".into());
+            return Err(ModelError::Conflict(
+                "late logical backing preparation control",
+            ));
         }
-        statements
-    };
-    let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(
-        variables,
-        vec![],
-        statements,
-    )?)?;
-    let result = async {
-        while let Some(row) = rows.next().await? {
-            validate_state_row("compiler_membership", &row)?;
-            if row.as_object().and_then(|row| row.get("contribution"))
-                != Some(&Value::RecordId(expected.record().clone()))
-            {
-                return Err(ModelError::Conflict(
-                    "logical fragment foreign physical membership",
-                ));
-            }
-            memberships.push(crate::completed_logical_rows::normalize(
-                "compiler_membership",
-                &row,
-                owners,
-            )?)?;
-            let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node"))
-            else {
-                return Err(ModelError::Schema("logical backing member node"));
-            };
-            if node.table.as_str() == "compiler_record" {
-                let mut pointer = surrealdb::types::Object::new();
-                pointer.insert("id", node.clone());
-                backing_ids.push(Value::Object(pointer))?;
-            }
-        }
-        Ok::<_, ModelError>(())
+        backing.finish().await
     }
     .await;
-    let mut terminal = Completion::default();
-    terminal.step(
-        "installed logical fragment membership drainage",
-        rows.drain_transport().await,
-    );
-    complete(result, terminal)?;
-    let mut backing_ids = backing_ids.finish()?;
-    if window == 1 {
-        // Preserve the original singleton capacity and refusal without a page's
-        // sibling reservations or ID-vector overhead.
-        while let Some(pointer) = backing_ids.next_row()? {
-            let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("id"))
-            else {
-                return Err(ModelError::Schema("logical backing identity"));
-            };
-            let actual = crate::control::inspect_expected_read(reader, id.clone(), budget)
-                .await?
-                .ok_or(ModelError::Conflict("logical backing missing"))?;
-            validate_state_row("compiler_record", actual.row())?;
-            // compiler_record logical normalization is byte-preserving. Move the
-            // validated row and arena instead of cloning and retaining a dead
-            // receiving/decode arena through the sorter's merge workspace.
-            let (row, arena) = actual.into_owned_row();
-            backing.push_owned(row, arena)?;
-        }
-    } else {
-        loop {
-            let mut charge = StateCharge::new(budget, "logical backing exact observation IDs");
-            charge.grow(window.saturating_mul(std::mem::size_of::<RecordId>()))?;
-            let mut ids = Vec::with_capacity(window);
-            while ids.len() < window {
-                let Some(pointer) = backing_ids.next_row()? else {
-                    break;
-                };
+    let mut terminal = d::completion::Completion::default();
+    terminal.step("logical backing IDs cursor terminal", cursor.drain().await);
+    let backing = d::completion::complete(result, terminal)?;
+    Ok(LogicalContributorRows {
+        contribution: contribution.finish().await?,
+        memberships: compact.memberships.clone(),
+        backing,
+    })
+}
+// Only explicitly typed page-owned refusal can shrink an exact retained slice. No
+// accepted page or immutable membership preparation is reconstructed.
+async fn append_backing_page(
+    reader: &NativeReader<()>,
+    pointers: &[Value],
+    budget: &ResourceBudget,
+    backing: &mut AuditRows,
+) -> Result<(), ModelError> {
+    use crate::control::held::{PageAcquireFailure, inspect_expected_page_read};
+    // Release the earlier buffered page before acquiring the next one. Subsequent
+    // whole validated pages go directly to the same acknowledged sorter.
+    backing.flush().await?;
+    let mut retries = BackingPageRetries::new(pointers.len(), budget)?;
+    while let Some((start, end)) = retries.next() {
+        let page: Result<(), PageAcquireFailure> = async {
+            let mut charge = budget
+                .reserve(
+                    "logical backing exact page IDs",
+                    (end - start).saturating_mul(std::mem::size_of::<RecordId>()),
+                )
+                .map_err(PageAcquireFailure::reducible_resource)?;
+            let mut ids = Vec::with_capacity(end - start);
+            for pointer in &pointers[start..end] {
                 let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("id"))
                 else {
-                    return Err(ModelError::Schema("logical backing identity"));
+                    return Err(PageAcquireFailure::Terminal(ModelError::Schema(
+                        "logical backing identity",
+                    )));
                 };
-                charge.grow(crate::selection::node_bytes(id))?;
+                charge
+                    .try_resize(
+                        charge
+                            .size()
+                            .saturating_add(crate::selection::node_bytes(id)),
+                    )
+                    .map_err(PageAcquireFailure::reducible_resource)?;
                 ids.push(id.clone());
             }
-            if ids.is_empty() {
-                break;
-            }
-            let mut actual =
-                crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+            let mut actual = inspect_expected_page_read(reader, &ids, budget).await?;
+            let transfer = budget
+                .reserve(
+                    "logical backing owned row handles",
+                    ids.len().saturating_mul(std::mem::size_of::<(
+                        Value,
+                        Box<dyn d::resources::Reservation>,
+                    )>()),
+                )
+                .map_err(PageAcquireFailure::Terminal)?;
+            let mut rows = Vec::with_capacity(ids.len());
             for id in &ids {
-                let row = actual.take_required(id)?;
-                validate_state_row("compiler_record", row.row())?;
-                let (row, arena) = row.into_owned_row();
-                backing.push_owned(row, arena)?;
+                let row = actual
+                    .take_required(id)
+                    .map_err(PageAcquireFailure::Terminal)?;
+                validate_state_row("compiler_record", row.row())
+                    .map_err(PageAcquireFailure::Terminal)?;
+                rows.push(row.into_owned_row());
             }
-            actual.finish()?;
+            actual.finish().map_err(PageAcquireFailure::Terminal)?;
+            drop(ids);
+            drop(charge);
+            backing
+                .sort
+                .push_owned_batch_reserved(rows, transfer)
+                .await
+                .map_err(PageAcquireFailure::Terminal)?;
+            Ok(())
+        }
+        .await;
+        if let Err(error) = page {
+            retries.refuse((start, end), error)?;
         }
     }
-    let memberships = memberships.finish()?.into_prepared();
-    let relation_memberships = PreparedMembershipRelations::prepare(&memberships, budget, || {
-        reader.check_read_admission()
-    })?;
-    Ok(LogicalContributorRows {
-        contribution: contribution.finish()?.into_prepared(),
-        memberships,
-        relation_memberships: std::sync::Arc::new(relation_memberships),
-        backing: backing.finish()?.into_prepared(),
-    })
+    Ok(())
+}
+struct BackingPageRetries {
+    pending: Vec<(usize, usize)>,
+    _charge: Box<dyn d::resources::Reservation>,
+}
+impl BackingPageRetries {
+    fn new(rows: usize, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        if rows > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Schema("logical backing input page bound"));
+        }
+        // Depth-first splitting retains at most one sibling per level, not a second
+        // full page inventory. Admit that actual stack before allocating it.
+        let depth = if rows == 0 {
+            0
+        } else {
+            (usize::BITS - rows.leading_zeros()) as usize + 1
+        };
+        let charge = budget.reserve(
+            "logical backing page split stack",
+            depth.saturating_mul(std::mem::size_of::<(usize, usize)>()),
+        )?;
+        let mut pending = Vec::with_capacity(depth);
+        if rows != 0 {
+            pending.push((0, rows));
+        }
+        Ok(Self {
+            pending,
+            _charge: charge,
+        })
+    }
+    fn refuse(
+        &mut self,
+        (start, end): (usize, usize),
+        error: crate::control::held::PageAcquireFailure,
+    ) -> Result<(), ModelError> {
+        use crate::control::held::PageAcquireFailure;
+        match error {
+            PageAcquireFailure::Reducible(error) if end - start > 1 => {
+                drop(error);
+                let middle = start + (end - start) / 2;
+                self.pending.push((middle, end));
+                self.pending.push((start, middle));
+                Ok(())
+            }
+            PageAcquireFailure::Reducible(error) | PageAcquireFailure::Terminal(error) => {
+                Err(error)
+            }
+        }
+    }
+}
+impl Iterator for BackingPageRetries {
+    type Item = (usize, usize);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.pending.pop()
+    }
+}
+fn terminal_local_resource(mut error: &ModelError) -> bool {
+    while let ModelError::SharedCause(inner) = error {
+        error = inner.as_ref();
+    }
+    matches!(error, ModelError::Resource { .. })
 }
 
 #[cfg(test)]
@@ -5320,6 +5862,7 @@ pub(crate) struct LogicalFamilyInputs {
     incarnations: BTreeMap<RecordId, i64>,
     views: BTreeMap<ContentHash, CompletedView>,
     fragments: [Vec<crate::ordered_rows::PreparedRows>; 6],
+    alias_backings: BTreeSet<usize>,
     families: Vec<crate::ordered_rows::SortedRows>,
     charge: StateCharge,
     failed: bool,
@@ -5336,6 +5879,7 @@ impl LogicalFamilyInputs {
             incarnations: BTreeMap::new(),
             views: BTreeMap::new(),
             fragments: std::array::from_fn(|_| Vec::new()),
+            alias_backings: BTreeSet::new(),
             families: d::recovery_closure::COMPLETED_FAMILIES
                 .map(|_| {
                     crate::ordered_rows::SortedRows::with_budget_and_row_bytes(
@@ -5463,20 +6007,37 @@ impl LogicalFamilyInputs {
                 self.views.insert(*identity, view.clone());
             }
         }
-        // Normalize under the exact semantic owners while this independently
-        // assured closure is live; old composed alias runs need not be retained.
-        let mut aliases = aliases.cursor_with_budget(budget)?;
-        while let Some(row) = aliases.next_row()? {
-            self.families[5].push(crate::completed_logical_rows::normalize(
-                "compiler_alias",
-                &row,
-                &self.owners,
-            )?)?;
-        }
+        self.include_alias_run(aliases)?;
         audit.check(reader, budget)
     }
+    fn include_alias_run(
+        &mut self,
+        aliases: &crate::ordered_rows::PreparedRows,
+    ) -> Result<(), ModelError> {
+        // Retain every distinct backing, including conflicting/equal-looking runs.
+        // The fragment owns the Arc while its address is indexed, preventing ABA.
+        let identity = aliases.backing_identity();
+        if self.alias_backings.contains(&identity) {
+            return Ok(());
+        }
+        self.charge
+            .grow(std::mem::size_of::<usize>().saturating_add(128))?;
+        let handles = &mut self.fragments[5];
+        if handles.len() == handles.capacity() {
+            let capacity = handles.capacity().saturating_mul(2).max(4);
+            self.charge.grow(
+                capacity
+                    .saturating_sub(handles.capacity())
+                    .saturating_mul(std::mem::size_of::<crate::ordered_rows::PreparedRows>()),
+            )?;
+            handles.reserve_exact(capacity - handles.len());
+        }
+        handles.push(aliases.clone());
+        self.alias_backings.insert(identity);
+        Ok(())
+    }
     pub(crate) async fn finish_scoped(
-        mut self,
+        self,
         reader: &NativeReader<()>,
         bindings: &[d::completed::CompletedBinding],
         budget: &ResourceBudget,
@@ -5486,27 +6047,88 @@ impl LogicalFamilyInputs {
             return Err(ModelError::Conflict("failed logical family ingredients"));
         }
         audit.ensure_context(reader, budget).await?;
-        d::completed::binding_inventory_identity(bindings)?;
-        for view in self.views.values() {
-            push_validated_family_view(&mut self.families[2], view, &self.owners, budget)?;
-        }
-        push_family_bindings(
-            &mut self.families[4],
-            bindings,
-            &self.views,
-            &self.owners,
-            budget,
+        let bindings_charge = budget.reserve(
+            "logical family worker binding copies",
+            bindings
+                .iter()
+                .map(|binding| {
+                    std::mem::size_of_val(binding)
+                        .saturating_add(binding.boundary.as_ref().map_or(0, String::capacity))
+                        .saturating_add(d::HeapSize::heap_bytes(&binding.source))
+                        .saturating_add(binding.view.relation.capacity())
+                        .saturating_add(
+                            binding
+                                .view
+                                .contributions
+                                .len()
+                                .saturating_mul(std::mem::size_of::<ContentHash>() + 64),
+                        )
+                })
+                .sum::<usize>(),
         )?;
+        let bindings = bindings.to_vec();
+        let worker = audit.clone();
+        let (inputs, bindings, dependencies, _bindings_charge) = audit
+            .blocking(move |budget| {
+                let mut inputs = self;
+                let _bindings_charge = bindings_charge;
+                worker.pin.ensure_live()?;
+                d::completed::binding_inventory_identity(&bindings)?;
+                for view in inputs.views.values() {
+                    worker.pin.ensure_live()?;
+                    push_validated_family_view(
+                        &mut inputs.families[2],
+                        view,
+                        &inputs.owners,
+                        budget,
+                    )?;
+                }
+                push_family_bindings(
+                    &mut inputs.families[4],
+                    &bindings,
+                    &inputs.views,
+                    &inputs.owners,
+                    budget,
+                )?;
+                let mut dependencies = [ContentHash::of(b"unprepared-family"); 6];
+                for (index, rows) in std::mem::take(&mut inputs.families).into_iter().enumerate() {
+                    worker.pin.ensure_live()?;
+                    let handles = &mut inputs.fragments[index];
+                    if handles.len() == handles.capacity() {
+                        let capacity = handles.capacity().saturating_mul(2).max(4);
+                        inputs.charge.grow(
+                            capacity.saturating_sub(handles.capacity()).saturating_mul(
+                                std::mem::size_of::<crate::ordered_rows::PreparedRows>(),
+                            ),
+                        )?;
+                        handles.reserve_exact(capacity - handles.len());
+                    }
+                    handles.push(rows.finish()?.into_prepared());
+                    dependencies[index] = family_dependency(
+                        index,
+                        &inputs.owners,
+                        &inputs.incarnations,
+                        &inputs.views,
+                        &bindings,
+                        handles,
+                        budget,
+                    )?;
+                }
+                worker.pin.ensure_live()?;
+                Ok((inputs, bindings, dependencies, _bindings_charge))
+            })
+            .await?;
         finish_family_roots(
-            self.families,
-            self.fragments,
+            inputs.families,
+            inputs.fragments,
             FamilyRootInputs {
-                owners: &self.owners,
-                incarnations: &self.incarnations,
-                views: &self.views,
-                bindings,
+                owners: &inputs.owners,
+                incarnations: &inputs.incarnations,
+                views: &inputs.views,
+                bindings: &bindings,
                 budget,
                 audit: Some(audit),
+                prepared_dependencies: Some(dependencies),
             },
         )
         .await
@@ -5574,6 +6196,7 @@ fn push_family_bindings(
     Ok(())
 }
 
+#[cfg(test)]
 async fn logical_roots_many_inner(
     reader: &NativeReader<()>,
     closures: &[&InspectedClosure],
@@ -5587,7 +6210,6 @@ async fn logical_roots_many_inner(
         completion::{Completion, complete},
         recovery_closure::COMPLETED_FAMILIES,
     };
-    d::completed::binding_inventory_identity(bindings)?;
     if let Some(audit) = audit {
         audit.ensure_context(reader, budget).await?;
         let mut inputs = LogicalFamilyInputs::new(budget)?;
@@ -5599,16 +6221,10 @@ async fn logical_roots_many_inner(
             prepare_closure_in_context(reader, closure, budget, audit).await?;
             inputs.include_closure(reader, closure, &empty, budget, audit)?;
         }
-        let mut aliases = aliases.cursor_with_budget(budget)?;
-        while let Some(row) = aliases.next_row()? {
-            inputs.families[5].push(crate::completed_logical_rows::normalize(
-                "compiler_alias",
-                &row,
-                &inputs.owners,
-            )?)?;
-        }
+        inputs.include_alias_run(aliases)?;
         return inputs.finish_scoped(reader, bindings, budget, audit).await;
     }
+    d::completed::binding_inventory_identity(bindings)?;
     let mut owner_charge =
         StateCharge::new(budget, "installed logical normalization owner descriptors");
     let mut owners = BTreeMap::new();
@@ -5783,6 +6399,7 @@ async fn logical_roots_many_inner(
             bindings,
             budget,
             audit,
+            prepared_dependencies: None,
         },
     )
     .await
@@ -5795,6 +6412,7 @@ struct FamilyRootInputs<'a> {
     bindings: &'a [d::completed::CompletedBinding],
     budget: &'a ResourceBudget,
     audit: Option<&'a InstallationAudit>,
+    prepared_dependencies: Option<[ContentHash; 6]>,
 }
 /// One canonical family dependency and fold implementation serves both independent
 /// physical reconstruction and streamed protected semantic ingredients.
@@ -5811,32 +6429,43 @@ async fn finish_family_roots(
         bindings,
         budget,
         audit,
+        prepared_dependencies,
     } = inputs;
     let mut final_handles = StateCharge::new(budget, "logical family final run handles");
     let mut roots = Vec::with_capacity(6);
-    for (index, (family, rows)) in COMPLETED_FAMILIES.into_iter().zip(families).enumerate() {
-        if fragments[index].len() == fragments[index].capacity() {
-            let capacity = fragments[index].capacity().saturating_mul(2).max(4);
-            final_handles.grow(
-                capacity
-                    .saturating_sub(fragments[index].capacity())
-                    .saturating_mul(std::mem::size_of::<crate::ordered_rows::PreparedRows>()),
-            )?;
-            fragments[index].reserve_exact(capacity - fragments[index].len());
-        }
-        fragments[index].push(rows.finish()?.into_prepared());
-        let dependency = family_dependency(
-            index,
-            owners,
-            incarnations,
-            views,
-            bindings,
-            &fragments[index],
-            budget,
-        )?;
+    let mut families = families.into_iter();
+    for (index, family) in COMPLETED_FAMILIES.into_iter().enumerate() {
+        let dependency = if let Some(dependencies) = &prepared_dependencies {
+            dependencies[index]
+        } else {
+            if fragments[index].len() == fragments[index].capacity() {
+                let capacity = fragments[index].capacity().saturating_mul(2).max(4);
+                final_handles.grow(
+                    capacity
+                        .saturating_sub(fragments[index].capacity())
+                        .saturating_mul(std::mem::size_of::<crate::ordered_rows::PreparedRows>()),
+                )?;
+                fragments[index].reserve_exact(capacity - fragments[index].len());
+            }
+            fragments[index].push(
+                families
+                    .next()
+                    .ok_or(ModelError::Schema("logical completed family cardinality"))?
+                    .finish()?
+                    .into_prepared(),
+            );
+            family_dependency(
+                index,
+                owners,
+                incarnations,
+                views,
+                bindings,
+                &fragments[index],
+                budget,
+            )?
+        };
         if let Some(audit) = audit {
             let runs = std::mem::take(&mut fragments[index]);
-            let worker_budget = budget.clone();
             let handles = budget.reserve(
                 "family root preparation worker run handles",
                 runs.capacity()
@@ -5846,18 +6475,25 @@ async fn finish_family_roots(
             audit
                 .run_work((4, dependency), move |owner| {
                     async move {
-                        let _handles = handles;
                         if owner.family_roots.contains_key(&(index, dependency)) {
                             return Ok(());
                         }
-                        let mut hasher = CompletedFamilyHasher::new(family)?;
-                        crate::ordered_rows::PreparedRows::fold_union(
-                            &runs,
-                            &worker_budget,
-                            || owner.pin.ensure_live(),
-                            |_, payload| hasher.row(payload),
-                        )?;
-                        let root = hasher.finish();
+                        owner.pin.ensure_live()?;
+                        let worker = owner.clone();
+                        let root = owner
+                            .blocking(move |budget| {
+                                let _handles = handles;
+                                let mut hasher = CompletedFamilyHasher::new(family)?;
+                                crate::ordered_rows::PreparedRows::fold_union(
+                                    &runs,
+                                    budget,
+                                    || worker.pin.ensure_live(),
+                                    |_, payload| hasher.row(payload),
+                                )?;
+                                worker.pin.ensure_live()?;
+                                Ok(hasher.finish())
+                            })
+                            .await?;
                         owner.pin.ensure_live()?;
                         owner.charge.grow(
                             std::mem::size_of::<(
@@ -5901,15 +6537,6 @@ async fn finish_family_roots(
 
 /// Prepare each full exact contributor once. Cache publication follows EOF and a
 /// final current-incarnation/full-row check under the actual observation pin.
-pub(crate) async fn prepare_closure_scoped(
-    reader: &NativeReader<()>,
-    closure: &InspectedClosure,
-    budget: &ResourceBudget,
-    audit: &InstallationAudit,
-) -> Result<Vec<LogicalContributorRows>, ModelError> {
-    audit.ensure_context(reader, budget).await?;
-    prepare_closure_in_context(reader, closure, budget, audit).await
-}
 async fn prepare_closure_in_context(
     reader: &NativeReader<()>,
     closure: &InspectedClosure,
@@ -5961,6 +6588,7 @@ async fn prepare_closure_in_context(
                             &expected,
                             &owners,
                             &worker_budget,
+                            &owner,
                         )
                         .await?;
                         worker_expected(&reader, &input, &worker_budget).await?;
@@ -6003,6 +6631,7 @@ async fn prepare_closure_in_context(
     Ok(result)
 }
 
+#[cfg(test)]
 pub(crate) async fn logical_roots_many_scoped(
     reader: &NativeReader<()>,
     closures: &[&InspectedClosure],
@@ -6132,6 +6761,48 @@ fn family_dependency(
 #[cfg(test)]
 mod family_dependency_controls {
     use super::*;
+    #[test]
+    fn alias_fragment_reuse_is_backing_exact_and_keeps_distinct_conflicts() {
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let run = |payload: i64| {
+            let mut sorted = crate::ordered_rows::SortedRows::with_budget(&budget).unwrap();
+            let mut row = surrealdb::types::Object::new();
+            row.insert("id", RecordId::new("compiler_alias", "same"));
+            row.insert("payload", payload);
+            sorted.push(Value::Object(row)).unwrap();
+            sorted.finish().unwrap().into_prepared()
+        };
+        let first = run(1);
+        let mut inputs = LogicalFamilyInputs::new(&budget).unwrap();
+        inputs.include_alias_run(&first).unwrap();
+        let retained = inputs.charge.reserved();
+        for _ in 0..17 {
+            inputs.include_alias_run(&first.clone()).unwrap();
+        }
+        assert_eq!(
+            inputs.charge.reserved(),
+            retained,
+            "repeated exact backing retains no extra workspace"
+        );
+        inputs.include_alias_run(&run(2)).unwrap();
+        assert!(
+            crate::ordered_rows::PreparedRows::fold_union(
+                &inputs.fragments[5],
+                &budget,
+                || Ok(()),
+                |_, _| Ok(())
+            )
+            .is_err(),
+            "distinct conflicting backings remain visible to agreement"
+        );
+        drop(inputs);
+        drop(first);
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "identity index and retained backings release together"
+        );
+    }
     fn descriptor() -> CompletedContribution {
         CompletedContribution {
             spec: d::completed::ContributionSpec {
@@ -6290,7 +6961,7 @@ async fn selected_prepared_member_result(
     {
         let physical = RecordId::new("compiler_contribution", mapping.physical.hex());
         let prepared = audit
-            .logical_contributors
+            .membership_contributors
             .get(&physical)
             .ok_or(ModelError::Conflict("selected prepared contributor absent"))?;
         if let Some(run) = prepared.relation_memberships.relation(&view.relation) {
@@ -6299,28 +6970,32 @@ async fn selected_prepared_member_result(
             runs.push(run.clone());
         }
     }
+    handles.grow(view.relation.len().saturating_add(128))?;
     let relation = view.relation.clone();
     let count = view.rows;
-    let worker_budget = budget.clone();
     audit
         .run_work((5, selector), move |owner| {
             async move {
-                let _handles = handles;
                 if owner.selected_members.contains_key(&selector) {
                     return Ok(());
                 }
-                let rows = compose_selected_member_runs(
-                    selector,
-                    &relation,
-                    &runs,
-                    &worker_budget,
-                    || owner.pin.ensure_live(),
-                )?;
-                let content = crate::completed_state::earning::selected_membership_content(
-                    &rows,
-                    count,
-                    &worker_budget,
-                )?;
+                let pin = owner.pin.clone();
+                let (rows, content) = owner
+                    .blocking(move |budget| {
+                        let _handles = handles;
+                        let rows = compose_selected_member_runs(
+                            selector,
+                            &relation,
+                            &runs,
+                            budget,
+                            || pin.ensure_live(),
+                        )?;
+                        let content = crate::completed_state::earning::selected_membership_content(
+                            &rows, count, budget,
+                        )?;
+                        Ok((rows, content))
+                    })
+                    .await?;
                 owner.pin.ensure_live()?;
                 owner.charge.grow(
                     std::mem::size_of::<(ContentHash, PreparedSelectedMembers)>()
@@ -6358,6 +7033,85 @@ async fn selected_prepared_member_result(
 #[cfg(test)]
 mod shared_preparation_controls {
     use super::*;
+    #[test]
+    fn backing_page_retry_preserves_accepted_prefix_and_splits_only_failed_slice() {
+        use crate::control::held::PageAcquireFailure;
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut accepted = Vec::new();
+        let mut attempts = Vec::new();
+        for (offset, rows) in [(0, 2), (2, 4)] {
+            let mut retries = BackingPageRetries::new(rows, &budget).unwrap();
+            while let Some((start, end)) = retries.next() {
+                attempts.push((start + offset, end + offset));
+                if end - start > 2 {
+                    retries
+                        .refuse(
+                            (start, end),
+                            PageAcquireFailure::reducible_resource(
+                                budget.reserve("test-page", budget.limit() + 1).unwrap_err(),
+                            ),
+                        )
+                        .unwrap();
+                } else {
+                    accepted.extend(start + offset..end + offset);
+                }
+            }
+        }
+        assert_eq!(attempts, [(0, 2), (2, 6), (2, 4), (4, 6)]);
+        assert_eq!(accepted, (0..6).collect::<Vec<_>>());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn backing_page_retry_keeps_singleton_and_sorter_refusals_terminal() {
+        use crate::control::held::PageAcquireFailure;
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut retries = BackingPageRetries::new(1, &budget).unwrap();
+        let range = retries.next().unwrap();
+        let error = retries
+            .refuse(
+                range,
+                PageAcquireFailure::reducible_resource(
+                    budget
+                        .reserve("test-singleton", budget.limit() + 1)
+                        .unwrap_err(),
+                ),
+            )
+            .unwrap_err();
+        assert!(retries.next().is_none());
+        assert!(matches!(
+            error,
+            ModelError::Resource {
+                owner: "test-singleton",
+                ..
+            }
+        ));
+        drop(retries);
+        let mut retries = BackingPageRetries::new(8, &budget).unwrap();
+        let range = retries.next().unwrap();
+        let error = retries
+            .refuse(
+                range,
+                PageAcquireFailure::Terminal(
+                    budget
+                        .reserve("test-sorter", budget.limit() + 1)
+                        .unwrap_err(),
+                ),
+            )
+            .unwrap_err();
+        assert!(
+            retries.next().is_none(),
+            "terminal sorter refusal must not split or replay"
+        );
+        assert!(matches!(
+            error,
+            ModelError::Resource {
+                owner: "test-sorter",
+                ..
+            }
+        ));
+        drop(retries);
+        assert_eq!(budget.reserved(), 0);
+    }
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -6721,6 +7475,7 @@ mod shared_preparation_controls {
             recovery_contributors: SharedMap::new(),
             recovery_views: SharedMap::new(),
             logical_contributors: SharedMap::new(),
+            membership_contributors: SharedMap::new(),
             family_roots: SharedMap::new(),
             selected_members: SharedMap::new(),
             aliases: SharedMap::new(),
@@ -6748,8 +7503,77 @@ mod shared_preparation_controls {
                 close_gate: tokio::sync::Mutex::new(()),
                 context_checked: std::sync::atomic::AtomicBool::new(false),
                 context_gate: tokio::sync::Mutex::new(()),
+                blocking: std::sync::Mutex::new(Vec::new()),
             }),
         }
+    }
+    #[tokio::test]
+    async fn lost_blocking_waiter_close_joins_late_semantic_failure_before_releasing() {
+        let audit = test_audit(1 << 20);
+        let (entered_tx, entered) = tokio::sync::oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let worker_audit = audit.clone();
+        let waiter = tokio::spawn(async move {
+            worker_audit
+                .blocking::<()>(move |_| {
+                    let _ = entered_tx.send(());
+                    gate.recv().map_err(ModelError::codec)?;
+                    Err(ModelError::Conflict("late blocking semantic refusal"))
+                })
+                .await
+        });
+        entered.await.unwrap();
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        let released = Arc::new(AtomicBool::new(false));
+        let release_observed = released.clone();
+        let mut close = Box::pin(audit.close_releasing(async move {
+            release_observed.store(true, Ordering::Release);
+            Ok(())
+        }));
+        assert!(futures::poll!(&mut close).is_pending());
+        assert!(!released.load(Ordering::Acquire));
+        assert!(!audit.closed.load(Ordering::Acquire));
+        assert!(audit.budget.reserved() > 0);
+        // Independent async work progresses while close owns the paused worker's join.
+        assert_eq!(tokio::spawn(async { 19 }).await.unwrap(), 19);
+        release.send(()).unwrap();
+        let error = close.await.unwrap_err();
+        assert!(error.to_string().contains("late blocking semantic refusal"));
+        assert!(error.permits_storage_cleanup());
+        assert!(released.load(Ordering::Acquire));
+        assert!(audit.closed.load(Ordering::Acquire));
+        assert!(!audit.pin.test_uncertain());
+        assert_eq!(
+            audit.budget.reserved(),
+            audit.charge.0.lock().unwrap().reserved()
+        );
+    }
+    #[tokio::test]
+    async fn unconfirmed_blocking_panic_close_retains_pin_without_polling_release() {
+        let audit = test_audit(1 << 20);
+        let error = audit
+            .blocking::<()>(|_| panic!("controlled blocking unit panic"))
+            .await
+            .unwrap_err();
+        assert!(!error.permits_storage_cleanup());
+        let released = Arc::new(AtomicBool::new(false));
+        let release_observed = released.clone();
+        let error = audit
+            .close_releasing(async move {
+                release_observed.store(true, Ordering::Release);
+                Ok(())
+            })
+            .await
+            .unwrap_err();
+        assert!(!error.permits_storage_cleanup());
+        assert!(!released.load(Ordering::Acquire));
+        assert!(!audit.closed.load(Ordering::Acquire));
+        assert!(audit.pin.test_uncertain());
+        assert_eq!(
+            audit.budget.reserved(),
+            audit.charge.0.lock().unwrap().reserved()
+        );
     }
     async fn join(audit: &InstallationAudit) {
         audit.drain_workers().await.unwrap();
@@ -6917,7 +7741,7 @@ mod shared_preparation_controls {
         assert!(flights.contains_key(&keys[2]));
         assert_eq!(
             audit.budget.reserved(),
-            4096 + audit.charge.0.lock().unwrap().reserved()
+            4096 + audit.charge.0.lock().unwrap().accounted_bytes()
         );
         assert!(!audit.pin.test_uncertain());
     }
@@ -6971,7 +7795,10 @@ mod shared_preparation_controls {
             drop(flights);
             assert!(!live.is_finished());
             let bytes = audit.budget.reserved();
-            assert_eq!(bytes, 4096 + audit.charge.0.lock().unwrap().reserved());
+            assert_eq!(
+                bytes,
+                4096 + audit.charge.0.lock().unwrap().accounted_bytes()
+            );
             assert_eq!(*retained.get_or_insert(bytes), bytes);
         }
         release.add_permits(1);
@@ -6983,7 +7810,7 @@ mod shared_preparation_controls {
         join(&audit).await;
         assert_eq!(
             audit.budget.reserved(),
-            12288 + audit.charge.0.lock().unwrap().reserved()
+            12288 + audit.charge.0.lock().unwrap().accounted_bytes()
         );
         assert!(!audit.pin.test_uncertain());
     }

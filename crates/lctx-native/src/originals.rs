@@ -328,11 +328,129 @@ pub async fn header<Context>(
     }
     Ok(completed)
 }
+pub(crate) fn check_scanned_chunk(
+    chunks: &crate::ordered_rows::PreparedPointRows,
+    start: u64,
+    len: u64,
+    digest: ContentHash,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let mut cursor = chunks.cursor(budget)?;
+    let expected = canonical_chunk_value(start, len, digest)?;
+    if cursor.get(&canonical_chunk_id(start)?)? != Some(&expected) {
+        return Err(ModelError::Conflict("original canonical chunk digest"));
+    }
+    Ok(())
+}
+fn canonical_chunk_id(start: u64) -> Result<RecordId, ModelError> {
+    if !start.is_multiple_of(lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64) {
+        return Err(ModelError::Schema("original canonical chunk start"));
+    }
+    Ok(RecordId::new(
+        "original_audit_chunk",
+        format!("{start:020}"),
+    ))
+}
+fn canonical_chunk_value(start: u64, len: u64, digest: ContentHash) -> Result<Value, ModelError> {
+    let mut row = Object::new();
+    row.insert("id", canonical_chunk_id(start)?);
+    row.insert("start", i64::try_from(start).map_err(ModelError::codec)?);
+    row.insert("len", i64::try_from(len).map_err(ModelError::codec)?);
+    row.insert("digest", digest.hex());
+    Ok(Value::Object(row))
+}
+/// Streaming full and canonical-range hashes; never retains whole original bytes.
+struct BlobHashes {
+    full: ContentHasher,
+    chunk: ContentHasher,
+    position: u64,
+    chunk_len: u64,
+}
+impl BlobHashes {
+    fn new() -> Self {
+        Self {
+            full: ContentHasher::default(),
+            chunk: ContentHasher::default(),
+            position: 0,
+            chunk_len: 0,
+        }
+    }
+    fn push(
+        &mut self,
+        mut bytes: &[u8],
+        mut emit: impl FnMut(Value) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        self.full.update(bytes);
+        while !bytes.is_empty() {
+            let count = bytes
+                .len()
+                .min(lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES - self.chunk_len as usize);
+            self.chunk.update(&bytes[..count]);
+            self.chunk_len += count as u64;
+            self.position = self
+                .position
+                .checked_add(count as u64)
+                .ok_or(ModelError::Schema("original scan bounds"))?;
+            bytes = &bytes[count..];
+            if self.chunk_len == lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64 {
+                self.emit(&mut emit)?;
+            }
+        }
+        Ok(())
+    }
+    fn emit(
+        &mut self,
+        emit: &mut impl FnMut(Value) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        let digest = std::mem::take(&mut self.chunk).finish();
+        emit(canonical_chunk_value(
+            self.position - self.chunk_len,
+            self.chunk_len,
+            digest,
+        )?)?;
+        self.chunk_len = 0;
+        Ok(())
+    }
+    fn finish(
+        mut self,
+        blob: &Blob,
+        mut emit: impl FnMut(Value) -> Result<(), ModelError>,
+    ) -> Result<(), ModelError> {
+        if self.chunk_len != 0 {
+            self.emit(&mut emit)?;
+        }
+        if self.position != blob.byte_len || self.full.finish() != blob.content {
+            return Err(ModelError::Conflict("original blob full readback"));
+        }
+        Ok(())
+    }
+}
+/// A receiving operation supplies its acknowledged ordering sink. Each physical
+/// piece can emit at most one canonical digest, so no growing async output batch
+/// or synchronous scratch writer is hidden in the scan.
+pub(crate) trait BlobChunkSink: Send {
+    fn push(&mut self, row: Value) -> futures::future::BoxFuture<'_, Result<(), ModelError>>;
+}
+struct DiscardChunks;
+impl BlobChunkSink for DiscardChunks {
+    fn push(&mut self, _row: Value) -> futures::future::BoxFuture<'_, Result<(), ModelError>> {
+        use futures::FutureExt;
+        futures::future::ready(Ok(())).boxed()
+    }
+}
 /// Full readback earns completion independently of the producer's streaming hash.
 pub async fn validate_blob<Context>(
     reader: &crate::NativeReader<Context>,
     blob: &Blob,
     budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    scan_blob_to_sink(reader, blob, budget, &mut DiscardChunks).await
+}
+pub(crate) async fn scan_blob_to_sink<Context>(
+    reader: &crate::NativeReader<Context>,
+    blob: &Blob,
+    budget: &ResourceBudget,
+    sink: &mut dyn BlobChunkSink,
 ) -> Result<(), ModelError> {
     header(reader, blob).await?;
     let _charge = budget.reserve(
@@ -340,13 +458,13 @@ pub async fn validate_blob<Context>(
         CHUNK_BYTES * 64 * 4 + 65536,
     )?;
     let mut position = 0;
-    let mut hasher = ContentHasher::default();
+    let mut hashes = BlobHashes::new();
     let mut count = 0u64;
     loop {
         let mut vars = Variables::new();
         vars.insert("blob", blob.id());
         vars.insert("start", position);
-        let values=rows(reader,"SELECT * FROM original_chunk WITH INDEX position WHERE blob=$blob AND start >= $start ORDER BY start LIMIT 64",vars).await?;
+        let values = rows(reader,"SELECT * FROM original_chunk WITH INDEX position WHERE blob=$blob AND start >= $start ORDER BY start LIMIT 64",vars).await?;
         if values.is_empty() {
             break;
         }
@@ -360,17 +478,35 @@ pub async fn validate_blob<Context>(
             position = position
                 .checked_add(piece.bytes.len() as u64)
                 .ok_or(ModelError::Schema("original blob bounds"))?;
-            hasher.update(&piece.bytes);
+            let mut emitted = None;
+            hashes.push(&piece.bytes, |row| {
+                if emitted.replace(row).is_some() {
+                    return Err(ModelError::Schema("original piece digest emission bound"));
+                }
+                Ok(())
+            })?;
+            if let Some(row) = emitted {
+                sink.push(row).await?;
+            }
             count += 1;
         }
         crate::installed_view::audit::audit_owned_keys(reader, &blob.id(), &protected, budget)
             .await?;
     }
-    if position != blob.byte_len || count != blob.piece_count() || hasher.finish() != blob.content {
-        return Err(ModelError::Conflict("original blob full readback"));
+    if count != blob.piece_count() {
+        return Err(ModelError::Conflict("original blob piece count"));
+    }
+    let mut tail = None;
+    hashes.finish(blob, |row| {
+        tail = Some(row);
+        Ok(())
+    })?;
+    if let Some(row) = tail {
+        sink.push(row).await?;
     }
     Ok(())
 }
+
 fn object_guard(id: &RecordId) -> Result<RecordId, ModelError> {
     Ok(RecordId::new(
         "native_guard",
@@ -520,31 +656,114 @@ pub async fn complete_blob<Context>(
         }
     }
 }
+/// One operation owns all selected layouts. All pending-layout drains precede any
+/// byte completion, so later pages cannot invalidate an earlier cached revision.
+pub struct OriginalCompletion {
+    layouts: crate::ordered_rows::SortedRows,
+    budget: ResourceBudget,
+}
+impl OriginalCompletion {
+    pub fn new(budget: &ResourceBudget) -> Result<Self, ModelError> {
+        Ok(Self {
+            layouts: crate::ordered_rows::SortedRows::with_budget(budget)?,
+            budget: budget.clone(),
+        })
+    }
+    pub fn add_sources(&mut self, sources: &[RecordId]) -> Result<(), ModelError> {
+        for source in sources {
+            if source.table.as_str() != "original" {
+                return Err(ModelError::Schema("original completion layout identity"));
+            }
+            let mut row = Object::new();
+            row.insert("id", source.clone());
+            self.layouts.push(Value::Object(row))?;
+        }
+        Ok(())
+    }
+    pub async fn finish<Context>(
+        self,
+        reader: &crate::NativeReader<Context>,
+        attempt: Option<ContentHash>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        if !self.budget.shares_pool(budget) || !reader.resource_budget()?.shares_pool(budget) {
+            return Err(ModelError::Conflict(
+                "original completion foreign resource owner",
+            ));
+        }
+        let mut layouts = self.layouts.finish()?;
+        let mut blobs = crate::ordered_rows::SortedRows::with_budget(budget)?;
+        let mut writer = crate::control::WindowWriter::new(reader.client(), attempt, Some(budget));
+        while let Some(value) = layouts.next_row()? {
+            let row = value
+                .as_object()
+                .ok_or(ModelError::Schema("original completion layout work object"))?;
+            let source = RecordId::from_value(
+                row.get("id")
+                    .cloned()
+                    .ok_or(ModelError::Schema("original completion layout"))?,
+            )
+            .map_err(ModelError::codec)?;
+            let selected = layout(reader, &source)
+                .await?
+                .ok_or(ModelError::Conflict("original layout missing"))?;
+            validate_layout(reader, &selected).await?;
+            let mut hold_vars = Variables::new();
+            hold_vars.insert("owner", selected.id.clone());
+            hold_vars.insert("object", selected.blob.id());
+            let holds: Vec<RecordId> = reader.query_native("SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object=$object LIMIT 2", hold_vars).await?;
+            if holds.len() != 1 {
+                return Err(ModelError::Conflict("original completion layout hold"));
+            }
+            if let Some(attempt) = attempt {
+                drain_pending(reader, &mut writer, attempt, None, &selected, budget, true).await?;
+            }
+            let mut work = Object::new();
+            // Blob IDs are canonical hashes; grouping is independent of layout order.
+            use surrealdb::types::ToSql;
+            work.insert(
+                "id",
+                RecordId::new(
+                    "original_completion",
+                    format!(
+                        "{}:{}",
+                        selected.blob.id().key.to_sql(),
+                        selected.id.key.to_sql()
+                    ),
+                ),
+            );
+            work.insert("layout", selected.value());
+            blobs.push(Value::Object(work))?;
+        }
+        let mut blobs = blobs.finish()?;
+        let mut previous = None;
+        while let Some(value) = blobs.next_row()? {
+            let row = value
+                .as_object()
+                .ok_or(ModelError::Schema("original completion blob work object"))?;
+            let selected = decode_layout(
+                row.get("layout")
+                    .cloned()
+                    .ok_or(ModelError::Schema("original completion work"))?,
+            )?;
+            let blob = selected.blob.id();
+            if previous.as_ref() != Some(&blob) {
+                complete_blob(reader, attempt, &selected, budget).await?;
+                previous = Some(blob);
+            }
+        }
+        Ok(())
+    }
+}
 pub async fn complete_selected<Context>(
     reader: &crate::NativeReader<Context>,
     attempt: Option<ContentHash>,
     sources: &[RecordId],
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let mut completed = BTreeSet::new();
-    let _charge = budget.reserve(
-        "original selected completion",
-        sources.len().saturating_mul(512),
-    )?;
-    let mut writer = crate::control::WindowWriter::new(reader.client(), attempt, Some(budget));
-    for source in sources {
-        let layout = layout(reader, source)
-            .await?
-            .ok_or(ModelError::Conflict("original layout missing"))?;
-        validate_layout(reader, &layout).await?;
-        if let Some(attempt) = attempt {
-            drain_pending(reader, &mut writer, attempt, None, &layout, budget, true).await?;
-        }
-        if completed.insert(layout.blob.id()) {
-            complete_blob(reader, attempt, &layout, budget).await?;
-        }
-    }
-    Ok(())
+    let mut operation = OriginalCompletion::new(budget)?;
+    operation.add_sources(sources)?;
+    operation.finish(reader, attempt, budget).await
 }
 /// Retained raw bytes and their caller-owned allocation authority travel together.
 #[derive(Debug)]
@@ -1891,23 +2110,31 @@ async fn process_owned_layouts<Context>(
     vars.insert("after", Value::None);
     let _page = budget.reserve("attempt original layout page", 32 * 4096)?;
     let mut after = None::<RecordId>;
+    let mut operation = if replay {
+        Some(OriginalCompletion::new(budget)?)
+    } else {
+        None
+    };
     loop {
         let objects:Vec<RecordId>=reader.query_native("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND ($after=NONE OR object>$after) ORDER BY object LIMIT 32",vars.clone()).await?;
         if objects.is_empty() {
-            return Ok(());
+            break;
         }
         for source in objects {
             if after.as_ref().is_some_and(|previous| &source <= previous) {
                 return Err(ModelError::Conflict("attempt original hold order"));
             }
             if source.table.as_str() == "original" {
+                if let Some(operation) = &mut operation {
+                    operation.add_sources(std::slice::from_ref(&source))?;
+                    after = Some(source);
+                    continue;
+                }
                 let layout = layout(reader, &source)
                     .await?
                     .ok_or(ModelError::Conflict("attempt original layout missing"))?;
                 validate_layout(reader, &layout).await?;
-                if replay {
-                    complete_blob(reader, Some(attempt), &layout, budget).await?;
-                } else if !header(reader, &layout.blob).await? {
+                if !header(reader, &layout.blob).await? {
                     return Err(ModelError::Conflict("attempt original blob incomplete"));
                 }
             }
@@ -1918,6 +2145,10 @@ async fn process_owned_layouts<Context>(
             after.clone().map(Value::RecordId).unwrap_or(Value::None),
         );
     }
+    if let Some(operation) = operation {
+        operation.finish(reader, Some(attempt), budget).await?;
+    }
+    Ok(())
 }
 async fn process_pending<Context>(
     reader: &crate::NativeReader<Context>,
@@ -2272,5 +2503,132 @@ mod pending_controls {
         assert!(exact(&corrupt, &value, "pending full byte replay").is_err());
         assert!(pending_piece(&ordinal, 1, &bytes).is_err());
         assert!(pending_ordinal(&root, 3, 0, ContentHash::of(b"")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+
+    #[test]
+    fn one_stream_matches_explicit_full_and_canonical_chunk_bytes() {
+        let chunk = lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES;
+        for length in [
+            0,
+            1,
+            CHUNK_BYTES - 1,
+            CHUNK_BYTES,
+            CHUNK_BYTES + 1,
+            chunk - 1,
+            chunk,
+            chunk + 1,
+            chunk * 2 + 17,
+        ] {
+            let bytes = (0..length)
+                .map(|index| (index % 251) as u8)
+                .collect::<Vec<_>>();
+            let blob = Blob::new(ContentHash::of(&bytes), length as u64).unwrap();
+            let mut hashes = BlobHashes::new();
+            let mut actual = Vec::new();
+            // Deliberately cross physical and canonical boundaries with uneven feeds.
+            for piece in bytes.chunks(CHUNK_BYTES - 7) {
+                hashes
+                    .push(piece, |row| {
+                        actual.push(row);
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            hashes
+                .finish(&blob, |row| {
+                    actual.push(row);
+                    Ok(())
+                })
+                .unwrap();
+            let expected = bytes
+                .chunks(chunk)
+                .enumerate()
+                .map(|(ordinal, bytes)| {
+                    canonical_chunk_value(
+                        (ordinal * chunk) as u64,
+                        bytes.len() as u64,
+                        ContentHash::of(bytes),
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(actual, expected, "length {length}");
+        }
+    }
+
+    #[test]
+    fn corrupted_full_content_or_truncated_stream_cannot_earn_scan() {
+        let expected = vec![13; CHUNK_BYTES + 19];
+        let blob = Blob::new(ContentHash::of(&expected), expected.len() as u64).unwrap();
+        let corrupt = vec![14; expected.len()];
+        for bytes in [&expected[..expected.len() - 1], corrupt.as_slice()] {
+            let mut hashes = BlobHashes::new();
+            hashes.push(bytes, |_| Ok(())).unwrap();
+            assert!(hashes.finish(&blob, |_| Ok(())).is_err());
+        }
+    }
+
+    #[test]
+    fn spilled_canonical_digest_run_keeps_exact_ranges_and_releases_owners() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let baseline = budget.reserved();
+        {
+            let mut rows = crate::ordered_rows::SortedRows::with_budget(&budget).unwrap();
+            let chunk = lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64;
+            for ordinal in 0..6000u64 {
+                rows.push(
+                    canonical_chunk_value(
+                        ordinal * chunk,
+                        chunk,
+                        ContentHash::of(&ordinal.to_le_bytes()),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            }
+            let prepared = rows.finish().unwrap().into_prepared();
+            let index = prepared.point_index(&budget).unwrap();
+            for ordinal in [5999u64, 0, 3017, 1, 5998] {
+                check_scanned_chunk(
+                    &index,
+                    ordinal * chunk,
+                    chunk,
+                    ContentHash::of(&ordinal.to_le_bytes()),
+                    &budget,
+                )
+                .unwrap();
+            }
+            assert!(budget.reserved() > baseline);
+        }
+        assert_eq!(budget.reserved(), baseline);
+    }
+
+    #[test]
+    fn canonical_digest_run_supports_exact_random_lookups() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let mut rows = crate::ordered_rows::SortedRows::with_budget(&budget).unwrap();
+        let chunk = lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64;
+        let a = ContentHash::of(b"explicit first chunk");
+        let b = ContentHash::of(b"explicit tail");
+        rows.push(canonical_chunk_value(0, chunk, a).unwrap())
+            .unwrap();
+        rows.push(canonical_chunk_value(chunk, 7, b).unwrap())
+            .unwrap();
+        let index = rows
+            .finish()
+            .unwrap()
+            .into_prepared()
+            .point_index(&budget)
+            .unwrap();
+        check_scanned_chunk(&index, chunk, 7, b, &budget).unwrap();
+        check_scanned_chunk(&index, 0, chunk, a, &budget).unwrap();
+        assert!(check_scanned_chunk(&index, chunk, 8, b, &budget).is_err());
+        assert!(check_scanned_chunk(&index, chunk, 7, a, &budget).is_err());
+        assert!(check_scanned_chunk(&index, chunk * 2, 7, b, &budget).is_err());
     }
 }

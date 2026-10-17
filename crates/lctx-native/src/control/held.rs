@@ -148,6 +148,48 @@ pub struct ExpectedRecords {
     rows: std::collections::BTreeMap<RecordId, Option<ExpectedRecord>>,
     _charge: Box<dyn Reservation>,
 }
+/// Only explicit page correspondence/retention admission can authorize a smaller
+/// acquisition. Native transport and finality failures never authorize replay.
+#[derive(Debug)]
+pub(crate) enum PageAcquireFailure {
+    Reducible(ModelError),
+    Terminal(ModelError),
+}
+impl PageAcquireFailure {
+    pub(crate) fn reducible_resource(error: ModelError) -> Self {
+        match error {
+            error @ ModelError::Resource { .. } => Self::Reducible(error),
+            error => Self::Terminal(error),
+        }
+    }
+    pub(crate) fn into_error(self) -> ModelError {
+        match self {
+            Self::Reducible(error) | Self::Terminal(error) => error,
+        }
+    }
+}
+impl From<ModelError> for PageAcquireFailure {
+    fn from(error: ModelError) -> Self {
+        Self::Terminal(error)
+    }
+}
+
+fn finish_page_read<T>(
+    result: Result<T, PageAcquireFailure>,
+    drain: Result<(), ModelError>,
+    step: &'static str,
+) -> Result<T, PageAcquireFailure> {
+    if drain.is_ok() {
+        return result;
+    }
+    let mut terminal = lctx_model::domain::completion::Completion::default();
+    terminal.step(step, drain);
+    lctx_model::domain::completion::complete(
+        result.map_err(PageAcquireFailure::into_error),
+        terminal,
+    )
+    .map_err(PageAcquireFailure::Terminal)
+}
 impl ExpectedRecords {
     pub fn get(&self, record: &RecordId) -> Result<Option<&ExpectedRecord>, ModelError> {
         self.rows
@@ -180,14 +222,19 @@ impl ExpectedRecords {
             ))
         }
     }
+    #[cfg(test)]
     fn new(records: &[RecordId], budget: &ResourceBudget) -> Result<Self, ModelError> {
-        let charge = window_charge(records.iter(), records.len(), budget)?;
+        Self::new_page(records, budget).map_err(PageAcquireFailure::into_error)
+    }
+    fn new_page(records: &[RecordId], budget: &ResourceBudget) -> Result<Self, PageAcquireFailure> {
+        let charge = window_charge(records.iter(), records.len(), budget)
+            .map_err(PageAcquireFailure::reducible_resource)?;
         let mut rows = std::collections::BTreeMap::new();
         for record in records {
             if rows.insert(record.clone(), None).is_some() {
-                return Err(ModelError::Conflict(
-                    "native expected duplicate requested record",
-                ));
+                return Err(
+                    ModelError::Conflict("native expected duplicate requested record").into(),
+                );
             }
         }
         Ok(Self {
@@ -195,16 +242,26 @@ impl ExpectedRecords {
             _charge: charge,
         })
     }
+    #[cfg(test)]
     fn observe_record(&mut self, row: Value, budget: &ResourceBudget) -> Result<(), ModelError> {
+        self.observe_page_record(row, budget)
+            .map_err(PageAcquireFailure::into_error)
+    }
+    fn observe_page_record(
+        &mut self,
+        row: Value,
+        budget: &ResourceBudget,
+    ) -> Result<(), PageAcquireFailure> {
         let record = row_id(&row)?;
         let observed = self
             .rows
             .get_mut(record)
             .ok_or(ModelError::Conflict("native expected foreign record"))?;
         if observed.is_some() {
-            return Err(ModelError::Conflict("native expected duplicate record"));
+            return Err(ModelError::Conflict("native expected duplicate record").into());
         }
-        let charge = retained_row_charge(&row, budget, "native owned expected inspection")?;
+        let charge = retained_row_charge(&row, budget, "native owned expected inspection")
+            .map_err(PageAcquireFailure::reducible_resource)?;
         *observed = Some(ExpectedRecord {
             record: record.clone(),
             incarnation: 0,
@@ -469,7 +526,26 @@ pub(crate) async fn inspect_expected_window_read_observed<Context>(
     budget: &ResourceBudget,
     stages: Option<[&'static str; 2]>,
 ) -> Result<ExpectedRecords, ModelError> {
-    let mut observed = ExpectedRecords::new(records, budget)?;
+    inspect_expected_page_read_observed(reader, records, budget, stages)
+        .await
+        .map_err(PageAcquireFailure::into_error)
+}
+/// Inspect one exact bounded page. A reducible refusal escapes only after every
+/// opened native stream has conclusively drained, retaining its original error.
+pub(crate) async fn inspect_expected_page_read<Context>(
+    reader: &crate::NativeReader<Context>,
+    records: &[RecordId],
+    budget: &ResourceBudget,
+) -> Result<ExpectedRecords, PageAcquireFailure> {
+    inspect_expected_page_read_observed(reader, records, budget, None).await
+}
+async fn inspect_expected_page_read_observed<Context>(
+    reader: &crate::NativeReader<Context>,
+    records: &[RecordId],
+    budget: &ResourceBudget,
+    stages: Option<[&'static str; 2]>,
+) -> Result<ExpectedRecords, PageAcquireFailure> {
+    let mut observed = ExpectedRecords::new_page(records, budget)?;
     if records.is_empty() {
         return Ok(observed);
     }
@@ -482,17 +558,16 @@ pub(crate) async fn inspect_expected_window_read_observed<Context>(
         .with_row_bytes(lctx_model::domain::resources::MAX_ROW_BYTES);
     let result = async {
         while let Some(row) = stream.next().await? {
-            observed.observe_record(row, budget)?;
+            observed.observe_page_record(row, budget)?;
         }
         Ok(())
     }
     .await;
-    let mut terminal = lctx_model::domain::completion::Completion::default();
-    terminal.step(
-        "expected record window stream drain",
+    finish_page_read(
+        result,
         stream.drain_transport().await,
-    );
-    lctx_model::domain::completion::complete(result, terminal)?;
+        "expected record window stream drain",
+    )?;
     let mut guards = observed.guard_records()?;
     if !guards.is_empty() {
         let mut stream = reader.stream_prepared_observed(
@@ -507,12 +582,11 @@ pub(crate) async fn inspect_expected_window_read_observed<Context>(
             observed.guards_complete(&guards)
         }
         .await;
-        let mut terminal = lctx_model::domain::completion::Completion::default();
-        terminal.step(
-            "expected guard window stream drain",
+        finish_page_read(
+            result.map_err(PageAcquireFailure::Terminal),
             stream.drain_transport().await,
-        );
-        lctx_model::domain::completion::complete(result, terminal)?;
+            "expected guard window stream drain",
+        )?;
     }
     Ok(observed)
 }
@@ -984,6 +1058,108 @@ mod tests {
             bindings.get("observation_ids"),
             Some(&Value::Array(vec![Value::RecordId(id)].into()))
         );
+    }
+    #[test]
+    fn page_capacity_classification_is_limited_to_explicit_admission_sites() {
+        let id = RecordId::new("one", "a");
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            ExpectedRecords::new_page(std::slice::from_ref(&id), &tiny),
+            Err(PageAcquireFailure::Reducible(ModelError::Resource {
+                owner: "native observation correspondence",
+                ..
+            }))
+        ));
+        let budget = ResourceBudget::fixed(8192).unwrap();
+        assert!(matches!(
+            ExpectedRecords::new_page(
+                &vec![id.clone(); crate::loader::NATIVE_WINDOW_ROWS + 1],
+                &budget
+            ),
+            Err(PageAcquireFailure::Terminal(ModelError::Limit { .. }))
+        ));
+        let mut page = ExpectedRecords::new_page(std::slice::from_ref(&id), &budget).unwrap();
+        let before = budget.reserved();
+        assert!(matches!(
+            page.observe_page_record(record_row(&id, 0), &budget),
+            Err(PageAcquireFailure::Reducible(ModelError::Resource {
+                owner: "native owned expected inspection",
+                ..
+            }))
+        ));
+        assert!(!page.contains(&id));
+        assert_eq!(budget.reserved(), before);
+        let foreign = RecordId::new("one", "foreign");
+        assert!(matches!(
+            page.observe_page_record(record_row(&foreign, 0), &budget),
+            Err(PageAcquireFailure::Terminal(ModelError::Conflict(
+                "native expected foreign record"
+            )))
+        ));
+        assert!(matches!(
+            page.observe_page_record(Value::Null, &budget),
+            Err(PageAcquireFailure::Terminal(ModelError::Schema(_)))
+        ));
+        drop(page);
+        assert_eq!(budget.reserved(), 0);
+        // An identical resource-shaped failure from transport remains terminal.
+        let transport_error = budget
+            .reserve("transport fixture", budget.limit() + 1)
+            .unwrap_err();
+        assert!(matches!(
+            PageAcquireFailure::from(transport_error),
+            PageAcquireFailure::Terminal(ModelError::Resource { .. })
+        ));
+    }
+    #[test]
+    fn page_retry_requires_conclusive_drain_and_preserves_primary_and_finality() {
+        let budget = ResourceBudget::fixed(1).unwrap();
+        let refusal =
+            || PageAcquireFailure::reducible_resource(budget.reserve("test-page", 2).unwrap_err());
+        assert!(matches!(
+            finish_page_read::<()>(Err(refusal()), Ok(()), "test drain"),
+            Err(PageAcquireFailure::Reducible(ModelError::Resource {
+                owner: "test-page",
+                ..
+            }))
+        ));
+        let result = finish_page_read::<()>(
+            Err(refusal()),
+            Err(ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                "test unknown drain",
+            )),
+            "test drain",
+        );
+        let Err(PageAcquireFailure::Terminal(error)) = result else {
+            panic!("unknown drainage must forbid page replay");
+        };
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Resource {
+                owner: "test-page",
+                ..
+            })
+        ));
+        let ModelError::Completion(outcome) = error else {
+            panic!("drainage must retain composite outcome")
+        };
+        assert_eq!(
+            outcome.completion.remote,
+            lctx_model::domain::completion::RemoteState::Unknown
+        );
+        assert_eq!(outcome.completion.failures.len(), 1);
+        assert_eq!(outcome.completion.failures[0].step, "test drain");
+        let result = finish_page_read::<()>(
+            Err(refusal()),
+            Err(ModelError::Conflict("late stream failure")),
+            "test drain",
+        );
+        assert!(matches!(
+            result,
+            Err(PageAcquireFailure::Terminal(ModelError::Completion(_)))
+        ));
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn observation_composite_identity_has_bounded_correspondence_charge() {

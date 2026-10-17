@@ -425,19 +425,20 @@ async fn complete_boundary_content(
                 &mut inspections,
             )
             .await?;
+            let full = bindings.is_empty()
+                || bindings
+                    .iter()
+                    .any(|binding| binding.view.identity == selection.view.identity);
             let aliases = installed_view::audit::assure_boundary_closure(
                 &reader,
                 &closure,
                 budget,
                 audit,
                 &mut inspections,
+                full,
             )
             .await?;
-            if bindings.is_empty()
-                || bindings
-                    .iter()
-                    .any(|binding| binding.view.identity == selection.view.identity)
-            {
+            if full {
                 families.include_closure(&reader, &closure, &aliases, budget, audit)?;
             }
             for identity in closure.logical.views().keys() {

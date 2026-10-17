@@ -15,15 +15,22 @@ use lctx_model::domain::{
     recovery_closure::RecoveryFamily,
     resources::{Reservation, ResourceBudget},
 };
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{
+    any::Any,
+    sync::{Arc, atomic::AtomicBool},
+};
 use surrealdb::types::{RecordIdKey, Value};
 use tokio::sync::{mpsc, oneshot};
 
 type Reply = Result<Output, Arc<ModelError>>;
 pub type BlockingTerminal = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
+type BlockingUnit = Box<dyn FnOnce(&ResourceBudget) -> Result<Output, ModelError> + Send>;
 enum Input {
     Candidate(Candidate),
     Row(Value),
+    RowBatch(Vec<Value>),
+    OwnedRowBatch(Vec<(Value, Box<dyn Reservation>)>),
+    Unit(BlockingUnit),
     Finish,
     Prepare,
     Next(usize),
@@ -50,6 +57,7 @@ enum Output {
     Candidates(Vec<Candidate>, Box<dyn Reservation>),
     Rows(Vec<Value>, Box<dyn Reservation>),
     FamilyRoot(CompletedFamilyRoot),
+    Unit(Box<dyn Any + Send>, Box<dyn Reservation>),
 }
 struct Command {
     input: Input,
@@ -67,9 +75,22 @@ fn candidate_bytes(candidate: &Candidate) -> Result<usize, ModelError> {
         .saturating_mul(factor)
         .saturating_add(std::mem::size_of::<Candidate>()))
 }
-fn physical_bytes(row: &Value) -> Result<usize, ModelError> {
-    let frame = serde_json::to_vec(row).map_err(ModelError::codec)?.len();
-    Ok(crate::ordered_rows::physical_work_bytes(row, frame))
+pub(crate) fn physical_bytes(row: &Value) -> Result<usize, ModelError> {
+    // Count without allocating an encoded copy before transfer admission. Actual frame
+    // encoding remains in the blocking sorter under its transferred data/work arena.
+    struct FrameBytes(usize);
+    impl std::io::Write for FrameBytes {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut frame = FrameBytes(0);
+    serde_json::to_writer(&mut frame, row).map_err(ModelError::codec)?;
+    Ok(crate::ordered_rows::physical_work_bytes(row, frame.0))
 }
 enum Kernel {
     Candidates(SortedCandidates),
@@ -163,6 +184,30 @@ impl Owner {
                             }
                             _ => Err(ModelError::Conflict("physical sorting state")),
                         },
+                        Input::RowBatch(values) => match &mut kernel {
+                            Kernel::Rows(sort) => {
+                                for value in values {
+                                    sort.push(value)?;
+                                }
+                                Ok(Output::Ack)
+                            }
+                            _ => Err(ModelError::Conflict("physical sorting state")),
+                        },
+                        Input::OwnedRowBatch(values) => match &mut kernel {
+                            Kernel::Rows(sort) => {
+                                for (value, arena) in values {
+                                    sort.push_owned(value, arena)?;
+                                }
+                                Ok(Output::Ack)
+                            }
+                            _ => Err(ModelError::Conflict("physical sorting state")),
+                        },
+                        Input::Unit(work) => {
+                            if !matches!(kernel, Kernel::Taken) {
+                                return Err(ModelError::Conflict("blocking unit worker state"));
+                            }
+                            work(&worker_budget)
+                        }
                         Input::Finish => {
                             kernel = match std::mem::replace(&mut kernel, Kernel::Taken) {
                                 Kernel::Candidates(sort) => {
@@ -282,9 +327,12 @@ impl Owner {
             })
         });
         let terminal = async move {
-            worker
-                .await
-                .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
+            worker.await.map_err(|error| {
+                Arc::new(ModelError::infrastructure(
+                    lctx_model::domain::Infrastructure::Unconfirmed,
+                    format!("blocking worker terminal unconfirmed: {error}"),
+                ))
+            })?
         }
         .boxed()
         .shared();
@@ -418,6 +466,63 @@ impl Owner {
             .map_or(Ok(()), |error| Err(ModelError::SharedCause(error.clone())));
         lctx_model::domain::completion::complete(primary, completion)
     }
+}
+
+/// Execute an owned synchronous preparation unit on the existing acknowledged worker.
+///
+/// `input_charge` covers captured input storage not already owned by charged products.
+/// The closure must admit its working allocations and return a product that retains its
+/// own dynamic allocation reservations. Command/result control storage is admitted here.
+/// Registration happens before the initialization await, and both inputs and `guard`
+/// remain owned until the actual blocking terminal, even if this future is abandoned.
+pub async fn run_registered<T, F>(
+    budget: &ResourceBudget,
+    guard: impl Send + 'static,
+    register: impl FnOnce(BlockingTerminal) + Send + 'static,
+    input_charge: Box<dyn Reservation>,
+    work: F,
+) -> Result<T, ModelError>
+where
+    T: Send + 'static,
+    F: FnOnce(&ResourceBudget) -> Result<T, ModelError> + Send + 'static,
+{
+    let packet = budget.reserve(
+        "ordered-unit-packet",
+        std::mem::size_of::<Input>()
+            .saturating_add(std::mem::size_of::<F>())
+            .saturating_add(std::mem::size_of::<T>()),
+    )?;
+    let control = budget.reserve("ordered-command-owner", 2048)?;
+    let mut owner = Owner::new(
+        budget,
+        (guard, input_charge),
+        None,
+        None,
+        None,
+        Some(control),
+        Some(Box::new(register)),
+    )
+    .await?;
+    let result = async {
+        let transfer = budget.reserve("ordered-command-input", 0)?;
+        owner.submit_reserved(
+            Input::Unit(Box::new(move |budget| {
+                work(budget).map(|value| Output::Unit(Box::new(value), packet))
+            })),
+            transfer,
+        )?;
+        match owner.acknowledge().await? {
+            Some(Output::Unit(value, _retained)) => value
+                .downcast::<T>()
+                .map(|value| *value)
+                .map_err(|_| ModelError::Schema("blocking unit response type")),
+            _ => Err(ModelError::Schema("blocking unit response")),
+        }
+    }
+    .await;
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step("blocking preparation unit drainage", owner.drain().await);
+    lctx_model::domain::completion::complete(result, completion)
 }
 
 pub struct AsyncCandidateSort(Owner);
@@ -699,6 +804,66 @@ impl AsyncPhysicalSort {
         let bytes = physical_bytes(&row)?;
         self.0.push(Input::Row(row), bytes).await
     }
+    /// Transfer one bounded physical page with a single worker acknowledgement.
+    pub async fn push_batch(&mut self, rows: Vec<Value>) -> Result<(), ModelError> {
+        if rows.len() > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Schema("physical input transfer window"));
+        }
+        let mut bytes = rows.capacity().saturating_mul(std::mem::size_of::<Value>());
+        for row in &rows {
+            bytes = bytes.saturating_add(physical_bytes(row)?);
+        }
+        let retained = self.0.budget.reserve("ordered-command-input", bytes)?;
+        self.push_batch_reserved(rows, retained).await
+    }
+    /// Transfer an already admitted page arena. Its reservation must cover Vec capacity,
+    /// decoded rows and encoding workspace until acknowledgement; the sorter separately
+    /// owns retained encoded runs. The owner keeps this arena on an abandoned waiter.
+    pub async fn push_batch_reserved(
+        &mut self,
+        rows: Vec<Value>,
+        retained: Box<dyn Reservation>,
+    ) -> Result<(), ModelError> {
+        if rows.len() > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Schema("physical input transfer window"));
+        }
+        self.0.acknowledge().await?;
+        self.0.submit_reserved(Input::RowBatch(rows), retained)?;
+        self.0.acknowledge().await?;
+        Ok(())
+    }
+    /// Transfer per-row same-pool data/encoding arenas without readmitting their bytes.
+    /// Each arena follows its row into `SortedRows::push_owned`, so dead decoded input
+    /// is released before spill/merge admission. Only the batch Vec capacity is new.
+    pub async fn push_owned_batch(
+        &mut self,
+        rows: Vec<(Value, Box<dyn Reservation>)>,
+    ) -> Result<(), ModelError> {
+        if rows.len() > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Schema("physical input transfer window"));
+        }
+        let retained = self.0.budget.reserve(
+            "ordered-command-input",
+            rows.capacity()
+                .saturating_mul(std::mem::size_of::<(Value, Box<dyn Reservation>)>()),
+        )?;
+        self.push_owned_batch_reserved(rows, retained).await
+    }
+    /// As `push_owned_batch`, with batch Vec capacity already admitted by its producer.
+    pub async fn push_owned_batch_reserved(
+        &mut self,
+        rows: Vec<(Value, Box<dyn Reservation>)>,
+        retained: Box<dyn Reservation>,
+    ) -> Result<(), ModelError> {
+        if rows.len() > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Schema("physical input transfer window"));
+        }
+        self.0.acknowledge().await?;
+        self.0
+            .submit_reserved(Input::OwnedRowBatch(rows), retained)?;
+        self.0.acknowledge().await?;
+        Ok(())
+    }
     pub async fn prepare(&mut self) -> Result<PreparedRows, ModelError> {
         self.0.prepare().await
     }
@@ -805,6 +970,137 @@ mod tests {
             sorted.push(row).unwrap();
         }
         sorted.finish().unwrap().into_prepared()
+    }
+    #[tokio::test]
+    async fn bounded_physical_batches_keep_order_and_transfer_owned_arenas() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let released = Arc::new(AtomicBool::new(false));
+        let mut sort = AsyncPhysicalSort::new_registered(&budget, Guard(released.clone()), |_| {})
+            .await
+            .unwrap();
+        sort.push_batch(vec![physical("c", Value::Null), physical("a", Value::Null)])
+            .await
+            .unwrap();
+        let row = physical("b", Value::Null);
+        let arena = budget
+            .reserve("test-owned-row", physical_bytes(&row).unwrap())
+            .unwrap();
+        sort.push_owned_batch(vec![(row, arena)]).await.unwrap();
+        let rejected = vec![Value::Null; crate::loader::NATIVE_WINDOW_ROWS + 1];
+        assert!(matches!(
+            sort.push_batch(rejected).await,
+            Err(ModelError::Schema("physical input transfer window"))
+        ));
+        // A pre-admission refusal cannot poison the already accepted run.
+        let rows = sort.prepare_terminal().await.unwrap();
+        assert!(released.load(Ordering::Acquire));
+        let mut cursor = rows.cursor_with_budget(&budget).unwrap();
+        for key in ["a", "b", "c"] {
+            assert_eq!(cursor.next_row().unwrap(), Some(physical(key, Value::Null)));
+        }
+        assert!(cursor.next_row().unwrap().is_none());
+        drop(cursor);
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn physical_batch_capacity_refusal_preserves_previously_accepted_rows() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut sort = AsyncPhysicalSort::new_registered(&budget, (), |_| {})
+            .await
+            .unwrap();
+        sort.push_batch(vec![physical("a", Value::Null)])
+            .await
+            .unwrap();
+        let fill = budget
+            .reserve("test-fill", budget.limit() - budget.reserved())
+            .unwrap();
+        assert!(matches!(
+            sort.push_batch(vec![physical("b", Value::Null)]).await,
+            Err(ModelError::Resource {
+                owner: "ordered-command-input",
+                ..
+            })
+        ));
+        drop(fill);
+        let rows = sort.prepare_terminal().await.unwrap();
+        let mut cursor = rows.cursor_with_budget(&budget).unwrap();
+        assert_eq!(cursor.next_row().unwrap(), Some(physical("a", Value::Null)));
+        assert!(cursor.next_row().unwrap().is_none());
+        drop(cursor);
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn registered_preparation_unit_returns_owned_result_only_after_terminal() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let released = Arc::new(AtomicBool::new(false));
+        let charge = budget.reserve("test-unit-input", 128).unwrap();
+        let rows = run_registered(
+            &budget,
+            Guard(released.clone()),
+            |_| {},
+            charge,
+            |budget| {
+                let mut sort = SortedRows::with_budget(budget)?;
+                sort.push(physical("b", Value::Null))?;
+                sort.push(physical("a", Value::Null))?;
+                Ok(sort.finish()?.into_prepared())
+            },
+        )
+        .await
+        .unwrap();
+        assert!(released.load(Ordering::Acquire));
+        let mut cursor = rows.cursor_with_budget(&budget).unwrap();
+        assert_eq!(cursor.next_row().unwrap(), Some(physical("a", Value::Null)));
+        assert_eq!(cursor.next_row().unwrap(), Some(physical("b", Value::Null)));
+        assert!(cursor.next_row().unwrap().is_none());
+        drop(cursor);
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn lost_preparation_unit_waiter_retains_guard_and_reports_late_failure() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let released = Arc::new(AtomicBool::new(false));
+        let (registered_tx, registered) = oneshot::channel();
+        let (entered_tx, entered) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let task_budget = budget.clone();
+        let charge = budget.reserve("test-unit-input", 128).unwrap();
+        let task_released = released.clone();
+        let waiter = tokio::spawn(async move {
+            run_registered::<(), _>(
+                &task_budget,
+                Guard(task_released),
+                move |terminal| {
+                    let _ = registered_tx.send(terminal);
+                },
+                charge,
+                move |_| {
+                    let _ = entered_tx.send(());
+                    gate.recv().map_err(ModelError::codec)?;
+                    Err(ModelError::Conflict("late preparation failure"))
+                },
+            )
+            .await
+        });
+        let terminal = registered.await.unwrap();
+        entered.await.unwrap();
+        // A separate asynchronous task remains runnable while the blocking unit pauses.
+        assert_eq!(tokio::spawn(async { 17 }).await.unwrap(), 17);
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        assert!(!released.load(Ordering::Acquire));
+        assert!(budget.reserved() >= 128);
+        release.send(()).unwrap();
+        let error = terminal.await.unwrap_err();
+        assert!(matches!(
+            error.as_ref(),
+            ModelError::Conflict("late preparation failure")
+        ));
+        assert!(released.load(Ordering::Acquire));
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn registered_canonical_fold_returns_root_after_drain_and_refuses_late_conflict() {

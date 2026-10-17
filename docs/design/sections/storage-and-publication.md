@@ -90,6 +90,23 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Implemented / focused-Tested, 2026-10-17 (ADR-0185).** Native preparation is demand-scoped beneath the actual checked audit pin. Ordinary selectors retain complete audited memberships and relation partitions; only explicit full-identity consumers retain logical backing runs. Fresh full demand shares required acquisition; late demand reacquires only unretained backing. Typed page workspace may split its failed exact slice after drainage, without replaying completed memberships or accepted pages. Sealed original completion validates/drains every distinct layout before unique blob readback/CAS; receiving independently prepares full and canonical range hashes. Substantial audit preparation uses registered acknowledged blocking work, drained before pin release. The [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns implementation, focused evidence and remaining wider overlap.
+
+
+The demand classification is explicit at each current consumer:
+
+| Consumer | Required preparation |
+|---|---|
+| Live earned selector and receiving copy | Complete contributor assurance and compact selected memberships; no retained full backing run |
+| Retained/cold ordinary reader | Protected opaque inventory and exact parent/selector/current context; no eager full normalization |
+| Compound frozen/retained boundary | All selectors assured; binding-selected semantic closures demand full six-family ingredients |
+| Terminal product recovery | Independent selection assurance and full ingredients for its existing semantic-closure predicate |
+| Direct logical checksum | Complete six-family scan/fold under its own owner |
+| Detached export/backup | Complete transport inventory and actual six-family identity reconstruction |
+| Detached incoming/installed admission | Independent incoming validation, installed reconstruction and eligibility; no selector-cache trust transfer |
+
+> Decision: ADR-0185
+
 **Accepted boundary / implementation in progress, 2026-10-11.** `lctx-native` owns shared physical
 installation, codec, control, transport and selected semantics. `lctx-compiler-store` owns native
 contributions, exact completed views and privately validated admitted/export/restored capabilities;
@@ -562,6 +579,10 @@ mechanisms have independent scoped review acceptance; the coordinator owns uncom
 > Decision: ADR-0168
 
 ### §6.2 Readers
+
+**Implemented / focused-Tested, 2026-10-17 (ADR-0185).** Receiving blob integrity and canonical chunk hashes share one complete independent byte scan within the exact protected incarnation. Every layout/source/hold/range still validates; producer completion never grants receiving trust. Peer holds/equal replay do not invalidate frozen-byte preparation solely through incidental revision changes. Arbitrary requested ranges retain the separate bounded union hydration path. Preparation and point indexes retain their charged backing and registered worker lifetime.
+
+> Decision: ADR-0185
 
 **Implemented source / focused acceptance pending, 2026-10-15 (ADR-0174).** Private selector handles
 share charged live mappings or protected installed descriptor backing; public flat codec1/semantic-v4

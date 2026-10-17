@@ -6092,8 +6092,18 @@ impl NativeCompilerStore {
     async fn complete_contribution_originals(
         &self,
         id: ContentHash,
+        inventory: &BTreeMap<String, (u64, KeySink)>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        if [
+            d::source::SourceArtifact::NAME,
+            d::artifact::ArtifactChunk::NAME,
+        ]
+        .iter()
+        .all(|relation| inventory.get(*relation).is_none_or(|entry| entry.0 == 0))
+        {
+            return Ok(());
+        }
         let cancellation = self.read_cancellation()?;
         let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
         let reader = if let Some(flag) = cancellation {
@@ -6104,22 +6114,59 @@ impl NativeCompilerStore {
         let result=async {
             let owner=RecordId::new("compiler_contribution",id.hex());
             let _page=budget.reserve("original contribution membership page",32*4096)?;
+            let mut operation = lctx_native::originals::OriginalCompletion::new(budget)?;
             for relation in [d::source::SourceArtifact::NAME,d::artifact::ArtifactChunk::NAME]{
+                let expected = inventory.get(relation).map_or(0, |entry| entry.0);
+                if expected == 0 { continue; }
+                let mut observed = 0u64;
                 let mut vars=Variables::new();vars.insert("owner",owner.clone());vars.insert("relation",relation);vars.insert("after",Value::None);
                 let mut after=None::<String>;
                 loop{
                     let memberships:Vec<Value>=reader.query_native("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation AND ($after=NONE OR semantic_key>$after) ORDER BY semantic_key LIMIT 32",vars.clone()).await?;
                     if memberships.is_empty(){break;}
                     let mut sources=Vec::with_capacity(memberships.len());
+                    let mut pointers = BTreeSet::new();
+                    let mut page_after = after.as_ref();
+                    for membership in &memberships {
+                        validate_state_row("compiler_membership", membership)?;
+                        let member = value_object(membership).ok_or(ModelError::Schema("original completion membership"))?;
+                        let Some(Value::String(key)) = member.get("semantic_key") else { return Err(ModelError::Schema("original completion membership key")); };
+                        if member.get("contribution") != Some(&Value::RecordId(owner.clone())) || member.get("relation") != Some(&Value::String(relation.into())) || page_after.is_some_and(|previous| key <= previous) { return Err(ModelError::Conflict("original completion exact membership owner/order")); }
+                        let Some(Value::RecordId(node)) = member.get("node") else { return Err(ModelError::Schema("original completion payload pointer")); };
+                        pointers.insert(node.clone());
+                        page_after = Some(key);
+                    }
+                    let mut payload_vars = Variables::new(); payload_vars.insert("nodes", pointers.iter().cloned().collect::<Vec<_>>());
+                    let mut payload_charge = budget.reserve("original contribution payload set", 0)?;
+                    let mut payload_stream = reader.stream_prepared(lctx_native::prepared::PreparedQuery::new(payload_vars, vec![], vec!["SELECT * FROM $nodes".into()])?)?;
+                    let acquired = async {
+                        let mut payloads = Vec::new();
+                        let mut bytes = 0usize;
+                        while let Some(payload) = payload_stream.next().await? {
+                            if payloads.len() >= pointers.len() { return Err(ModelError::Conflict("original completion payload set excess")); }
+                            bytes = bytes.saturating_add(crate::loader::native_bytes(&payload).saturating_mul(2)).saturating_add(std::mem::size_of::<Value>() * 2);
+                            payload_charge.try_resize(bytes)?;
+                            payloads.push(payload);
+                        }
+                        Ok::<_, ModelError>(payloads)
+                    }.await;
+                    let mut drainage = d::completion::Completion::default();
+                    drainage.step("original payload set transport drainage", payload_stream.drain_transport().await);
+                    let payloads = d::completion::complete(acquired, drainage)?;
+                    let mut by_id = BTreeMap::new();
+                    for payload in &payloads {
+                        let object = value_object(payload).ok_or(ModelError::Schema("original completion payload"))?;
+                        let Some(Value::RecordId(node)) = object.get("id") else { return Err(ModelError::Schema("original completion payload identity")); };
+                        if !pointers.contains(node) || by_id.insert(node.clone(), payload).is_some() { return Err(ModelError::Conflict("original completion payload correspondence")); }
+                    }
+                    if by_id.len() != pointers.len() { return Err(ModelError::Conflict("original completion payload set missing")); }
                     for membership in memberships{
                         validate_state_row("compiler_membership",&membership)?;
                         let member=value_object(&membership).ok_or(ModelError::Schema("original completion membership"))?;
                         let Some(Value::String(key))=member.get("semantic_key") else{return Err(ModelError::Schema("original completion membership key"));};
                         if member.get("contribution")!=Some(&Value::RecordId(owner.clone())) || member.get("relation")!=Some(&Value::String(relation.into())) || after.as_ref().is_some_and(|previous|key<=previous){return Err(ModelError::Conflict("original completion exact membership owner/order"));}
                         let Some(Value::RecordId(node))=member.get("node") else{return Err(ModelError::Schema("original completion payload pointer"));};
-                        let mut payload_vars=Variables::new();payload_vars.insert("node",node.clone());
-                        let payloads:Vec<Value>=reader.query_native("SELECT * FROM $node",payload_vars).await?;
-                        let [payload]=payloads.as_slice() else{return Err(ModelError::Conflict("original completion payload missing"));};
+                        let payload = *by_id.get(node).ok_or(ModelError::Conflict("original completion payload missing"))?;
                         let object=value_object(payload).ok_or(ModelError::Schema("original completion payload"))?;
                         if object.get("id")!=Some(&Value::RecordId(node.clone())) || object.get("content")!=member.get("content"){return Err(ModelError::Conflict("original completion membership payload"));}
                         let Some(Value::Bytes(canonical))=object.get("canonical") else{return Err(ModelError::Schema("original completion canonical payload"));};
@@ -6136,11 +6183,15 @@ impl NativeCompilerStore {
                             RecordId::new("original",d::graph::EntityId::of(backing.artifact).0.hex())
                         };
                         sources.push(source);after=Some(key.clone());
+                        observed = observed.checked_add(1).ok_or(ModelError::Schema("original completion count overflow"))?;
+                        if observed > expected { return Err(ModelError::Conflict("original completion earned inventory excess")); }
                     }
-                    lctx_native::originals::complete_selected(&reader,Some(self.attempt),&sources,budget).await?;
+                    operation.add_sources(&sources)?;
                     vars.insert("after",after.clone().map(Value::String).unwrap_or(Value::None));
                 }
-            }Ok(())
+                if observed != expected { return Err(ModelError::Conflict("original completion earned inventory")); }
+            }
+            operation.finish(&reader, Some(self.attempt), budget).await
         }.await;
         let mut completion = d::completion::Completion::default();
         completion.step("original contribution reader close", reader.close().await);
@@ -6300,7 +6351,8 @@ impl NativeCompilerStore {
                     .checked_add(1)
                     .ok_or(ModelError::Schema("native contribution count overflow"))?;
             }
-            self.complete_contribution_originals(id, budget).await?;
+            self.complete_contribution_originals(id, &content, budget)
+                .await?;
             let descriptor = CompletedContribution {
             assurance:
                 lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,

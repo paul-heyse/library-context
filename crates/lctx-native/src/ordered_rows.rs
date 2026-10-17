@@ -1049,6 +1049,11 @@ fn balanced_union(
 }
 
 impl PreparedRows {
+    /// Operation-local backing identity only. An index must retain this run while the
+    /// identity is stored; the address conveys neither logical equality nor validity.
+    pub(crate) fn backing_identity(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
     pub fn frame_cursor(&self, budget: &ResourceBudget) -> Result<PreparedFrameRows, ModelError> {
         prepared_pools(std::slice::from_ref(self), budget)?;
         let bytes = size_of::<PreparedFrameRows>().saturating_add(if self.0.file.is_some() {

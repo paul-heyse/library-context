@@ -743,7 +743,13 @@ impl Loader {
             if position != length || hasher.finish() != content {
                 return Err(ModelError::Conflict("original bytes"));
             }
-            crate::originals::complete_blob(&reader, self.attempt, &layout, &budget).await
+            crate::originals::complete_selected(
+                &reader,
+                self.attempt,
+                std::slice::from_ref(&layout.id),
+                &budget,
+            )
+            .await
         }
         .await;
         let mut completion = lctx_model::domain::completion::Completion::default();
