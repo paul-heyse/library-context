@@ -1,0 +1,334 @@
+# Catalog collection efficiency: combined design and implementation plan
+
+**Proposed target, 2026-10-17; plan authoring authorized.** This coordinator captures the
+[Python fact-collection review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md)
+and entirely supersedes execution/disposition ownership of the five 2026-10-16 Catalog runtime
+efficiency plans. Approval to author these documents does not establish implementation or closure.
+
+## 1. Outcome, scope and reading route
+
+Collect the same attributed code facts with stable preparation, direct correspondence, cooperative
+cancellation and admitted intermediate lifetimes. Integrate those changes with the already delivered
+runtime design rather than rebuild its orchestration. Keep the pinned API/evidence Catalog and
+explicit Behavioral profile distinct: normal Catalog construction does not acquire flow enrichment.
+
+This phase implements design corrections, resolves the bounded investigations below, migrates all
+affected consumers and establishes correctness through focused functional controls. **Full Catalog
+runs, selected-complete suites, assembled qualification and broader validation are deferred for
+separate planning after these improvements.** Their outstanding obligations remain visible in §6/§7.
+There is no automatic rerun of the interrupted runtime acceptance or historical timeout inventory.
+Embedding inference, submitted MCP runtime queries, real-library qualification, operator adoption
+and extensive machine/provenance qualification remain outside this phase. Producing code-intelligence
+analysis and query preparation remain product capabilities to preserve and test where affected.
+
+| Document | Responsibility |
+|---|---|
+| This coordinator | Combined target, rule decisions, dependencies, sole current disposition and phase completion |
+| [Analyzer preparation](catalog-collection-efficiency-analyzers-plan_2026-10-17.md) | Pyrefly/canonical correspondence, shared module preparation and qualified Ruff/type/dependency/syntax investigations |
+| [Flow collection](catalog-collection-efficiency-flow-plan_2026-10-17.md) | Shared canonical input, native shape lookup, actual cancellation, raw flow admission/consumption and qualified module preparation |
+| [Runtime integration](catalog-collection-efficiency-runtime-plan_2026-10-17.md) | Four residual native/ingress leads, selected functional corrections, safe conditional state cutover and inherited evidence handback |
+
+The architectural collection and executable model remain semantic authorities. Companions define
+their work, not competing progress ledgers. Source IDs are qualified here: **P** is the Python
+review above, **R** the [runtime review](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md),
+**IR** the [runtime integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md),
+and **E** the [earlier efficiency review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
+Source-local anchors retain their original IDs, including IR:F03, formerly called I:F03 by the runtime plan.
+
+## 2. Baseline and foundation assessment
+
+Authoring baseline is main `ffc4dc7d7c6feb87766e8bd9b64e2997c19a4dae`, inspected 2026-10-17.
+The Python review inspected this production structure; subsequent authoring changes only documents.
+The standard is [core/template 3.3, heuristics 1.0 and code-intelligence 1.5](../design_review/design_principles/standard.toml).
+Execution must refresh affected source and ownership before editing without repeating the entire
+review. Neither a stale historical failure nor a long rebuild after Cargo cleanup diagnoses current code.
+
+The foundation is suitable: independent latest Ruff owns canonical syntax; native Pyrefly and ty
+own their declared semantic roles; exact completed contributions feed model-owned normalization and
+analysis. Native Pyrefly already uses one captured-input State and its shared AllThreads analysis
+pool. It is not invoked once per file. Ordinary upstream Errors/Exports type checking buys fewer
+facts than this product's AST/answers/Pysa-backed collection. The reporter's `write_files=false`
+path does not duplicate the adapter collectors. These facts rule out a CLI replacement or blanket
+requirement downgrade as the default performance fix.
+
+| Foundation | Assessment and consequence |
+|---|---|
+| Existing Spans, qualified identities, model OccurrenceIndex/Attacher and exact predecessors | Extend their lookup/preparation seams. Do not add an alternative semantic attacher or infer correspondence from a display string |
+| Module-local PysaResolver/ModuleAnswersContext and native query engine | Share stable preparation across actual consumers. Retain required AST, answers, captures and requirement/epoch correspondence |
+| ResourceBudget/StateCharge, provider cancellation and joined completion | Reuse these owners for adapter-owned growth and substantial work. Output-batch admission alone does not bound raw flow expansion |
+| Flow callbacks and exact source capture | Consume completed groups with explicit error/order semantics; retain the full virtual import universe despite source-local output |
+| Delivered runtime demand, joined producers, atomic effects and protected premises | Keep implemented contracts. Assess only residual source leads and changed interactions; no new scheduler, permanent cache or backend |
+| Shared Base preparation, exact Summary factoring and snapshot-local backup preparation | Retain implemented/source-accepted improvements and focused evidence; wider consumer acceptance is still pending |
+
+The review's F01–F06 are demonstrated execution defects at Implemented / Interface-checked strength;
+their corrections remain Proposed. A1–A3 and examined fidelity/visibility strengths are preservation
+constraints. F06 is an existing resource-admission MUST gap, not evidence of false facts or a
+demonstrated partial commit. No whole-compiler acceptance follows from the review's scoped gates.
+Its [library comparison](../design_review/evidence/2026-10-17_python-fact-collection-efficiency/library-comparison.md)
+qualifies linked fork `63cda076` (parent `80cec3f5`) against upstream
+`4e602d5f490e7723392904efbe606d1b559d311c`; newer upstream is a comparison, not an upgrade instruction.
+
+## 3. Combined target, preservation and execution fit
+
+The workload is a pinned release with many calls, functions, bindings and sources, plus branching
+and cyclic semantic relationships. It includes sparse provider demand, rich Behavioral requests,
+consumer abandonment, malformed syntax and concurrent native attempts. Remove repeated whole-input
+examination before seeking more parallelism. A source-local product may still require global import
+context. A bounded batch does not make repeated scans or previously allocated intermediates efficient.
+
+Prepare immutable correspondence once at its actual validity boundary: canonical input revision,
+native module/analysis epoch, or exact operation/ingress owner. Use compact indexed candidate views
+with explicit first/duplicate/ambiguity behavior. Reuse the existing semantic attachment owner.
+Share one module-native preparation between definitions and calls, without forcing calls-only
+graphs into definitions-only requests. Retain separate independent admission decisions even when
+they consume the same prepared content.
+
+Flow collection must admit its owned allocations before growth, consume completed event groups,
+and charge retained correspondence until its last consumer. Integrate that lifetime with the
+single canonical preparation and cancellation contract. Resource exhaustion and cancellation are
+operational outcomes, distinct from model unsupportedness; they cannot become empty successful
+facts or `OutsideProviderModel`. Opaque third-party heap usage is not an RSS guarantee. Parser or
+fixpoint operations lacking an interrupt point retain their indivisible drainage limitation.
+
+Preserve source/payload roles, provenance, fidelity, coverage, restrictions, ordinals, generic
+chosen-versus-candidate types, condition semantics and completed visibility. Changed implementation
+provenance can legitimately change hashes: compare explicitly corresponding semantic payloads,
+not raw identical artifact digests. Preserve type depth32 and cumulative100000 encounter behavior
+unless a separately approved semantic change is made. No candidate dropping, arbitrary budgets,
+concurrency caps, failure suppression or weakened assertions are efficiency remedies.
+
+The expected benefit is mechanistic and unmeasured: keyed correspondence removes multiplicative
+search, shared preparation removes duplicate transfer/native setup, earlier admitted consumption
+reduces avoidable live intermediates, and cancellation avoids abandoned work. Necessary output may
+still grow with real facts and proofs. More threads, larger transport batches, persistent tokens,
+global rich caches and lower-requirement hooks do not by themselves remove those causes.
+
+Investigations have consequential alternatives, not preselected optimization outcomes. Ruff
+diagnostic channels may share preparation only if suppression, fixes, grouping and final/deferred
+pass completeness survive. Type reuse needs complete context and truncation semantics. Pyrefly
+retention changes need facts available at the chosen seam and analysis-epoch finality. Flow module
+concurrency needs failure/order/resource ownership. Syntax reuse needs exact parser recovery and
+source-kind/version correspondence. A qualified retain decision is valid; an unresolved mandatory
+correction is not closed by a negative experiment.
+
+Future extensions illustrate the boundaries without expanding scope: a new fact family consumes
+the same prepared module but keeps its role and admission; a new flow node kind extends indexed
+candidate matching without changing attachment semantics; a requirement change supplies new epoch
+identity rather than reusing stale preparation; a new native receiver earns its own protection
+instead of inheriting a matching digest. Local names and helper/type organization remain implementer judgment.
+
+## 4. Existing rule decisions and decision routes
+
+**P:F01–F06 require no rule changes.** P:I01–I05 are constrained investigations, not approval to
+change meaning, support or limits. If a selected alternative changes those, expose its rule impact
+and obtain an explicit decision before dependent implementation. Existing dependency pins remain;
+a justified upgrade follows normal pin/affected-test policy, not this plan's comparison alone.
+
+| Source rule impacts | Existing operator decision / date | Governing route and retained conditions |
+|---|---|---|
+| [R:RC01](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC01), [R:RC02](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC02) | Change approved 2026-10-16 | ADR-0178: atomic bounded apply/outcome, exact original replay/absent-request fencing, complete cuts/references, actual changed incidence and new-hold exclusion |
+| [R:RC03](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC03) | Change and controlled-write scope approved 2026-10-16 | ADR-0178 plus ADR-0181/storage owner: complete operation/receiving protection and actual audit-pin lifetime. Privileged direct edits require maintenance quiescence and rebuilding; independent admission and legitimate concurrent invalidation remain |
+| [R:RC04](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC04) | Change approved 2026-10-16 | ADR-0179/semantic owner: joined independent work, deterministic integration, exact cancellation/drainage; ADR-0168 readiness/coordinator contracts persist |
+| [R:RC05](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#RC05) | Change approved 2026-10-16 | ADR-0180: charged compatible Base union, exact root partitions and once-only mutation |
+| [E:RC01](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC01), [E:RC04](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC04) | Change approved 2026-10-15 | ADR-0178 carries complete attempt cuts, recovery admission, actual handback recipient and terminal/reference ownership |
+| [E:RC02](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC02) | Change approved 2026-10-15 | ADR-0175: bounded anchored discovery and complete safety inventory are separate |
+| [E:RC03](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#RC03) | Change approved 2026-10-15 | Qualified admitted ingress retains physical finality/provenance and independent receiving |
+
+These approved directions persist; do not re-request approval. Accepted ADR bodies are immutable.
+Implementation that changes a binding decision uses the ADR skill and updates its architectural
+owner with actual consumers. Deferred full acceptance changes campaign timing, not these safety rules.
+
+## 5. Packages and prerequisites
+
+| Package | Concrete outcome | Actual prerequisite |
+|---|---|---|
+| PC00 | Refresh source/current owners, reconcile four native leads, agree canonical preparation, raw-growth/error and edit ownership seams | This set and actual tree; DB-free work needs no native recovery |
+| PA00 | Indexed canonical/native/type/lexical correspondence; P:F01 | PC00 and exact duplicate/order/candidate semantics |
+| PA01 | Shared module-native preparation for specialized collectors; P:F04 | PC00; borrowed native lifetime and definitions-only demand |
+| TF00 | One canonical read feeds flow lookup and existing model attacher; indexed native shapes; P:F02/F03 | PC00; exact Occurrence/Attacher preparation seam and charged lifetime |
+| TF01 | Actual Ruff and ty cooperative cancellation; P:F05 | PC00; real cancellation/error/join owner, not merely a callback declaration |
+| TF02 | Admitted raw flow construction and completed-group consumption; P:F06 | TF00/TF01 interface contracts; their implemented consumers before integrated completion |
+| PA02 | Decide and deliver supported Ruff preparation sharing, or justified retain; P:I01 | PA00 where lookup touched; TF01 cancellation/completeness contract |
+| PA03 | Decide and deliver supported type reuse, or justified retain; P:I02 | PA00 and exact encounter/truncation/context behavior |
+| PA04 | Decide and deliver dependency/retention route, or justified retain; P:I03 | PA01, cancellation/finality contract; native query/epoch evidence |
+| PA05 | Decide and deliver narrow copies/kinds/tokens, or justified retain; P:I05 | Actual PA00/TF00/TF02 affected input interfaces; parser correspondence |
+| TF03 | Decide and deliver source-partition/retention/concurrency route, or justified retain; P:I04 | Working TF00/TF01/TF02 contracts and actual module/import/callback behavior |
+| NI00 | Decide attempt-row locking route and implement supported correction | Complete atomic replay/participation/cut contract; native semantics evidence before removal |
+| NI01 | Decide native immutable preparation/search route and implement supported correction | NI00 contract where shared; exact absence/collision/hold protection |
+| NI02 | Decide ingress writer lifetime and keyed coalescing; implement supported correction | NI01 preparation contract where consumed; actual ingress/finality/resource lifetime |
+| NI03 | Establish safe affected native readiness; conditional regeneration, focused integration | Selected native deliveries and authenticated exact owners before effects; no automatic target replacement |
+| PC90 | Independent integrated source review, focused cross-package controls and scope-end hygiene | Implemented selected routes, migrated consumers, NI03 only where required |
+| PC99 | Current owners/status, phase disposition and later-validation handoff | PC90; no product mutation afterward without reopening affected evidence |
+
+Start PA00, PA01 and TF00–TF02 foundation work early. Native source decisions can proceed separately;
+actual native controls wait for authenticated ownership/readiness. Investigations may inspect evidence
+early, but cannot integrate against an unimplemented prerequisite. No whole companion is a global
+barrier. Shared `cpg-extract`, `cpg-flow` and compiler-store files need explicit edit coordination;
+TF01 owns Ruff cancellation, PA02 owns diagnostic-sharing decisions, PA05 coordinates node-kind
+changes with TF00/TF02. Root owns common contracts, integration and acceptance. Package completion
+includes all consumers, error paths and removal of replaced code, not an isolated helper.
+
+## 6. Sole disposition and current checkpoint
+
+**Current, 2026-10-17: new documents Proposed; production implementation not started by this
+authoring turn.** This section alone owns current disposition for P, R, IR:F03 and inherited E
+scope. Old runtime documents are dated reference material, including their formerly mutable tables.
+Their delivered production improvements are baseline, not a new implementation backlog.
+PC00 and all new implementation/decision packages are open, not started. The residual attempt-lock
+lead is open under NI00; immutable per-record preparation/deferred search under NI01; ingress
+preparation and bounded quadratic coalescing under NI02. NI03's actual native readiness is not
+established by authoring; the protected checkpoint below gates later effects. None of these
+source leads is a confirmed safe-removal or measured timeout diagnosis.
+
+| Python source IDs | Current disposition / responsible package | Closure evidence |
+|---|---|---|
+| [P:F01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F01) | open — Scheduled Proposed; PA00 | Exact indexed candidates/order and source/type/lexical payload correspondence; revealed growing-input lookup correction |
+| [P:F02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F02), [P:F03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F03) | open — Scheduled Proposed; TF00 | One canonical acquisition plus exact shape lookup and existing attachment semantics, charged through last consumer |
+| [P:F04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F04) | open — Scheduled Proposed; PA01 | Shared stable preparation, specialized collector parity and no call-only dependency acquisition |
+| [P:F05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F05) | open — Scheduled Proposed; TF01 | Cancellation reaches real producer work; typed refusal, joined drainage and no completed success on abandonment |
+| [P:F06](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F06) | open — Scheduled Proposed; TF02 | Raw owned growth admitted before allocation, meaningful consumption, live charges and distinct operational/model failure |
+| [P:I01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I01) | open — Scheduled decision plus supported delivery; PA02 | Independent diagnostic completeness/suppression/fix channels survive selected sharing or justified retain |
+| [P:I02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I02) | open — Scheduled decision plus supported delivery; PA03 | Qualified context/type/truncation behavior; no display-key or encounter-insensitive memo |
+| [P:I03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I03) | open — Scheduled decision plus supported delivery; PA04 | Complete selected facts, native requirements, epochs and finality at selected retention seam |
+| [P:I04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I04) | open — Scheduled decision plus supported delivery; TF03 | Full virtual import context, callback order/failure and bounded results under selected source/module route |
+| [P:I05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I05) | open — Scheduled decision plus supported delivery; PA05 | Exact consumed fields, kinds and malformed parser recovery under selected copy/token route |
+
+Runtime production through `0a4da0f3` includes RN00–RN03, CX00/CX01, RA00–RA02 and RP00/RP01;
+the independent [integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)
+accepts delivered source at its scoped strength. RN04 found no established leak. RE80 delivered
+the exact default replacement. RE90/RE99 enclosing acceptance/handback did not complete.
+
+| Inherited runtime source | Retained implementation / current disposition | Remaining evidence or reopening route |
+|---|---|---|
+| [R:F01](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F01) | CX00 demand-shaped acquisition implemented/focused-Tested | Deferred wider compiler/ranking/independent-admission acceptance; focused interactions in PC90 |
+| [R:F02](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F02) | CX01 joined independent producers implemented/focused-Tested | Deferred wider sibling progress/integration/cancel/drain; TF01/TF02 must preserve joins |
+| [R:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F03) | RN00/RN01 atomic route implemented/focused-Tested | Deferred full recovery/race/finality; residual attempt lock investigated NI00, not presumed removable |
+| [R:F04](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F04) | RN02 actual incidence implemented/focused-Tested | Deferred full equal/conflict/hold/cut matrix; NI01/NI02 preserve predicates |
+| [R:F05](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F05) | RN03 protected receiving/retained premises implemented/focused-Tested | Deferred complete consumer/invalidation acceptance; no independent admission shortcut |
+| [R:F06](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F06), [R:F07](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F07) | RP00/RP01 exact snapshot reuse and early source finality implemented/focused-Tested | Deferred actual selected backup/cold restore/full copy and finalization consumers |
+| [R:F08](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F08), refined by [IR:F02](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F02) | RA00 compatible shared Base and pure-preparation/physical-start distinction implemented/focused-Tested | Deferred actual root-partition/once-only/singleton consumer acceptance |
+| [R:F09](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09), refined by [IR:F01](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F01) | RA01/RA02 exact Summary endpoint/support factoring implemented/focused-Tested | Deferred ordinary/recursive reached assertions and full support-product acceptance |
+| [IR:F03](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md#F03) | Synchronous bridge/batch correction implemented/focused-Tested | Deferred integrated Tokio fairness/native drain/CallScope; PC90 covers changed flow interactions |
+
+All following E rows retain their implemented/decided baseline and **deferred enclosing acceptance**.
+They are not closed or rescheduled wholesale. Their scoped changed interactions belong to PC90;
+their wider evidence belongs to §7's later validation scope.
+
+| Inherited source | Retained baseline / responsible consumer | Remaining obligation or decision trigger |
+|---|---|---|
+| [E:F01](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F01) | Authenticated cancellation; host/delegation | Actual issuance and separate finality interactions |
+| [E:F02](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F02) | Grouped lowering; native | Equality/conflict/atomicity consumers; NI01 refinements |
+| [E:F03](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F03) | Complete attempt cut; native | Delayed issuance/freeze/close; NI00 must preserve cut |
+| [E:F04](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F04) | Backup exclusion; publisher/native | Actual retirement/backup races and supported consumers |
+| [E:F05](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F05) | Charged Base capture/cohorts; Base | Actual shared preparation/root consumers |
+| [E:F06](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F06) | Ordered borrowed Summary; Summary | Actual ordinary/recursive consumers; factoring preserves proofs |
+| [E:F07](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F07) | Qualified admitted ingress; compiler-store/providers | Wide/parallel/Resource-negative/finality; TF02/NI02 changed interactions |
+| [E:F08](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F08) | Governed recovery/handback; native/finalizers | Exact finalizer/recipient/reference interactions |
+| [E:F09](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#F09) | Direct IDs/anchored discovery; tooling | Selected tooling controls; complete safety inventory stays separate |
+| [E:I01](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I01) | Flat codec retained; private charged sharing delivered | Selector consumers; fragments reopen only for material residual work and full lifecycle advantage |
+| [E:I02](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I02) | Private composition delivered; broader barriers retained | Handoff/rebase; earlier readiness requires substantive legal consumer |
+| [E:I03](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I03) | Full mutable capture checks retained; invocation observations delivered | Both independent contracts; immutable capture needs actual owner |
+| [E:I04](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I04) | Complete-key optional request delivered | Native/optional/Resource fallback; no speculative rich global cache |
+| [E:I05](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I05) | Exact pair/evidence/FCA products retained; private preparation improved | Finite/analytic consumers; reopen for changed named product or qualified equivalent kernel |
+| [E:I06](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I06) | Shared reference IPC/projections delivered | Independent current/empty/EOF/memo-failure admission; premises do not replace admission |
+| [E:I07](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I07) | Selected-corpus postings delivered | Actual access/scoring/corruption/cold reconstruction; one BM25 pass is narrower |
+| [E:I08](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I08) | Channel-specific diagnostics delivered | Consumed-channel attribution/loss; no general platform |
+
+### Protected native checkpoint
+
+This is transferred documented state, **not a live observation by plan authoring**. Exact default
+installation `58abe9ea-2088-4109-95ab-8440a3749c51` last passed replacement in
+`20261017T033334.019Z-0fed8e`, successor generation
+`2389e630fda629da1b2383d2223ffa246b5cf70ada22e38ebc116e93781576a8`, pinned server
+`9fbab612b96f62d2e88070ffd2cb7f1d8ec7b7a3a5cf304592c1c041ed3c761e`, journal
+`89b0589b1c68de18a7a7da8ef38a57c34dd16a79f4a27386b791f61c60621958`.
+Its separate acknowledgement settled prior c1e9254f… ownership without rewriting original Unknown.
+
+Later run `20261017T033615.262Z-5c35a2` was operator-cancelled at03:37:19UTC, exit137;
+host cleanup confirmed03:37:24UTC/no survivors. It stopped during compilation with zero test-case
+outcomes. Attachment **`a5bd9a10-6a7f-437a-8245-275f9837f0f2`**, storage object
+**`8977b11b-f6ab-4aaa-b760-3f8bbd765b70`**, remains unreleased/protected, native completion
+`not_observed`, no discard acknowledgement. Host cleanup and zero tests do not settle native ownership.
+Before later native effects, NI03 establishes the exact current owner/target and uses only evidenced,
+authorized recovery/discard routes. DB-free source changes can progress independently.
+
+Historical parser `032530…cbb117` passed2; native focus `033508…86ace9` passed14 with enclosing
+cleanup; full release compile `033417…980709` and strict keep-going Clippy `033441…94b3ea` passed
+before mechanical test formatting; native refresh `033559…c0912a` passed/current at that time.
+These dated results do not test new changes or close wider acceptance. The owned8826… candidate
+was disposed. No new campaign/adoption occurred. Historical receipts/Unknowns and
+`citation:catalog-runtime-efficiency` holds remain protected through existing owners. The
+[old completion checkpoint](catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations)
+and [old runtime checkpoint](catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+retain detailed historical receipts, not current execution ownership.
+
+## 7. Functional completion and deliberately deferred validation
+
+Implementation uses affected-crate compile checks and minimal revealing controls, normally with
+`just verify --select FAMILY[:BOUNDARY]` or the bare tool under `just fixture` when native persistence
+is actually needed. Pure lookup/algorithm/model controls remain service-free. Compare independent
+expected semantics on small adversarial cases rather than derive expectations through the same
+new transformation. Preserve default parallelism and existing deadlines. No historical benchmark,
+full-library input or exact speedup threshold gates these structural corrections.
+
+PC90 requires all six corrections, each investigation's justified decision and supported selected
+delivery, all four residual native/ingress decisions and selected corrections, migrated consumers,
+removed replaced paths, a bounded independent integrated review, and focused interactions across
+canonical preparation, flow admission, cancellation, joined ownership and native ingress where
+changed. A blocked native case is reported blocked with its owner; it is not a mock pass or silently
+closed. Any selected runtime correction needs revealing actual native evidence for persistence,
+conflict or finality claims. Unknown external readiness does not block independent source work.
+
+At functional scope end, run full compile check, strict full-workspace/all-target keep-going Clippy
+including warnings, applicable Python Ruff/Pyrefly and other affected non-functional leaves once;
+repair owned failures and rerun affected scope. Use the repository's current profile/readiness
+policy and existing exact command routes. Do not synchronize with live guarded workers. Run root
+`just turn-end` last for changed files. These hygiene checks are not assembled Catalog validation.
+
+The later validation planning must retain the following inherited scope, reconcile it with final
+source and select evidence deliberately; this table does not authorize a campaign now:
+
+| Later boundary | Outstanding consumer/evidence scope |
+|---|---|
+| Model | Full selected integration/doc/compile-fail, not only library controls |
+| Providers | Ordinary/native providers, Resource-negative/finality and independent flow/oracle controls |
+| Compiler | Producer/CLI, private composition/rebase/cancel/old-port stability and independent reference admission |
+| Native | Equality/conflict, complete cuts/delayed issuance/recovery, retirement/backup races, wide parallel ingress, session/EOF |
+| Analysis | Paired Facts, shared Base/root channels, SourceCall equivalence, ordinary/recursive Summary reached assertions, finite/partial analytics |
+| Publication | Actual selected backup/export/independent cold restore, originals/copies/evidence and fresh receiving ownership |
+| Rust lexical/serving | Selected-corpus access/scoring, corruption and cold reconstruction; embedding/submitted MCP exclusions remain |
+| Development | Cancellation/discovery, complete safety inventory, source observations and channel loss |
+| Assembled and full Catalog | Final integrated acceptance/shared-contract obligations and any separately authorized real-library run, planned after implementation |
+
+User2026-10-17 deferred this timing; required shared model/receipt/trust/transport acceptance remains
+an explicit later obligation. Finishing this phase means **functional implementation complete with
+focused evidence, full validation pending**. Do not mark broader R/E findings verified closed or
+the entire combined validation complete on that basis. Quantitative performance claims require
+measurement; first-principles value and functional correctness do not require a benchmark campaign.
+
+PC99 updates enduring architecture/ADRs/runbooks where meaning changed, this disposition and STATUS.
+It identifies assumptions needing later reconciliation in paused Catalog-completion/SA9/persisted/
+older efficiency tracks without resuming them. Conditional regeneration is NI03, before evidence
+on the affected final target. No compatibility-only readers or legacy data are kept; rebuild from
+pinned inputs when needed, preserving live/unresolved/cited owners and warm caches.
+
+## 8. Coverage and authoring evidence
+
+P:F01–F06 and P:I01–I05 all have explicit decision/delivery routes above. Source-review strengths,
+alternatives, normal-upstream distinctions, failure/growth cases and evidence limits are preserved
+in §§2–3 and companions. R:F01–F09, IR:F03, E:F01–F09, E:I01–I08, approved rule impacts and exact
+protected obligations transfer without treating historical focused evidence as current qualification.
+Old runtime records remain only while consumed by immutable ADRs or retained evidence references.
+
+**Independent plan review, 2026-10-17:**
+[Accept scoped](../design_review/reviews/design_review_catalog-collection-efficiency-plan_2026-10-17.md)
+the corrected Proposed set. Authoring corrected ADR-0179/0181 pointers and shared package/current
+ownership wording. No open material plan findings or new rule impacts remain. Investigation
+outcomes, implementation, native readiness and full acceptance are not certified by that judgment.
+
+**Authoring checks, 2026-10-17:** `just docs-check` passed, 484 canonical pages/zero link errors,
+including ADR lint (108 records) and agent lint. Read-only source-ID transfer assertions passed
+for P:F01–F06/I01–I05, R:F01–F09/RC01–RC05, IR:F01–F03 and E:F01–F09/I01–I08/RC01–RC04;
+all five supersession banners and STATUS's ≤120-line boundary passed. `git diff --check` passed.
+These are documentation/traceability checks, not product tests or source qualification.
+No production build, product test, service query, recovery or target mutation ran during authoring.

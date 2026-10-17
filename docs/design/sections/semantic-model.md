@@ -597,7 +597,7 @@ Prepare all read partitions before mutable production; each read root mutates on
 order. Physical roots keep full literals, expressions retain Virtual/opaque rules, and unchanged
 class support may share across distinct field names. Native emission and partially produced roots
 remain terminal. Existing finite kernels, Summary meanings and analytical products are unchanged.
-The [runtime coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+The [runtime coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 owns functional/native acceptance; no performance gain is measured.
 
 > Decision: ADR-0180
@@ -921,7 +921,7 @@ host carriers prepare outside visibility exclusion. Under the gate, recheck canc
 owners and affected predecessors; reprepare only changed relations, then bind and hand off all outputs
 coherently. Native errors/Unknown remain terminal, never stale misses. Eager visibility, exact old ports,
 Facts/Normalized barriers and final admission remain. Complete mutable-capture checks stay; see the
-[efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+[efficiency coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 for CN06/CN07/CC00–CC03 decisions, actual evidence and the separate enclosing acceptance boundary.
 
 > Decision: ADR-0174

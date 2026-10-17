@@ -136,7 +136,7 @@ Effective overrides, the detected memory value, cache occupancy, active transact
 
 Priorities reflect consequence, not implementation order. No P0 semantic-corruption finding is established. All remedies remain **Proposed**; the source mechanisms described below are **Implemented**, inspected on 2026-10-16.
 
-These findings were **Deferred, unscheduled** at review publication. On 2026-10-16 they transferred to the [runtime-efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint), which alone owns current execution disposition. This review retains its dated assessment and source IDs; plan approval does not establish implementation or closure.
+These findings were **Deferred, unscheduled** at review publication. They transferred to the runtime-efficiency plan on 2026-10-16 and then to the [collection-efficiency coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) on 2026-10-17. The latter alone owns current execution disposition. This review retains its dated assessment and source IDs; plan approval does not establish implementation or closure.
 
 <a id="F01"></a>
 

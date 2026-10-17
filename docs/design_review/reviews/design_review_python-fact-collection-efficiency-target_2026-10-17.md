@@ -620,25 +620,12 @@ new scheduler/cache framework. It also does not authorize changing type truncati
 or substituting a lower-requirement completion-hook architecture. If those alternatives are
 selected later, their semantic and architectural rule impacts must be stated at that decision.
 
-F01–F06 remain required design corrections, unscheduled by this review. I01–I05 remain
-qualified investigations with the triggers above. A future authorized plan should consume
-their stable source IDs and own execution disposition. Existing runtime-plan findings and
-protected obligations remain separate.
-
-Until transfer, this source review owns the following **Deferred** dispositions. Deferral means
-awaiting an authorized implementation plan, not that the diagnosed design is accepted or that
-mandatory corrections can be omitted. The trigger for each is plan creation or implementation
-of the named fact-collection boundary; its closure evidence is specified above.
-
-| Source IDs | Responsible boundary | Current disposition |
-|---|---|---|
-| F01 | Pyrefly/native/canonical correspondence and type/lexical adapters | Deferred pending authorized plan |
-| F02 | ty native-shape correspondence | Deferred pending authorized plan |
-| F03 | Flow canonical input and attachment preparation | Deferred pending authorized plan |
-| F04 | Pyrefly module-local native extraction | Deferred pending authorized plan |
-| F05 | Producer cancellation, Ruff checkpoints and flow queries | Deferred pending authorized plan |
-| F06 | Raw flow construction, resource admission and consumption | Deferred pending authorized plan |
-| I01–I05 | Respective collector owners and the decision triggers in §6 | Deferred qualified investigations; no replacement selected |
+F01–F06 were required design corrections, unscheduled at review publication; I01–I05 were
+qualified investigations. On 2026-10-17 their stable IDs transferred to the
+[collection-efficiency coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint),
+which alone owns current execution disposition together with inherited runtime obligations.
+The review retains its dated judgment, evidence and investigation constraints. Plan publication
+does not establish implementation, verified closure or a selected replacement for an open investigation.
 
 ## 12. Decision and enclosing status
 

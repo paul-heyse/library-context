@@ -182,7 +182,7 @@ owns implementation and verification boundaries. No schema change or measured pe
 counts and their touched universe feed the same community kernel without redundant vector/map/
 sort copies. Public checked normalization remains an adapter. PairContribution, LayerPair,
 CombinedPair, concept/lattice evidence, dual FixedBitSet FCA, PageRank isolates and the declared
-Leiden recipe remain exact. The [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+Leiden recipe remain exact. The [efficiency coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 owns current controls and enclosing acceptance; no pair elision or new algorithm is implied.
 
 > Decision: ADR-0180

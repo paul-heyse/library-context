@@ -1,5 +1,7 @@
 # Catalog runtime efficiency: Base preparation and Summary expansion
 
+> **Superseded for execution and current disposition, 2026-10-17.** The [Catalog collection-efficiency coordinator §6](catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns all surviving scope. This document is dated reference material, including its historical status and acceptance schedule; it schedules no current work. Retained immutable ADR/evidence consumers require the original content. Full validation now awaits separate planning after design implementation and focused testing.
+
 **Accepted target / implemented source, integrated acceptance pending, 2026-10-16.** Companion to the
 [coordinator](catalog-runtime-efficiency-plan_2026-10-16.md), which alone owns disposition,
 rule decisions and shared dependencies. This document develops runtime F08/F09 and preserves the

@@ -4,7 +4,7 @@
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
-This is an independent **design / target** review of the complete [runtime coordinator](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md) and its native, compiler, analysis and completion companions. The initial inspected production baseline is **`a5f50a53`**, including the complete recovered-owner correction. Sections 2–8 preserve that baseline assessment; §9 supplies the Summary/capture correction judgment through **`58e6cf67`**, including capture correction `99f42979`, fixture refinement `32460297`, and Summary corrections `ad0813ae` / `58e6cf67`. §10 assesses the subsequent named native and fixture follow-ups through **`6eb0f01d`**. Concurrent coordinator documents and unrelated source work are not final-source qualification. This review changes only this document. Current execution disposition belongs solely to [coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint); the dated assessments below do not form another status ledger.
+This is an independent **design / target** review of the complete [runtime coordinator](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md) and its native, compiler, analysis and completion companions. The initial inspected production baseline is **`a5f50a53`**, including the complete recovered-owner correction. Sections 2–8 preserve that baseline assessment; §9 supplies the Summary/capture correction judgment through **`58e6cf67`**, including capture correction `99f42979`, fixture refinement `32460297`, and Summary corrections `ad0813ae` / `58e6cf67`. §10 assesses the subsequent named native and fixture follow-ups through **`6eb0f01d`**. Concurrent coordinator documents and unrelated source work are not final-source qualification. This review changes only this document. Current execution disposition belongs solely to [coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint); the dated assessments below do not form another status ledger.
 
 ## 1. Scope, functional intent and evidence boundary
 
@@ -102,7 +102,7 @@ The in-scope analysis contracts remain explicit:
 
 ### F01 — Summary output deduplication leaves avoidable post-exhaustion Cartesian examination
 
-**Priority: material supported-workload defect. Principles: FP-07, DP-10, DP-12; A4 violated. Implemented diagnosis, 2026-10-16.** This refines [R:F09](design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09); it does not create a second independently scheduled Summary redesign. Current disposition routes to [coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint).
+**Priority: material supported-workload defect. Principles: FP-07, DP-10, DP-12; A4 violated. Implemented diagnosis, 2026-10-16.** This refines [R:F09](design_review_catalog-runtime-efficiency-target_2026-10-16.md#F09); it does not create a second independently scheduled Summary redesign. Current disposition routes to [coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
 
 `EnqueueContext::candidates` walks every current proof in the opposite owner's bucket for each newly admitted proof ([summary_production.rs](../../../crates/lctx-model/src/domain/execution/summary_production.rs), lines 1768–1787). `enqueue` checks processed membership and calls `queue.insert` for each candidate (lines 1963–1982). Once the work allowance is exhausted, insertion refuses every nonpending candidate, but each refusal still calls `materialize_residual`. That function resolves event/alternative/target/seed, clones qualification, builds the complete residual tuple and computes its identity before deduplication (lines 1814–1918).
 
@@ -120,7 +120,7 @@ Challenge the correction with a legitimate class containing only already process
 
 ### F02 — Acquisition poisoning begins before the local/native boundary it must protect
 
-**Priority: supported resource-fallback defect. Principles: FP-05, FP-07, DP-08, DP-10; A4 violated. Implemented diagnosis, 2026-10-16.** This refines R:F08's singleton-feasibility obligation; it is distinct from the earlier coverage-compaction correction. Current disposition belongs to [coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint).
+**Priority: supported resource-fallback defect. Principles: FP-05, FP-07, DP-08, DP-10; A4 violated. Implemented diagnosis, 2026-10-16.** This refines R:F08's singleton-feasibility obligation; it is distinct from the earlier coverage-compaction correction. Current disposition belongs to [coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint).
 
 `discover` calls `capture.begin_acquisition()` before `EdgeSource::source(...).await`, resetting it only after all source preparation succeeds ([consumed_rows.rs](../../../crates/lctx-compiler-store/src/consumed_rows.rs), lines 1556–1558). `source` may initialize `prepare_adjacency`, whose fixed/index and contextual staging reservations occur before the first contextual query (lines 584–645, 681–719). `FrontierCapture::read` similarly begins acquisition before calling `issue`, while the forward/reverse `issue` closure still creates selected providers and physical scan plans (lines 1051–1059, 1145–1153; [frontier_capture.rs](../../../crates/lctx-compiler-store/src/frontier_capture.rs), acquisition loop).
 
@@ -329,7 +329,7 @@ or deadline overrides. Builds, tests and service operations were **not_run by th
 
 **Priority: supported progress/correctness defect. Principles: FP-05, FP-07; A4 violated at the
 susceptible adapter. Interface-checked diagnosis, 2026-10-16.** This refines R:F02/E:I08 within
-existing compiler execution responsibilities. [Coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+existing compiler execution responsibilities. [Coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 owns its disposition. No semantic rule change is required.
 
 The actual fifteen-control run `20261017T014030.401Z-a8ba5a` passed fourteen bodies, including the

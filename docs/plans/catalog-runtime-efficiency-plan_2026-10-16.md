@@ -1,5 +1,7 @@
 # Catalog runtime efficiency: combined target and execution plan
 
+> **Superseded for execution and current disposition, 2026-10-17.** The [Catalog collection-efficiency coordinator §6](catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns all surviving scope. This document is dated reference material, including its historical status and acceptance schedule; it schedules no current work. Retained immutable ADR/evidence consumers require the original content. Full validation now awaits separate planning after design implementation and focused testing.
+
 **Accepted target / partial implementation; stopped at operator-requested closeout, 2026-10-17 UTC; operator-approved rule directions.** This coordinator schedules
 the [runtime review](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md)
 and takes over every remaining obligation of the previous Catalog-efficiency plan set.
