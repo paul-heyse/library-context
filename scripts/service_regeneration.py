@@ -502,7 +502,9 @@ def regenerate(
         candidate = prepare(root, installer)
         # Borrowed lifecycle executables remain owned by their original service.
         # Regeneration changes this target's data/schema, never the executable's provenance.
-        server = service._owned_server_generation(service._server_binary_origin(current), descriptor)
+        server = service._owned_server_generation(
+            service._server_binary_origin(current), descriptor
+        )
         marker_path = root / "maintenance.json"
         marker: dict[str, Any] | None = read_json(marker_path)
         plan: dict[str, Any]

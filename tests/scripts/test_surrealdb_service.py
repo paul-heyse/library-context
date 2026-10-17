@@ -128,7 +128,9 @@ def test_regeneration_refuses_unexpected_scopes_and_identity_before_discard(rege
     assert (installation.directory / "data/store/MANIFEST").read_text() == "cold-owned-data"
 
 
-@pytest.mark.parametrize("kind,purpose", [("stable", service.LIFECYCLE_PURPOSE), ("campaign", None)])
+@pytest.mark.parametrize(
+    "kind,purpose", [("stable", service.LIFECYCLE_PURPOSE), ("campaign", None)]
+)
 def test_regeneration_refuses_unauthorized_borrowed_origin_before_discard(
     regeneration_ready, kind, purpose
 ):
@@ -136,7 +138,9 @@ def test_regeneration_refuses_unauthorized_borrowed_origin_before_discard(
 
     installation, candidate, descriptor, _, actions = regeneration_ready
     root = installation.directory
-    installation.record.update(kind=kind, purpose=purpose, binary_origin=str(root.parent / "origin"))
+    installation.record.update(
+        kind=kind, purpose=purpose, binary_origin=str(root.parent / "origin")
+    )
     installation.record["unit"] = service.installation_unit(installation.record)
     service.private_json(root / "installation.json", installation.record)
     with pytest.raises(service.FixtureBlocked, match="not a lifecycle campaign"):
