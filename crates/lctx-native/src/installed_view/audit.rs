@@ -7342,7 +7342,7 @@ assert service.maintenance_owned(installation), "exclusive owned campaign mainte
         cleaned.unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
-    async fn boundary_context_reuse_dispatches_once_while_ordinary_operations_recheck() {
+    async fn boundary_context_reuse_requires_checked_live_pin_and_refuses_closing_source() {
         boundary_context_control(false).await;
     }
     #[tokio::test(flavor = "multi_thread")]
