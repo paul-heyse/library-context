@@ -1,9 +1,9 @@
 # Catalog collection efficiency: combined design and implementation plan
 
-**Proposed target, 2026-10-17; plan authoring authorized.** This coordinator captures the
+**Approved target; selected implementation delivered, 2026-10-17.** This coordinator captures the
 [Python fact-collection review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md)
 and entirely supersedes execution/disposition ownership of the five 2026-10-16 Catalog runtime
-efficiency plans. Approval to author these documents does not establish implementation or closure.
+efficiency plans. Current implementation and focused evidence are recorded in §6; the enclosing plan remains open.
 
 ## 1. Outcome, scope and reading route
 
@@ -170,23 +170,77 @@ includes all consumers, error paths and removal of replaced code, not an isolate
 
 ## 6. Sole disposition and current checkpoint
 
-**Current, 2026-10-17: new documents Proposed; production implementation not started by this
-authoring turn.** This section alone owns current disposition for P, R, IR:F03 and inherited E
-scope. Old runtime documents are dated reference material, including their formerly mutable tables.
-Their delivered production improvements are baseline, not a new implementation backlog.
-PC00 and all new implementation/decision packages are open, not started. The residual attempt-lock
+**Current, 2026-10-17: PC00 complete; PA00/PA01/TF00/TF01/TF02 implemented and focused-Tested.**
+Execution baseline was main `d6e5c9e55fe34e23f4d117042fbce9e43b139df8`. All changes are integrated
+on shared main; no auxiliary worktree was created. Full selected native acceptance remains open
+because the run below has timeouts. Later PA02–PA05/TF03 investigations, NI00–NI03 native work,
+PC90/PC99 and full validation remain outside this authorized slice. This section alone owns
+current disposition for P, R, IR:F03 and inherited E scope. Delivered runtime improvements remain
+baseline; their wider acceptance has not been promoted.
+
+PA00 replaces repeated searches with charged first/ordered/ambiguity-preserving correspondence in
+`type_records.rs`, `ruff_lexical.rs` and native lexical support. PA01 shares one root-module Pysa
+resolver/answers context across definitions, calls and types; captures end after definitions/calls,
+projected-class admission follows its type consumer, and dependency preparation stays definitions-only.
+TF00 reads Occurrence once under the stage guard and prepares both owned lookup and the existing
+model attacher. Ordered raw shape buckets preserve multiplicity, while attachment derives its
+original supported/deduplicated candidates. TF01 connects the existing provider cancellation owner
+to production Ruff checkpoints and the actual Salsa token/registration lifetime. TF02 replaces
+whole-module raw expansion with admitted complete synchronous groups, charged retained correspondence,
+one binding lane and shared immutable condition backing. No fact family, semantic limit, dependency,
+schema, codebook or normal concurrency/deadline was changed. Quantitative performance remains unmeasured.
+
+[ADR-0182](../adr/0182-admitted-native-flow-collection.md) records the accepted physical ownership
+and error contract. Independent static implementation review accepted the analyzer/shared seams.
+Integrated review found continued sibling preparation after a Value callback refusal; the private
+consumer-stop marker now exits immediately while retaining the original borrowed/non-Send error
+outside the unwind payload. The reviewer rechecked that correction and found no further material
+issues at Interface-checked strength. Unrelated panics remain panics; operational errors cannot
+become model unsupportedness or completed coverage. Raw characterization tests consume the same
+events through a charged test-only collector; the obsolete production ModuleFlow path is removed.
+
+**Focused evidence, 2026-10-17; existing managed runs are the receipt owners:**
+
+| Outcome | Command / run | Established boundary |
+|---|---|---|
+| passed | `cargo check --release --workspace --all-targets --keep-going`; `20261017T052127.915Z-637543` | Full workspace/all-target compile; later auto-deref/assertion-only lint repairs also compiled by strict Clippy |
+| passed | `cargo nextest run --release -p cpg-extract --lib --test bundle --test ruff_context -E 'test(lookup_controls) \| test(event_index_controls) \| test(lexical_evidence_is_exact) \| test(cancellation_controls) \| test(occurrence_preparation_controls) \| binary(bundle) \| binary(ruff_context)'`; `20261017T050918.064Z-44ea1c` | 26 passed/25 skipped: exact indexes, canonical one-read/independent backing, guarded failure, actual Ruff checkpoint and existing provider cancellation/join controls |
+| passed | `cargo nextest run --release -p cpg-flow --lib --test flow_shapes --test capture_timing --test call_paths`; `20261017T052127.918Z-90ee81` | 56 passed/0 skipped: complete candidate/capture/loop/call/predicate behavior, growing admitted groups, refusal/native cancellation, immediate callback stop, raw multiplicity and last-owner release |
+| passed | `just clippy`; `20261017T052238.419Z-4fd7ac` | Strict release workspace/all-target keep-going `-D warnings`; earlier failed lint runs remain retained and their findings corrected |
+| passed | `just ruff`, `just types`; `20261017T051536.096Z-082e40`, `20261017T051536.434Z-7a129b` | Python lint and warnings-inclusive Pyrefly; no Python production changes |
+| passed | `just docs-check`; `20261017T052632.669Z-1a853c`; `just adr-lint`; `just turn-end` | 485 canonical pages/zero link errors,109 ADR records, generated ADR index/build-features/formatting. Initial docs/ADR checks failed only on the new stale index, regenerated by turn-end |
+| failed | Exact selected fixture command below; `20261017T051405.247Z-b87d33` | 9 passed/14 timed out at ordinary360s; inherited-fields passed548.251s under its existing900s allowance. Exit100; host cleanup confirmed05:25:20UTC, no survivors. Native matrix acceptance remains open |
+
+Native command: `just fixture --attach 58abe9ea-2088-4109-95ab-8440a3749c51 --requires tools -- cargo nextest run --release -p cpg-extract --test extraction_types --test extraction_calls --test extraction_syntax --test extraction_contracts -E 'test(harness::in_process_equals_cli) | test(native_types_keep_structural_terms) | test(declared_def_parameters_have_typed) | test(inherited_fields_refer) | test(required_classes_keep_incomplete) | test(captures_have_native_declaring) | test(native_callable_variants::) | test(native_overload_origins::) | test(typed_flow::)'`.
+The nine passes include inherited-field ownership, Unicode CLI parity, native declaration/overload/wrapper roles and actual
+typed narrowing/source-view semantics. Timeouts do not establish missing or false facts; inspect
+reached assertions and native completion separately. This command predates the final immediate
+callback-stop and checkpoint refinements; final-source raw controls cover those refinements.
+Captured timeout failures name prepared producer visibility, exact installed-view acquisition,
+contribution preparation pin close and abandonment/drainage. In `repeated_predicates…`,
+`Completion.primary=None` and the driver completed fact compilation/validation/observation,
+then failed abandonment before returning to its semantic assertions. Generic Conflict wording
+about an equal semantic key describes stopped recovery issuance here; it does not demonstrate a
+fact-payload collision. These locate boundaries, not a proved root cause or automatic NI00–NI03
+closure. The next native investigation should correlate one existing failed request/envelope with
+its publication or pin-close receipt, adding narrow phase diagnostics only if that cannot
+distinguish waiting from retry work. No retry, deadline extension or concurrency cap is implied. Cited captures use
+`citation:catalog-collection-efficiency`; full files remain authoritative.
+
+All other new implementation/decision packages are open, not started. The residual attempt-lock
 lead is open under NI00; immutable per-record preparation/deferred search under NI01; ingress
-preparation and bounded quadratic coalescing under NI02. NI03's actual native readiness is not
-established by authoring; the protected checkpoint below gates later effects. None of these
+preparation and bounded quadratic coalescing under NI02. NI03's wider native
+acceptance is not established by the scoped ready observation; the protected checkpoint below
+gates later effects. None of these
 source leads is a confirmed safe-removal or measured timeout diagnosis.
 
 | Python source IDs | Current disposition / responsible package | Closure evidence |
 |---|---|---|
-| [P:F01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F01) | open — Scheduled Proposed; PA00 | Exact indexed candidates/order and source/type/lexical payload correspondence; revealed growing-input lookup correction |
-| [P:F02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F02), [P:F03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F03) | open — Scheduled Proposed; TF00 | One canonical acquisition plus exact shape lookup and existing attachment semantics, charged through last consumer |
-| [P:F04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F04) | open — Scheduled Proposed; PA01 | Shared stable preparation, specialized collector parity and no call-only dependency acquisition |
-| [P:F05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F05) | open — Scheduled Proposed; TF01 | Cancellation reaches real producer work; typed refusal, joined drainage and no completed success on abandonment |
-| [P:F06](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F06) | open — Scheduled Proposed; TF02 | Raw owned growth admitted before allocation, meaningful consumption, live charges and distinct operational/model failure |
+| [P:F01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F01) | implemented / focused-Tested; PA00; selected native matrix incomplete | Exact indexed candidates/order and source/type/lexical payload correspondence; revealed growing-input lookup correction |
+| [P:F02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F02), [P:F03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F03) | implemented / focused-Tested; TF00; selected native matrix incomplete | One canonical acquisition plus exact shape lookup and existing attachment semantics, charged through last consumer |
+| [P:F04](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F04) | implemented / focused-Tested; PA01; selected native matrix incomplete | Shared stable preparation, specialized collector parity and no call-only dependency acquisition |
+| [P:F05](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F05) | implemented / focused-Tested; TF01 | Cancellation reaches real producer work; typed refusal, joined drainage and no completed success on abandonment |
+| [P:F06](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#F06) | implemented / focused-Tested; TF02; selected native matrix incomplete | Raw owned growth admitted before allocation, meaningful consumption, live charges and distinct operational/model failure |
 | [P:I01](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I01) | open — Scheduled decision plus supported delivery; PA02 | Independent diagnostic completeness/suppression/fix channels survive selected sharing or justified retain |
 | [P:I02](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I02) | open — Scheduled decision plus supported delivery; PA03 | Qualified context/type/truncation behavior; no display-key or encounter-insensitive memo |
 | [P:I03](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md#I03) | open — Scheduled decision plus supported delivery; PA04 | Complete selected facts, native requirements, epochs and finality at selected retention seam |
@@ -235,6 +289,22 @@ their wider evidence belongs to §7's later validation scope.
 | [E:I08](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I08) | Channel-specific diagnostics delivered | Consumed-channel attribution/loss; no general platform |
 
 ### Protected native checkpoint
+
+**Current selected-run addition, 2026-10-17:** read-only service observation before the focused
+native command found the installed default ready with maintenance off and the same installation,
+project generation and server below. Fresh ordinary logical attempt
+`d3666ab1-9574-4ec2-883c-4911a5b137bd` ran on that target; no installation, regeneration,
+maintenance, operator selection or old-owner release occurred. Its enclosing run `b87d33` ended
+exit100 at05:25:20UTC with authenticated host cleanup confirmed and no survivors. The fixture
+separately reports **native completion unknown / cleanup unresolved**. Storage object
+`9bff4176-1afd-411b-97ad-ae36296f5dd9` was observed inactive/protected/unresolved, cleanup unknown,
+released_at=null by `just storage status 9bff4176-1afd-411b-97ad-ae36296f5dd9 --scope host`
+at05:25:43UTC. Keep that attachment and its evidence independently protected; process cleanup
+settles neither native finality nor the earlier Unknown below. Current-source selected native
+acceptance remains failed/incomplete. Recovery or disposal is separate authorized work, not an
+implicit rerun prerequisite repair. Evidence holds include `2226318f-1ba8-477c-8bbe-fcd8508d0824`
+and `09db345b-60a4-4e1e-a496-b49cabfb72f0` for `citation:catalog-collection-efficiency`.
+
 
 This is transferred documented state, **not a live observation by plan authoring**. Exact default
 installation `58abe9ea-2088-4109-95ab-8440a3749c51` last passed replacement in

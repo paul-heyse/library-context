@@ -18,13 +18,14 @@ use crate::native::{Atom, EvaluationSite, Value};
 use ruff_db::parsed::ParsedModuleRef;
 use ruff_python_ast_ty::{self as ast, CmpOp, Expr};
 use ruff_text_size_ty::Ranged;
-use ty_python_core::place::PlaceExpr;
 use ty_python_core::predicate::{PatternPredicate, PatternPredicateKind, Predicate, PredicateNode};
 use ty_python_core::reachability_constraints::ScopedReachabilityConstraintId;
 use ty_python_core::{FileScopeId, UseDefMap};
 
+use crate::admitted::{Resources, hash_slot};
 use crate::db::FlowDb;
-use crate::{Condition, RuntimeBindings, RuntimeContext, SENTINEL, Span};
+use crate::{FlowCondition as Condition, RuntimeBindings, RuntimeContext, SENTINEL, Span};
+use lctx_model::domain::charged::StateCharge;
 
 /// A predicate ty records but no test decides (an or-pattern's alternative, a star import).
 pub(crate) const UNDECIDED: &str = "<undecided by the flow provider>";
@@ -36,6 +37,7 @@ pub(crate) struct Translator<'a> {
     pub original: &'a str,
     pub context: &'a RuntimeContext,
     pub runtime: &'a RuntimeBindings,
+    pub resources: &'a Resources<'a>,
 }
 
 impl Translator<'_> {
@@ -44,6 +46,7 @@ impl Translator<'_> {
     }
 
     fn uncommented(&self, range: ruff_text_size_ty::TextRange) -> String {
+        self.resources.grow(usize::from(range.len()));
         let mut out = String::with_capacity(usize::from(range.len()));
         let mut at = usize::from(range.start());
         let end = usize::from(range.end());
@@ -73,6 +76,7 @@ impl Translator<'_> {
         EvaluationSite::Source(Span::from(e.range()))
     }
     pub(crate) fn pattern_site(&self, pattern: &PatternPredicate<'_>) -> EvaluationSite {
+        self.resources.checkpoint();
         let subject = pattern.subject(self.db).node_ref(self.db).node(self.module);
         let mut ordinal = 0;
         let mut previous = pattern.previous_predicate(self.db);
@@ -83,14 +87,23 @@ impl Translator<'_> {
                     reason: "pattern depth refused",
                 };
             }
+            self.resources.checkpoint();
             previous = p.previous_predicate(self.db);
         }
-        struct Finder {
+        struct Finder<'a> {
+            resources: &'a Resources<'a>,
             subject: Span,
             ordinal: usize,
             found: Option<Span>,
         }
-        impl<'a> ruff_python_ast_ty::visitor::source_order::SourceOrderVisitor<'a> for Finder {
+        impl<'a> ruff_python_ast_ty::visitor::source_order::SourceOrderVisitor<'a> for Finder<'_> {
+            fn enter_node(
+                &mut self,
+                _node: ast::AnyNodeRef<'a>,
+            ) -> ruff_python_ast_ty::visitor::source_order::TraversalSignal {
+                self.resources.checkpoint();
+                ruff_python_ast_ty::visitor::source_order::TraversalSignal::Traverse
+            }
             fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
                 if let ast::Stmt::Match(m) = stmt
                     && Span::from(m.subject.range()) == self.subject
@@ -104,6 +117,7 @@ impl Translator<'_> {
             }
         }
         let mut finder = Finder {
+            resources: self.resources,
             subject: Span::from(subject.range()),
             ordinal,
             found: None,
@@ -118,12 +132,18 @@ impl Translator<'_> {
         )
     }
     fn atom(&self, atom: Atom, whole: &Expr) -> Condition {
-        Condition::atom(atom.evaluated(self.site(whole)))
+        Condition::atom(
+            self.resources.budget,
+            atom.evaluated_in(self.resources, self.site(whole)),
+        )
     }
 
     /// An untranslatable test is always a fresh evaluation, even when its text repeats.
     fn opaque(&self, e: &Expr) -> Condition {
-        self.atom(Atom::opaque(&self.uncommented(e.range())), e)
+        self.atom(
+            Atom::opaque_in(self.resources, &self.uncommented(e.range())),
+            e,
+        )
     }
 
     /// The place an expression names, as ty spells it, when it has at most two attribute
@@ -134,11 +154,11 @@ impl Translator<'_> {
 
     /// The place an expression names, spelled plainly (see [`Self::place`]).
     fn plain(&self, e: &Expr) -> Option<String> {
-        let place = PlaceExpr::try_from_expr(e)?.to_string();
-        let original = self
-            .source(e.range())
-            .split_whitespace()
-            .collect::<String>();
+        let place = self.resources.format(format_args!(
+            "{}",
+            crate::admitted::place_expr(e, self.resources)?
+        ));
+        let original = self.resources.compact(self.source(e.range()), "");
         // The sentinel is a name like any other to ty; our text is the module as written.
         let place = if place.contains(std::str::from_utf8(SENTINEL).expect("ASCII")) {
             original
@@ -151,19 +171,26 @@ impl Translator<'_> {
 
     /// The truth of `e` used as a test.
     pub(crate) fn test(&self, e: &Expr) -> Condition {
+        self.resources.checkpoint();
         if let Some(fixed) = self.runtime(e) {
             return if fixed {
-                Condition::always()
+                Condition::terminal(self.resources.budget, Some(true))
             } else {
-                Condition::never()
+                Condition::terminal(self.resources.budget, Some(false))
             };
         }
         match e {
             Expr::BoolOp(b) => {
                 let parts = b.values.iter().map(|v| self.test(v));
                 match b.op {
-                    ast::BoolOp::And => parts.fold(Condition::always(), |a, p| a.and(&p)),
-                    ast::BoolOp::Or => parts.fold(Condition::never(), |a, p| a.or(&p)),
+                    ast::BoolOp::And => parts.fold(
+                        Condition::terminal(self.resources.budget, Some(true)),
+                        |a, p| a.and(&p),
+                    ),
+                    ast::BoolOp::Or => parts.fold(
+                        Condition::terminal(self.resources.budget, Some(false)),
+                        |a, p| a.or(&p),
+                    ),
                 }
             }
             Expr::UnaryOp(u) if u.op == ast::UnaryOp::Not => self.test(&u.operand).not(),
@@ -179,12 +206,12 @@ impl Translator<'_> {
             Expr::Call(call) => self.isinstance(e, call).unwrap_or_else(|| self.opaque(e)),
             Expr::BooleanLiteral(b) => {
                 if b.value {
-                    Condition::always()
+                    Condition::terminal(self.resources.budget, Some(true))
                 } else {
-                    Condition::never()
+                    Condition::terminal(self.resources.budget, Some(false))
                 }
             }
-            Expr::NoneLiteral(_) => Condition::never(),
+            Expr::NoneLiteral(_) => Condition::terminal(self.resources.budget, Some(false)),
             _ => match self.place(e) {
                 Some(place) => self.atom(Atom::Truthy { place }, e),
                 None => self.opaque(e),
@@ -207,16 +234,25 @@ impl Translator<'_> {
         }
         // The place on either side; a literal on the other.
         let (place, other) = match (self.place(left), self.place(right)) {
-            (Some(p), _) if literal(right).is_some() || literal_set(right).is_some() => (p, right),
-            (_, Some(p)) if literal(left).is_some() => (p, left),
+            (Some(p), _)
+                if literal(right, self.resources).is_some()
+                    || literal_set(right, self.resources).is_some() =>
+            {
+                (p, right)
+            }
+            (_, Some(p)) if literal(left, self.resources).is_some() => (p, left),
             _ => return self.opaque(whole),
         };
-        let atom = match (op, literal(other), literal_set(other)) {
+        let atom = match (
+            op,
+            literal(other, self.resources),
+            literal_set(other, self.resources),
+        ) {
             (CmpOp::Is | CmpOp::IsNot, Some(Value::None), _) => Atom::IsNone { place },
             (CmpOp::Is | CmpOp::IsNot, Some(v), _) => Atom::IsValue { place, value: v },
             (CmpOp::Eq | CmpOp::NotEq, Some(v), _) => Atom::Equals { place, value: v },
             (CmpOp::In | CmpOp::NotIn, _, Some(values)) if std::ptr::eq(other, right) => {
-                Atom::member_of(place, values)
+                Atom::member_of_in(self.resources, place, values)
             }
             _ => return self.opaque(whole),
         };
@@ -253,7 +289,10 @@ impl Translator<'_> {
         {
             return None;
         }
-        Some((self.place(&call.arguments.args[0])?, name.to_owned()))
+        Some((
+            self.place(&call.arguments.args[0])?,
+            self.resources.string(name),
+        ))
     }
 
     fn isinstance(&self, whole: &Expr, call: &ast::ExprCall) -> Option<Condition> {
@@ -267,22 +306,24 @@ impl Translator<'_> {
             return None;
         }
         let place = self.place(&call.arguments.args[0])?;
-        let classes: Vec<&Expr> = match &call.arguments.args[1] {
-            Expr::Tuple(t) => t.elts.iter().collect(),
-            e => vec![e],
+        let mut classes = Vec::new();
+        match &call.arguments.args[1] {
+            Expr::Tuple(t) => {
+                for e in &t.elts {
+                    self.resources.push(&mut classes, e);
+                }
+            }
+            e => self.resources.push(&mut classes, e),
         };
-        let mut out = Condition::never();
+        let mut out = Condition::terminal(self.resources.budget, Some(false));
         for c in classes {
             if !matches!(c, Expr::Name(_) | Expr::Attribute(_)) {
                 return Some(self.opaque(whole));
             }
-            let class = self
-                .source(c.range())
-                .split_whitespace()
-                .collect::<String>();
+            let class = self.resources.compact(self.source(c.range()), "");
             out = out.or(&self.atom(
                 Atom::IsInstance {
-                    place: place.clone(),
+                    place: self.resources.string(&place),
                     class,
                 },
                 whole,
@@ -321,9 +362,10 @@ impl Translator<'_> {
                     let left = &c.operands[0];
                     let right = &c.operands[1];
                     let left_is_place = self.place(left).as_deref() == Some(place)
-                        && (literal(right).is_some() || literal_set(right).is_some());
-                    let right_is_place =
-                        self.place(right).as_deref() == Some(place) && literal(left).is_some();
+                        && (literal(right, self.resources).is_some()
+                            || literal_set(right, self.resources).is_some());
+                    let right_is_place = self.place(right).as_deref() == Some(place)
+                        && literal(left, self.resources).is_some();
                     match (left_is_place, right_is_place) {
                         (true, false) => Some(Span::from(left.range())),
                         (false, true) => Some(Span::from(right.range())),
@@ -397,7 +439,7 @@ impl Translator<'_> {
             Expr::Compare(c) if c.ops.len() == 1 => {
                 let (left, op, right) = (&c.operands[0], c.ops[0], &c.operands[1]);
                 if self.resolved_attr(left, &self.runtime.sys_modules, "version_info") {
-                    let want = int_tuple(right)?;
+                    let want = int_tuple(right, self.resources)?;
                     if want.len() > 3 {
                         return None;
                     }
@@ -433,7 +475,7 @@ impl Translator<'_> {
                 } else {
                     return None;
                 };
-                let Some(Value::Str(s)) = literal(right) else {
+                let Some(Value::Str(s)) = literal(right, self.resources) else {
                     return None;
                 };
                 match op {
@@ -449,7 +491,7 @@ impl Translator<'_> {
                 if m.attr.as_str() == "startswith"
                     && self.resolved_attr(&m.value, &self.runtime.sys_modules, "platform")
                     && call.arguments.args.len() == 1
-                    && let Some(Value::Str(s)) = literal(&call.arguments.args[0])
+                    && let Some(Value::Str(s)) = literal(&call.arguments.args[0], self.resources)
                 {
                     return Some(self.context.platform.starts_with(s.as_str()));
                 }
@@ -524,9 +566,10 @@ impl Translator<'_> {
                     expression,
                 )
             }
-            PredicateNode::FinallyNormalPathImpossible { .. } => {
-                Condition::atom(Atom::FinallyNormalPathImpossible.evaluated(synthetic.clone()))
-            }
+            PredicateNode::FinallyNormalPathImpossible { .. } => Condition::atom(
+                self.resources.budget,
+                Atom::FinallyNormalPathImpossible.evaluated_in(self.resources, synthetic.clone()),
+            ),
             PredicateNode::Pattern(pattern) => {
                 let subject = pattern.subject(self.db).node_ref(self.db).node(self.module);
                 let mut c =
@@ -538,9 +581,11 @@ impl Translator<'_> {
             }
             PredicateNode::OrPatternAlternative(_)
             | PredicateNode::SubjectElementPattern(_)
-            | PredicateNode::StarImportPlaceholder(_) => {
-                Condition::atom(Atom::opaque(UNDECIDED).evaluated(synthetic.clone()))
-            }
+            | PredicateNode::StarImportPlaceholder(_) => Condition::atom(
+                self.resources.budget,
+                Atom::opaque_in(self.resources, UNDECIDED)
+                    .evaluated_in(self.resources, synthetic.clone()),
+            ),
         };
         if p.is_positive { c } else { c.not() }
     }
@@ -553,70 +598,84 @@ impl Translator<'_> {
     ) -> Condition {
         let Some(place) = self.place(subject) else {
             return Condition::atom(
-                Atom::opaque(&self.uncommented(subject.range())).evaluated(evaluation.clone()),
+                self.resources.budget,
+                Atom::opaque_in(self.resources, &self.uncommented(subject.range()))
+                    .evaluated_in(self.resources, evaluation.clone()),
             );
         };
         match kind {
-            PatternPredicateKind::Singleton(ast::Singleton::None) => {
-                Condition::atom(Atom::IsNone { place }.evaluated(evaluation.clone()))
-            }
+            PatternPredicateKind::Singleton(ast::Singleton::None) => Condition::atom(
+                self.resources.budget,
+                Atom::IsNone { place }.evaluated_in(self.resources, evaluation.clone()),
+            ),
             PatternPredicateKind::Singleton(s) => Condition::atom(
+                self.resources.budget,
                 Atom::IsValue {
                     place,
                     value: Value::Bool(matches!(s, ast::Singleton::True)),
                 }
-                .evaluated(evaluation.clone()),
+                .evaluated_in(self.resources, evaluation.clone()),
             ),
             PatternPredicateKind::Value(v) => {
-                match literal(v.node_ref(self.db).node(self.module)) {
-                    Some(value) => {
-                        Condition::atom(Atom::Equals { place, value }.evaluated(evaluation.clone()))
-                    }
+                match literal(v.node_ref(self.db).node(self.module), self.resources) {
+                    Some(value) => Condition::atom(
+                        self.resources.budget,
+                        Atom::Equals { place, value }
+                            .evaluated_in(self.resources, evaluation.clone()),
+                    ),
                     None => Condition::atom(
-                        Atom::opaque(
+                        self.resources.budget,
+                        Atom::opaque_in(
+                            self.resources,
                             &self.uncommented(v.node_ref(self.db).node(self.module).range()),
                         )
-                        .evaluated(evaluation.clone()),
+                        .evaluated_in(self.resources, evaluation.clone()),
                     ),
                 }
             }
-            PatternPredicateKind::Or(alternatives) => {
-                alternatives.iter().fold(Condition::never(), |acc, k| {
-                    acc.or(&self.pattern(subject, k, evaluation))
-                })
-            }
+            PatternPredicateKind::Or(alternatives) => alternatives.iter().fold(
+                Condition::terminal(self.resources.budget, Some(false)),
+                |acc, k| acc.or(&self.pattern(subject, k, evaluation)),
+            ),
             PatternPredicateKind::Class(class) => {
                 let c = class.class.node_ref(self.db).node(self.module);
                 let atom = Condition::atom(
+                    self.resources.budget,
                     Atom::IsInstance {
                         place,
-                        class: self.source(c.range()).split_whitespace().collect(),
+                        class: self.resources.compact(self.source(c.range()), ""),
                     }
-                    .evaluated(evaluation.clone()),
+                    .evaluated_in(self.resources, evaluation.clone()),
                 );
                 if class.is_empty() {
                     atom
                 } else {
                     atom.and(&Condition::atom(
-                        Atom::opaque(UNDECIDED).evaluated(evaluation.clone()),
+                        self.resources.budget,
+                        Atom::opaque_in(self.resources, UNDECIDED)
+                            .evaluated_in(self.resources, evaluation.clone()),
                     ))
                 }
             }
             PatternPredicateKind::As(Some(inner), _) => self.pattern(subject, inner, evaluation),
             PatternPredicateKind::As(None, _) | PatternPredicateKind::Star(_) => {
-                Condition::always()
+                Condition::terminal(self.resources.budget, Some(true))
             }
             PatternPredicateKind::Mapping(_) | PatternPredicateKind::Sequence(_) => self
                 .pattern_opaque(subject, evaluation)
                 .and(&Condition::atom(
-                    Atom::opaque(UNDECIDED).evaluated(evaluation.clone()),
+                    self.resources.budget,
+                    Atom::opaque_in(self.resources, UNDECIDED)
+                        .evaluated_in(self.resources, evaluation.clone()),
                 )),
         }
     }
 
     fn pattern_opaque(&self, subject: &Expr, evaluation: &EvaluationSite) -> Condition {
         Condition::atom(
-            Atom::opaque(&self.uncommented(subject.range())).evaluated(evaluation.clone()),
+            self.resources.budget,
+            Atom::opaque_in(self.resources, &self.uncommented(subject.range()))
+                .evaluated_in(self.resources, evaluation.clone()),
         )
     }
 }
@@ -628,8 +687,9 @@ pub(crate) fn diagram(
     map: &UseDefMap<'_>,
     memo: &mut HashMap<ScopedReachabilityConstraintId, Condition>,
     id: ScopedReachabilityConstraintId,
+    charge: &mut StateCharge,
 ) -> Condition {
-    diagram_at(t, map, memo, id, 0)
+    diagram_at(t, map, memo, id, 0, charge)
 }
 fn diagram_at(
     t: &Translator<'_>,
@@ -637,21 +697,23 @@ fn diagram_at(
     memo: &mut HashMap<ScopedReachabilityConstraintId, Condition>,
     id: ScopedReachabilityConstraintId,
     depth: usize,
+    charge: &mut StateCharge,
 ) -> Condition {
+    t.resources.checkpoint();
     if depth > 256 || memo.len() > 4096 {
-        return Condition::refused();
+        return Condition::terminal(t.resources.budget, None);
     }
     if id == ScopedReachabilityConstraintId::ALWAYS_TRUE {
-        return Condition::always();
+        return Condition::terminal(t.resources.budget, Some(true));
     }
     if id == ScopedReachabilityConstraintId::ALWAYS_FALSE {
-        return Condition::never();
+        return Condition::terminal(t.resources.budget, Some(false));
     }
     // ty's third value: reachability it leaves undecided (a `try` body, a loop over an unknown
     // iterable, a `with` exit). Verdicts state may-behavior, so it reads as `true` (ADR-0022
     // §Conditions; the Stage 2 review's F2).
     if id == ScopedReachabilityConstraintId::AMBIGUOUS {
-        return Condition::always().with_approximation();
+        return Condition::terminal(t.resources.budget, Some(true)).with_approximation();
     }
     if let Some(c) = memo.get(&id) {
         return c.clone();
@@ -661,9 +723,10 @@ fn diagram_at(
         reason: "native synthetic predicate has no source coordinate",
     };
     let p = t.predicate(&map.predicates()[node.atom()], &synthetic);
-    let on_true = diagram_at(t, map, memo, node.if_true(), depth + 1);
-    let on_false = diagram_at(t, map, memo, node.if_false(), depth + 1);
+    let on_true = diagram_at(t, map, memo, node.if_true(), depth + 1, charge);
+    let on_false = diagram_at(t, map, memo, node.if_false(), depth + 1, charge);
     let c = p.and(&on_true).or(&p.not().and(&on_false));
+    hash_slot(memo, charge);
     memo.insert(id, c.clone());
     c
 }
@@ -676,8 +739,9 @@ pub(crate) fn runtime_in_diagram(
     map: &UseDefMap<'_>,
     memo: &mut HashMap<ScopedReachabilityConstraintId, bool>,
     id: ScopedReachabilityConstraintId,
+    charge: &mut StateCharge,
 ) -> bool {
-    runtime_in_diagram_bounded(t, map, memo, id, 0)
+    runtime_in_diagram_bounded(t, map, memo, id, 0, charge)
 }
 fn runtime_in_diagram_bounded(
     t: &Translator<'_>,
@@ -685,7 +749,9 @@ fn runtime_in_diagram_bounded(
     memo: &mut HashMap<ScopedReachabilityConstraintId, bool>,
     id: ScopedReachabilityConstraintId,
     depth: usize,
+    charge: &mut StateCharge,
 ) -> bool {
+    t.resources.checkpoint();
     if depth >= 256 || memo.len() >= 4096 {
         return false;
     }
@@ -711,14 +777,15 @@ fn runtime_in_diagram_bounded(
         _ => false,
     };
     let found = here
-        || runtime_in_diagram_bounded(t, map, memo, node.if_true(), depth + 1)
-        || runtime_in_diagram_bounded(t, map, memo, node.if_false(), depth + 1);
+        || runtime_in_diagram_bounded(t, map, memo, node.if_true(), depth + 1, charge)
+        || runtime_in_diagram_bounded(t, map, memo, node.if_false(), depth + 1, charge);
+    hash_slot(memo, charge);
     memo.insert(id, found);
     found
 }
 
 /// A literal the condition language holds: `None`, `True`, `False`, an integer or a string.
-pub(crate) fn literal(e: &Expr) -> Option<Value> {
+pub(crate) fn literal(e: &Expr, resources: &Resources<'_>) -> Option<Value> {
     match e {
         Expr::NoneLiteral(_) => Some(Value::None),
         Expr::BooleanLiteral(b) => Some(Value::Bool(b.value)),
@@ -726,33 +793,38 @@ pub(crate) fn literal(e: &Expr) -> Option<Value> {
             ast::Number::Int(i) => i.as_i64().map(Value::Int),
             _ => None,
         },
-        Expr::UnaryOp(u) if u.op == ast::UnaryOp::USub => match literal(&u.operand)? {
+        Expr::UnaryOp(u) if u.op == ast::UnaryOp::USub => match literal(&u.operand, resources)? {
             Value::Int(i) => i.checked_neg().map(Value::Int),
             _ => None,
         },
-        Expr::StringLiteral(s) => Some(Value::Str(s.value.to_str().to_owned())),
+        Expr::StringLiteral(s) => Some(Value::Str(resources.string(s.value.to_str()))),
         _ => None,
     }
 }
 
 /// A tuple, list or set of literals.
-fn literal_set(e: &Expr) -> Option<Vec<Value>> {
+fn literal_set(e: &Expr, resources: &Resources<'_>) -> Option<Vec<Value>> {
     let elts = match e {
         Expr::Tuple(t) => &t.elts,
         Expr::List(l) => &l.elts,
         Expr::Set(s) => &s.elts,
         _ => return None,
     };
-    elts.iter().map(literal).collect()
+    let mut values = Vec::new();
+    for e in elts {
+        resources.push(&mut values, literal(e, resources)?);
+    }
+    Some(values)
 }
 
-fn int_tuple(e: &Expr) -> Option<Vec<i64>> {
+fn int_tuple(e: &Expr, resources: &Resources<'_>) -> Option<Vec<i64>> {
     let Expr::Tuple(t) = e else { return None };
-    t.elts
-        .iter()
-        .map(|x| match literal(x)? {
-            Value::Int(i) => Some(i),
-            _ => None,
-        })
-        .collect()
+    let mut values = Vec::new();
+    for x in &t.elts {
+        let Value::Int(i) = literal(x, resources)? else {
+            return None;
+        };
+        resources.push(&mut values, i);
+    }
+    Some(values)
 }

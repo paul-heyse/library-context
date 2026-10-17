@@ -1,11 +1,12 @@
 # Catalog collection efficiency: analyzer preparation and correspondence
 
-**Proposed implementation plan · 2026-10-17.** This companion develops analyzer-local
+**Approved implementation plan · 2026-10-17.** This companion develops analyzer-local
 collection work for the [collection coordinator](catalog-collection-efficiency-plan_2026-10-17.md).
 The coordinator's [§6](catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 is the sole owner of finding disposition and current execution state;
 this document defines packages and their completion evidence, without a second progress ledger.
-Creation of this plan does not authorize production implementation or qualify the compiler.
+PA00/PA01 execution is authorized; the coordinator records its evidence and remaining scope.
+Plan approval and focused controls do not qualify the whole compiler.
 
 The source is the [Python fact-collection target review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md)
 and its [pinned evidence](../design_review/evidence/2026-10-17_python-fact-collection-efficiency/README.md)

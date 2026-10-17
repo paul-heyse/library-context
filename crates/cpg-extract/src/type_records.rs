@@ -11,7 +11,7 @@ use lctx_model::domain::{
         ParameterKind, ParameterShape, ProviderModule, ProviderSymbol, Signature, SignatureForm,
         SignatureParameter, SignatureRole, SymbolKind,
     },
-    charged::StateCharge,
+    charged::{ChargedMap, StateCharge},
     class_metadata::{
         ClassMemberObservation, ClassMetadataObservation, FieldSpecifierKind, MemberKind,
         MemberOrigin, MetadataBasis, RecordOptions, RecordTransformDefaults,
@@ -39,7 +39,7 @@ use pyrefly_types::{
     types::{AnyStyle, BoundMethodType, Forallable, NeverStyle, Type},
 };
 use ruff_text_size::Ranged;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[allow(
     clippy::wildcard_enum_match_arm,
@@ -270,6 +270,111 @@ impl Built {
         }
     }
 }
+/// Lookup views over one completed syntax inventory. Raw rows retain their encounter order.
+struct SyntaxIndex {
+    declarations: ChargedMap<Id<Occurrence>, Id<Occurrence>>,
+    parameters: ChargedMap<(Id<Occurrence>, i64), usize>,
+    formals: ChargedMap<Id<Occurrence>, Id<Occurrence>>,
+    arguments: ChargedMap<Id<Occurrence>, Option<Id<Occurrence>>>,
+    charge: StateCharge,
+}
+impl SyntaxIndex {
+    fn new(syntax: &Syntax, spans: &Spans, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut index = Self {
+            declarations: ChargedMap::default(),
+            parameters: ChargedMap::default(),
+            formals: ChargedMap::default(),
+            arguments: ChargedMap::default(),
+            charge: StateCharge::new(budget, "native-type-syntax-index"),
+        };
+        for row in &syntax.declarations {
+            if !index.declarations.contains_key(&row.name) {
+                index
+                    .declarations
+                    .insert(&mut index.charge, row.name, row.declaration)?;
+            }
+        }
+        for (position, row) in syntax.parameters.iter().enumerate() {
+            let key = (row.function, row.ordinal);
+            if !index.parameters.contains_key(&key) {
+                index.parameters.insert(&mut index.charge, key, position)?;
+            }
+        }
+        for &(parameter, formal) in &syntax.formals {
+            if !index.formals.contains_key(&parameter) {
+                index.formals.insert(&mut index.charge, parameter, formal)?;
+            }
+        }
+        // `nodes` enumerates retained occurrence IDs, unlike placement vectors which may
+        // repeat one ID. Preserve the old uniqueness test across all placement fields.
+        for (node, kind) in spans.nodes() {
+            if kind == SyntaxKind::Arguments
+                && let Some((parent, _)) = spans.parent(node)
+            {
+                let candidate = if index.arguments.contains_key(&parent) {
+                    None
+                } else {
+                    Some(node)
+                };
+                index
+                    .arguments
+                    .insert(&mut index.charge, parent, candidate)?;
+            }
+        }
+        Ok(index)
+    }
+}
+
+/// Positions and ordered first-retained members over growing output, not type memoization.
+type OrderedPositions<R> = BTreeMap<(i64, Id<R>), usize>;
+struct TypeIndex {
+    terms: ChargedMap<Id<TypeTerm>, usize>,
+    members: ChargedMap<Id<TypeSequence>, OrderedPositions<TypeSequenceMember>>,
+    slots: ChargedMap<Id<CallableParameterList>, OrderedPositions<CallableParameter>>,
+    signatures: ChargedMap<Id<ProviderSymbol>, Vec<Id<NativeSignatureObservation>>>,
+    charge: StateCharge,
+}
+impl TypeIndex {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            terms: ChargedMap::default(),
+            members: ChargedMap::default(),
+            slots: ChargedMap::default(),
+            signatures: ChargedMap::default(),
+            charge: StateCharge::new(budget, "native-type-output-index"),
+        }
+    }
+    fn term(&mut self, id: Id<TypeTerm>, position: usize) -> Result<(), ModelError> {
+        if !self.terms.contains_key(&id) {
+            self.terms.insert(&mut self.charge, id, position)?;
+        }
+        Ok(())
+    }
+    fn member(&mut self, row: &TypeSequenceMember, position: usize) -> Result<(), ModelError> {
+        let key = (row.ordinal, row.id());
+        if !self
+            .members
+            .get(&row.sequence)
+            .is_some_and(|bucket| bucket.contains_key(&key))
+        {
+            self.members
+                .insert_map(&mut self.charge, row.sequence, key, position)?;
+        }
+        Ok(())
+    }
+    fn slot(&mut self, row: &CallableParameter, position: usize) -> Result<(), ModelError> {
+        let key = (row.ordinal, row.id());
+        if !self
+            .slots
+            .get(&row.list)
+            .is_some_and(|bucket| bucket.contains_key(&key))
+        {
+            self.slots
+                .insert_map(&mut self.charge, row.list, key, position)?;
+        }
+        Ok(())
+    }
+}
 struct Builder<'a, 'r> {
     context: &'a ModuleContext<'a>,
     qualification: &'a AssertionQualification,
@@ -279,6 +384,7 @@ struct Builder<'a, 'r> {
     out: Records,
     variables: BTreeSet<Id<TypeVariable>>,
     work: usize,
+    index: TypeIndex,
 }
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
@@ -295,6 +401,27 @@ fn variable_kind(k: QuantifiedKind) -> TypeVariableKind {
         QuantifiedKind::ParamSpec => TypeVariableKind::ParamSpec,
         QuantifiedKind::TypeVarTuple => TypeVariableKind::TypeVarTuple,
         QuantifiedKind::IntVar => TypeVariableKind::IntVar,
+    }
+}
+struct ClassBindingIndex {
+    candidates: ChargedMap<u32, Option<bool>>,
+    charge: StateCharge,
+}
+impl ClassBindingIndex {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            candidates: ChargedMap::default(),
+            charge: StateCharge::new(budget, "native-type-class-binding-index"),
+        }
+    }
+    fn insert(&mut self, class: u32, synthesized: bool) -> Result<(), ModelError> {
+        let candidate = if self.candidates.contains_key(&class) {
+            None
+        } else {
+            Some(synthesized)
+        };
+        self.candidates.insert(&mut self.charge, class, candidate)?;
+        Ok(())
     }
 }
 impl Builder<'_, '_> {
@@ -348,6 +475,7 @@ impl Builder<'_, '_> {
         self.out.sequences.push(row.clone());
         for member in members {
             self.out.hold(&member)?;
+            self.index.member(&member, self.out.members.len())?;
             self.out.members.push(member);
         }
         Ok((row.id(), opaque))
@@ -388,6 +516,7 @@ impl Builder<'_, '_> {
         self.out.lists.push(row.clone());
         for member in members {
             self.out.hold(&member)?;
+            self.index.slot(&member, self.out.slots.len())?;
             self.out.slots.push(member);
         }
         Ok(row.id())
@@ -553,10 +682,10 @@ impl Builder<'_, '_> {
                 return Err(invalid("native signature variant work bound"));
             }
             let term = self
-                .out
+                .index
                 .terms
-                .iter()
-                .find(|t| t.id() == id)
+                .get(&id)
+                .and_then(|position| self.out.terms.get(*position))
                 .cloned()
                 .ok_or_else(|| invalid("native callable term absent"))?;
             match term {
@@ -581,15 +710,15 @@ impl Builder<'_, '_> {
                 | TypeTerm::Overloaded {
                     alternatives: signatures,
                 } => {
-                    let mut children: Vec<_> = self
-                        .out
+                    let children: Vec<_> = self
+                        .index
                         .members
-                        .iter()
-                        .filter(|m| m.sequence == signatures)
+                        .get(&signatures)
+                        .into_iter()
+                        .flat_map(|bucket| bucket.values())
+                        .map(|position| &self.out.members[*position])
                         .cloned()
                         .collect();
-                    children.sort_by_key(|m| (m.ordinal, m.id()));
-                    children.dedup_by_key(|m| m.id());
                     let native_children: Vec<Type> = match native {
                         Type::Overload(overload) => {
                             overload.signatures.iter().map(|s| s.as_type()).collect()
@@ -639,18 +768,18 @@ impl Builder<'_, '_> {
                 } => (*form, Some(*parameters), Some(*returns), *function),
                 _ => (CallableForm::NativeUnavailable, None, None, None),
             };
-            let mut native_slots: Vec<_> = list
+            let native_slots: Vec<_> = list
                 .into_iter()
                 .flat_map(|list| {
-                    self.out
+                    self.index
                         .slots
-                        .iter()
-                        .filter(move |s| s.list == list)
+                        .get(&list)
+                        .into_iter()
+                        .flat_map(|bucket| bucket.values())
+                        .map(|position| &self.out.slots[*position])
                         .cloned()
                 })
                 .collect();
-            native_slots.sort_by_key(|s| (s.ordinal, s.id()));
-            native_slots.dedup_by_key(|s| s.id());
             let shapes: Vec<_> = native_slots
                 .iter()
                 .map(|p| ParameterShape {
@@ -687,10 +816,10 @@ impl Builder<'_, '_> {
                 Err(error) => return Err(error),
             };
             let implementation = self
-                .out
+                .index
                 .terms
-                .iter()
-                .find(|t| t.id() == root.id)
+                .get(&root.id)
+                .and_then(|position| self.out.terms.get(*position))
                 .and_then(|t| match t {
                     TypeTerm::Overload { function, .. } => Some(*function),
                     _ => None,
@@ -709,6 +838,7 @@ impl Builder<'_, '_> {
                 receiver,
                 complete: signature.form == SignatureForm::List && !root.opaque,
             };
+            let observation_id = observation.id();
             self.out.hold(&observation)?;
             self.out
                 .native_signatures
@@ -739,6 +869,9 @@ impl Builder<'_, '_> {
                 self.out.hold(p)?;
             }
             self.out.signatures.push((signature, parameters, shapes));
+            self.index
+                .signatures
+                .push(&mut self.index.charge, owner, observation_id)?;
         }
         Ok(())
     }
@@ -910,6 +1043,7 @@ impl Builder<'_, '_> {
             opaque,
         };
         self.out.hold(&row)?;
+        self.index.term(built.id, self.out.terms.len())?;
         self.out.terms.push(row);
         let presentation = TypePresentation {
             qualification: self.qualification.id(),
@@ -1093,6 +1227,7 @@ impl Builder<'_, '_> {
                 self.out.sequences.push(row);
                 for m in members {
                     self.out.hold(&m)?;
+                    self.index.member(&m, self.out.members.len())?;
                     self.out.members.push(m);
                 }
                 (TypeTerm::Tuple { elements }, opaque)
@@ -1475,6 +1610,21 @@ pub fn records<'a>(
     use pyrefly_types::function::BodyKind;
     cancellation.check()?;
     let ctx = &context.answers_context;
+    let syntax_index = SyntaxIndex::new(syntax, spans, budget)?;
+    let annotation_keys = ctx.bindings().keys::<KeyAnnotation>();
+    let _annotation_charge = budget.reserve(
+        "native-type-annotation-index",
+        annotation_keys
+            .len()
+            .checked_mul(128)
+            .ok_or_else(|| invalid("native annotation index overflow"))?,
+    )?;
+    let mut annotations = HashMap::new();
+    for idx in annotation_keys {
+        annotations
+            .entry(ctx.bindings().idx_to_key(idx))
+            .or_insert(idx);
+    }
     let mut b = Builder {
         context,
         qualification,
@@ -1484,6 +1634,7 @@ pub fn records<'a>(
         out: Records::new(budget),
         variables: BTreeSet::new(),
         work: 0,
+        index: TypeIndex::new(budget),
     };
     for node in pyrefly::report::pysa::function::get_all_functions(ctx)
         .filter(|node| node.should_export(ctx))
@@ -1536,13 +1687,7 @@ pub fn records<'a>(
         let name = spans
             .get(f.undecorated.identifier.range(), SyntaxKind::Identifier)
             .ok();
-        let declaration = name.and_then(|name| {
-            syntax
-                .declarations
-                .iter()
-                .find(|d| d.name == name)
-                .map(|d| d.declaration)
-        });
+        let declaration = name.and_then(|name| syntax_index.declarations.get(&name).copied());
         let Some(declaration) = declaration else {
             b.boundary(
                 None,
@@ -1571,16 +1716,15 @@ pub fn records<'a>(
         b.out.hold(&row)?;
         b.out.bodies.push(row);
         for (ordinal, p) in f.undecorated.params.iter().enumerate() {
-            let parameter = syntax
+            let parameter = syntax_index
                 .parameters
-                .iter()
-                .find(|p| p.function == declaration && p.ordinal == ordinal as i64);
+                .get(&(declaration, ordinal as i64))
+                .map(|position| &syntax.parameters[*position]);
             if let Some(parameter) = parameter {
-                let subject = syntax
+                let subject = syntax_index
                     .formals
-                    .iter()
-                    .find(|(p, _)| *p == parameter.parameter)
-                    .map(|(_, formal)| *formal)
+                    .get(&parameter.parameter)
+                    .copied()
                     .ok_or_else(|| invalid("typed parameter has no formal occurrence"))?;
                 b.observe(
                     subject,
@@ -1597,10 +1741,9 @@ pub fn records<'a>(
             }
         }
         let annotation = KeyAnnotation::ReturnAnnotation(f.undecorated.identifier);
-        let annotated = ctx
-            .bindings()
-            .keys::<KeyAnnotation>()
-            .find(|idx| ctx.bindings().idx_to_key(*idx) == &annotation)
+        let annotated = annotations
+            .get(&annotation)
+            .copied()
             .and_then(|idx| ctx.answers.get_annotation_type_at(idx));
         if let Some(ty) = annotated {
             b.observe(declaration, TypeRole::Return, true, &ty)?;
@@ -1692,20 +1835,20 @@ pub fn records<'a>(
             };
             let owner = b.function(kind)?;
             if let (Some(receiver), Some(owner)) = (receiver, owner) {
-                let declarations: Vec<_> = b
-                    .out
-                    .native_signatures
-                    .iter()
-                    .filter_map(|(native, _)| {
-                        b.out
-                            .signatures
-                            .iter()
-                            .find(|(signature, _, _)| {
-                                signature.id() == native.signature && signature.symbol == owner
-                            })
-                            .map(|_| native.id())
-                    })
-                    .collect();
+                let selected = b
+                    .index
+                    .signatures
+                    .get(&owner)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default();
+                let _declarations_charge = budget.reserve(
+                    "native-generic-signature-selection",
+                    selected
+                        .len()
+                        .checked_mul(size_of::<Id<NativeSignatureObservation>>())
+                        .ok_or_else(|| invalid("native signature selection overflow"))?,
+                )?;
+                let declarations = selected.to_vec();
                 if !declarations.is_empty() {
                     let receiver_term = b.term(&method.obj, 0)?;
                     for (variable, argument) in receiver
@@ -1745,16 +1888,7 @@ pub fn records<'a>(
         }
         // Pyrefly overload traces are keyed by the native Arguments range. Attach
         // only through its unique canonical child, retaining the call as subject.
-        let mut argument_nodes = spans.nodes().filter_map(|(node, kind)| {
-            (kind == SyntaxKind::Arguments
-                && spans
-                    .parent(node)
-                    .is_some_and(|(parent, _)| parent == call.site))
-            .then_some(node)
-        });
-        let argument_node = argument_nodes
-            .next()
-            .filter(|_| argument_nodes.next().is_none());
+        let argument_node = syntax_index.arguments.get(&call.site).copied().flatten();
         let argument_range = argument_node.and_then(|node| spans.range_of(node));
         if let Some(range) = argument_range {
             let trace = ctx.answers.get_native_overload_trace(range);
@@ -1904,27 +2038,24 @@ pub fn records<'a>(
         }
     }
     if let Some(solutions) = solutions {
+        let mut native_class_bindings = ClassBindingIndex::new(budget);
+        for key in ctx.bindings().keys::<KeyClass>() {
+            let (class, synthesized) = match ctx.bindings().get(key) {
+                BindingClass::ClassDef(binding) => (binding.def_index, false),
+                BindingClass::FunctionalClassDef(index, _, _) => (*index, true),
+            };
+            native_class_bindings.insert(class.0, synthesized)?;
+        }
         for class in get_all_classes(ctx) {
             cancellation.check()?;
             let metadata = solutions.get(&KeyClassMetadata(class.index()));
             let native_class = b.class(&class)?;
-            let mut native_bindings = ctx.bindings().keys::<KeyClass>().filter_map(|key| match ctx
-                .bindings()
-                .get(key)
-            {
-                BindingClass::ClassDef(binding) => {
-                    (binding.def_index == class.index()).then_some(false)
-                }
-                BindingClass::FunctionalClassDef(index, _, _) => {
-                    (*index == class.index()).then_some(true)
-                }
-            });
-            match (native_bindings.next(), native_bindings.next()) {
-                (Some(synthesized), None) => {
+            match native_class_bindings.candidates.get(&class.index().0) {
+                Some(Some(synthesized)) => {
                     let trait_row = symbols::ClassTraitObservation {
                         qualification: qualification.id(),
                         symbol: native_class,
-                        synthesized,
+                        synthesized: *synthesized,
                         dataclass: metadata.dataclass_metadata().is_some(),
                         named_tuple: metadata.named_tuple_metadata().is_some(),
                         typed_dict: metadata.typed_dict_metadata().is_some(),
@@ -1932,13 +2063,13 @@ pub fn records<'a>(
                     b.out.hold(&trait_row)?;
                     b.out.native_class_traits.push(trait_row);
                 }
-                (first, _) => {
+                other @ (Some(None) | None) => {
                     let detail = format!(
                         "native class trait {native_class:?} has missing or ambiguous BindingClass identity"
                     );
                     b.out.hold(&detail)?;
                     b.out.class_trait_boundaries.push((
-                        if first.is_some() {
+                        if other.is_some() {
                             ObligationKind::AmbiguousBinding
                         } else {
                             ObligationKind::NativeUnavailable
@@ -2408,5 +2539,224 @@ impl Builder<'_, '_> {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod lookup_controls {
+    use super::*;
+    use lctx_model::domain::{
+        source::OccurrenceRole,
+        syntax::{DeclarationKind, DeclarationObservation, ParameterSyntaxObservation},
+    };
+
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+
+    #[test]
+    fn syntax_indexes_keep_first_rows_and_count_retained_argument_nodes() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let declaration = DeclarationObservation {
+            qualification: id(1),
+            declaration: id(2),
+            name: id(3),
+            kind: DeclarationKind::Function,
+            parent: None,
+            overload: false,
+            docstring: None,
+        };
+        let parameter = ParameterSyntaxObservation {
+            qualification: id(1),
+            function: id(2),
+            parameter: id(4),
+            ordinal: 0,
+            kind: ParameterKind::PositionalOrKeyword,
+            default: None,
+            default_literal: None,
+            annotation: None,
+        };
+        let syntax = Syntax {
+            declarations: vec![
+                declaration.clone(),
+                DeclarationObservation {
+                    declaration: id(5),
+                    ..declaration
+                },
+            ],
+            parameters: vec![
+                parameter.clone(),
+                ParameterSyntaxObservation {
+                    parameter: id(6),
+                    ..parameter
+                },
+            ],
+            formals: vec![(id(4), id(7)), (id(4), id(8))],
+            ..Syntax::default()
+        };
+        let mut spans = Spans::new(&budget);
+        let argument = Occurrence {
+            source: id(9),
+            start: 1,
+            end: 3,
+            syntax_kind: SyntaxKind::Arguments,
+            role: OccurrenceRole::Syntax,
+            structural_path: vec![0],
+        };
+        spans.insert(&argument).unwrap();
+        spans
+            .place(argument.id(), id(10), SyntaxField::Argument)
+            .unwrap();
+        spans
+            .place(argument.id(), id(10), SyntaxField::Child)
+            .unwrap();
+        let other = Occurrence {
+            structural_path: vec![1],
+            ..argument.clone()
+        };
+        spans.insert(&other).unwrap();
+        spans
+            .place(other.id(), id(11), SyntaxField::Argument)
+            .unwrap();
+        let alternative = Occurrence {
+            structural_path: vec![2],
+            ..argument.clone()
+        };
+        spans.insert(&alternative).unwrap();
+        spans
+            .place(alternative.id(), id(11), SyntaxField::Child)
+            .unwrap();
+        let baseline = budget.reserved();
+        let index = SyntaxIndex::new(&syntax, &spans, &budget).unwrap();
+        assert_eq!(index.declarations.get(&id(3)), Some(&id(2)));
+        assert_eq!(index.parameters.get(&(id(2), 0)), Some(&0));
+        assert_eq!(index.parameters.get(&(id(2), 1)), None);
+        assert_eq!(index.formals.get(&id(4)), Some(&id(7)));
+        assert_eq!(index.arguments.get(&id(10)), Some(&Some(argument.id())));
+        assert_eq!(index.arguments.get(&id(11)), Some(&None));
+        assert_eq!(index.arguments.get(&id(12)), None);
+        assert!(budget.reserved() > baseline);
+        drop(index);
+        assert_eq!(budget.reserved(), baseline);
+        let refused = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            SyntaxIndex::new(&syntax, &spans, &refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(refused.reserved(), 0);
+    }
+
+    #[test]
+    fn output_indexes_keep_first_payloads_order_and_signature_multiplicity() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut index = TypeIndex::new(&budget);
+        index.term(TypeTerm::None.id(), 0).unwrap();
+        index.term(TypeTerm::None.id(), 7).unwrap();
+        assert_eq!(index.terms.get(&TypeTerm::None.id()), Some(&0));
+        let members = [
+            TypeSequenceMember {
+                sequence: id(1),
+                ordinal: 2,
+                role: TypeChildRole::Signature,
+                child: id(2),
+            },
+            TypeSequenceMember {
+                sequence: id(1),
+                ordinal: 0,
+                role: TypeChildRole::Signature,
+                child: id(3),
+            },
+            TypeSequenceMember {
+                sequence: id(1),
+                ordinal: 2,
+                role: TypeChildRole::Element,
+                child: id(4),
+            },
+        ];
+        for (position, row) in members.iter().enumerate() {
+            index.member(row, position).unwrap();
+        }
+        assert_eq!(
+            index.members[&id(1)].values().copied().collect::<Vec<_>>(),
+            vec![1, 0]
+        );
+        assert_eq!(
+            members[0].id(),
+            members[2].id(),
+            "conflicting raw duplicates keep their first payload for lookup"
+        );
+        let slots = [
+            CallableParameter {
+                list: id(5),
+                ordinal: 2,
+                name: Some("last".into()),
+                kind: ParameterKind::PositionalOrKeyword,
+                required: Some(true),
+                term: id(2),
+            },
+            CallableParameter {
+                list: id(5),
+                ordinal: 0,
+                name: Some("first".into()),
+                kind: ParameterKind::PositionalOrKeyword,
+                required: Some(false),
+                term: id(3),
+            },
+            CallableParameter {
+                list: id(5),
+                ordinal: 2,
+                name: Some("different".into()),
+                kind: ParameterKind::PositionalOrKeyword,
+                required: Some(false),
+                term: id(4),
+            },
+        ];
+        for (position, row) in slots.iter().enumerate() {
+            index.slot(row, position).unwrap();
+        }
+        assert_eq!(
+            index.slots[&id(5)].values().copied().collect::<Vec<_>>(),
+            vec![1, 0]
+        );
+        for native in [id(7), id(6), id(7)] {
+            index
+                .signatures
+                .push(&mut index.charge, id(8), native)
+                .unwrap();
+        }
+        assert_eq!(index.signatures[&id(8)], vec![id(7), id(6), id(7)]);
+        assert_eq!(members.len(), 3);
+        assert_eq!(slots.len(), 3);
+        assert!(budget.reserved() > 0);
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
+        let refused = ResourceBudget::fixed(1).unwrap();
+        let mut index = TypeIndex::new(&refused);
+        assert!(matches!(
+            index.term(TypeTerm::None.id(), 0),
+            Err(ModelError::Resource { .. })
+        ));
+        assert!(index.terms.is_empty());
+        drop(index);
+        assert_eq!(refused.reserved(), 0);
+    }
+
+    #[test]
+    fn native_class_index_distinguishes_missing_unique_and_duplicate_bindings() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut index = ClassBindingIndex::new(&budget);
+        index.insert(1, false).unwrap();
+        index.insert(2, true).unwrap();
+        index.insert(3, true).unwrap();
+        index.insert(3, true).unwrap();
+        index.insert(4, false).unwrap();
+        index.insert(4, true).unwrap();
+        assert_eq!(index.candidates.get(&0), None);
+        assert_eq!(index.candidates.get(&1), Some(&Some(false)));
+        assert_eq!(index.candidates.get(&2), Some(&Some(true)));
+        assert_eq!(index.candidates.get(&3), Some(&None));
+        assert_eq!(index.candidates.get(&4), Some(&None));
+        drop(index);
+        assert_eq!(budget.reserved(), 0);
     }
 }

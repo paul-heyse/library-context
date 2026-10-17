@@ -116,7 +116,16 @@ remains attached to actual ports rather than the stage that must close those por
 correctness does not promise CPU overlap. Earlier unspawned composition receipts remain historical;
 current-source compile/functional and enclosing acceptance belong to the runtime coordinator.
 
-> Decision: ADR-0168, ADR-0179
+**Collection refinement implemented / focused-Tested,2026-10-17; native acceptance incomplete.** Exact canonical input can prepare both the
+existing model attacher and a charged adapter row view through one guarded declared read.
+Neither prepared view grants independent admission. Native flow consumes admitted complete
+groups synchronously and retains only necessary module/ordinal correspondence between groups.
+Operational refusal cannot become model unsupportedness or completed output. Cloneable stage
+control retains the actual failure/cancellation owner; native registrations and joins remain
+with that owner through return/unwind. The extraction owner defines the physical group boundary;
+model meaning, required candidate completeness and completed visibility remain unchanged.
+
+> Decision: ADR-0168, ADR-0179, ADR-0182
 
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require

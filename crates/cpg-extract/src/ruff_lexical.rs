@@ -1,8 +1,13 @@
 //! Canonical correspondence for owned final Ruff records. Invocation-local IDs never escape.
 use crate::{lexical_records::LexicalRecords, syntax_records::Spans};
 use lctx_model::domain::{
-    assertion::AssertionQualification, charged::StateCharge, lexical::*, resources::ResourceBudget,
-    ruff::*, source::*, *,
+    assertion::AssertionQualification,
+    charged::{ChargedSet, StateCharge},
+    lexical::*,
+    resources::ResourceBudget,
+    ruff::*,
+    source::*,
+    *,
 };
 use ruff_linter::semantic_facts::{Binding, Fact};
 use ruff_python_semantic::BindingFlags;
@@ -109,9 +114,7 @@ fn binding_site(binding: &Binding, spans: &Spans) -> Option<Id<Occurrence>> {
     }
     let id = spans.get(binding.range, K::Identifier).ok()?;
     let (parent, _) = spans.parent(id)?;
-    let actual = spans
-        .nodes()
-        .find_map(|(site, kind)| (site == parent).then_some(kind))?;
+    let actual = spans.kind(parent)?;
     let admitted = match kind {
         RuffBindingKind::Argument => actual == K::Parameter,
         RuffBindingKind::FunctionDefinition => actual == K::StmtFunctionDef,
@@ -190,6 +193,37 @@ impl<'a> EventIndex<'a> {
             .or_else(|| self.names.get(&(site, name)).copied().flatten())
     }
 }
+/// Membership only; it never chooses a payload or collapses the emitted native rows.
+struct SourceMembership {
+    scopes: ChargedSet<Id<LexicalScope>>,
+    observations: ChargedSet<Id<LexicalScopeObservation>>,
+    resolutions: ChargedSet<Id<LexicalResolution>>,
+    charge: StateCharge,
+}
+impl SourceMembership {
+    fn new(source: &LexicalRecords, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut membership = Self {
+            scopes: ChargedSet::default(),
+            observations: ChargedSet::default(),
+            resolutions: ChargedSet::default(),
+            charge: StateCharge::new(budget, "native-ruff-source-membership"),
+        };
+        for row in &source.scopes {
+            membership.scopes.insert(&mut membership.charge, row.id())?;
+        }
+        for row in &source.scope_observations {
+            membership
+                .observations
+                .insert(&mut membership.charge, row.id())?;
+        }
+        for row in &source.resolutions {
+            membership
+                .resolutions
+                .insert(&mut membership.charge, row.id())?;
+        }
+        Ok(membership)
+    }
+}
 impl NativeRows {
     pub fn lower(
         &self,
@@ -205,6 +239,7 @@ impl NativeRows {
             self.facts.len().saturating_mul(1024),
         )?;
         let event_index = EventIndex::new(&source.events, budget)?;
+        let source_membership = SourceMembership::new(source, budget)?;
         let mut scopes = BTreeMap::new();
         let mut definitions = BTreeMap::new();
         let mut module_definitions = BTreeSet::new();
@@ -241,7 +276,7 @@ impl NativeRows {
                         let row = LexicalScope { owner, kind };
                         out._charge.grow(512)?;
                         scopes.insert(scope.id, row.id());
-                        if !source.scopes.iter().any(|s| s.id() == row.id()) {
+                        if !source_membership.scopes.contains(&row.id()) {
                             out.scopes.push(row);
                         }
                     } else {
@@ -304,7 +339,7 @@ impl NativeRows {
                         scope: id,
                         parent,
                     };
-                    let emit = !source.scope_observations.iter().any(|s| s.id() == row.id());
+                    let emit = !source_membership.observations.contains(&row.id());
                     out._charge.grow(512)?;
                     out.scope_observations.push((row, emit));
                 }
@@ -460,7 +495,7 @@ impl NativeRows {
                             target: target.id(),
                             captured: false,
                         };
-                        let emit = !source.resolutions.iter().any(|r| r.id() == row.id());
+                        let emit = !source_membership.resolutions.contains(&row.id());
                         out._charge.grow(1024)?;
                         out.targets.push(target);
                         out.resolutions.push((row, emit));
@@ -506,7 +541,7 @@ impl NativeRows {
                         target: target.id(),
                         captured: false,
                     };
-                    let emit = !source.resolutions.iter().any(|r| r.id() == row.id());
+                    let emit = !source_membership.resolutions.contains(&row.id());
                     out.targets.push(target);
                     out.resolutions.push((row, emit));
                 }
@@ -524,6 +559,59 @@ impl NativeRows {
 #[cfg(test)]
 mod event_index_controls {
     use super::*;
+    #[test]
+    fn source_membership_preserves_exact_ids_and_releases_admission() {
+        fn id<R>(n: u8) -> Id<R> {
+            serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+        }
+        let scope = LexicalScope {
+            owner: id(1),
+            kind: LexicalScopeKind::Module,
+        };
+        let observation = LexicalScopeObservation {
+            qualification: id(2),
+            scope: scope.id(),
+            parent: None,
+        };
+        let resolution = LexicalResolution {
+            qualification: id(2),
+            read: id(3),
+            target: id(4),
+            captured: false,
+        };
+        let captured = LexicalResolution {
+            captured: true,
+            ..resolution.clone()
+        };
+        let source = LexicalRecords {
+            scopes: vec![scope.clone(), scope.clone()],
+            scope_observations: vec![observation.clone(), observation.clone()],
+            resolutions: vec![resolution.clone(), resolution.clone()],
+            ..LexicalRecords::default()
+        };
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let membership = SourceMembership::new(&source, &budget).unwrap();
+        assert!(membership.scopes.contains(&scope.id()));
+        assert!(membership.observations.contains(&observation.id()));
+        assert!(membership.resolutions.contains(&resolution.id()));
+        assert!(!membership.resolutions.contains(&captured.id()));
+        assert_eq!(membership.scopes.len(), 1);
+        assert_eq!(
+            source.scopes.len(),
+            2,
+            "membership does not mutate emitted row multiplicity"
+        );
+        assert!(budget.reserved() > 0);
+        drop(membership);
+        assert_eq!(budget.reserved(), 0);
+        let refused = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            SourceMembership::new(&source, &refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(refused.reserved(), 0);
+    }
+
     #[test]
     fn indexed_binding_candidates_preserve_multiplicity_unique_site_fallback_and_ambiguity() {
         let site: Id<Occurrence> =

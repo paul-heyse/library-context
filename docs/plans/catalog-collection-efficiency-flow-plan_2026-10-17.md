@@ -1,12 +1,13 @@
 # Catalog collection efficiency: canonical preparation and admitted flow
 
-**Proposed · 2026-10-17.** Companion to the
+**Approved implementation plan · 2026-10-17.** Companion to the
 [collection coordinator](catalog-collection-efficiency-plan_2026-10-17.md), whose §6 alone owns
 current disposition and execution state. This document develops **TF00–TF03**, consuming source
 review **P:F02, P:F03, P:F05, P:F06 and P:I04**. `P` means the
 [Python fact-collection target review](../design_review/reviews/design_review_python-fact-collection-efficiency-target_2026-10-17.md),
 not the runtime review's similarly numbered findings. Package descriptions below are requirements,
-not a second status ledger. Creating this plan authorizes no implementation or runtime operation.
+not a second status ledger. TF00/TF01/TF02 execution is authorized; TF03 remains later scope.
+Actual evidence and operation limits are recorded by the coordinator.
 
 ## 1. Scope and assessed foundations
 
@@ -97,9 +98,10 @@ when an attacher still borrows its backing. The existing model constructor owns 
 and reservations, allowing the row inventory to be released independently when flow lookup ends.
 Preserve duplicate/conflict detection; map insertion must not hide a malformed duplicate input.
 
-For native correspondence, prepare a charged `Span → ordered distinct (SyntaxKind, OccurrenceRole)`
-view once per module. Prefer building it during native node enumeration, so TF02 need not retain
-every raw `Node` merely to reconstruct the same view. At lookup, examine only the span's candidate
+For native correspondence, prepare charged ordered span buckets once per module during native
+node enumeration. Preserve raw-node encounter multiplicity for region uniqueness, then derive
+ordered distinct supported `(SyntaxKind, OccurrenceRole)` candidates for attachment at lookup.
+Deduplicating the raw bucket would change regions for duplicate statement ranges. At lookup, examine only the span's candidate
 bucket, then apply exactly the existing optional-kind and scalar-wrapper predicates. Keep unsupported
 native kinds distinguishable from a unique supported shape; never take the first span or convenient
 kind. The model attacher still decides exact versus innermost/ambiguous/unmatched/budget-exceeded.
@@ -111,6 +113,11 @@ from one inventory is simpler than a new shared catalog/cache. Native selective 
 reading remains TF03's question, after this duplicate read is removed. Native shape buckets replace
 the repeated complete-node scan; they add bounded-by-inventory preparation and lifetime obligations
 instead of multiplying that scan by flow events. Speed and memory improvements remain unmeasured.
+
+Complete predicate operand correspondence precedes condition emission: retain stable native test/leaf
+order and the first full native Atom match, including a first match with no operand. Shared
+immutable admitted condition backing removes raw graph clones without changing model algebra or
+native cache encounter limits. These are implementation refinements under ADR-0182.
 
 **Migration/removal.** Move flow's occurrence consumers to the shared vector/position access and
 its writer to the installed attacher. Remove the flow-specific duplicate `Occurrence` read and
@@ -267,7 +274,11 @@ consumer result. For example, the outer result can distinguish native cancellati
 resource/model-operation error and the callback's error; the module event separately carries a
 typed model limitation with explanatory detail. Preserve `ModelError::Resource` and the provider's
 actual cancellation/error cause across the boundary. Do not stringify them into `ModuleFlow::error`
-and subsequently report `OutsideProviderModel`. Do not catch an arbitrary panic as a model limit.
+and subsequently report `OutsideProviderModel`. Do not catch an arbitrary panic as a model limit. ADR-0182 selects private typed operational
+unwinding across infallible native visitor helpers, caught only at the public runner boundary.
+A separate private consumer-stop marker immediately leaves those helpers; the original callback
+error remains outside its payload, preserving borrowed/non-Send errors and preventing continued
+sibling preparation. Unrelated panics are rethrown.
 
 Existing source admission/undecodable-source and genuine supported-model limitations keep their
 current explicit coverage rules. New attempt-budget refusal in raw construction is an attempt

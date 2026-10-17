@@ -187,11 +187,27 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
     )
     .unwrap();
     let contexts = syntax
-        .context_rows(&spans, &qualification, &budget)
+        .context_rows(&spans, &qualification, &budget, &|| Ok(()))
         .unwrap();
     assert!(contexts.incomplete.is_none());
     assert_eq!(contexts.unlocated, 0);
     assert!(!contexts.rows.is_empty());
+    let checkpoints = std::cell::Cell::new(0usize);
+    let stopped = syntax.context_rows(&spans, &qualification, &budget, &|| {
+        let count = checkpoints.get() + 1;
+        checkpoints.set(count);
+        if count >= 3 {
+            Err(ModelError::Invalid("provider cancellation control".into()))
+        } else {
+            Ok(())
+        }
+    });
+    assert!(matches!(stopped, Err(ModelError::Invalid(ref detail))
+        if detail == "provider cancellation control"));
+    assert!(
+        checkpoints.get() >= 3,
+        "actual production collector must check during traversal"
+    );
     let mut foreign = artifact.clone();
     foreign.path = "foreign.py".into();
     let foreign_syntax = CanonicalSyntax::parse(
@@ -204,12 +220,16 @@ fn contextual_attachment_refuses_foreign_source_and_context() {
     .unwrap();
     assert!(
         foreign_syntax
-            .context_rows(&spans, &qualification, &budget)
+            .context_rows(&spans, &qualification, &budget, &|| Ok(()))
             .is_err()
     );
     let mut other = qualification.clone();
     other.context = serde_json::from_value(serde_json::json!(vec![2; 16])).unwrap();
-    assert!(syntax.context_rows(&spans, &other, &budget).is_err());
+    assert!(
+        syntax
+            .context_rows(&spans, &other, &budget, &|| Ok(()))
+            .is_err()
+    );
     let occurrence = Occurrence {
         source: foreign.id(),
         start: 0,

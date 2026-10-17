@@ -29,6 +29,15 @@ pub enum Attached {
     Unattached(AttachmentResult),
 }
 impl Attacher {
+    pub(crate) fn from_rows(
+        occurrences: &[Occurrence],
+        resources: ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        Ok(Self {
+            index: OccurrenceIndex::new(occurrences, resources)?,
+            budget: AttachmentBudget::default(),
+        })
+    }
     pub fn new(
         occurrences: &[Arc<Batch<Occurrence>>],
         resources: ResourceBudget,

@@ -53,6 +53,11 @@ use lctx_model::domain::{
     syntax::*,
     types::*,
 };
+use pyrefly::report::pysa::{
+    captured_variable::{ModuleCapturedVariables, collect_captured_variables_for_module},
+    context::{ModuleAnswersContext, ModuleContext, PysaResolver},
+    function::FunctionRef,
+};
 use std::{collections::BTreeMap, path::Path};
 
 /// The families this phase covers.
@@ -855,8 +860,11 @@ fn session<S: ProviderSink + 'static>(
             ((0, 0), 0, false, false, false);
         let syntax = match emitted {
             Ok(_) => {
+                let control = context.control();
                 let mut contextual =
-                    canonical.context_rows(&spans, &qualification, context.budget())?;
+                    canonical.context_rows(&spans, &qualification, context.budget(), &|| {
+                        control.check()
+                    })?;
                 let records = syntax_records::records(
                     ast,
                     &module_name,
@@ -969,63 +977,86 @@ fn session<S: ProviderSink + 'static>(
                         declared: &declared,
                     };
                     cancellation.check()?;
-                    let definitions = definitions(
-                        transaction,
-                        handle,
-                        &qualification,
-                        &mut natives,
-                        Some(linking),
-                        None,
-                        tap,
-                        false,
-                        context.budget(),
-                    )?;
-                    cancellation.check()?;
-                    let _class_projection_charge = context.budget().reserve(
-                        "native-class-trait-projection",
-                        definitions
-                            .classes
-                            .len()
-                            .saturating_mul(size_of::<ClassTraitObservation>() * 2),
-                    )?;
-                    let projected_classes = definitions.classes.clone();
-                    unattached = write_symbols(
-                        context,
-                        definitions,
-                        &scope,
-                        provider,
-                        &analysis,
-                        &run,
-                        &surfaces,
-                        &pysa_evidence,
-                    )?;
-                    cancellation.check()?;
-                    let calls = calls(
-                        transaction,
-                        handle,
-                        &qualification,
-                        provider,
-                        &locator,
-                        &spans,
-                        &call_syntax,
-                        &mut natives,
-                        context.budget(),
-                    )?;
-                    cancellation.check()?;
-                    calls_partial = !calls.boundaries.is_empty() || !calls.unattached.is_empty();
-                    write_calls(
-                        context,
-                        calls,
-                        &scope,
-                        provider,
-                        &analysis,
-                        &run,
-                        &surfaces,
-                        &pysa_evidence,
-                    )?;
+                    let module_ids = &transaction
+                        .pysa_reporter()
+                        .ok_or_else(|| invalid("the Pysa reporter is not installed".into()))?
+                        .module_ids;
+                    let resolver = PysaResolver::new(transaction, module_ids, handle.clone());
+                    let pysa = ModuleContext {
+                        answers_context: ModuleAnswersContext::create(
+                            handle.clone(),
+                            transaction,
+                            module_ids,
+                        ),
+                        resolver: &resolver,
+                    };
+                    let (projected_classes, _class_projection_charge) = {
+                        let captured = collect_captured_variables_for_module(&pysa);
+                        let definitions = definitions(
+                            transaction,
+                            handle,
+                            &pysa,
+                            &captured,
+                            &qualification,
+                            &mut natives,
+                            Some(linking),
+                            None,
+                            tap,
+                            false,
+                            context.budget(),
+                        )?;
+                        cancellation.check()?;
+                        let class_projection_charge = context.budget().reserve(
+                            "native-class-trait-projection",
+                            definitions
+                                .classes
+                                .len()
+                                .saturating_mul(size_of::<ClassTraitObservation>() * 2),
+                        )?;
+                        let projected_classes = definitions.classes.clone();
+                        unattached = write_symbols(
+                            context,
+                            definitions,
+                            &scope,
+                            provider,
+                            &analysis,
+                            &run,
+                            &surfaces,
+                            &pysa_evidence,
+                        )?;
+                        cancellation.check()?;
+                        let calls = calls(
+                            transaction,
+                            handle,
+                            &pysa,
+                            &captured,
+                            &qualification,
+                            provider,
+                            &locator,
+                            &spans,
+                            &call_syntax,
+                            &mut natives,
+                            context.budget(),
+                        )?;
+                        cancellation.check()?;
+                        calls_partial =
+                            !calls.boundaries.is_empty() || !calls.unattached.is_empty();
+                        write_calls(
+                            context,
+                            calls,
+                            &scope,
+                            provider,
+                            &analysis,
+                            &run,
+                            &surfaces,
+                            &pysa_evidence,
+                        )?;
+                        (projected_classes, class_projection_charge)
+                    };
                     let mut types = types(
                         transaction,
                         handle,
+                        &pysa,
                         &qualification,
                         &analysis,
                         provider,
@@ -1487,17 +1518,37 @@ fn session<S: ProviderSink + 'static>(
                 cancellation.check()?;
                 visited.insert(module);
                 let (keys, names) = &keep[&module];
-                let records = definitions(
-                    transaction,
-                    &handle,
-                    &input_qualification,
-                    &mut natives,
-                    None,
-                    Some((keys, names)),
-                    None,
-                    requirements.is_some(),
-                    context.budget(),
-                )?;
+                let records = {
+                    // This preparation belongs to this dependency wave and asks only for
+                    // definition inputs; it never constructs a call graph.
+                    let module_ids = &transaction
+                        .pysa_reporter()
+                        .ok_or_else(|| invalid("the Pysa reporter is not installed".into()))?
+                        .module_ids;
+                    let resolver = PysaResolver::new(transaction, module_ids, handle.clone());
+                    let pysa = ModuleContext {
+                        answers_context: ModuleAnswersContext::create(
+                            handle.clone(),
+                            transaction,
+                            module_ids,
+                        ),
+                        resolver: &resolver,
+                    };
+                    let captured = collect_captured_variables_for_module(&pysa);
+                    definitions(
+                        transaction,
+                        &handle,
+                        &pysa,
+                        &captured,
+                        &input_qualification,
+                        &mut natives,
+                        None,
+                        Some((keys, names)),
+                        None,
+                        requirements.is_some(),
+                        context.budget(),
+                    )?
+                };
                 cancellation.check()?;
                 // A class's complete native MRO remains structural evidence. Retain every ancestor
                 // module's class declarations too, each module once in this same dependency pass.
@@ -1786,6 +1837,8 @@ fn requirement_location_problem(
 fn definitions(
     transaction: &pyrefly::state::state::Transaction<'_>,
     handle: &pyrefly_build::handle::Handle,
+    pysa: &ModuleContext<'_>,
+    captured: &ModuleCapturedVariables<FunctionRef>,
     qualification: &AssertionQualification,
     natives: &mut Natives,
     linking: Option<symbol_records::Linking<'_>>,
@@ -1797,9 +1850,7 @@ fn definitions(
     let module_name = handle.module().to_string();
     let module_name = module_name.as_str();
     use pyrefly::report::pysa::{
-        captured_variable::collect_captured_variables_for_module,
         class::{ClassId, get_all_classes, get_class_mro},
-        context::{ModuleAnswersContext, ModuleContext, PysaResolver},
         export_module_definitions,
         override_graph::create_reversed_override_graph_for_module,
     };
@@ -1809,16 +1860,10 @@ fn definitions(
         .module_ids;
     let this = natives.module(module_name, handle.path())?;
     let current = module_ids.get_from_handle(handle);
-    let resolver = PysaResolver::new(transaction, module_ids, handle.clone());
-    let pysa = ModuleContext {
-        answers_context: ModuleAnswersContext::create(handle.clone(), transaction, module_ids),
-        resolver: &resolver,
-    };
-    let captured = collect_captured_variables_for_module(&pysa);
-    let overrides = create_reversed_override_graph_for_module(&pysa);
-    let definitions = export_module_definitions(&pysa, &captured, &overrides);
+    let overrides = create_reversed_override_graph_for_module(pysa);
+    let definitions = export_module_definitions(pysa, captured, &overrides);
     if let Some(tap) = tap {
-        let graphs = pyrefly::report::pysa::export_module_call_graphs(&pysa, &captured);
+        let graphs = pyrefly::report::pysa::export_module_call_graphs(pysa, captured);
         let report = serde_json::json!({ "definitions": serde_json::to_value(&definitions).map_err(ModelError::codec)?,
             "call_graphs": serde_json::to_value(&graphs).map_err(ModelError::codec)? });
         tap.lock()
@@ -1917,7 +1962,7 @@ fn definitions(
     )?;
     records.captures = Some(crate::capture_records::records(
         &definitions,
-        &captured,
+        captured,
         this,
         current,
         handle.module(),
@@ -2410,6 +2455,8 @@ fn relativize(value: &mut serde_json::Value, root: &Path, label: &str) {
 fn calls(
     transaction: &pyrefly::state::state::Transaction<'_>,
     handle: &pyrefly_build::handle::Handle,
+    pysa: &ModuleContext<'_>,
+    captured: &ModuleCapturedVariables<FunctionRef>,
     qualification: &AssertionQualification,
     provider: &Provider,
     locator: &symbol_records::Locator<'_>,
@@ -2418,23 +2465,13 @@ fn calls(
     natives: &mut Natives,
     budget: &lctx_model::domain::resources::ResourceBudget,
 ) -> Result<crate::call_records::Records, ModelError> {
-    use pyrefly::report::pysa::{
-        captured_variable::collect_captured_variables_for_module,
-        context::{ModuleAnswersContext, ModuleContext, PysaResolver},
-        export_module_call_graphs,
-    };
+    use pyrefly::report::pysa::export_module_call_graphs;
     let module_ids = &transaction
         .pysa_reporter()
         .ok_or_else(|| invalid("Pysa reporter absent".into()))?
         .module_ids;
     let current = module_ids.get_from_handle(handle);
-    let resolver = PysaResolver::new(transaction, module_ids, handle.clone());
-    let context = ModuleContext {
-        answers_context: ModuleAnswersContext::create(handle.clone(), transaction, module_ids),
-        resolver: &resolver,
-    };
-    let captured = collect_captured_variables_for_module(&context);
-    let graphs = export_module_call_graphs(&context, &captured);
+    let graphs = export_module_call_graphs(pysa, captured);
     let module = natives.module(&handle.module().to_string(), handle.path())?;
     let mut resolve =
         |natives: &mut Natives, function: &pyrefly::report::pysa::function::FunctionRef| {
@@ -2712,6 +2749,7 @@ impl<'a> InheritedFieldSpans<'a> {
 fn types(
     transaction: &pyrefly::state::state::Transaction<'_>,
     handle: &pyrefly_build::handle::Handle,
+    pysa: &ModuleContext<'_>,
     qualification: &AssertionQualification,
     context_info: &AnalysisContext,
     provider: &Provider,
@@ -2727,17 +2765,11 @@ fn types(
     surface: &ProviderSurface,
     ast: &ruff_python_ast_latest::ModModule,
 ) -> Result<crate::type_records::Records, ModelError> {
-    use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
     cancellation.check()?;
     let module_ids = &transaction
         .pysa_reporter()
         .ok_or_else(|| invalid("Pysa reporter absent".into()))?
         .module_ids;
-    let resolver = PysaResolver::new(transaction, module_ids, handle.clone());
-    let context = ModuleContext {
-        answers_context: ModuleAnswersContext::create(handle.clone(), transaction, module_ids),
-        resolver: &resolver,
-    };
     let solutions = transaction.get_solutions(handle);
     cancellation.check()?;
     let mut resolve = |natives: &mut Natives, name: pyrefly_python::module_name::ModuleName| {
@@ -2818,7 +2850,7 @@ fn types(
     };
     crate::type_records::records(
         (transaction, handle, ast),
-        &context,
+        pysa,
         qualification,
         provider,
         natives,
@@ -3027,6 +3059,61 @@ fn write_types<S: ProviderSink + 'static>(
     Ok(())
 }
 
+/// Support correspondence is an exact physical view, independent of emitted row order.
+/// Native scopes precede source scopes, and duplicate keys retain their first owner.
+struct NativeLexicalEvidence {
+    scope_owners: lctx_model::domain::charged::ChargedMap<
+        lctx_model::domain::Id<LexicalScope>,
+        lctx_model::domain::Id<Occurrence>,
+    >,
+    event_sites: lctx_model::domain::charged::ChargedMap<
+        lctx_model::domain::Id<BindingEvent>,
+        lctx_model::domain::Id<Occurrence>,
+    >,
+    source_targets: lctx_model::domain::charged::ChargedSet<lctx_model::domain::Id<LexicalTarget>>,
+    _charge: lctx_model::domain::charged::StateCharge,
+}
+impl NativeLexicalEvidence {
+    fn prepare<'a>(
+        scopes: impl Iterator<Item = &'a LexicalScope>,
+        events: &[BindingEvent],
+        targets: &[LexicalTarget],
+        budget: &lctx_model::domain::resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut result = Self {
+            scope_owners: Default::default(),
+            event_sites: Default::default(),
+            source_targets: Default::default(),
+            _charge: lctx_model::domain::charged::StateCharge::new(
+                budget,
+                "native-lexical-evidence",
+            ),
+        };
+        for scope in scopes {
+            let id = scope.id();
+            if !result.scope_owners.contains_key(&id) {
+                result
+                    .scope_owners
+                    .insert(&mut result._charge, id, scope.owner)?;
+            }
+        }
+        for event in events {
+            let id = event.id();
+            if !result.event_sites.contains_key(&id) {
+                result
+                    .event_sites
+                    .insert(&mut result._charge, id, event.site)?;
+            }
+        }
+        for target in targets {
+            result
+                .source_targets
+                .insert(&mut result._charge, target.id())?;
+        }
+        Ok(result)
+    }
+}
+
 fn write_native_lexical<S: ProviderSink + 'static>(
     context: &mut StageContext<S>,
     rows: crate::ruff_lexical::NativeLexicalRecords,
@@ -3034,6 +3121,12 @@ fn write_native_lexical<S: ProviderSink + 'static>(
     run: &ProviderRun,
     surface: &ProviderSurface,
 ) -> Result<(), ModelError> {
+    let evidence = NativeLexicalEvidence::prepare(
+        rows.scopes.iter().chain(source.scopes.iter()),
+        &rows.events,
+        &source.targets,
+        context.budget(),
+    )?;
     macro_rules! support {
         ($ty:ident,$row:expr,$subject:expr) => {{
             let row = $row;
@@ -3056,24 +3149,21 @@ fn write_native_lexical<S: ProviderSink + 'static>(
         context.emit(scope.clone())?;
     }
     for (row, emit) in &rows.scope_observations {
-        let scope = rows
-            .scopes
-            .iter()
-            .chain(source.scopes.iter())
-            .find(|s| s.id() == row.scope)
+        let owner = evidence
+            .scope_owners
+            .get(&row.scope)
             .ok_or_else(|| invalid("native scope evidence has no canonical owner".into()))?;
-        support!(LexicalScopeSupport, row, scope.owner);
+        support!(LexicalScopeSupport, row, *owner);
         if *emit {
             context.emit(row.clone())?;
         }
     }
     for row in &rows.bindings {
-        let event = rows
-            .events
-            .iter()
-            .find(|e| e.id() == row.event)
+        let site = evidence
+            .event_sites
+            .get(&row.event)
             .ok_or_else(|| invalid("native binding evidence has no canonical event".into()))?;
-        support!(RuffBindingSupport, row, event.site);
+        support!(RuffBindingSupport, row, *site);
         context.emit(row.clone())?;
     }
     for row in &rows.definitions {
@@ -3081,7 +3171,7 @@ fn write_native_lexical<S: ProviderSink + 'static>(
         context.emit(row.clone())?;
     }
     for target in &rows.targets {
-        if !source.targets.iter().any(|t| t.id() == target.id()) {
+        if !evidence.source_targets.contains(&target.id()) {
             context.emit(target.clone())?;
         }
     }
@@ -3168,6 +3258,49 @@ fn write_parameter_definitions<S: ProviderSink + 'static>(
 mod inherited_span_controls {
     use super::*;
     use std::cell::Cell;
+    #[test]
+    fn lexical_evidence_is_exact_and_releases_failed_preparation() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let input = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
+        let source = SourceArtifact::from_bytes(input.id(), "a.py".into(), b"x").unwrap();
+        let owner = Occurrence {
+            source: source.id(),
+            start: 0,
+            end: 1,
+            syntax_kind: SyntaxKind::ExprName,
+            role: OccurrenceRole::Read,
+            structural_path: vec![0],
+        };
+        let scope = LexicalScope {
+            owner: owner.id(),
+            kind: LexicalScopeKind::Module,
+        };
+        let event = BindingEvent {
+            site: owner.id(),
+            name: "x".into(),
+        };
+        let target = LexicalTarget::Binding { event: event.id() };
+        let scopes = [scope.clone(), scope];
+        let events = [event.clone(), event];
+        let targets = [target.clone(), target];
+        let indexed =
+            NativeLexicalEvidence::prepare(scopes.iter(), &events, &targets, &budget).unwrap();
+        assert_eq!(indexed.scope_owners.len(), 1);
+        assert_eq!(indexed.event_sites.len(), 1);
+        assert_eq!(indexed.source_targets.len(), 1);
+        assert_eq!(indexed.scope_owners.get(&scopes[0].id()), Some(&owner.id()));
+        assert_eq!(indexed.event_sites.get(&events[0].id()), Some(&owner.id()));
+        assert!(indexed.source_targets.contains(&targets[0].id()));
+        assert!(budget.reserved() > 0);
+        drop(indexed);
+        assert_eq!(budget.reserved(), 0);
+        let refused = lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            NativeLexicalEvidence::prepare(scopes.iter(), &events, &targets, &refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(refused.reserved(), 0);
+    }
     #[test]
     fn session_prepares_each_exact_source_once_and_retains_refused_sources() {
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();

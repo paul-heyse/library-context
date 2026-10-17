@@ -23,7 +23,13 @@
 //!
 //! Nothing but spans, place text and our [`Condition`]s leaves this crate.
 
+mod admitted;
 mod db;
+mod events;
+pub use admitted::FlowCondition;
+use admitted::{Resources, admit, hash_slot, slots};
+pub use events::*;
+use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget};
 mod narrowing;
 pub mod native;
 mod predicate;
@@ -48,7 +54,7 @@ use serde::{Deserialize, Serialize};
 use ty_module_resolver::SearchPathSettings;
 use ty_python_core::ast_ids::HasScopedUseId;
 use ty_python_core::definition::{Definition, DefinitionKind, DefinitionState};
-use ty_python_core::place::{PlaceExpr, PlaceExprRef};
+use ty_python_core::place::PlaceExprRef;
 use ty_python_core::platform::PythonPlatform;
 use ty_python_core::predicate::PredicateNode;
 use ty_python_core::program::{FallibleStrategy, Program, ProgramSettings};
@@ -148,9 +154,9 @@ pub struct Reach {
     pub use_ix: u32,
     pub def_ix: Option<u32>,
     pub nested: bool,
-    pub condition: Condition,
+    pub condition: FlowCondition,
     /// Native type narrowing is characterization, separate from path reachability.
-    pub narrowing: Condition,
+    pub narrowing: FlowCondition,
     pub narrowing_precision_lost: bool,
     /// Reached around a loop's back edge (through ty's loop header): the condition is the use's
     /// side only.
@@ -169,13 +175,13 @@ pub enum CandidateKind {
 #[derive(Debug, Clone)]
 pub struct UseCandidate {
     /// Native formulas retained before pruning and loop expansion.
-    pub condition: Condition,
-    pub narrowing: Condition,
+    pub condition: FlowCondition,
+    pub narrowing: FlowCondition,
     pub narrowing_precision_lost: bool,
     pub use_ix: u32,
     pub ordinal: u32,
     pub kind: CandidateKind,
-    pub reaching: Vec<usize>,
+    pub reaching: std::ops::Range<usize>,
     pub pruned: bool,
     pub loop_expanded: bool,
     pub unattached: bool,
@@ -208,8 +214,8 @@ pub enum SnapshotBinding {
 #[derive(Debug, Clone)]
 pub struct SnapshotCandidate {
     pub binding: SnapshotBinding,
-    pub condition: Condition,
-    pub narrowing: Condition,
+    pub condition: FlowCondition,
+    pub narrowing: FlowCondition,
     pub precision_lost: bool,
 }
 #[derive(Debug, Clone)]
@@ -221,7 +227,7 @@ pub struct CaptureSnapshot {
     pub lazy: bool,
     pub state: SnapshotState,
     pub candidates: Vec<SnapshotCandidate>,
-    pub constraint: Option<Condition>,
+    pub constraint: Option<FlowCondition>,
     pub constraint_precision_lost: bool,
 }
 
@@ -250,7 +256,7 @@ pub struct ValueSource {
     /// Outer-to-inner calls crossed by this use on its way to the sink. The call and operand
     /// spans are join coordinates, not identities until matched to Ruff source facts.
     pub call_path: Vec<CallFrame>,
-    pub condition: Condition,
+    pub condition: FlowCondition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,7 +270,7 @@ pub struct CallFrame {
 pub struct Region {
     pub scope: Scope,
     pub span: Span,
-    pub condition: Condition,
+    pub condition: FlowCondition,
 }
 
 /// A test ty records as a predicate (an `if`/`elif`/`while`/`assert` test, a conditional
@@ -274,7 +280,7 @@ pub struct Region {
 pub struct Test {
     pub scope: Scope,
     pub span: Span,
-    pub condition: Condition,
+    pub condition: FlowCondition,
 }
 
 /// One evaluation atom of one provider predicate, before the test-span projection merges rows.
@@ -283,7 +289,7 @@ pub struct Test {
 pub struct TestLeaf {
     pub scope: Scope,
     pub test_span: Span,
-    pub condition: Condition,
+    pub condition: FlowCondition,
     pub atom: Atom,
     pub leaf_span: Span,
     /// The structurally selected place operand of this leaf, when the translator can identify
@@ -299,38 +305,6 @@ pub struct TestLeaf {
 pub struct AttributeLoad {
     pub span: Span,
     pub name: String,
-}
-
-/// One module's flow facts, or why there are none.
-#[derive(Debug, Clone, Default)]
-pub struct ModuleFlow {
-    pub path: String,
-    pub uses: Vec<Use>,
-    pub defs: Vec<Def>,
-    pub reaching: Vec<Reach>,
-    pub candidates: Vec<UseCandidate>,
-    /// Native place queries with no source scope: these never fabricate a Use.
-    pub unavailable_uses: Vec<Span>,
-    pub captures: Vec<CaptureSnapshot>,
-    pub values: Vec<ValueSource>,
-    pub regions: Vec<Region>,
-    pub tests: Vec<Test>,
-    pub test_leaves: Vec<TestLeaf>,
-    pub attribute_loads: Vec<AttributeLoad>,
-    pub places: BTreeMap<Span, native::Place>,
-    pub nodes: Vec<native::Node>,
-    /// `TYPE_CHECKING` words renamed.
-    pub renamed: u32,
-    pub original_content: Option<lctx_model::domain::ContentHash>,
-    pub view_content: Option<lctx_model::domain::ContentHash>,
-    pub view_byte_len: Option<usize>,
-    /// Syntax errors ty's parser recovered from: the facts come from a recovered tree, as every
-    /// other family's do.
-    pub syntax_errors: usize,
-    pub error: Option<String>,
-    /// Counted discarded branches. Checked-false native candidates retained for an explicit
-    /// negative question are not discarded branches.
-    pub skips: SkipCounts,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -374,12 +348,25 @@ impl SkipCounts {
 /// names inside f-string replacement fields are names. A module that already uses the sentinel as
 /// a name is refused.
 pub fn rename(text: &str) -> Result<(String, u32), String> {
+    rename_impl(text, None)
+}
+fn rename_impl(text: &str, resources: Option<&Resources<'_>>) -> Result<(String, u32), String> {
+    if let Some(resources) = resources {
+        resources.checkpoint();
+    }
     let parsed = ruff_python_parser_ty::parse_unchecked_source(text, PySourceType::Python);
+    if let Some(resources) = resources {
+        resources.checkpoint();
+        resources.grow(text.len() + 128);
+    }
     let sentinel = std::str::from_utf8(SENTINEL).expect("ASCII");
     let word = std::str::from_utf8(WORD).expect("ASCII");
     let mut out = text.as_bytes().to_vec();
     let mut n = 0;
     for t in parsed.tokens() {
+        if let Some(resources) = resources {
+            resources.checkpoint();
+        }
         if t.kind() != TokenKind::Identifier {
             continue;
         }
@@ -402,90 +389,144 @@ pub fn rename(text: &str) -> Result<(String, u32), String> {
     ))
 }
 
-/// Visit each module in input order after preparing all admitted virtual files and one Program.
-/// The callback owns each result and finishes before the next module is queried. A module ty
-/// cannot index carries `ModuleFlow::error` without stopping its peers; callback failure stops
-/// immediately and returns the caller's error. `input_index` preserves exact input correspondence,
-/// including failed modules. Empty (including document-only) inventories invoke no callback.
-pub fn visit_modules<E>(
+/// Prepare the complete virtual universe, then synchronously visit one module at a time.
+/// Operational failures abort the attempt; model failures retain exact input correspondence.
+pub fn visit_modules<E, G>(
     inputs: &[Input],
     context: &RuntimeContext,
-    mut visit: impl FnMut(usize, ModuleFlow) -> Result<(), E>,
-) -> Result<(), E> {
-    if inputs.is_empty() {
-        return Ok(());
-    }
-    let mut db = FlowDb::new();
-    let mut prepared = Vec::with_capacity(inputs.len());
-    for input in inputs {
-        // Preserve the release layout under one virtual import root. ty can then resolve
-        // intra-release imports while never reading the host environment.
-        let path = format!("/flow/{}", input.path);
-        prepared.push(rename(&input.text).and_then(|(text, n)| {
-            db.write_file(&path, &text)
-                .map(|()| {
-                    (
-                        path,
-                        n,
-                        lctx_model::domain::ContentHash::of(text.as_bytes()),
-                        text.len(),
-                    )
-                })
-                .map_err(|e| e.to_string())
-        }));
-    }
-    let settings = program_settings(&db, context);
-    let program = Program::from_settings(&db, &settings);
-    // A panic aborts the extraction, as every analyzer's does (ADR-0012 §Panics).
-    for (input_index, (input, prepared)) in inputs.iter().zip(prepared).enumerate() {
-        let result = prepared.and_then(|(path, n, hash, byte_len)| {
-            module(&db, program, &path, &input.text, &input.runtime, context)
-                .map(|flow| (flow, n, hash, byte_len))
-        });
-        let flow = match result {
-            Ok((flow, n, hash, byte_len)) => ModuleFlow {
-                path: input.path.clone(),
-                renamed: n,
-                original_content: Some(lctx_model::domain::ContentHash::of(input.text.as_bytes())),
-                view_content: Some(hash),
-                view_byte_len: Some(byte_len),
-                ..flow
+    budget: &ResourceBudget,
+    check: &dyn Fn() -> Result<(), ModelError>,
+    register: impl Fn(salsa::CancellationToken) -> G,
+    mut visit: impl for<'a> FnMut(usize, ModuleEvent<'a>) -> Result<(), E>,
+) -> Result<(), VisitError<E>> {
+    // The caller's E stays outside the unwind payload; no Send/'static bound is needed.
+    let mut consumer_error = None;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut deliver =
+            |input_index: usize, event: ModuleEvent<'_>| match visit(input_index, event) {
+                Ok(()) => (),
+                Err(error) => {
+                    consumer_error = Some(error);
+                    std::panic::resume_unwind(Box::new(admitted::ConsumerStopped));
+                }
+            };
+        if inputs.is_empty() {
+            return Ok(());
+        }
+        use salsa::Database as _;
+        let _registration;
+        let mut db = FlowDb::new();
+        _registration = register(db.cancellation_token());
+        let resources = Resources::new(budget, check);
+        let mut prepared = Vec::new();
+        let mut preparation_charge = StateCharge::new(budget, "flow_prepared_sources");
+        for input in inputs {
+            let _scratch = resources.scope();
+            resources.checkpoint();
+            slots(&mut prepared, &mut preparation_charge, 1);
+            let path = resources.format(format_args!("/flow/{}", input.path));
+            let result = rename_impl(&input.text, Some(&resources)).and_then(|(text, n)| {
+                db.write_file(&path, &text)
+                    .map(|()| {
+                        (
+                            path,
+                            n,
+                            lctx_model::domain::ContentHash::of(text.as_bytes()),
+                            text.len(),
+                        )
+                    })
+                    .map_err(|error| resources.format(format_args!("{error}")))
+            });
+            admit(
+                &mut preparation_charge,
+                match &result {
+                    Ok((path, ..)) => path.capacity(),
+                    Err(error) => error.capacity(),
+                },
+            );
+            prepared.push(result);
+            resources.checkpoint();
+        }
+        let _settings_scratch = resources.scope();
+        resources.grow(context.platform.len() + 1024);
+        let settings = program_settings(&db, context);
+        let program = Program::from_settings(&db, &settings);
+        for (input_index, (input, prepared)) in inputs.iter().zip(prepared).enumerate() {
+            resources.checkpoint();
+            match prepared {
+                Ok((path, n, hash, byte_len)) => module(
+                    &db,
+                    program,
+                    PreparedModule {
+                        input_index,
+                        path: &path,
+                        original: &input.text,
+                        runtime: &input.runtime,
+                        renamed: n,
+                        view_content: hash,
+                        view_byte_len: byte_len,
+                    },
+                    context,
+                    &resources,
+                    &mut deliver,
+                ),
+                Err(detail) => deliver(
+                    input_index,
+                    ModuleEvent::ModuleFailure(&ModuleFailure { detail }),
+                ),
+            }
+            resources.checkpoint();
+        }
+        Ok(())
+    }));
+    match result {
+        Ok(value) => value,
+        Err(payload) if payload.is::<admitted::ConsumerStopped>() => Err(VisitError::Consumer(
+            consumer_error
+                .take()
+                .expect("consumer stop retains original error"),
+        )),
+        Err(payload) => match payload.downcast::<admitted::Aborted>() {
+            Ok(error) => Err(VisitError::Operational(error.0)),
+            Err(payload) => match payload.downcast::<salsa::Cancelled>() {
+                Ok(error) => Err(VisitError::Operational(
+                    FlowOperationalError::NativeCancelled(*error),
+                )),
+                Err(payload) => std::panic::resume_unwind(payload),
             },
-            Err(e) => ModuleFlow {
-                path: input.path.clone(),
-                error: Some(e),
-                ..ModuleFlow::default()
-            },
-        };
-        visit(input_index, flow)?;
+        },
     }
-    Ok(())
 }
 
-fn native_place(expr: &Expr, original: &str, depth: usize) -> Option<native::Place> {
+fn native_place(
+    expr: &Expr,
+    original: &str,
+    depth: usize,
+    resources: &Resources<'_>,
+) -> Option<native::Place> {
+    resources.checkpoint();
     if depth > 256 {
         return None;
     }
     match expr {
         Expr::Name(n) => Some(native::Place {
-            root: original[usize::from(n.range().start())..usize::from(n.range().end())].into(),
+            root: resources
+                .string(&original[usize::from(n.range().start())..usize::from(n.range().end())]),
             segments: vec![],
         }),
         Expr::Attribute(a) => {
-            let mut place = native_place(&a.value, original, depth + 1)?;
-            place
-                .segments
-                .push(native::PlaceSegment::Attribute(a.attr.to_string()));
+            let mut place = native_place(&a.value, original, depth + 1, resources)?;
+            let name = resources.string(a.attr.as_str());
+            resources.push(&mut place.segments, native::PlaceSegment::Attribute(name));
             Some(place)
         }
         Expr::Subscript(s) => {
-            let mut place = native_place(&s.value, original, depth + 1)?;
-            place
-                .segments
-                .push(native::PlaceSegment::Item(predicate::literal(&s.slice)?));
+            let mut place = native_place(&s.value, original, depth + 1, resources)?;
+            let value = predicate::literal(&s.slice, resources)?;
+            resources.push(&mut place.segments, native::PlaceSegment::Item(value));
             Some(place)
         }
-        Expr::Named(n) => native_place(&n.target, original, depth + 1),
+        Expr::Named(n) => native_place(&n.target, original, depth + 1, resources),
         _ => None,
     }
 }
@@ -504,27 +545,61 @@ fn program_settings(db: &FlowDb, context: &RuntimeContext) -> ProgramSettings {
     settings
 }
 
+struct PreparedModule<'a> {
+    input_index: usize,
+    path: &'a str,
+    original: &'a str,
+    runtime: &'a RuntimeBindings,
+    renamed: u32,
+    view_content: lctx_model::domain::ContentHash,
+    view_byte_len: usize,
+}
+
 fn module(
     db: &FlowDb,
     program: Program<'_>,
-    path: &str,
-    original: &str,
-    runtime: &RuntimeBindings,
+    input: PreparedModule<'_>,
     context: &RuntimeContext,
-) -> Result<ModuleFlow, String> {
+    resources: &Resources<'_>,
+    visit: &mut dyn for<'e> FnMut(usize, ModuleEvent<'e>),
+) {
+    let PreparedModule {
+        input_index,
+        path,
+        original,
+        runtime,
+        renamed,
+        view_content,
+        view_byte_len,
+    } = input;
     #[cfg(test)]
     settings_tests::record_query(path);
-    let file = system_path_to_file(db, path).map_err(|e| e.to_string())?;
+    resources.checkpoint();
+    let file = match system_path_to_file(db, path) {
+        Ok(file) => file,
+        Err(error) => {
+            let _scratch = resources.scope();
+            let detail = resources.format(format_args!("{error}"));
+            visit(
+                input_index,
+                ModuleEvent::ModuleFailure(&ModuleFailure { detail }),
+            );
+            return;
+        }
+    };
     let pf = ProgramFile::new(db, file, program);
     let parsed = parsed_module(db, pf.python_file(db)).load(db);
+    resources.checkpoint();
     let syntax_errors = parsed.errors().len();
     let index = semantic_index(db, pf);
+    resources.checkpoint();
     let t = Translator {
         db,
         module: &parsed,
         original,
         context,
         runtime,
+        resources,
     };
     let mut w = Walk {
         db,
@@ -532,36 +607,28 @@ fn module(
         index,
         t: &t,
         parsed: &parsed,
-        flow: ModuleFlow::default(),
+        resources,
+        visit,
+        input_index,
+        use_count: 0,
+        def_count: 0,
+        skips: SkipCounts::default(),
+        current: None,
         use_of: HashMap::new(),
         def_of: HashMap::new(),
         diagrams: HashMap::new(),
         runtime_diagrams: HashMap::new(),
         regions: HashMap::new(),
         in_annotation: false,
+        charge: StateCharge::new(resources.budget, "flow_module_correspondence"),
     };
-    // Definitions first, scope by scope, so reaching rows can name them. A class's or an alias's
-    // PEP 695 type parameters are not modelled by our lexical recognizer (DESIGN §3.2), so they
-    // are not definitions here either.
-    for scope in index.scope_ids() {
-        let fid = scope.file_scope_id(db);
-        if matches!(
-            index.scope(fid).node(),
-            NodeWithScopeKind::ClassTypeParameters(_)
-                | NodeWithScopeKind::TypeAliasTypeParameters(_)
-        ) {
-            continue;
-        }
-        let Some(sc) = w.scope(fid) else { continue };
-        let map = index.use_def_map(fid);
-        for (_, d, _) in map.definitions_with_usage() {
-            w.def(sc, d);
-        }
-    }
     struct Places<'a> {
         original: &'a str,
         places: BTreeMap<Span, native::Place>,
-        nodes: Vec<native::Node>,
+        nodes: BTreeMap<Span, Vec<NodeEntry>>,
+        resources: &'a Resources<'a>,
+        charge: StateCharge,
+        ordinal: usize,
     }
     impl<'a> SourceOrderVisitor<'a> for Places<'_> {
         fn enter_node(&mut self, node: AnyNodeRef<'a>) -> TraversalSignal {
@@ -569,10 +636,12 @@ fn module(
                 Codebook,
                 source::{OccurrenceRole, SyntaxKind},
             };
-            let name = format!("{:?}", node.kind());
+            let _scratch = self.resources.scope();
+            self.resources.checkpoint();
+            let name = self.resources.format(format_args!("{:?}", node.kind()));
             let kind = (0..128)
                 .filter_map(SyntaxKind::from_code)
-                .find(|k| format!("{k:?}") == name);
+                .find(|k| self.resources.format(format_args!("{k:?}")) == name);
             let role = match node {
                 AnyNodeRef::ExprName(n) => match n.ctx {
                     ExprContext::Load => OccurrenceRole::Read,
@@ -591,42 +660,69 @@ fn module(
                 AnyNodeRef::StmtRaise(_) => OccurrenceRole::Raise,
                 _ => OccurrenceRole::Syntax,
             };
-            self.nodes.push(native::Node {
-                span: Span::from(node.range()),
+            let span = Span::from(node.range());
+            if !self.nodes.contains_key(&span) {
+                admit(
+                    &mut self.charge,
+                    128 + size_of::<Span>() + size_of::<Vec<NodeEntry>>(),
+                );
+            }
+            let rows = self.nodes.entry(span).or_default();
+            slots(rows, &mut self.charge, 1);
+            rows.push(NodeEntry {
+                ordinal: self.ordinal,
                 kind,
                 role,
             });
+            self.ordinal += 1;
             TraversalSignal::Traverse
         }
         fn visit_expr(&mut self, expr: &'a Expr) {
-            if let Some(place) = native_place(expr, self.original, 0) {
+            if let Some(place) = native_place(expr, self.original, 0, self.resources) {
+                admit(
+                    &mut self.charge,
+                    128 + size_of::<Span>() + size_of::<native::Place>() + place.heap_bytes(),
+                );
                 self.places.insert(Span::from(expr.range()), place);
             }
             source_order::walk_expr(self, expr);
         }
     }
+
     let mut places = Places {
         original,
         places: BTreeMap::new(),
-        nodes: vec![],
+        nodes: BTreeMap::new(),
+        resources,
+        charge: StateCharge::new(resources.budget, "flow_preamble"),
+        ordinal: 0,
     };
-    places.visit_body(parsed.suite());
-    w.flow.places = places.places;
-    w.flow.nodes = places.nodes;
-    let mut v = Visitor {
-        w: &mut w,
-        aug: HashSet::new(),
-        stack: vec![FileScopeId::global()],
-    };
-    for stmt in parsed.suite() {
-        v.visit_stmt(stmt);
+    {
+        let _scratch = resources.scope();
+        places.visit_body(parsed.suite());
     }
-    // Preserve every provider predicate and atom before the older span-only test projection.
-    let mut seen: HashSet<Span> = HashSet::new();
+    let mut prelude = ModulePrelude {
+        original_content: lctx_model::domain::ContentHash::of(original.as_bytes()),
+        view_content,
+        view_byte_len,
+        renamed,
+        syntax_errors,
+        nodes: places.nodes,
+        places: places.places,
+        operands: HashMap::new(),
+        _charge: places.charge,
+    };
+    let mut predicates = Vec::new();
+    let mut leaves = Vec::new();
+    let mut tests = Vec::new();
+    let mut predicate_charge = StateCharge::new(resources.budget, "flow_predicate_inventory");
+    let mut seen = HashSet::new();
     for scope in index.scope_ids() {
         let fid = scope.file_scope_id(db);
         let Some(sc) = w.scope(fid) else { continue };
         for p in index.use_def_map(fid).predicates().iter() {
+            let _scratch = resources.scope();
+            resources.checkpoint();
             let (span, condition, test_expr) = match &p.node {
                 PredicateNode::Expression(x)
                 | PredicateNode::Condition(x)
@@ -652,39 +748,108 @@ fn module(
                 }
                 _ => continue,
             };
-            for atom in condition.leaves() {
+            let predicate_ix = predicates.len();
+            slots(&mut predicates, &mut predicate_charge, 1);
+            predicates.push(Test {
+                scope: sc,
+                span,
+                condition,
+            });
+            let condition = &predicates[predicate_ix].condition;
+            for (node, atom) in condition
+                .nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(i, n)| match n {
+                    lctx_model::domain::conditions::CondNode::Leaf(atom) => Some((i, atom)),
+                    _ => None,
+                })
+            {
                 let Some(leaf_span) = atom.site() else {
                     continue;
                 };
                 if leaf_span.start < span.start || leaf_span.end > span.end {
                     continue;
                 }
-                w.flow.test_leaves.push(TestLeaf {
-                    scope: sc,
-                    test_span: span,
-                    condition: condition.clone(),
-                    atom: atom.clone(),
-                    leaf_span,
-                    operand_span: test_expr.and_then(|e| t.tested_place_operand(e, atom)),
-                });
-            }
-            if seen.insert(span) {
-                w.flow.tests.push(Test {
-                    scope: sc,
+                slots(&mut leaves, &mut predicate_charge, 1);
+                leaves.push((
                     span,
-                    condition,
-                });
+                    leaf_span,
+                    leaves.len(),
+                    predicate_ix,
+                    node,
+                    test_expr.and_then(|e| t.tested_place_operand(e, atom)),
+                ));
+            }
+            if !seen.contains(&span) {
+                admit(&mut predicate_charge, 128 + size_of::<Span>());
+                seen.insert(span);
+                slots(&mut tests, &mut predicate_charge, 1);
+                tests.push(predicate_ix);
             }
         }
     }
-    w.flow.tests.sort_by_key(|t| (t.span.start, t.span.end));
-    w.flow
-        .test_leaves
-        .sort_by_key(|a| (a.test_span, a.leaf_span));
-    Ok(ModuleFlow {
-        syntax_errors,
-        ..w.flow
-    })
+    leaves.sort_unstable_by_key(|row| (row.0, row.1, row.2));
+    tests.sort_unstable_by_key(|i| (predicates[*i].span, *i));
+    for (_, _, _, predicate_ix, node, operand) in &leaves {
+        prelude.record_operand(predicates[*predicate_ix].condition.clone(), *node, *operand);
+    }
+    w.emit(ModuleEvent::Prelude(prelude));
+    for scope in index.scope_ids() {
+        let fid = scope.file_scope_id(db);
+        if matches!(
+            index.scope(fid).node(),
+            NodeWithScopeKind::ClassTypeParameters(_)
+                | NodeWithScopeKind::TypeAliasTypeParameters(_)
+        ) {
+            continue;
+        }
+        let Some(sc) = w.scope(fid) else { continue };
+        for (_, d, _) in index.use_def_map(fid).definitions_with_usage() {
+            let _scratch = resources.scope();
+            resources.checkpoint();
+            w.def(sc, d);
+        }
+    }
+    let mut v = Visitor {
+        w: &mut w,
+        aug: HashSet::new(),
+        stack: Vec::new(),
+    };
+    slots(&mut v.stack, &mut v.w.charge, 1);
+    v.stack.push(FileScopeId::global());
+    for stmt in parsed.suite() {
+        v.visit_stmt(stmt);
+    }
+    drop(v);
+    let skips = w.skips.clone();
+    drop(w);
+    visit(input_index, ModuleEvent::TraversalComplete);
+    for i in tests {
+        resources.checkpoint();
+        visit(input_index, ModuleEvent::Test(&predicates[i]));
+    }
+    for (test_span, leaf_span, _, i, node, operand_span) in leaves {
+        resources.checkpoint();
+        let test = &predicates[i];
+        let lctx_model::domain::conditions::CondNode::Leaf(atom) = &test.condition.nodes[node]
+        else {
+            unreachable!()
+        };
+        visit(
+            input_index,
+            ModuleEvent::TestLeaf(TestLeafRef {
+                scope: test.scope,
+                test_span,
+                condition: &test.condition,
+                atom,
+                leaf_span,
+                operand_span,
+            }),
+        );
+    }
+    resources.checkpoint();
+    visit(input_index, ModuleEvent::End(skips))
 }
 
 struct Walk<'a, 'db> {
@@ -693,18 +858,27 @@ struct Walk<'a, 'db> {
     index: &'a ty_python_core::SemanticIndex<'db>,
     t: &'a Translator<'a>,
     parsed: &'a ParsedModuleRef,
-    flow: ModuleFlow,
+    resources: &'a Resources<'a>,
+    visit: &'a mut dyn for<'e> FnMut(usize, ModuleEvent<'e>),
+    input_index: usize,
+    use_count: u32,
+    def_count: u32,
+    skips: SkipCounts,
+    current: Option<UseGroup>,
     use_of: HashMap<Span, u32>,
     def_of: HashMap<Definition<'db>, Option<u32>>,
-    diagrams: HashMap<FileScopeId, HashMap<ScopedReachabilityConstraintId, Condition>>,
+    diagrams: HashMap<FileScopeId, HashMap<ScopedReachabilityConstraintId, FlowCondition>>,
     runtime_diagrams: HashMap<FileScopeId, HashMap<ScopedReachabilityConstraintId, bool>>,
-    /// Per scope, its range-reachability entries in recording order.
-    regions: HashMap<FileScopeId, Vec<(TextRange, Condition)>>,
-    /// The visitor is inside an annotation.
+    regions: HashMap<FileScopeId, Vec<(TextRange, FlowCondition)>>,
     in_annotation: bool,
+    charge: StateCharge,
 }
 
 impl<'db> Walk<'_, 'db> {
+    fn emit(&mut self, event: ModuleEvent<'_>) {
+        self.resources.checkpoint();
+        (self.visit)(self.input_index, event);
+    }
     /// Our scope for ty's, or `None` for the type-parameter and type-alias scopes (annotation
     /// residue).
     fn scope(&self, fid: FileScopeId) -> Option<Scope> {
@@ -767,6 +941,9 @@ impl<'db> Walk<'_, 'db> {
     /// Record a definition once; loop headers and nested-binding markers are not definitions of
     /// ours (`None`).
     fn def(&mut self, scope: Scope, d: Definition<'db>) -> Option<u32> {
+        let resources = self.resources;
+        let _scratch = resources.scope();
+        resources.checkpoint();
         if let Some(ix) = self.def_of.get(&d) {
             return *ix;
         }
@@ -776,6 +953,7 @@ impl<'db> Walk<'_, 'db> {
                 | NodeWithScopeKind::TypeAliasTypeParameters(_)
         ) {
             // Not modelled by our lexical recognizer (see `module`).
+            hash_slot(&mut self.def_of, &mut self.charge);
             self.def_of.insert(d, None);
             return None;
         }
@@ -828,6 +1006,7 @@ impl<'db> Walk<'_, 'db> {
             DefinitionKind::LoopHeader(_) | DefinitionKind::NestedBindings(_) => (None, None),
         };
         let Some(binding) = binding else {
+            hash_slot(&mut self.def_of, &mut self.charge);
             self.def_of.insert(d, None);
             return None;
         };
@@ -852,28 +1031,41 @@ impl<'db> Walk<'_, 'db> {
         };
         let place_id = d.place(self.db);
         let fid = d.file_scope(self.db);
-        let place = self.index.place_table(fid).place(place_id).to_string();
+        let place = self.resources.format(format_args!(
+            "{}",
+            self.index.place_table(fid).place(place_id)
+        ));
         let place = self.unsentinel(&place, target);
-        let ix = self.flow.defs.len() as u32;
-        self.flow.defs.push(Def {
+        let ix = self.def_count;
+        self.def_count = self
+            .def_count
+            .checked_add(1)
+            .expect("flow definition ordinal");
+        let definition = Def {
             scope,
             place,
             kind: binding,
             target: target.into(),
             value: value.map(Span::from),
-        });
+        };
+        hash_slot(&mut self.def_of, &mut self.charge);
         self.def_of.insert(d, Some(ix));
+        self.emit(ModuleEvent::Definition {
+            ordinal: ix,
+            value: &definition,
+        });
         Some(ix)
     }
 
     /// A place spelled with the sentinel, spelled as written.
     fn unsentinel(&self, place: &str, span: TextRange) -> String {
         if place.contains(std::str::from_utf8(SENTINEL).expect("ASCII")) {
-            self.t.original[usize::from(span.start())..usize::from(span.end())]
-                .split_whitespace()
-                .collect()
+            self.resources.compact(
+                &self.t.original[usize::from(span.start())..usize::from(span.end())],
+                "",
+            )
         } else {
-            place.to_owned()
+            self.resources.string(place)
         }
     }
 
@@ -882,18 +1074,30 @@ impl<'db> Walk<'_, 'db> {
     }
 
     /// A reachability diagram's condition, memoized per scope.
-    fn condition(&mut self, fid: FileScopeId, id: ScopedReachabilityConstraintId) -> Condition {
+    fn condition(&mut self, fid: FileScopeId, id: ScopedReachabilityConstraintId) -> FlowCondition {
         let map = self.index.use_def_map(fid);
+        if !self.diagrams.contains_key(&fid) {
+            hash_slot(&mut self.diagrams, &mut self.charge);
+        }
         let memo = self.diagrams.entry(fid).or_default();
-        diagram(self.t, fid, map, memo, id)
+        diagram(self.t, fid, map, memo, id, &mut self.charge)
     }
 
     fn skip_cause(&mut self, fid: FileScopeId, id: ScopedReachabilityConstraintId) -> SkipCause {
         if id == ScopedReachabilityConstraintId::ALWAYS_FALSE {
             return SkipCause::Ty;
         }
+        if !self.runtime_diagrams.contains_key(&fid) {
+            hash_slot(&mut self.runtime_diagrams, &mut self.charge);
+        }
         let memo = self.runtime_diagrams.entry(fid).or_default();
-        if runtime_in_diagram(self.t, self.index.use_def_map(fid), memo, id) {
+        if runtime_in_diagram(
+            self.t,
+            self.index.use_def_map(fid),
+            memo,
+            id,
+            &mut self.charge,
+        ) {
             SkipCause::Runtime
         } else {
             SkipCause::Stable
@@ -902,63 +1106,86 @@ impl<'db> Walk<'_, 'db> {
 
     /// Record a use and the definitions reaching it.
     fn use_(&mut self, e: &Expr) {
+        let resources = self.resources;
+        let _scratch = resources.scope();
+        resources.checkpoint();
         let span = Span::from(e.range());
         if self.use_of.contains_key(&span) {
             return;
         }
         let Some(fid) = self.index.try_expression_scope_id(e) else {
-            self.flow.unavailable_uses.push(span);
+            self.emit(ModuleEvent::UnavailableUse(span));
             return;
         };
         let Some(scope) = self.scope(fid) else {
-            self.flow.unavailable_uses.push(span);
+            self.emit(ModuleEvent::UnavailableUse(span));
             return;
         };
-        let Some(place) = PlaceExpr::try_from_expr(e) else {
+        let Some(place) = admitted::place_expr(e, self.resources) else {
             return;
         };
-        let place = self.unsentinel(&place.to_string(), e.range());
+        let displayed = self.resources.format(format_args!("{place}"));
+        let place = self.unsentinel(&displayed, e.range());
         let use_id = ast::ExprRef::from(e).scoped_use_id(self.db, self.pf);
-        let ix = self.flow.uses.len() as u32;
-        self.flow.uses.push(Use {
-            scope,
-            place,
-            span,
-            annotation: self.in_annotation || self.lazy(fid),
+        let ix = self.use_count;
+        self.use_count = self.use_count.checked_add(1).expect("flow use ordinal");
+        self.current = Some(UseGroup {
+            use_: Use {
+                scope,
+                place,
+                span,
+                annotation: self.in_annotation || self.lazy(fid),
+            },
+            capture: None,
+            candidates: Vec::new(),
+            reaching: Vec::new(),
+            _charge: StateCharge::new(self.resources.budget, "flow_use_group"),
         });
+        hash_slot(&mut self.use_of, &mut self.charge);
         self.use_of.insert(span, ix);
         self.capture_snapshot(e, fid, ix);
-        let bindings: Vec<(DefinitionState<'db>, _, _, _)> = self
-            .map(fid)
-            .bindings_at_use(use_id)
-            .map(|b| {
-                (
-                    b.binding,
-                    b.reachability_constraint,
-                    narrowing::lower(self.t, &b.narrowing_constraint),
-                    b.narrowing_constraint
-                        .narrowing_constraints()
-                        .precision_lost(),
-                )
-            })
-            .collect();
-        let lowered = bindings
-            .into_iter()
-            .map(|(state, reach, narrowing, lost)| {
-                (state, reach, self.condition(fid, reach), narrowing, lost)
-            })
-            .collect::<Vec<_>>();
-        // A false-only native inventory can supply an explicit negative candidate. Preserve
-        // every state, including Unbound; choosing one definition could fabricate uniqueness.
-        // Live/approximate sets keep the existing pruning. Loop headers can expand to no rows,
-        // so they stay outside this bounded lane rather than silently dropping a competitor.
-        let retain_false_only = !lowered.is_empty() && lowered.iter().all(|(state, _, c, _, _)| {
-            c.is_never() && !c.approximated() && !matches!(state,
-                DefinitionState::Defined(d) if matches!(d.kind(self.db), DefinitionKind::LoopHeader(_)))
+        struct Binding<'db> {
+            state: DefinitionState<'db>,
+            reach: ScopedReachabilityConstraintId,
+            narrowing: FlowCondition,
+            lost: bool,
+            condition: Option<FlowCondition>,
+        }
+        let mut bindings = Vec::new();
+        for b in self.map(fid).bindings_at_use(use_id) {
+            let value = Binding {
+                state: b.binding,
+                reach: b.reachability_constraint,
+                narrowing: narrowing::lower(self.t, &b.narrowing_constraint),
+                lost: b
+                    .narrowing_constraint
+                    .narrowing_constraints()
+                    .precision_lost(),
+                condition: None,
+            };
+            self.resources.push(&mut bindings, value);
+        }
+        // Preserve the native schedule: finish all narrowing preparation before any reaching
+        // condition demand, but reuse the same admitted lane instead of a second full Vec.
+        for binding in &mut bindings {
+            binding.condition = Some(self.condition(fid, binding.reach));
+        }
+        // False-only admission requires the complete inventory, including Unbound competitors.
+        let retain_false_only=!bindings.is_empty()&&bindings.iter().all(|binding| {
+            let c=binding.condition.as_ref().expect("lowered reaching condition");
+            c.is_never()&&!c.approximated()&&!matches!(binding.state,
+                DefinitionState::Defined(d) if matches!(d.kind(self.db),DefinitionKind::LoopHeader(_)))
         });
-        for (ordinal, (state, reach, condition, narrowing, narrowing_precision_lost)) in
-            lowered.into_iter().enumerate()
-        {
+        for (ordinal, binding) in bindings.into_iter().enumerate() {
+            self.resources.checkpoint();
+            let Binding {
+                state,
+                reach,
+                narrowing,
+                lost: narrowing_precision_lost,
+                condition,
+            } = binding;
+            let condition = condition.expect("complete native candidate preparation");
             let kind = match state {
                 DefinitionState::Undefined => CandidateKind::Undefined,
                 DefinitionState::Deleted => CandidateKind::Deleted,
@@ -975,30 +1202,31 @@ impl<'db> Walk<'_, 'db> {
                 use_ix: ix,
                 ordinal: ordinal as u32,
                 kind,
-                reaching: Vec::new(),
+                reaching: 0..0,
                 pruned: false,
                 loop_expanded: kind == CandidateKind::LoopHeader,
                 unattached: false,
                 reachability_lost: condition.approximated(),
             };
-            let before = self.flow.reaching.len();
+            let before = self.current.as_mut().unwrap().reaching.len();
             if condition.is_never() && !retain_false_only {
                 let cause = self.skip_cause(fid, reach);
-                self.flow.skips.reach(cause);
+                self.skips.reach(cause);
                 candidate.pruned = true;
-                self.flow.candidates.push(candidate);
+                self.push_candidate(candidate);
                 continue;
             }
             match state {
                 DefinitionState::Defined(d) => {
                     if let DefinitionKind::LoopHeader(h) = d.kind(self.db) {
                         let mut seen = HashSet::new();
-                        for (def_ix, nested, unattached) in self.loop_bindings(fid, h, &mut seen) {
+                        let expanded = self.loop_bindings(fid, h, &mut seen);
+                        for (def_ix, nested, unattached) in expanded {
                             if unattached {
                                 candidate.unattached = true;
                                 continue;
                             }
-                            self.flow.reaching.push(Reach {
+                            self.push_reach(Reach {
                                 use_ix: ix,
                                 def_ix,
                                 nested,
@@ -1012,10 +1240,10 @@ impl<'db> Walk<'_, 'db> {
                         let def_ix = self.def(scope, d);
                         candidate.unattached = def_ix.is_none() && kind == CandidateKind::Bound;
                         if candidate.unattached {
-                            self.flow.candidates.push(candidate);
+                            self.push_candidate(candidate);
                             continue;
                         }
-                        self.flow.reaching.push(Reach {
+                        self.push_reach(Reach {
                             use_ix: ix,
                             def_ix,
                             nested: matches!(d.kind(self.db), DefinitionKind::NestedBindings(_)),
@@ -1027,7 +1255,7 @@ impl<'db> Walk<'_, 'db> {
                     }
                 }
                 DefinitionState::Undefined | DefinitionState::Deleted => {
-                    self.flow.reaching.push(Reach {
+                    self.push_reach(Reach {
                         use_ix: ix,
                         def_ix: None,
                         nested: false,
@@ -1038,9 +1266,26 @@ impl<'db> Walk<'_, 'db> {
                     });
                 }
             }
-            candidate.reaching.extend(before..self.flow.reaching.len());
-            self.flow.candidates.push(candidate);
+            candidate.reaching = before..self.current.as_mut().unwrap().reaching.len();
+            self.push_candidate(candidate);
         }
+        let group = self.current.take().expect("current use group");
+        self.emit(ModuleEvent::UseGroup {
+            ordinal: ix,
+            value: &group,
+        });
+    }
+    fn push_reach(&mut self, value: Reach) {
+        self.resources.checkpoint();
+        let group = self.current.as_mut().unwrap();
+        slots(&mut group.reaching, &mut group._charge, 1);
+        group.reaching.push(value);
+    }
+    fn push_candidate(&mut self, value: UseCandidate) {
+        self.resources.checkpoint();
+        let group = self.current.as_mut().unwrap();
+        slots(&mut group.candidates, &mut group._charge, 1);
+        group.candidates.push(value);
     }
 
     /// Ask ty for the actual enclosing snapshot. Never reinterpret AssumeBound as a
@@ -1098,21 +1343,21 @@ impl<'db> Walk<'_, 'db> {
                 .index
                 .enclosing_snapshot(enclosing, PlaceExprRef::Symbol(symbol), nested)
             {
-                EnclosingSnapshotResult::FoundBindings(bindings) => (
-                    SnapshotState::FoundBindings,
-                    bindings
-                        .map(|b| {
-                            (
-                                b.binding,
-                                b.reachability_constraint,
-                                narrowing::lower(self.t, &b.narrowing_constraint),
-                                b.narrowing_constraint
-                                    .narrowing_constraints()
-                                    .precision_lost(),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                ),
+                EnclosingSnapshotResult::FoundBindings(bindings) => {
+                    let mut owned = Vec::new();
+                    for b in bindings {
+                        let value = (
+                            b.binding,
+                            b.reachability_constraint,
+                            narrowing::lower(self.t, &b.narrowing_constraint),
+                            b.narrowing_constraint
+                                .narrowing_constraints()
+                                .precision_lost(),
+                        );
+                        self.resources.push(&mut owned, value);
+                    }
+                    (SnapshotState::FoundBindings, owned)
+                }
                 EnclosingSnapshotResult::FoundConstraint(c) => {
                     let evaluator = self.map(enclosing).narrowing_evaluator(c);
                     constraint_precision_lost = evaluator.narrowing_constraints().precision_lost();
@@ -1124,7 +1369,10 @@ impl<'db> Walk<'_, 'db> {
                     (SnapshotState::NoLongerInEagerContext, Vec::new())
                 }
             };
-        let mut candidates = Vec::with_capacity(bindings.len());
+        let mut candidates = Vec::new();
+        self.resources
+            .grow(bindings.len() * size_of::<SnapshotCandidate>());
+        candidates.reserve_exact(bindings.len());
         for (binding, reach, narrowing, precision_lost) in bindings {
             let condition = self.condition(enclosing, reach);
             let binding = match binding {
@@ -1146,7 +1394,7 @@ impl<'db> Walk<'_, 'db> {
                 precision_lost,
             });
         }
-        self.flow.captures.push(CaptureSnapshot {
+        self.current.as_mut().unwrap().capture = Some(CaptureSnapshot {
             use_ix,
             enclosing: scope,
             origin,
@@ -1166,30 +1414,38 @@ impl<'db> Walk<'_, 'db> {
         seen: &mut HashSet<Definition<'db>>,
     ) -> Vec<(Option<u32>, bool, bool)> {
         let scope = self.scope(fid).expect("a loop is in a real scope");
-        let mut pending = vec![h.clone()];
+        let mut pending = Vec::new();
+        self.resources.push(&mut pending, h.clone());
         let mut out = Vec::new();
         while let Some(header) = pending.pop() {
-            let live: Vec<_> = self
+            self.resources.checkpoint();
+            let mut live = Vec::new();
+            for b in self
                 .map(fid)
                 .loop_header(header.loop_header_id())
                 .bindings_for_place(header.place())
-                .map(|b| self.map(fid).definition(b.binding()))
-                .collect();
+            {
+                self.resources
+                    .push(&mut live, self.map(fid).definition(b.binding()));
+            }
             for state in live {
                 match state {
-                    DefinitionState::Defined(d) if seen.insert(d) => {
+                    DefinitionState::Defined(d) if !seen.contains(&d) => {
+                        self.resources.grow(128 + size_of::<Definition<'_>>());
+                        seen.insert(d);
                         if let DefinitionKind::LoopHeader(inner) = d.kind(self.db) {
-                            pending.push(inner.clone());
+                            self.resources.push(&mut pending, inner.clone());
                         } else {
                             let nested =
                                 matches!(d.kind(self.db), DefinitionKind::NestedBindings(_));
                             let def_ix = self.def(scope, d);
-                            out.push((def_ix, nested, def_ix.is_none() && !nested));
+                            self.resources
+                                .push(&mut out, (def_ix, nested, def_ix.is_none() && !nested));
                         }
                     }
                     DefinitionState::Defined(_) => {}
                     DefinitionState::Undefined | DefinitionState::Deleted => {
-                        out.push((None, false, false))
+                        self.resources.push(&mut out, (None, false, false))
                     }
                 }
             }
@@ -1199,20 +1455,32 @@ impl<'db> Walk<'_, 'db> {
 
     /// The reachability of the statement at `range` in scope `fid`: the last recorded entry
     /// containing its start (entries are recorded in visit order, a body after its header).
-    fn region(&mut self, fid: FileScopeId, range: TextRange) -> Condition {
+    fn region(&mut self, fid: FileScopeId, range: TextRange) -> FlowCondition {
         if !self.regions.contains_key(&fid) {
-            let entries: Vec<_> = self.map(fid).range_reachability().collect();
-            let mut out = Vec::with_capacity(entries.len());
+            let mut entries = Vec::new();
+            for entry in self.map(fid).range_reachability() {
+                self.resources.push(&mut entries, entry);
+            }
+            let mut out = Vec::new();
+            admit(
+                &mut self.charge,
+                entries.len() * size_of::<(TextRange, FlowCondition)>(),
+            );
+            out.reserve_exact(entries.len());
             for (r, id) in entries {
                 out.push((r, self.condition(fid, id)));
             }
+            hash_slot(&mut self.regions, &mut self.charge);
             self.regions.insert(fid, out);
         }
         self.regions[&fid]
             .iter()
             .rev()
             .find(|(r, _)| r.contains_range(TextRange::empty(range.start())))
-            .map_or_else(Condition::always, |(_, c)| c.clone())
+            .map_or_else(
+                || FlowCondition::terminal(self.resources.budget, Some(true)),
+                |(_, c)| c.clone(),
+            )
     }
 
     /// The value sources of `e` (see the crate docs).
@@ -1225,37 +1493,38 @@ impl<'db> Walk<'_, 'db> {
         sink: Sink,
         sink_span: Span,
         e: &Expr,
-        cond: &Condition,
+        cond: &FlowCondition,
         false_cause: Option<SkipCause>,
         identity: bool,
         call_path: &[CallFrame],
     ) {
+        let resources = self.resources;
+        let _scratch = resources.scope();
+        resources.checkpoint();
         if cond.is_never() {
             // Preserve an explicit source candidate with its checked-false condition. Its
             // actual native use and reaching evidence still govern Entry/Local admission;
             // neither a missing use nor a missing formal origin is reconstructed here.
             // Computed values and call crossings retain the existing refusal boundary.
             if !identity || !call_path.is_empty() || !matches!(e, Expr::Name(_)) {
-                self.flow
-                    .skips
-                    .value(false_cause.unwrap_or(SkipCause::Stable));
+                self.skips.value(false_cause.unwrap_or(SkipCause::Stable));
                 return;
             }
         }
         match e {
             Expr::Name(_) | Expr::Attribute(_) | Expr::Subscript(_)
-                if PlaceExpr::try_from_expr(e).is_some() =>
+                if admitted::place_expr(e, self.resources).is_some() =>
             {
                 if let Some(&u) = self.use_of.get(&Span::from(e.range())) {
-                    self.flow.values.push(ValueSource {
+                    self.emit(ModuleEvent::Value(ValueSourceRef {
                         sink,
                         span: sink_span,
                         use_ix: u,
                         identity: identity && call_path.is_empty(),
                         through_call: !call_path.is_empty(),
-                        call_path: call_path.to_vec(),
-                        condition: cond.clone(),
-                    });
+                        call_path,
+                        condition: cond,
+                    }));
                 }
                 // The receiver or container is read to compute the value.
                 match e {
@@ -1317,7 +1586,7 @@ impl<'db> Walk<'_, 'db> {
             }
             Expr::BoolOp(b) => {
                 // `a or b`: `a` when truthy, else `b`; `a and b`: `a` when falsy, else `b`.
-                let mut before = Condition::always();
+                let mut before = FlowCondition::terminal(self.resources.budget, Some(true));
                 let n = b.values.len();
                 for (k, v) in b.values.iter().enumerate() {
                     let truth = self.t.test(v);
@@ -1350,7 +1619,10 @@ impl<'db> Walk<'_, 'db> {
             }
             Expr::Call(call) => {
                 let call_span = call.range().into();
-                let mut callee_path = call_path.to_vec();
+                self.resources
+                    .grow((call_path.len() + 1) * size_of::<CallFrame>());
+                let mut callee_path = Vec::with_capacity(call_path.len() + 1);
+                callee_path.extend_from_slice(call_path);
                 callee_path.push(CallFrame {
                     call: call_span,
                     operand: call.func.range().into(),
@@ -1369,7 +1641,10 @@ impl<'db> Walk<'_, 'db> {
                     // The call syntax owns the actual operand, including a starred wrapper.
                     // Uses inside that wrapper remain descendants of this crossing.
                     let operand = arg.range();
-                    let mut argument_path = call_path.to_vec();
+                    self.resources
+                        .grow((call_path.len() + 1) * size_of::<CallFrame>());
+                    let mut argument_path = Vec::with_capacity(call_path.len() + 1);
+                    argument_path.extend_from_slice(call_path);
                     argument_path.push(CallFrame {
                         call: call_span,
                         operand: operand.into(),
@@ -1386,7 +1661,10 @@ impl<'db> Walk<'_, 'db> {
                     );
                 }
                 for keyword in &call.arguments.keywords {
-                    let mut argument_path = call_path.to_vec();
+                    self.resources
+                        .grow((call_path.len() + 1) * size_of::<CallFrame>());
+                    let mut argument_path = Vec::with_capacity(call_path.len() + 1);
+                    argument_path.extend_from_slice(call_path);
                     argument_path.push(CallFrame {
                         call: call_span,
                         operand: keyword.value.range().into(),
@@ -1407,7 +1685,7 @@ impl<'db> Walk<'_, 'db> {
                 // Computed: each sub-expression's uses, derived, under the conditions nested
                 // conditional expressions and boolean operators select them by. Everything inside
                 // a call is handled above with an attributed operand role.
-                for child in children(e) {
+                for child in children(e, self.resources) {
                     self.sources(sink, sink_span, child, cond, false_cause, false, call_path);
                 }
             }
@@ -1417,14 +1695,14 @@ impl<'db> Walk<'_, 'db> {
 
 /// The expressions directly inside `e`, in source order (a comprehension's, a lambda's and an
 /// f-string's included).
-fn children(e: &Expr) -> Vec<&Expr> {
-    struct V<'a>(Vec<&'a Expr>);
-    impl<'a> SourceOrderVisitor<'a> for V<'a> {
+fn children<'a>(e: &'a Expr, resources: &Resources<'_>) -> Vec<&'a Expr> {
+    struct V<'a, 'r>(Vec<&'a Expr>, &'r Resources<'r>);
+    impl<'a> SourceOrderVisitor<'a> for V<'a, '_> {
         fn visit_expr(&mut self, e: &'a Expr) {
-            self.0.push(e);
+            self.1.push(&mut self.0, e);
         }
     }
-    let mut v = V(Vec::new());
+    let mut v = V(Vec::new(), resources);
     source_order::walk_expr(&mut v, e);
     v.0
 }
@@ -1443,7 +1721,7 @@ impl Visitor<'_, '_, '_> {
             sink,
             e.range().into(),
             e,
-            &Condition::always(),
+            &FlowCondition::terminal(self.w.resources.budget, Some(true)),
             None,
             identity,
             &[],
@@ -1459,6 +1737,7 @@ impl Visitor<'_, '_, '_> {
     fn body(&mut self, scope: NodeWithScopeRef<'_>, body: &[Stmt]) {
         match self.w.index.try_node_scope(scope) {
             Some(fid) => {
+                slots(&mut self.stack, &mut self.w.charge, 1);
                 self.stack.push(fid);
                 for s in body {
                     self.visit_stmt(s);
@@ -1484,21 +1763,25 @@ fn plain(target: &Expr) -> bool {
 
 impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
     fn enter_node(&mut self, _node: AnyNodeRef<'ast>) -> TraversalSignal {
+        self.w.resources.checkpoint();
         TraversalSignal::Traverse
     }
 
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        let resources = self.w.resources;
+        let _scratch = resources.scope();
+        resources.checkpoint();
         let fid = *self
             .stack
             .last()
             .expect("the module scope is at the bottom");
         if let Some(scope) = self.w.scope(fid) {
             let condition = self.w.region(fid, stmt.range());
-            self.w.flow.regions.push(Region {
+            self.w.emit(ModuleEvent::Region(&Region {
                 scope,
                 span: stmt.range().into(),
                 condition,
-            });
+            }));
         }
         match stmt {
             // Decorators, defaults, annotations and bases run in the enclosing scope; the body in
@@ -1530,7 +1813,8 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                 self.body(NodeWithScopeRef::Class(c), &c.body);
                 return;
             }
-            Stmt::AugAssign(a) => {
+            Stmt::AugAssign(a) if !self.aug.contains(&a.target.range()) => {
+                admit(&mut self.w.charge, 128 + size_of::<TextRange>());
                 self.aug.insert(a.target.range());
             }
             _ => {}
@@ -1564,7 +1848,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                     Sink::Definition,
                     a.value.range().into(),
                     &a.target,
-                    &Condition::always(),
+                    &FlowCondition::terminal(self.w.resources.budget, Some(true)),
                     None,
                     false,
                     &[],
@@ -1587,14 +1871,17 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
     }
 
     fn visit_expr(&mut self, e: &'ast Expr) {
+        let resources = self.w.resources;
+        let _scratch = resources.scope();
+        resources.checkpoint();
         source_order::walk_expr(self, e);
         if !self.w.in_annotation {
             match e {
                 Expr::Attribute(a) if matches!(a.ctx, ExprContext::Load) => {
-                    self.w.flow.attribute_loads.push(AttributeLoad {
+                    self.w.emit(ModuleEvent::Attribute(AttributeLoadRef {
                         span: Span::from(e.range()),
-                        name: a.attr.id.to_string(),
-                    });
+                        name: a.attr.id.as_str(),
+                    }));
                 }
                 _ => {}
             }
@@ -1606,7 +1893,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
             Expr::Subscript(s) => matches!(s.ctx, ExprContext::Load),
             _ => false,
         } || self.aug.contains(&e.range());
-        if is_use && PlaceExpr::try_from_expr(e).is_some() {
+        if is_use && admitted::place_expr(e, self.w.resources).is_some() {
             self.w.use_(e);
         }
         match e {
@@ -1617,7 +1904,7 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
                             Sink::Argument,
                             a.range().into(),
                             &s.value,
-                            &Condition::always(),
+                            &FlowCondition::terminal(self.w.resources.budget, Some(true)),
                             None,
                             false,
                             &[],
@@ -1645,6 +1932,11 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
 }
 
 #[cfg(test)]
+extern crate self as cpg_flow;
+#[cfg(test)]
+#[path = "../tests/common/mod.rs"]
+mod test_support;
+#[cfg(test)]
 mod settings_tests {
     use super::{
         BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, program_settings,
@@ -1661,16 +1953,12 @@ mod settings_tests {
         EVENTS.with_borrow_mut(|events| events.push(format!("query:{path}")));
     }
 
-    fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<super::ModuleFlow> {
-        let mut flows = Vec::new();
-        visit_modules(inputs, context, |_, flow| {
-            flows.push(flow);
-            Ok::<_, std::convert::Infallible>(())
-        })
-        .unwrap();
-        flows
+    fn budget() -> super::ResourceBudget {
+        super::ResourceBudget::fixed(64 << 20).unwrap()
     }
-
+    fn index(inputs: &[Input], context: &RuntimeContext) -> crate::test_support::CollectedModules {
+        crate::test_support::index(inputs, context)
+    }
     #[test]
     fn empty_module_inventory_needs_no_virtual_import_root() {
         let context = RuntimeContext {
@@ -1702,11 +1990,19 @@ mod settings_tests {
             input("later.py", "c = 2\nd = c\n"),
         ];
         EVENTS.with_borrow_mut(Vec::clear);
-        visit_modules(&inputs, &context(), |ix, flow| {
-            assert!(flow.error.is_none());
-            EVENTS.with_borrow_mut(|events| events.push(format!("emit:{ix}")));
-            Ok::<_, &str>(())
-        })
+        visit_modules(
+            &inputs,
+            &context(),
+            &budget(),
+            &|| Ok(()),
+            |_| (),
+            |ix, event| {
+                if matches!(event, super::ModuleEvent::End(_)) {
+                    EVENTS.with_borrow_mut(|events| events.push(format!("emit:{ix}")));
+                }
+                Ok::<_, &str>(())
+            },
+        )
         .unwrap();
         EVENTS.with_borrow(|events| {
             assert_eq!(
@@ -1721,12 +2017,19 @@ mod settings_tests {
         });
         for refusal in ["sink refused", "cancelled"] {
             EVENTS.with_borrow_mut(Vec::clear);
-            let result = visit_modules(&inputs, &context(), |ix, flow| {
-                assert_eq!(ix, 0);
-                assert_eq!(flow.path, "first.py");
-                Err(refusal)
-            });
-            assert_eq!(result, Err(refusal));
+            let result = visit_modules(
+                &inputs,
+                &context(),
+                &budget(),
+                &|| Ok(()),
+                |_| (),
+                |ix, event| {
+                    assert_eq!(ix, 0);
+                    assert!(matches!(event, super::ModuleEvent::Prelude(_)));
+                    Err(refusal)
+                },
+            );
+            assert!(matches!(result,Err(super::VisitError::Consumer(error)) if error==refusal));
             EVENTS.with_borrow(|events| assert_eq!(events, &["query:/flow/first.py"]));
         }
     }
@@ -1750,8 +2053,15 @@ mod settings_tests {
         assert!(flows[2].error.is_none());
         assert!(flows[2].uses.iter().any(|u| u.place == "x"));
         assert_eq!(flows[2].view_content, flows[2].original_content);
-        let result = visit_modules::<()>(&[], &context(), |_, _| panic!("empty inventory queried"));
-        assert_eq!(result, Ok(()));
+        let result = visit_modules::<(), _>(
+            &[],
+            &context(),
+            &budget(),
+            &|| Ok(()),
+            |_| (),
+            |_, _| panic!("empty inventory queried"),
+        );
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -1784,7 +2094,7 @@ mod settings_tests {
                 .any(|r| r.use_ix as usize == read && r.def_ix.is_some())
         );
         assert!(flows[1].uses.iter().any(|u| u.place == "TYPE_CHECKING"));
-        for (input, flow) in inputs.iter().zip(&flows) {
+        for (input, flow) in inputs.iter().zip(flows.iter()) {
             let (view, renamed) = super::rename(&input.text).unwrap();
             assert_eq!(
                 flow.original_content,
@@ -1798,6 +2108,255 @@ mod settings_tests {
             assert_eq!(flow.renamed, renamed);
         }
         assert_ne!(flows[1].original_content, flows[1].view_content);
+    }
+
+    #[test]
+    fn operational_refusal_and_native_cancellation_are_not_model_failures() {
+        let inputs = [input("source.py", "x = 1\ny = x\n")];
+        let tiny = super::ResourceBudget::fixed(1).unwrap();
+        let calls = std::cell::Cell::new(0);
+        let result = visit_modules(
+            &inputs,
+            &context(),
+            &tiny,
+            &|| Ok(()),
+            |_| (),
+            |_, _| {
+                calls.set(calls.get() + 1);
+                Ok::<_, ()>(())
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(super::VisitError::Operational(
+                super::FlowOperationalError::Model(lctx_model::domain::ModelError::Resource { .. })
+            ))
+        ));
+        assert_eq!(calls.get(), 0);
+        assert_eq!(tiny.reserved(), 0);
+        let resources = budget();
+        let result = visit_modules(
+            &inputs,
+            &context(),
+            &resources,
+            &|| Ok(()),
+            |token| token.cancel(),
+            |_, _| {
+                calls.set(calls.get() + 1);
+                Ok::<_, ()>(())
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(super::VisitError::Operational(
+                super::FlowOperationalError::NativeCancelled(_)
+            ))
+        ));
+        assert_eq!(calls.get(), 0);
+        assert_eq!(resources.reserved(), 0);
+    }
+
+    #[test]
+    fn callback_panics_are_rethrown_and_actual_ownership_drains() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        struct Guard(Arc<AtomicBool>);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+        for public_payload in [false, true] {
+            let dropped = Arc::new(AtomicBool::new(false));
+            let resources = budget();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                visit_modules::<(), _>(
+                    &[input("a.py", "x = 1\n")],
+                    &context(),
+                    &resources,
+                    &|| Ok(()),
+                    |_| Guard(dropped.clone()),
+                    |_, _| {
+                        if public_payload {
+                            std::panic::panic_any(super::FlowOperationalError::Model(
+                                lctx_model::domain::ModelError::Invalid(
+                                    "foreign public error".into(),
+                                ),
+                            ));
+                        }
+                        panic!("ordinary callback panic");
+                    },
+                )
+            }));
+            let payload = result.unwrap_err();
+            if public_payload {
+                assert!(payload.is::<super::FlowOperationalError>());
+            } else {
+                assert!(payload.is::<&str>());
+            }
+            assert!(dropped.load(Ordering::Acquire));
+            assert_eq!(resources.reserved(), 0);
+        }
+    }
+
+    #[test]
+    fn cancellation_between_complete_groups_prevents_module_end_and_later_query() {
+        let cancelled = std::cell::Cell::new(false);
+        let groups = std::cell::Cell::new(0);
+        let ends = std::cell::Cell::new(0);
+        let resources = budget();
+        EVENTS.with_borrow_mut(Vec::clear);
+        let result = visit_modules(
+            &[
+                input("first.py", "x = 1\na = x\nb = x\n"),
+                input("later.py", "z = 2\n"),
+            ],
+            &context(),
+            &resources,
+            &|| {
+                if cancelled.get() {
+                    Err(lctx_model::domain::ModelError::Invalid("cancelled".into()))
+                } else {
+                    Ok(())
+                }
+            },
+            |_| (),
+            |_, event| {
+                match event {
+                    super::ModuleEvent::UseGroup { .. } => {
+                        groups.set(groups.get() + 1);
+                        cancelled.set(true);
+                    }
+                    super::ModuleEvent::End(_) => ends.set(ends.get() + 1),
+                    _ => {}
+                }
+                Ok::<_, ()>(())
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(super::VisitError::Operational(
+                super::FlowOperationalError::Model(_)
+            ))
+        ));
+        assert_eq!(groups.get(), 1);
+        assert_eq!(ends.get(), 0);
+        assert_eq!(resources.reserved(), 0);
+        EVENTS.with_borrow(|events| assert_eq!(events, &["query:/flow/first.py"]));
+    }
+
+    #[test]
+    fn first_value_refusal_stops_boolean_and_call_siblings_with_original_non_send_error() {
+        use std::{cell::Cell, rc::Rc};
+        for expression in ["a or b or c or d or e or f", "callee(a, b, c, d, e, f)"] {
+            let resources = budget();
+            let checkpoints = Cell::new(0);
+            let stopped = Cell::new(false);
+            let at_stop = Cell::new(0);
+            let peak_at_stop = Cell::new(0);
+            let ends = Cell::new(0);
+            let borrowed = Cell::new(7);
+            let marker = Rc::new(String::from("original value refusal"));
+            let source = format!(
+                "def example(a,b,c,d,e,f,callee):\n    result = {expression}\n    later = a\n"
+            );
+            let result = visit_modules(
+                &[input("first.py", &source), input("later.py", "x = 1\n")],
+                &context(),
+                &resources,
+                &|| {
+                    checkpoints.set(checkpoints.get() + 1);
+                    if stopped.get() {
+                        Err(lctx_model::domain::ModelError::Invalid(
+                            "late checkpoint replaced callback".into(),
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                },
+                |_| (),
+                |_, event| {
+                    if matches!(event, super::ModuleEvent::End(_)) {
+                        ends.set(ends.get() + 1);
+                    }
+                    if matches!(event, super::ModuleEvent::Value(_)) {
+                        stopped.set(true);
+                        at_stop.set(checkpoints.get());
+                        peak_at_stop.set(resources.peak().unwrap());
+                        Err((&borrowed, marker.clone()))
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            let Err(super::VisitError::Consumer((returned, reason))) = result else {
+                panic!("callback error was replaced");
+            };
+            assert!(std::ptr::eq(returned, &borrowed));
+            assert!(Rc::ptr_eq(&reason, &marker));
+            assert_eq!(checkpoints.get(), at_stop.get());
+            assert_eq!(resources.peak().unwrap(), peak_at_stop.get());
+            assert_eq!(ends.get(), 0);
+            assert_eq!(resources.reserved(), 0);
+        }
+    }
+
+    #[test]
+    fn complete_groups_serve_growth_without_retaining_the_expanded_module() {
+        let mut text = String::from("def source(x, p):\n    if p:\n        x = 1\n");
+        for i in 0..1500 {
+            use std::fmt::Write;
+            writeln!(&mut text, "    value_{i} = x").unwrap();
+        }
+        let inputs = [input("growing.py", &text)];
+        let run = |resources: &super::ResourceBudget| {
+            let mut prelude = None;
+            let mut count = 0;
+            let mut reaching = 0;
+            visit_modules(
+                &inputs,
+                &context(),
+                resources,
+                &|| Ok(()),
+                |_| (),
+                |_, event| {
+                    match event {
+                        super::ModuleEvent::Prelude(value) => prelude = Some(value),
+                        super::ModuleEvent::UseGroup { value, .. } => {
+                            count += 1;
+                            reaching += value.reaching.len();
+                        }
+                        super::ModuleEvent::End(_) => {
+                            drop(prelude.take());
+                        }
+                        _ => {}
+                    }
+                    Ok::<_, ()>(())
+                },
+            )
+            .unwrap();
+            assert!(count >= 1500);
+            assert!(reaching >= 1500);
+            assert_eq!(resources.reserved(), 0);
+            (count, reaching)
+        };
+        let roomy = super::ResourceBudget::fixed(256 << 20).unwrap();
+        let expected = run(&roomy);
+        let allowance = roomy.peak().unwrap() + 4096;
+        let narrow = super::ResourceBudget::fixed(allowance).unwrap();
+        assert_eq!(run(&narrow), expected);
+        let collected = crate::test_support::index_with_budget(&inputs, &context(), &narrow);
+        assert!(matches!(
+            collected,
+            Err(super::VisitError::Consumer(
+                lctx_model::domain::ModelError::Resource { .. }
+            )) | Err(super::VisitError::Operational(
+                super::FlowOperationalError::Model(lctx_model::domain::ModelError::Resource { .. })
+            ))
+        ));
+        assert_eq!(narrow.reserved(), 0);
     }
 
     fn lexed_tokens(text: &str) -> Vec<ruff_python_ast_ty::token::Token> {

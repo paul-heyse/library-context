@@ -282,6 +282,26 @@ bounded stable-capture interpretation has its own caller-frame/value certificate
 historical native/PG/replay receipts. Product capture packet acceptance remains pending in that
 coordinator; current native implementation acceptance belongs to graph-native remediation §9/R-Q0.
 
+**Collection execution implemented / focused-Tested, 2026-10-17; selected native acceptance incomplete.** One
+guarded canonical occurrence read supplies flow lookup and the existing model attacher; each
+retains its own admitted physical view. Ordered raw span buckets preserve both attachment's
+filtered/deduplicated candidates and region lowering's raw statement multiplicity. Native flow
+delivers complete admitted groups synchronously, with charged retained module correspondence
+and typed ordinal maps. Complete predicate operand correspondence is prepared before condition
+emission; traversal, cache limits, capture/loop meaning and meaningful ordinals are unchanged.
+Only successful terminal delivery permits module coverage; private provider completion still
+requires actual join and ingress drainage. Resource/cancellation/consumer failures remain
+operational errors, distinct from genuine module-model limitations. Private typed operational and
+consumer-stop markers cross infallible native visitors; only the public runner recognizes them.
+Original consumer errors retain their borrowed/non-Send contract, and unrelated panics propagate.
+The existing provider owner
+signals the actual Salsa query token; indivisible parsing/fixpoint work retains its cooperative
+drainage limit. Opaque analyzer/model/BDD allocations are not a whole-process RSS guarantee.
+The [collection coordinator §6](../../plans/catalog-collection-efficiency-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns focused evidence and the deferred full acceptance boundary.
+
+> Decision: ADR-0182
+
 **Implemented selected source characterization**, 2026-10-03. The independent Ruff parse
 also supplies configured F821/F401/F841 observations, including retained `noqa` suppression.
 Pyrefly supplies native diagnostic category/severity/header/details and selected parameter
@@ -317,18 +337,17 @@ model owns payloads and attachments.
 
    `configure()` must return no errors. `ConfigFinder::new_constant` rules out discovery and
    walk-up.
-3. **State.** `State::new(finder, ThreadCount::Inline)` on a driver-owned thread whose stack size
-   is part of the producer config, so changing it changes `run_id`. The check and the lazy solves
-   all run on that thread. One thread is a precaution (upstream's cycle placeholders are per
-   thread), not a demonstrated need: FastMCP and an import-cycle fixture (a return-type cycle and
-   a global cycle whose solved types reach `pysa_calls`) gave identical output at `Inline` and
-   several thread counts in each module order (2026-09-22), and `Inline` was also the cheaper
-   setting. **Tested:** sorted and reversed module order and separate processes give identical
-   output.
+3. **State.** One `State::new(finder, ThreadCount::Inline)` retains caller-owned ordered
+   extraction and later lazy queries on the provider thread. Analysis waves use the shared native
+   `AllThreads` pool and join before extraction; Inline is not a whole-analysis concurrency cap.
+   Provider stack/config identity remains explicit. Earlier 2026-09-22 module-order/process
+   comparisons retain their historical scope; they do not qualify current joined collection.
 4. **Handles.** One per project module, from `cfg.handle_from_module_path`, sorted by module name.
 5. **Run.** Install a `PysaReporter` with `write_files: false` and `ModuleIds::new(&handles)`, then
-   call `transaction.run(&handles, Require::Everything, None)`. Keep the reporter installed during
-   extraction (borrow it with `pysa_reporter()`), because dependency modules solve lazily.
+   call `transaction.run(&handles, Require::Everything, Some(analysis_pool()))`. Imported context
+   begins at native Exports; explicitly selected dependency waves request Everything. Keep the
+   reporter installed during extraction, because dependencies solve lazily. `write_files: false`
+   does not run an additional automatic report collector.
 6. **Extract** per module, in sorted order (§4.2.2–§4.2.3). Then emit coverage (§3.7).
 
 
@@ -337,7 +356,7 @@ model owns payloads and attachments.
 **Accepted target, 2026-10-03:** parse the captured snapshot with latest Ruff once, then reuse
 that parsed module for the canonical SourceOrderVisitor and populated Checker observer. The
 observer emits owned node/context and final binding/reference rows after deferred
-passes. Supplemental unused branch/export emissions are retired in fork `9080ee7a`; native BindingKind::Export and reference typing context remain. Five-case retained-fact and actual lint-diagnostic parity passed, 2026-10-04; current linked consumer qualification is pending. Work/row/cancellation/sink limits become explicit Partial coverage; initial parsing is
+passes. Supplemental unused branch/export emissions are retired in fork `9080ee7a`; native BindingKind::Export and reference typing context remain. Five-case retained-fact and actual lint-diagnostic parity passed, 2026-10-04; current linked consumer qualification is pending. Observer work/row limits expose explicit Partial coverage. Provider cancellation and attempt resource refusal abort the operation; initial parsing is
 an indivisible upstream call. String-annotation nodes retain their distinct origin.
 
 Pyrefly's retained embedded AST supplies native adapter queries. Owned correspondence checks
@@ -373,9 +392,12 @@ supply independently pinned capability contracts and do not carry repository wir
 
 ### §4.2.3 Semantics: Pyrefly's own collectors
 
-- **Collectors.** Per module: `PysaResolver::new`, `ModuleAnswersContext::create`,
-  `collect_captured_variables_for_module`, `create_reversed_override_graph_for_module`, then
-  `export_module_definitions` and `export_module_call_graphs`, the functions behind
+- **Collectors.** Per root module, one borrowed resolver/answers context serves definitions,
+  calls and compatible type lowering. Captures are collected once for definitions/calls and
+  released before types; definitions retains override/MRO preparation. Selected dependencies
+  create definitions-only preparation for their current wave and release it before the next
+  mutable wave. The optional Pysa tap retains its explicitly requested graph export and timing.
+  `export_module_definitions` and `export_module_call_graphs` are the functions behind
   `--report-pysa`. The in-memory structs equal the CLI's JSON (**Tested**, 2026-09-22: 257 of 257
   modules; definitions equal as sets).
 - **Locations → bytes.** Every `PysaLocation` is converted with its module's `LineIndex` (§3.4).

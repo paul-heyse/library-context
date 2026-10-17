@@ -4,7 +4,7 @@ mod common;
 use cpg_flow::{
     CaptureOrigin, Input, RuntimeBindings, RuntimeContext, SnapshotBinding, SnapshotState,
 };
-fn flow(source: &str) -> cpg_flow::ModuleFlow {
+fn flow(source: &str) -> common::ModuleFlow {
     common::index(
         &[Input {
             path: "capture.py".into(),

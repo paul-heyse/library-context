@@ -3,8 +3,9 @@
 //! captured inputs. Neither the provider nor its output requires a database or publication grant.
 use crate::{acquisition::AcquiredInput, assembly::Attacher};
 use lctx_model::domain::{
-    Batch, ContentHash, Infrastructure, KeySink, ModelError, Record, ValidatedModel,
+    Batch, ContentHash, HeapSize, Infrastructure, KeySink, ModelError, Record, ValidatedModel,
     batching::{BatchWriter, TransferLimits},
+    charged::StateCharge,
     resources::ResourceBudget,
     source::Occurrence,
     stages::{Profile, ProviderOutcome, Stage},
@@ -247,6 +248,40 @@ impl Drop for CancellationRegistration {
     }
 }
 
+/// A borrowed operation can observe the same stage owner without holding the stage's mutable
+/// output access. Native callbacks only signal cancellation; provider drainage retains the join.
+#[derive(Clone)]
+pub struct StageControl {
+    name: &'static str,
+    cancellation: Arc<ProviderCancellation>,
+    failed: Arc<AtomicBool>,
+}
+impl StageControl {
+    pub fn check(&self) -> Result<(), ModelError> {
+        self.cancellation.check()?;
+        if self.failed.load(Ordering::Acquire) {
+            return Err(ModelError::Invalid(format!(
+                "{} refused an earlier operation; the attempt fails",
+                self.name
+            )));
+        }
+        Ok(())
+    }
+    pub fn register(
+        &self,
+        callback: impl Fn() + Send + Sync + 'static,
+    ) -> CancellationRegistration {
+        self.cancellation.register(callback)
+    }
+}
+
+/// One decoded inventory retained by its actual flow consumer. The installed model attacher
+/// separately owns its compact entries and does not borrow this backing.
+pub(crate) struct PreparedOccurrences {
+    pub rows: Vec<Occurrence>,
+    pub _charge: StateCharge,
+}
+
 /// What a running provider may do: emit its declared outputs, contribute declared vocabulary, read
 /// its declared inputs' handoffs, attach to handed-off occurrences, and read the captured inputs.
 /// The first refusal poisons the context, so the attempt fails even if the provider ignores it.
@@ -272,6 +307,13 @@ enum Mode {
     Batches,
 }
 impl<S: ProviderSink + 'static> StageContext<S> {
+    pub fn control(&self) -> StageControl {
+        StageControl {
+            name: self.stage.name,
+            cancellation: self.cancellation.clone(),
+            failed: self.failed.clone(),
+        }
+    }
     /// Native callbacks must only signal cancellation; joining remains the provider's job.
     pub fn register_cancellation(
         &self,
@@ -438,6 +480,46 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             self.attacher = Some(attacher);
         }
         Ok(self.attacher.as_ref().expect("built above"))
+    }
+    /// Prepare the one declared occurrence input for a consumer needing both decoded rows and
+    /// model attachment. Refuse replacement rather than trust an independently supplied index.
+    pub(crate) fn prepare_occurrence_input(&mut self) -> Result<PreparedOccurrences, ModelError> {
+        self.guard(|context| {
+            if context.attacher.is_some() {
+                return Err(ModelError::Conflict(
+                    "stage occurrence input already prepared",
+                ));
+            }
+            let mut charge = StateCharge::new(&context.budget, "provider occurrence input");
+            let mut rows = Vec::new();
+            for batch in context.input::<Occurrence>()? {
+                context.check_cancelled()?;
+                let batch = batch?;
+                for row in batch.rows() {
+                    if rows.len() == rows.capacity() {
+                        let capacity = rows.capacity().max(4).checked_mul(2).ok_or_else(|| {
+                            ModelError::Invalid("occurrence capacity overflow".into())
+                        })?;
+                        let extra = (capacity - rows.capacity())
+                            .checked_mul(size_of::<Occurrence>())
+                            .ok_or_else(|| {
+                                ModelError::Invalid("occurrence capacity overflow".into())
+                            })?;
+                        charge.grow(extra)?;
+                        rows.reserve_exact(capacity - rows.len());
+                    }
+                    charge.grow(row.heap_bytes())?;
+                    rows.push(row.clone());
+                }
+            }
+            context.check_cancelled()?;
+            let attacher = Attacher::from_rows(&rows, context.budget.clone())?;
+            context.attacher = Some(attacher);
+            Ok(PreparedOccurrences {
+                rows,
+                _charge: charge,
+            })
+        })
     }
     fn guard<T>(
         &mut self,
@@ -728,6 +810,40 @@ mod cancellation_controls {
     use std::sync::atomic::AtomicUsize;
 
     #[test]
+    fn cloned_stage_control_keeps_the_actual_failure_and_cancellation_owners() {
+        let cancellation = Arc::new(ProviderCancellation::default());
+        let failed = Arc::new(AtomicBool::new(false));
+        let control = StageControl {
+            name: "control",
+            cancellation: cancellation.clone(),
+            failed: failed.clone(),
+        };
+        let cloned = control.clone();
+        assert!(cloned.check().is_ok());
+        failed.store(true, Ordering::Release);
+        assert!(cloned.check().is_err());
+        failed.store(false, Ordering::Release);
+        let signals = Arc::new(AtomicUsize::new(0));
+        let observed = signals.clone();
+        let registration = cloned.register(move || {
+            observed.fetch_add(1, Ordering::AcqRel);
+        });
+        cancellation.cancel();
+        assert_eq!(signals.load(Ordering::Acquire), 1);
+        assert!(control.check().is_err());
+        assert!(cloned.check().is_err());
+        drop(registration);
+        assert!(
+            cancellation
+                .registrations
+                .lock()
+                .unwrap()
+                .callbacks
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn registration_and_cancellation_are_synchronized_in_both_orders() {
         for cancel_first in [false, true] {
             let owner = Arc::new(ProviderCancellation::default());
@@ -842,5 +958,173 @@ mod cancellation_controls {
             .unwrap()
             .join()
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod occurrence_preparation_controls {
+    use super::*;
+    use lctx_model::domain::{
+        Id,
+        source::{OccurrenceRole, SourceArtifact, SyntaxKind},
+        stages::{Effect, RelationUse},
+    };
+    use std::sync::atomic::AtomicUsize;
+
+    struct Inputs {
+        rows: Vec<Occurrence>,
+        reads: AtomicUsize,
+        error: bool,
+        model: Arc<ValidatedModel>,
+        budget: ResourceBudget,
+    }
+    impl ProviderSink for Inputs {
+        fn read<R: Record>(&self) -> Result<ProviderBatchStream<R>, ModelError> {
+            self.reads.fetch_add(1, Ordering::AcqRel);
+            assert_eq!(TypeId::of::<R>(), TypeId::of::<Occurrence>());
+            if self.error {
+                return Ok(Box::new(std::iter::once(Err(ModelError::Invalid(
+                    "input failure".into(),
+                )))));
+            }
+            // Separate valid batches also reveal duplicate identities across the stream.
+            let batches: Vec<_> = self
+                .rows
+                .iter()
+                .map(|row| {
+                    let row: Box<dyn std::any::Any> = Box::new(vec![row.clone()]);
+                    Batch::new(
+                        &self.model,
+                        *row.downcast::<Vec<R>>().unwrap(),
+                        &self.budget,
+                    )
+                })
+                .collect();
+            Ok(Box::new(batches.into_iter()))
+        }
+        fn declare<R: Record>(&self) -> Result<(), ModelError> {
+            Ok(())
+        }
+        fn write<R: Record>(&self, _: Batch<R>) -> Result<(), ModelError> {
+            Ok(())
+        }
+        fn contribute<R: Record>(&self, _: Batch<R>) -> Result<(), ModelError> {
+            Ok(())
+        }
+        fn finish(&self, _: ProviderOutcome) -> Result<(), ModelError> {
+            panic!("these controls never complete a provider")
+        }
+    }
+    fn row() -> Occurrence {
+        Occurrence {
+            source: serde_json::from_value::<Id<SourceArtifact>>(serde_json::json!(vec![1; 16]))
+                .unwrap(),
+            start: 1,
+            end: 2,
+            syntax_kind: SyntaxKind::ExprName,
+            role: OccurrenceRole::Read,
+            structural_path: vec![0],
+        }
+    }
+    fn context(rows: Vec<Occurrence>, error: bool) -> (StageContext<Inputs>, ResourceBudget) {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let model = Arc::new(lctx_model::domain::model().unwrap());
+        let sink = Arc::new(Inputs {
+            rows,
+            reads: AtomicUsize::new(0),
+            error,
+            model: model.clone(),
+            budget: budget.clone(),
+        });
+        let captured = Arc::new(CapturedInputs::new(
+            vec![],
+            crate::native_context::NativeContextConfig::committed(Profile::Catalog, &budget)
+                .unwrap(),
+        ));
+        let captured_run = CapturedTreeRunGuard::open(captured.clone()).unwrap();
+        let stage = Stage {
+            captured_binding: None,
+            name: "occurrence-preparation-control",
+            inputs: vec![RelationUse::of::<Occurrence>()],
+            outputs: vec![],
+            contributes: vec![],
+            coverage: vec![],
+            profiles: vec![Profile::Catalog],
+            effect: Effect::Extraction,
+            code: ContentHash::of(b"occurrence-control"),
+            configuration: ContentHash::of(b"occurrence-control"),
+        };
+        (
+            StageContext {
+                stage,
+                profile: Profile::Catalog,
+                model,
+                budget: budget.clone(),
+                limits: TransferLimits::default(),
+                captured,
+                captured_run,
+                sink,
+                cancellation: Arc::default(),
+                attacher: None,
+                outputs: vec![],
+                contributions: vec![],
+                failed: Arc::default(),
+            },
+            budget,
+        )
+    }
+    #[test]
+    fn one_read_prepares_both_consumers_with_independent_backing_lifetimes() {
+        for rows_first in [false, true] {
+            let expected = row();
+            let (mut context, budget) = context(vec![expected.clone()], false);
+            let prepared = context.prepare_occurrence_input().unwrap();
+            assert_eq!(prepared.rows.as_slice(), std::slice::from_ref(&expected));
+            assert!(prepared._charge.reserved() > 0);
+            let query = lctx_model::domain::attachment::AttachmentQuery {
+                source: expected.source,
+                start: 1,
+                end: 2,
+                syntax_kind: expected.syntax_kind,
+                role: expected.role,
+                structural_path: None,
+            };
+            assert!(
+                matches!(context.attacher().unwrap().attach(&query).unwrap(), crate::assembly::Attached::Exact(id) if id == expected.id())
+            );
+            assert_eq!(context.sink.reads.load(Ordering::Acquire), 1);
+            if rows_first {
+                drop(prepared);
+                assert!(budget.reserved() > 0);
+                assert!(context.attacher().unwrap().attach(&query).is_ok());
+                drop(context);
+            } else {
+                drop(context);
+                assert!(budget.reserved() > 0);
+                assert_eq!(prepared.rows[0].id(), expected.id());
+                drop(prepared);
+            }
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+    #[test]
+    fn ignored_preparation_error_duplicate_or_replacement_poison_the_stage() {
+        for mode in 0..3 {
+            let (mut context, budget) = context(
+                if mode == 1 {
+                    vec![row(), row()]
+                } else {
+                    vec![row()]
+                },
+                mode == 0,
+            );
+            if mode == 2 {
+                drop(context.prepare_occurrence_input().unwrap());
+            }
+            assert!(context.prepare_occurrence_input().is_err());
+            assert!(context.control().check().is_err());
+            assert!(context.close(Ok(ProviderOutcome::Complete)).is_err());
+            assert_eq!(budget.reserved(), 0);
+        }
     }
 }

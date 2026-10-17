@@ -7,10 +7,9 @@ mod common;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use common::ModuleFlow;
 use cpg_flow::native::{Atom, Value};
-use cpg_flow::{
-    BindingKind, Condition, Input, ModuleFlow, RuntimeBindings, RuntimeContext, Sink, Span,
-};
+use cpg_flow::{BindingKind, Condition, Input, RuntimeBindings, RuntimeContext, Sink, Span};
 use lctx_model::domain::{attribution::*, conditions::*, input::*, source::*, *};
 
 // A test-only presentation over the model's canonical kernel. No native provider encoding or
@@ -49,15 +48,37 @@ fn atom_label(atom: &Atom) -> String {
         Atom::Evaluated { .. } => unreachable!(),
     }
 }
-fn lower(
-    c: &Condition,
-) -> Result<
-    (
-        Diagram,
-        std::collections::BTreeMap<Id<EvaluationAtom>, String>,
-    ),
-    KernelBoundary,
-> {
+struct Lowered {
+    diagram: Diagram,
+    names: std::collections::BTreeMap<Id<EvaluationAtom>, String>,
+    _charge: lctx_model::domain::charged::StateCharge,
+}
+impl std::ops::Deref for Lowered {
+    type Target = Diagram;
+    fn deref(&self) -> &Self::Target {
+        &self.diagram
+    }
+}
+fn lower(c: &Condition) -> Result<Lowered, KernelBoundary> {
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let mut charge =
+        lctx_model::domain::charged::StateCharge::new(&budget, "flow-test-condition-lowering");
+    // Mapping owns a new graph and presentation map; reserve before either is allocated.
+    // Label allowance covers escaped strings, intermediate formatting and retained names.
+    let graph_bytes = c
+        .nodes
+        .len()
+        .checked_mul(size_of::<CondNode<Id<EvaluationAtom>>>())
+        .unwrap();
+    let label_bytes = c
+        .leaves()
+        .try_fold(0usize, |bytes, atom| {
+            bytes.checked_add(atom.heap_bytes().checked_mul(16)?.checked_add(1024)?)
+        })
+        .unwrap();
+    charge
+        .grow(graph_bytes.checked_add(label_bytes).unwrap())
+        .unwrap();
     let input = InputRevision::from_entries(vec![]).unwrap();
     let source = SourceArtifact::from_bytes(input.id(), "test.py".into(), b"").unwrap();
     let context = AnalysisContext {
@@ -96,12 +117,18 @@ fn lower(
         names.insert(atom.id(), label);
         atom.id()
     });
-    Ok((Diagram::from_graph(&graph)?.diagram, names))
+    Ok(Lowered {
+        diagram: Diagram::from_graph(&graph)?.diagram,
+        names,
+        _charge: charge,
+    })
 }
 fn labels(c: &Condition) -> String {
-    let Ok((diagram, names)) = lower(c) else {
+    let Ok(lowered) = lower(c) else {
         return "unavailable".into();
     };
+    let diagram = &lowered.diagram;
+    let names = &lowered.names;
     if diagram.is_true() {
         return "true".into();
     }
@@ -202,6 +229,56 @@ fn flow() -> &'static ModuleFlow {
 }
 
 #[test]
+fn event_collection_rebases_reaching_and_retains_last_owned_condition() {
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(64 << 20).unwrap();
+    let mut modules = common::index_with_budget(
+        &[Input {
+            path: "indices.py".into(),
+            text: "value = 1\nfirst = value\nsecond = value\n".into(),
+            runtime: RuntimeBindings::default(),
+        }],
+        &RuntimeContext {
+            python_version: (3, 14, 7),
+            platform: "linux".into(),
+        },
+        &budget,
+    )
+    .unwrap();
+    let module = modules.pop().unwrap();
+    drop(modules);
+    assert!(module.error.is_none());
+    assert_eq!(
+        module.nodes.first().unwrap().kind,
+        Some(SyntaxKind::StmtAssign),
+        "parent precedes its equal-start target, independently of span-map order"
+    );
+    assert!(
+        module
+            .candidates
+            .iter()
+            .any(|candidate| candidate.reaching.start > 0)
+    );
+    for candidate in &module.candidates {
+        assert!(candidate.reaching.end <= module.reaching.len());
+        for row in &module.reaching[candidate.reaching.clone()] {
+            assert_eq!(row.use_ix, candidate.use_ix);
+            assert!(
+                row.def_ix
+                    .is_none_or(|index| (index as usize) < module.defs.len())
+            );
+        }
+    }
+    let condition = module.reaching.first().unwrap().condition.clone();
+    drop(module);
+    assert!(
+        budget.reserved() > 0,
+        "the last condition owns its admitted backing"
+    );
+    drop(condition);
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
 fn test_leaves_keep_compound_operands_and_distinct_match_arms() {
     let leaves = &flow().test_leaves;
     let compound: Vec<_> = leaves
@@ -281,7 +358,8 @@ fn flow_producer_keeps_a_wide_predicate_as_a_structural_graph() {
     assert!(flow.error.is_none(), "{:?}", flow.error);
     let at = text.find("return \"reachable\"").unwrap() as u32;
     let region = flow.regions.iter().find(|r| r.span.start == at).unwrap();
-    let (diagram, _) = lower(&region.condition).unwrap();
+    let lowered = lower(&region.condition).unwrap();
+    let diagram = &lowered.diagram;
     assert!(!diagram.is_false());
     assert!(diagram.render_terms(16).unwrap().truncated);
 }
@@ -1056,7 +1134,7 @@ fn native_guarded_origin_search_keeps_evaluation_occurrences_and_reports_supply(
             .min_by_key(|r| r.span.end - r.span.start)
             .unwrap();
         let access = value.condition.and(&region.condition);
-        let q = lower(&access).unwrap().0;
+        let q = lower(&access).unwrap();
         let complete = inventory
             .iter()
             .all(|c| !c.pruned && !c.loop_expanded && !c.unattached && !c.reachability_lost);
@@ -1083,14 +1161,19 @@ fn native_guarded_origin_search_keeps_evaluation_occurrences_and_reports_supply(
             && !q.is_false()
             && lower(&parameters[0].condition)
                 .unwrap()
-                .0
+                .diagram
                 .and(&q)
                 .unwrap()
                 .id()
                 == q.id()
-            && competitors
-                .iter()
-                .all(|r| lower(&r.condition).unwrap().0.and(&q).unwrap().is_false());
+            && competitors.iter().all(|r| {
+                lower(&r.condition)
+                    .unwrap()
+                    .diagram
+                    .and(&q)
+                    .unwrap()
+                    .is_false()
+            });
         if admitted {
             useful += 1;
         }
@@ -1174,7 +1257,7 @@ fn native_candidate_formulas_survive_pruning_and_missing_pep695_attachment() {
         let c = flow.candidates.iter().find(|c| c.use_ix == ix).unwrap();
         assert_eq!(c.kind, kind);
         assert_eq!(c.reaching.len(), 1);
-        assert!(flow.reaching[c.reaching[0]].def_ix.is_none());
+        assert!(flow.reaching[c.reaching.start].def_ix.is_none());
         assert!(!c.unattached);
     }
     for kind in [CandidateKind::Nested, CandidateKind::LoopHeader] {

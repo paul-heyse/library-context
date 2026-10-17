@@ -57,6 +57,28 @@ pub enum Atom {
     },
 }
 impl Atom {
+    pub(crate) fn evaluated_in(
+        self,
+        resources: &crate::admitted::Resources<'_>,
+        site: EvaluationSite,
+    ) -> Self {
+        resources.grow(size_of::<Atom>());
+        self.evaluated(site)
+    }
+    pub(crate) fn opaque_in(resources: &crate::admitted::Resources<'_>, text: &str) -> Self {
+        Self::Opaque {
+            text: resources.compact(text, " "),
+        }
+    }
+    pub(crate) fn member_of_in(
+        _resources: &crate::admitted::Resources<'_>,
+        place: String,
+        mut values: Vec<Value>,
+    ) -> Self {
+        values.sort_unstable();
+        values.dedup();
+        Self::MemberOf { place, values }
+    }
     /// Retained bytes when a pipeline-owned map clones this native shape.
     pub fn heap_bytes(&self) -> usize {
         let value = |v: &Value| match v {
@@ -147,6 +169,21 @@ pub enum PlaceSegment {
 pub struct Place {
     pub root: String,
     pub segments: Vec<PlaceSegment>,
+}
+impl Place {
+    pub fn heap_bytes(&self) -> usize {
+        self.root.capacity()
+            + self.segments.capacity() * size_of::<PlaceSegment>()
+            + self
+                .segments
+                .iter()
+                .map(|segment| match segment {
+                    PlaceSegment::Attribute(name) => name.capacity(),
+                    PlaceSegment::Item(Value::Str(value)) => value.capacity(),
+                    _ => 0,
+                })
+                .sum::<usize>()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

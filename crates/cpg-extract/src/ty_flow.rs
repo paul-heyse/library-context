@@ -7,7 +7,7 @@ use crate::{
     bundle::{Declared, ProviderStage, StageContext},
     typed_syntax::SyntaxLimits,
 };
-use cpg_flow::{ModuleFlow, Span, native};
+use cpg_flow::{ModuleEvent, Span, native};
 use lctx_model::domain::producer_contract::ProducerContract;
 pub use lctx_model::domain::producer_contract::facts::TY_FLOW;
 use lctx_model::domain::{
@@ -39,6 +39,11 @@ pub fn provider() -> Provider {
             include_str!("../../lctx-model/src/domain/flow_inventory.rs"),
             // This adapter's facts also depend on the provider's native mapping.
             include_str!("../../cpg-flow/src/lib.rs"),
+            include_str!("../../cpg-flow/src/events.rs"),
+            include_str!("../../cpg-flow/src/admitted.rs"),
+            include_str!("../../cpg-flow/src/narrowing.rs"),
+            include_str!("../../cpg-flow/src/native.rs"),
+            include_str!("../../cpg-flow/src/db.rs"),
             include_str!("../../cpg-flow/src/predicate.rs"),
         ]),
     }
@@ -113,9 +118,20 @@ enum RuntimeSpecial {
     Class,
 }
 type SourceIndex<T> = BTreeMap<Id<SourceArtifact>, Vec<T>>;
+struct Occurrences {
+    prepared: crate::bundle::PreparedOccurrences,
+    positions: BTreeMap<Id<Occurrence>, usize>,
+}
+impl Occurrences {
+    fn get(&self, id: &Id<Occurrence>) -> Option<&Occurrence> {
+        self.positions
+            .get(id)
+            .map(|position| &self.prepared.rows[*position])
+    }
+}
 struct Index {
     _charge: StateCharge,
-    occurrences: BTreeMap<Id<Occurrence>, Occurrence>,
+    occurrences: Occurrences,
     scopes: BTreeMap<Id<LexicalScope>, LexicalScope>,
     declarations: Vec<DeclarationObservation>,
     bindings: BTreeMap<Id<BindingEvent>, BindingObservation>,
@@ -152,10 +168,18 @@ impl Index {
             }
             Ok(rows)
         }
-        let occurrences: BTreeMap<_, _> = read::<Occurrence, _>(context, &mut charge)?
-            .into_iter()
-            .map(|r| (r.id(), r))
-            .collect();
+        let prepared = context.prepare_occurrence_input()?;
+        let mut positions = BTreeMap::new();
+        for (position, row) in prepared.rows.iter().enumerate() {
+            charge.grow(size_of::<Id<Occurrence>>() + size_of::<usize>() + 128)?;
+            if positions.insert(row.id(), position).is_some() {
+                return Err(ModelError::Conflict(Occurrence::NAME));
+            }
+        }
+        let occurrences = Occurrences {
+            prepared,
+            positions,
+        };
         let scopes: BTreeMap<_, _> = read::<LexicalScope, _>(context, &mut charge)?
             .into_iter()
             .map(|r| (r.id(), r))
@@ -439,7 +463,7 @@ impl Index {
             .into_iter()
             .flatten()
             .find(|id| {
-                self.occurrences.get(*id).is_some_and(|o| {
+                self.occurrences.get(id).is_some_and(|o| {
                     o.source == alias_site.source
                         && o.start == alias_site.start
                         && o.end <= alias_site.end
@@ -627,74 +651,95 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
                 admitted.push(artifact);
             }
             context.check_cancelled()?;
+            let budget = context.budget().clone();
+            let control = context.control();
+            let mut module: Option<ModuleState> = None;
             cpg_flow::visit_modules(
                 &native_inputs,
                 &cpg_flow::RuntimeContext {
                     python_version: version,
                     platform: analysis.python_platform.clone(),
                 },
-                |input_index, flow| {
+                &budget,
+                &|| control.check(),
+                |token| control.register(move || token.cancel()),
+                |input_index, event| {
                     context.check_cancelled()?;
-                    let artifact = admitted[input_index];
-                    let scope = CoverageScope::Artifact {
-                        artifact: artifact.id(),
+                    let artifact = admitted.get(input_index).copied()
+                        .ok_or_else(|| invalid("native flow input index out of range"))?;
+                    let scope = CoverageScope::Artifact { artifact: artifact.id() };
+                    let event = match event {
+                        ModuleEvent::Prelude(prelude) => {
+                            if module.is_some() { return Err(invalid("native flow modules overlap")); }
+                            let mut state = ModuleState::new(input_index, &budget);
+                            state.prelude = Some(prelude);
+                            let mut writer = Writer { context, index: &index, state: &mut state,
+                                artifact, analysis: &analysis, scope: &scope, run: &run, surface: &surface };
+                            writer.source_view()?;
+                            module = Some(state);
+                            return Ok(());
+                        }
+                        ModuleEvent::ModuleFailure(failure) => {
+                            if module.is_some() { return Err(invalid("native module failure follows preamble")); }
+                            let mut state = ModuleState::new(input_index, &budget);
+                            let mut writer = Writer { context, index: &index, state: &mut state,
+                                artifact, analysis: &analysis, scope: &scope, run: &run, surface: &surface };
+                            writer.boundary(None, ObligationKind::OutsideProviderModel, &failure.detail)?;
+                            writer.context.contribute(coverage(&scope, &provider, &analysis, &run,
+                                CoverageStatus::Failed, Some(ObligationKind::OutsideProviderModel),
+                                Some(failure.detail.clone())))?;
+                            partial = true;
+                            return Ok(());
+                        }
+                        event => event,
                     };
-                    let mut writer = Writer {
-                        context,
-                        index: &index,
-                        flow: &flow,
-                        artifact,
-                        analysis: &analysis,
-                        scope: &scope,
-                        run: &run,
-                        surface: &surface,
-                        partial: false,
-                        atoms: BTreeMap::new(),
-                        _charge: StateCharge::new(
-                            &charge.budget().unwrap().clone(),
-                            "ty_flow_atom_cache",
-                        ),
-                    };
-                    if let Some(error) = &flow.error {
-                        writer.boundary(None, ObligationKind::OutsideProviderModel, error)?;
-                    } else {
-                        writer.write()?;
+                    let state = module.as_mut().ok_or_else(|| invalid("native event has no module preamble"))?;
+                    if state.index != input_index { return Err(invalid("native event changed module before completion")); }
+                    let mut writer = Writer { context, index: &index, state,
+                        artifact, analysis: &analysis, scope: &scope, run: &run, surface: &surface };
+                    let mut finished = false;
+                    match event {
+                        ModuleEvent::Definition { ordinal, value } => writer.definition(ordinal, value)?,
+                        ModuleEvent::UseGroup { ordinal, value } => writer.use_group(ordinal, value)?,
+                        ModuleEvent::UnavailableUse(span) => {
+                            let subject = writer.attach(span, None)?;
+                            writer.boundary(subject, ObligationKind::ScopeBoundary,
+                                "native use enumeration unavailable: no source scope")?;
+                        }
+                        ModuleEvent::Value(value) => writer.value(value)?,
+                        ModuleEvent::Region(value) => writer.region(value)?,
+                        ModuleEvent::Attribute(value) => writer.attribute(value)?,
+                        ModuleEvent::Test(value) => writer.test(value)?,
+                        ModuleEvent::TestLeaf(value) => writer.test_leaf(value)?,
+                        ModuleEvent::TraversalComplete => writer.state.traversal_complete(&budget),
+                        ModuleEvent::End(skips) => {
+                            let syntax_errors = writer.prelude()?.syntax_errors;
+                            let (status, reason) = if syntax_errors > 0 {
+                                (CoverageStatus::Partial, Some(ObligationKind::SyntaxError))
+                            } else if writer.state.partial {
+                                (CoverageStatus::Partial, Some(ObligationKind::OutsideProviderModel))
+                            } else { (CoverageStatus::CompleteUnderStatedModel, None) };
+                            partial |= status != CoverageStatus::CompleteUnderStatedModel;
+                            writer.context.contribute(coverage(&scope, &provider, &analysis, &run,
+                                status, reason, Some(format!(
+                                    "native syntax errors {}; runtime reach skips {}; ty-false reach skips {}",
+                                    syntax_errors, skips.reaching_runtime_view, skips.reaching_ty_false))))?;
+                            finished = true;
+                        }
+                        ModuleEvent::Prelude(_) | ModuleEvent::ModuleFailure(_) => unreachable!(),
                     }
-                    let status = if flow.error.is_some() {
-                        CoverageStatus::Failed
-                    } else if writer.partial || flow.syntax_errors > 0 {
-                        CoverageStatus::Partial
-                    } else {
-                        CoverageStatus::CompleteUnderStatedModel
-                    };
-                    let reason = if flow.error.is_some() {
-                        Some(ObligationKind::OutsideProviderModel)
-                    } else if flow.syntax_errors > 0 {
-                        Some(ObligationKind::SyntaxError)
-                    } else if writer.partial {
-                        Some(ObligationKind::OutsideProviderModel)
-                    } else {
-                        None
-                    };
-                    partial |= status != CoverageStatus::CompleteUnderStatedModel;
-                    writer.context.contribute(coverage(
-                    &scope,
-                    &provider,
-                    &analysis,
-                    &run,
-                    status,
-                    reason,
-                    Some(format!(
-                        "native syntax errors {}; runtime reach skips {}; ty-false reach skips {}",
-                        flow.syntax_errors,
-                        flow.skips.reaching_runtime_view,
-                        flow.skips.reaching_ty_false
-                    )),
-                ))?;
                     writer.context.check_cancelled()?;
+                    if finished { module = None; }
                     Ok::<_, ModelError>(())
                 },
-            )?;
+            ).map_err(|error| match error {
+                cpg_flow::VisitError::Consumer(error)
+                | cpg_flow::VisitError::Operational(cpg_flow::FlowOperationalError::Model(error)) => error,
+                cpg_flow::VisitError::Operational(cpg_flow::FlowOperationalError::NativeCancelled(error)) => ModelError::Cause(Box::new(error)),
+            })?;
+            if module.is_some() {
+                return Err(invalid("native module ended without final coverage"));
+            }
         }
         Ok(if partial {
             ProviderOutcome::Partial
@@ -723,18 +768,46 @@ fn coverage(
         diagnostic,
     }
 }
+struct ModuleState {
+    index: usize,
+    prelude: Option<cpg_flow::ModulePrelude>,
+    source_view: Option<Id<FlowSourceViewObservation>>,
+    partial: bool,
+    atoms: BTreeMap<Id<EvaluationAtom>, EvaluationAtom>,
+    uses: BTreeMap<u32, Option<(FlowUse, Id<LexicalScope>)>>,
+    definitions: BTreeMap<u32, Option<(FlowDefinition, Id<LexicalScope>)>>,
+    atom_charge: StateCharge,
+    rows_charge: StateCharge,
+}
+impl ModuleState {
+    fn new(index: usize, budget: &lctx_model::domain::resources::ResourceBudget) -> Self {
+        Self {
+            index,
+            prelude: None,
+            source_view: None,
+            partial: false,
+            atoms: BTreeMap::new(),
+            uses: BTreeMap::new(),
+            definitions: BTreeMap::new(),
+            atom_charge: StateCharge::new(budget, "ty_flow_atom_cache"),
+            rows_charge: StateCharge::new(budget, "ty_flow_nominal_rows"),
+        }
+    }
+    fn traversal_complete(&mut self, budget: &lctx_model::domain::resources::ResourceBudget) {
+        self.uses.clear();
+        self.definitions.clear();
+        self.rows_charge = StateCharge::new(budget, "ty_flow_nominal_rows");
+    }
+}
 struct Writer<'a, S: ProviderSink + 'static> {
     context: &'a mut StageContext<S>,
     index: &'a Index,
-    flow: &'a ModuleFlow,
+    state: &'a mut ModuleState,
     artifact: &'a SourceArtifact,
     analysis: &'a AnalysisContext,
     scope: &'a CoverageScope,
     run: &'a ProviderRun,
     surface: &'a ProviderSurface,
-    partial: bool,
-    atoms: BTreeMap<Id<EvaluationAtom>, EvaluationAtom>,
-    _charge: StateCharge,
 }
 macro_rules! supported {
     ($writer:expr,$ty:ident,$support:ident,$row:expr,$occ:expr) => {{
@@ -760,7 +833,7 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
         reason: ObligationKind,
         detail: &str,
     ) -> Result<(), ModelError> {
-        self.partial = true;
+        self.state.partial = true;
         self.context.contribute(SubjectBoundary {
             scope: self.scope.id(),
             provider: self.run.provider,
@@ -776,14 +849,17 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
         span: Span,
         kind: Option<SyntaxKind>,
     ) -> Result<Option<Id<Occurrence>>, ModelError> {
+        let _scratch = self.context.budget().reserve(
+            "ty_flow_attachment_shapes",
+            self.prelude()?.nodes(span).len().saturating_mul(64),
+        )?;
         let mut shapes: Vec<_> = self
-            .flow
-            .nodes
+            .prelude()?
+            .nodes(span)
             .iter()
             .filter(|n| {
-                n.span == span
-                    && n.kind
-                        .is_some_and(|k| kind.is_none_or(|expected| expected == k))
+                n.kind
+                    .is_some_and(|k| kind.is_none_or(|expected| expected == k))
             })
             .map(|n| (n.kind.unwrap(), n.role))
             .collect();
@@ -842,7 +918,7 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
                     role: Some(role),
                     outcome: status,
                 };
-                self.partial = true;
+                self.state.partial = true;
                 self.context.contribute(boundary)?;
                 self.context.contribute(outcome.clone())?;
                 for candidate in candidates {
@@ -980,6 +1056,10 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
                 value: self.literal(value)?,
             },
             native::Atom::MemberOf { values, .. } => {
+                let _scratch = self
+                    .context
+                    .budget()
+                    .reserve("ty_flow_literal_set", values.len().saturating_mul(256))?;
                 let ids = values
                     .iter()
                     .map(|v| self.literal(v))
@@ -1015,15 +1095,11 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
         self.context.contribute(predicate.clone())?;
         // Native operand selection follows translator structure; pattern subjects remain outside
         // their case evaluation until the explicit subject bridge is implemented in phase 3.
-        let operand_span = self
-            .flow
-            .test_leaves
-            .iter()
-            .find(|l| l.atom == *leaf)
-            .and_then(|l| l.operand_span);
+        let operand_span = self.prelude()?.operand(leaf);
+        let mut operand_charge = StateCharge::new(self.context.budget(), "ty_flow_operand_scratch");
         let operand = if let Some(span) = operand_span {
             if let (Some(place), Some(occurrence)) = (
-                self.flow.places.get(&span).cloned(),
+                self.place_copy(span, &mut operand_charge)?,
                 self.attach(span, None)?,
             ) {
                 Some(self.place(&place, scope, occurrence)?)
@@ -1039,23 +1115,32 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
             predicate: predicate.id(),
             operand,
         };
-        if !self.atoms.contains_key(&atom.id()) {
-            self._charge.grow(
+        if !self.state.atoms.contains_key(&atom.id()) {
+            self.state.atom_charge.grow(
                 size_of::<EvaluationAtom>()
                     + atom.heap_bytes()
                     + size_of::<Id<EvaluationAtom>>()
                     + 128,
             )?;
-            self.atoms.insert(atom.id(), atom.clone());
+            self.state.atoms.insert(atom.id(), atom.clone());
             self.context.contribute(atom.clone())?;
         }
         Ok(Some(atom.id()))
     }
-    fn write(&mut self) -> Result<(), ModelError> {
-        let flow = self.flow;
-        let source_view;
-        if let (Some(original_content), Some(view_content), Some(byte_len)) =
-            (flow.original_content, flow.view_content, flow.view_byte_len)
+    fn prelude(&self) -> Result<&cpg_flow::ModulePrelude, ModelError> {
+        self.state
+            .prelude
+            .as_ref()
+            .ok_or_else(|| invalid("flow event precedes module preamble"))
+    }
+    fn source_view(&mut self) -> Result<(), ModelError> {
+        let prelude = self.prelude()?;
+        let (original_content, view_content, byte_len, renamed) = (
+            prelude.original_content,
+            prelude.view_content,
+            prelude.view_byte_len,
+            prelude.renamed,
+        );
         {
             if original_content != self.artifact.content
                 || byte_len != self.artifact.byte_len as usize
@@ -1084,10 +1169,10 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
                 original_content,
                 view_content,
                 byte_len: byte_len as i64,
-                renamed_type_checking: i64::from(flow.renamed),
+                renamed_type_checking: i64::from(renamed),
             };
             row.validate()?;
-            source_view = row.id();
+            self.state.source_view = Some(row.id());
             let evidence = Evidence::SourceSpan {
                 source: self.artifact.id(),
                 start: 0,
@@ -1104,297 +1189,163 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
                 fidelity: Fidelity::NativeStructural,
             })?;
             self.context.emit(row)?;
-        } else {
-            return Err(invalid("native ty source view receipt is missing"));
         }
-        for span in &flow.unavailable_uses {
-            let subject = self.attach(*span, None)?;
-            self.boundary(
-                subject,
-                ObligationKind::ScopeBoundary,
-                "native use enumeration unavailable: no source scope",
-            )?;
-        }
-        let mut uses = Vec::new();
-        let mut definitions = Vec::new();
-        let mut rows_charge = StateCharge::new(self.context.budget(), "ty_flow_nominal_rows");
-        for native in &flow.uses {
-            let row = if let (Some(scope), Some(occurrence)) = (
-                self.index.scope(self.artifact.id(), native.scope),
-                self.attach(native.span, None)?,
-            ) {
-                if let Some(place) = flow.places.get(&native.span) {
-                    let row = FlowUse {
-                        occurrence,
-                        place: self.place(place, scope, occurrence)?,
-                    };
-                    self.context.emit(row.clone())?;
-                    if let Some(q) =
-                        self.qualify(&cpg_flow::Condition::always(), scope, Some(occurrence))?
-                    {
-                        supported!(
-                            self,
-                            FlowUseObservation,
-                            FlowUseSupport,
-                            FlowUseObservation {
-                                qualification: q.id(),
-                                use_: row.id(),
-                                scope,
-                                annotation: native.annotation
-                            },
-                            occurrence
-                        );
-                    }
-                    Some((row, scope))
-                } else {
-                    self.boundary(
-                        Some(occurrence),
-                        ObligationKind::OutsideProviderModel,
-                        "native place shape unavailable",
-                    )?;
-                    None
-                }
-            } else {
-                self.boundary(
-                    None,
-                    ObligationKind::ScopeBoundary,
-                    "native flow scope or use unattached",
-                )?;
-                None
-            };
-            rows_charge.grow(256)?;
-            uses.push(row);
-        }
-        for native in &flow.defs {
-            let kind = match native.kind {
-                BindingEventKind::Parameter
-                | BindingEventKind::FunctionDef
-                | BindingEventKind::ClassDef
-                | BindingEventKind::Import
-                | BindingEventKind::FromImport
-                | BindingEventKind::MatchCapture
-                | BindingEventKind::ExceptHandler
-                | BindingEventKind::TypeParam => Some(SyntaxKind::Identifier),
-                _ => None,
-            };
-            let row = if let (Some(scope), Some(occurrence)) = (
-                self.index.scope(self.artifact.id(), native.scope),
-                self.attach(native.target, kind)?,
-            ) {
-                let place = flow.places.get(&native.target).cloned().or_else(|| {
-                    (!native.place.contains(['.', '[', ']'])).then(|| native::Place {
+        Ok(())
+    }
+    fn place_copy(
+        &self,
+        span: Span,
+        charge: &mut StateCharge,
+    ) -> Result<Option<native::Place>, ModelError> {
+        let Some(place) = self.prelude()?.place(span) else {
+            return Ok(None);
+        };
+        charge.grow((size_of::<native::Place>() + place.heap_bytes()).saturating_mul(2))?;
+        Ok(Some(place.clone()))
+    }
+    fn definition(&mut self, ordinal: u32, native: &cpg_flow::Def) -> Result<(), ModelError> {
+        let mut group_charge =
+            StateCharge::new(self.context.budget(), "ty_flow_definition_scratch");
+
+        let kind = match native.kind {
+            BindingEventKind::Parameter
+            | BindingEventKind::FunctionDef
+            | BindingEventKind::ClassDef
+            | BindingEventKind::Import
+            | BindingEventKind::FromImport
+            | BindingEventKind::MatchCapture
+            | BindingEventKind::ExceptHandler
+            | BindingEventKind::TypeParam => Some(SyntaxKind::Identifier),
+            _ => None,
+        };
+        let row = if let (Some(scope), Some(occurrence)) = (
+            self.index.scope(self.artifact.id(), native.scope),
+            self.attach(native.target, kind)?,
+        ) {
+            let place = match self.place_copy(native.target, &mut group_charge)? {
+                Some(place) => Some(place),
+                None if !native.place.contains(['.', '[', ']']) => {
+                    group_charge.grow(size_of::<native::Place>() + native.place.len())?;
+                    Some(native::Place {
                         root: native.place.clone(),
                         segments: vec![],
                     })
-                });
-                if let Some(place) = place {
-                    let value = match native.value {
-                        Some(span) => self.attach(span, None)?,
-                        None => None,
-                    };
-                    let row = FlowDefinition {
-                        occurrence,
-                        place: self.place(&place, scope, occurrence)?,
-                    };
-                    self.context.emit(row.clone())?;
-                    if let Some(q) =
-                        self.qualify(&cpg_flow::Condition::always(), scope, Some(occurrence))?
-                    {
-                        supported!(
-                            self,
-                            FlowDefinitionObservation,
-                            FlowDefinitionSupport,
-                            FlowDefinitionObservation {
-                                qualification: q.id(),
-                                definition: row.id(),
-                                scope,
-                                kind: native.kind,
-                                value
-                            },
-                            occurrence
-                        );
-                    }
-                    Some((row, scope))
-                } else {
-                    self.boundary(
-                        Some(occurrence),
-                        ObligationKind::OutsideProviderModel,
-                        "native definition place shape unavailable",
-                    )?;
-                    None
-                }
-            } else {
-                self.boundary(
-                    None,
-                    ObligationKind::ScopeBoundary,
-                    "native flow scope or definition unattached",
-                )?;
-                None
-            };
-            rows_charge.grow(256)?;
-            definitions.push(row);
-        }
-        for native in &flow.captures {
-            let Some(Some((use_, nested_scope))) = uses.get(native.use_ix as usize) else {
-                continue;
-            };
-            let Some(enclosing_scope) = self.index.scope(self.artifact.id(), native.enclosing)
-            else {
-                self.boundary(
-                    Some(use_.occurrence),
-                    ObligationKind::ScopeBoundary,
-                    "enclosing snapshot scope unattached",
-                )?;
-                continue;
-            };
-            if enclosing_scope == *nested_scope {
-                self.boundary(
-                    Some(use_.occurrence),
-                    ObligationKind::ScopeBoundary,
-                    "native annotation snapshot scopes collapse to one canonical lexical scope",
-                )?;
-                continue;
-            }
-            rows_charge.grow(native.candidates.len() * size_of::<CaptureCandidate>() + 512)?;
-            let mut candidates = Vec::new();
-            let mut attached = true;
-            for candidate in &native.candidates {
-                let target = match candidate.binding {
-                    cpg_flow::SnapshotBinding::Bound(index) => {
-                        match definitions.get(index as usize) {
-                            Some(Some((definition, scope))) if *scope == enclosing_scope => {
-                                FlowCaptureTarget::Bound {
-                                    definition: definition.id(),
-                                }
-                            }
-                            _ => {
-                                self.boundary(
-                                    Some(use_.occurrence),
-                                    ObligationKind::NativeUnavailable,
-                                    "snapshot candidate definition unattached to enclosing scope",
-                                )?;
-                                FlowCaptureTarget::Unattached
-                            }
-                        }
-                    }
-                    cpg_flow::SnapshotBinding::Undefined => FlowCaptureTarget::Undefined,
-                    cpg_flow::SnapshotBinding::Deleted => FlowCaptureTarget::Deleted,
-                    cpg_flow::SnapshotBinding::Nested => FlowCaptureTarget::Nested,
-                    cpg_flow::SnapshotBinding::LoopHeader => FlowCaptureTarget::LoopHeader,
-                    cpg_flow::SnapshotBinding::Unattached => FlowCaptureTarget::Unattached,
-                };
-                self.context.emit(target.clone())?;
-                let (Some(condition), Some(narrowing)) = (
-                    self.qualify(&candidate.condition, enclosing_scope, Some(use_.occurrence))?,
-                    self.qualify(&candidate.narrowing, enclosing_scope, Some(use_.occurrence))?,
-                ) else {
-                    attached = false;
-                    break;
-                };
-                candidates.push((
-                    target.id(),
-                    condition.condition,
-                    narrowing.condition,
-                    candidate.precision_lost,
-                ));
-            }
-            if !attached {
-                self.boundary(
-                    Some(use_.occurrence),
-                    ObligationKind::NativeUnavailable,
-                    "complete snapshot formula inventory unattached",
-                )?;
-                continue;
-            }
-            let inventory = if native.state == cpg_flow::SnapshotState::FoundBindings {
-                if candidates.len() > MAX_CAPTURE_CANDIDATES {
-                    self.boundary(
-                        Some(use_.occurrence),
-                        ObligationKind::ResourceRefused,
-                        "snapshot candidate work bound exceeded",
-                    )?;
-                    continue;
-                }
-                let (inventory, members) = FlowCaptureInventory::new(&candidates)?;
-                for member in members {
-                    self.context.emit(member)?;
-                }
-                self.context.emit(inventory.clone())?;
-                Some(inventory.id())
-            } else {
-                None
-            };
-            let constraint = match &native.constraint {
-                Some(condition) => {
-                    match self.qualify(condition, enclosing_scope, Some(use_.occurrence))? {
-                        Some(q) => Some(q.condition),
-                        None => continue,
-                    }
                 }
                 None => None,
             };
-            let Some(mut q) = self.qualify(
-                &cpg_flow::Condition::always(),
-                *nested_scope,
-                Some(use_.occurrence),
-            )?
-            else {
-                continue;
-            };
-            if native.lazy {
-                q.modality = Modality::Candidate;
+            if let Some(place) = place {
+                let value = match native.value {
+                    Some(span) => self.attach(span, None)?,
+                    None => None,
+                };
+                let row = FlowDefinition {
+                    occurrence,
+                    place: self.place(&place, scope, occurrence)?,
+                };
+                self.context.emit(row.clone())?;
+                if let Some(q) =
+                    self.qualify(&cpg_flow::Condition::always(), scope, Some(occurrence))?
+                {
+                    supported!(
+                        self,
+                        FlowDefinitionObservation,
+                        FlowDefinitionSupport,
+                        FlowDefinitionObservation {
+                            qualification: q.id(),
+                            definition: row.id(),
+                            scope,
+                            kind: native.kind,
+                            value
+                        },
+                        occurrence
+                    );
+                }
+                Some((row, scope))
+            } else {
+                self.boundary(
+                    Some(occurrence),
+                    ObligationKind::OutsideProviderModel,
+                    "native definition place shape unavailable",
+                )?;
+                None
             }
-            if native.constraint_precision_lost {
-                q.approximation = Approximation::Over;
+        } else {
+            self.boundary(
+                None,
+                ObligationKind::ScopeBoundary,
+                "native flow scope or definition unattached",
+            )?;
+            None
+        };
+        self.state.rows_charge.grow(256)?;
+        self.state.definitions.insert(ordinal, row);
+        Ok(())
+    }
+    fn use_group(&mut self, ordinal: u32, group: &cpg_flow::UseGroup) -> Result<(), ModelError> {
+        let native = &group.use_;
+        let mut group_charge = StateCharge::new(self.context.budget(), "ty_flow_group_scratch");
+
+        let row = if let (Some(scope), Some(occurrence)) = (
+            self.index.scope(self.artifact.id(), native.scope),
+            self.attach(native.span, None)?,
+        ) {
+            if let Some(place) = self.place_copy(native.span, &mut group_charge)? {
+                let row = FlowUse {
+                    occurrence,
+                    place: self.place(&place, scope, occurrence)?,
+                };
+                self.context.emit(row.clone())?;
+                if let Some(q) =
+                    self.qualify(&cpg_flow::Condition::always(), scope, Some(occurrence))?
+                {
+                    supported!(
+                        self,
+                        FlowUseObservation,
+                        FlowUseSupport,
+                        FlowUseObservation {
+                            qualification: q.id(),
+                            use_: row.id(),
+                            scope,
+                            annotation: native.annotation
+                        },
+                        occurrence
+                    );
+                }
+                Some((row, scope))
+            } else {
+                self.boundary(
+                    Some(occurrence),
+                    ObligationKind::OutsideProviderModel,
+                    "native place shape unavailable",
+                )?;
+                None
             }
-            self.context.contribute(q.clone())?;
-            let row = FlowCaptureTimingObservation {
-                qualification: q.id(),
-                use_: use_.id(),
-                nested_scope: *nested_scope,
-                enclosing_scope,
-                origin: match native.origin {
-                    cpg_flow::CaptureOrigin::OuterLocal => FlowCaptureOrigin::OuterLocal,
-                    cpg_flow::CaptureOrigin::Global => FlowCaptureOrigin::Global,
-                    cpg_flow::CaptureOrigin::Nonlocal => FlowCaptureOrigin::Nonlocal,
-                },
-                timing: if native.lazy {
-                    lctx_model::domain::captures::CaptureTiming::LazySnapshot
-                } else {
-                    lctx_model::domain::captures::CaptureTiming::EagerSnapshot
-                },
-                state: match native.state {
-                    cpg_flow::SnapshotState::FoundBindings => FlowSnapshotState::FoundBindings,
-                    cpg_flow::SnapshotState::FoundConstraint => FlowSnapshotState::FoundConstraint,
-                    cpg_flow::SnapshotState::NotFound => FlowSnapshotState::NotFound,
-                    cpg_flow::SnapshotState::NoLongerInEagerContext => {
-                        FlowSnapshotState::NoLongerInEagerContext
-                    }
-                },
-                inventory,
-                constraint,
-                constraint_precision_lost: native.constraint_precision_lost,
-            };
-            row.validate()?;
-            supported!(
-                self,
-                FlowCaptureTimingObservation,
-                FlowCaptureTimingSupport,
-                row,
-                use_.occurrence
-            );
+        } else {
+            self.boundary(
+                None,
+                ObligationKind::ScopeBoundary,
+                "native flow scope or use unattached",
+            )?;
+            None
+        };
+        self.state.rows_charge.grow(256)?;
+        self.state.uses.insert(ordinal, row);
+        if let Some(capture) = &group.capture {
+            self.capture(capture)?;
         }
-        rows_charge.grow(flow.reaching.len() * 128)?;
-        let mut mapped_reaching = vec![None; flow.reaching.len()];
-        let mut unattached_reaching = vec![false; flow.reaching.len()];
-        for (native_ix, native) in flow.reaching.iter().enumerate() {
-            let Some(Some((use_, scope))) = uses.get(native.use_ix as usize) else {
-                continue;
-            };
+        let attached_use = self.state.uses.get(&ordinal).cloned();
+        let Some(Some((use_, scope))) = attached_use.as_ref() else {
+            return Ok(());
+        };
+        group_charge.grow(group.reaching.len().saturating_mul(128))?;
+        let mut mapped_reaching = vec![None; group.reaching.len()];
+        let mut unattached_reaching = vec![false; group.reaching.len()];
+        for (native_ix, native) in group.reaching.iter().enumerate() {
             let target = if native.nested {
                 ReachingDefinition::Nested
             } else if let Some(index) = native.def_ix {
-                let Some(Some((definition, _))) = definitions.get(index as usize) else {
+                let attached_definition = self.state.definitions.get(&index).cloned();
+                let Some(Some((definition, _))) = attached_definition.as_ref() else {
                     unattached_reaching[native_ix] = true;
                     self.boundary(
                         Some(use_.occurrence),
@@ -1406,11 +1357,7 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
                 if definition.place != use_.place {
                     return Err(invalid(&format!(
                         "native reaching place mismatch in {}: use {:?}; definition {:?}; typed use {:?}; typed definition {:?}",
-                        self.artifact.path,
-                        flow.uses[native.use_ix as usize],
-                        flow.defs[index as usize],
-                        use_,
-                        definition
+                        self.artifact.path, group.use_, native, use_, definition
                     )));
                 }
                 ReachingDefinition::Bound {
@@ -1466,312 +1413,468 @@ impl<S: ProviderSink + 'static> Writer<'_, S> {
                 self.context.emit(row)?;
             }
         }
-        rows_charge.grow(flow.candidates.len() * 128)?;
-        let mut candidate_index = BTreeMap::<u32, Vec<_>>::new();
-        for candidate in &flow.candidates {
-            candidate_index
-                .entry(candidate.use_ix)
-                .or_default()
-                .push(candidate);
-        }
-        for (use_ix, attached) in uses.iter().enumerate() {
-            let Some((use_, scope)) = attached else {
-                continue;
-            };
-            let native = candidate_index.remove(&(use_ix as u32)).unwrap_or_default();
-            if native.len() > MAX_USE_CANDIDATES {
-                self.boundary(
-                    Some(use_.occurrence),
-                    ObligationKind::ResourceRefused,
-                    "per-use native candidate bound exceeded",
-                )?;
-                continue;
-            }
-            rows_charge.grow(native.len() * 256 + 128)?;
-            let mut candidates = Vec::new();
-            let mut members = Vec::new();
-            for c in native {
-                rows_charge.grow(c.reaching.len() * 256)?;
-                let mut retained = c
-                    .reaching
-                    .iter()
-                    .filter_map(|i| mapped_reaching[*i])
-                    .collect::<Vec<_>>();
-                retained.sort();
-                retained.dedup();
-                let reachability = self.qualify(&c.condition, *scope, Some(use_.occurrence))?;
-                let narrowing = self.qualify(&c.narrowing, *scope, Some(use_.occurrence))?;
-                let unavailable = reachability.is_none();
-                if c.unattached {
-                    self.boundary(
-                        Some(use_.occurrence),
-                        ObligationKind::NativeUnavailable,
-                        "native candidate definition unattached",
-                    )?;
-                }
-                if c.narrowing_precision_lost {
-                    self.boundary(
-                        Some(use_.occurrence),
-                        ObligationKind::ResourceRefused,
-                        "native candidate narrowing lost precision",
-                    )?;
-                }
-                let unattached = c.unattached || c.reaching.iter().any(|i| unattached_reaching[*i]);
-                candidates.push(CandidateState {
-                    kind: match c.kind {
-                        cpg_flow::CandidateKind::Bound => FlowCandidateKind::Bound,
-                        cpg_flow::CandidateKind::Undefined => FlowCandidateKind::Undefined,
-                        cpg_flow::CandidateKind::Deleted => FlowCandidateKind::Deleted,
-                        cpg_flow::CandidateKind::Nested => FlowCandidateKind::Nested,
-                        cpg_flow::CandidateKind::LoopHeader => FlowCandidateKind::LoopHeader,
-                    },
-                    pruned: c.pruned,
-                    loop_expanded: c.loop_expanded,
-                    unattached,
-                    reachability: reachability.as_ref().map(Record::id),
-                    narrowing: narrowing.as_ref().map(Record::id),
-                    narrowing_unavailable: narrowing.is_none(),
-                    narrowing_precision_lost: c.narrowing_precision_lost,
-                    condition_unavailable: unavailable,
-                    reachability_lost: c.reachability_lost,
-                    mapped_count: retained.len() as i64,
-                });
-                members.extend(
-                    retained
-                        .into_iter()
-                        .map(|(r, s)| (i64::from(c.ordinal), r, s)),
-                );
-            }
-            if members.len() > MAX_USE_CANDIDATES {
-                self.boundary(
-                    Some(use_.occurrence),
-                    ObligationKind::ResourceRefused,
-                    "per-use mapped candidate bound exceeded",
-                )?;
-                continue;
-            }
-            rows_charge.grow(members.len() * 512)?;
-            let Some(q) = self.qualify(
-                &cpg_flow::Condition::always(),
-                *scope,
+
+        let native = &group.candidates;
+        if native.len() > MAX_USE_CANDIDATES {
+            self.boundary(
                 Some(use_.occurrence),
-            )?
-            else {
-                continue;
-            };
-            let (inventory, candidates, members) = FlowUseInventoryObservation::new(
-                q.id(),
-                use_.id(),
-                *scope,
-                source_view,
-                &candidates,
-                &members,
+                ObligationKind::ResourceRefused,
+                "per-use native candidate bound exceeded",
             )?;
-            for c in candidates {
-                self.context.emit(c)?;
+            return Ok(());
+        }
+        group_charge.grow(native.len() * 256 + 128)?;
+        let mut candidates = Vec::new();
+        let mut members = Vec::new();
+        for c in native {
+            group_charge.grow(c.reaching.len() * 256)?;
+            let mut retained = c
+                .reaching
+                .clone()
+                .filter_map(|i| mapped_reaching[i])
+                .collect::<Vec<_>>();
+            retained.sort();
+            retained.dedup();
+            let reachability = self.qualify(&c.condition, *scope, Some(use_.occurrence))?;
+            let narrowing = self.qualify(&c.narrowing, *scope, Some(use_.occurrence))?;
+            let unavailable = reachability.is_none();
+            if c.unattached {
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::NativeUnavailable,
+                    "native candidate definition unattached",
+                )?;
             }
-            for m in members {
-                self.context.emit(m)?;
+            if c.narrowing_precision_lost {
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::ResourceRefused,
+                    "native candidate narrowing lost precision",
+                )?;
             }
-            supported!(
-                self,
-                FlowUseInventoryObservation,
-                FlowUseInventorySupport,
-                inventory,
-                use_.occurrence
+            let unattached = c.unattached || c.reaching.clone().any(|i| unattached_reaching[i]);
+            candidates.push(CandidateState {
+                kind: match c.kind {
+                    cpg_flow::CandidateKind::Bound => FlowCandidateKind::Bound,
+                    cpg_flow::CandidateKind::Undefined => FlowCandidateKind::Undefined,
+                    cpg_flow::CandidateKind::Deleted => FlowCandidateKind::Deleted,
+                    cpg_flow::CandidateKind::Nested => FlowCandidateKind::Nested,
+                    cpg_flow::CandidateKind::LoopHeader => FlowCandidateKind::LoopHeader,
+                },
+                pruned: c.pruned,
+                loop_expanded: c.loop_expanded,
+                unattached,
+                reachability: reachability.as_ref().map(Record::id),
+                narrowing: narrowing.as_ref().map(Record::id),
+                narrowing_unavailable: narrowing.is_none(),
+                narrowing_precision_lost: c.narrowing_precision_lost,
+                condition_unavailable: unavailable,
+                reachability_lost: c.reachability_lost,
+                mapped_count: retained.len() as i64,
+            });
+            members.extend(
+                retained
+                    .into_iter()
+                    .map(|(r, s)| (i64::from(c.ordinal), r, s)),
             );
         }
-        for native in &flow.values {
-            let Some(Some((use_, scope))) = uses.get(native.use_ix as usize) else {
-                continue;
-            };
-            let Some(sink) = self.attach(native.span, None)? else {
-                continue;
-            };
-            let Some(q) = self.qualify(&native.condition, *scope, Some(sink))? else {
-                continue;
-            };
-            let mut steps = Vec::new();
-            let mut attached = true;
-            for frame in &native.call_path {
-                match (
-                    self.attach(frame.call, Some(SyntaxKind::ExprCall))?,
-                    self.attach(frame.operand, None)?,
-                ) {
-                    (Some(call), Some(operand)) => steps.push((call, operand, frame.role)),
-                    _ => {
-                        attached = false;
-                        break;
+        if members.len() > MAX_USE_CANDIDATES {
+            self.boundary(
+                Some(use_.occurrence),
+                ObligationKind::ResourceRefused,
+                "per-use mapped candidate bound exceeded",
+            )?;
+            return Ok(());
+        }
+        group_charge.grow(members.len() * 512)?;
+        let Some(q) = self.qualify(
+            &cpg_flow::Condition::always(),
+            *scope,
+            Some(use_.occurrence),
+        )?
+        else {
+            return Ok(());
+        };
+        let (inventory, candidates, members) = FlowUseInventoryObservation::new(
+            q.id(),
+            use_.id(),
+            *scope,
+            self.state
+                .source_view
+                .ok_or_else(|| invalid("flow source view not prepared"))?,
+            &candidates,
+            &members,
+        )?;
+        for c in candidates {
+            self.context.emit(c)?;
+        }
+        for m in members {
+            self.context.emit(m)?;
+        }
+        supported!(
+            self,
+            FlowUseInventoryObservation,
+            FlowUseInventorySupport,
+            inventory,
+            use_.occurrence
+        );
+        Ok(())
+    }
+    fn capture(&mut self, native: &cpg_flow::CaptureSnapshot) -> Result<(), ModelError> {
+        let mut group_charge = StateCharge::new(self.context.budget(), "ty_flow_capture_scratch");
+
+        let attached_use = self.state.uses.get(&native.use_ix).cloned();
+        let Some(Some((use_, nested_scope))) = attached_use.as_ref() else {
+            return Ok(());
+        };
+        let Some(enclosing_scope) = self.index.scope(self.artifact.id(), native.enclosing) else {
+            self.boundary(
+                Some(use_.occurrence),
+                ObligationKind::ScopeBoundary,
+                "enclosing snapshot scope unattached",
+            )?;
+            return Ok(());
+        };
+        if enclosing_scope == *nested_scope {
+            self.boundary(
+                Some(use_.occurrence),
+                ObligationKind::ScopeBoundary,
+                "native annotation snapshot scopes collapse to one canonical lexical scope",
+            )?;
+            return Ok(());
+        }
+        group_charge.grow(native.candidates.len() * size_of::<CaptureCandidate>() + 512)?;
+        let mut candidates = Vec::new();
+        let mut attached = true;
+        for candidate in &native.candidates {
+            let target = match candidate.binding {
+                cpg_flow::SnapshotBinding::Bound(index) => {
+                    match self.state.definitions.get(&index) {
+                        Some(Some((definition, scope))) if *scope == enclosing_scope => {
+                            FlowCaptureTarget::Bound {
+                                definition: definition.id(),
+                            }
+                        }
+                        _ => {
+                            self.boundary(
+                                Some(use_.occurrence),
+                                ObligationKind::NativeUnavailable,
+                                "snapshot candidate definition unattached to enclosing scope",
+                            )?;
+                            FlowCaptureTarget::Unattached
+                        }
                     }
                 }
-            }
-            if !attached {
-                continue;
-            }
-            let kind = match native.sink {
-                cpg_flow::Sink::Definition => FlowSinkKind::Definition,
-                cpg_flow::Sink::Argument => FlowSinkKind::Argument,
-                cpg_flow::Sink::Return => FlowSinkKind::Return,
-                cpg_flow::Sink::Yield => FlowSinkKind::Yield,
-                cpg_flow::Sink::Raise => FlowSinkKind::Raise,
+                cpg_flow::SnapshotBinding::Undefined => FlowCaptureTarget::Undefined,
+                cpg_flow::SnapshotBinding::Deleted => FlowCaptureTarget::Deleted,
+                cpg_flow::SnapshotBinding::Nested => FlowCaptureTarget::Nested,
+                cpg_flow::SnapshotBinding::LoopHeader => FlowCaptureTarget::LoopHeader,
+                cpg_flow::SnapshotBinding::Unattached => FlowCaptureTarget::Unattached,
             };
-            let value = FlowValueObservation {
-                qualification: q.id(),
-                use_: use_.id(),
-                sink,
-                kind,
-                transfer: if native.identity {
-                    lctx_model::domain::transfer::TransferKind::Identity
-                } else {
-                    lctx_model::domain::transfer::TransferKind::Derived
-                },
-                through_call: !steps.is_empty(),
+            self.context.emit(target.clone())?;
+            let (Some(condition), Some(narrowing)) = (
+                self.qualify(&candidate.condition, enclosing_scope, Some(use_.occurrence))?,
+                self.qualify(&candidate.narrowing, enclosing_scope, Some(use_.occurrence))?,
+            ) else {
+                attached = false;
+                break;
             };
+            candidates.push((
+                target.id(),
+                condition.condition,
+                narrowing.condition,
+                candidate.precision_lost,
+            ));
+        }
+        if !attached {
+            self.boundary(
+                Some(use_.occurrence),
+                ObligationKind::NativeUnavailable,
+                "complete snapshot formula inventory unattached",
+            )?;
+            return Ok(());
+        }
+        let inventory = if native.state == cpg_flow::SnapshotState::FoundBindings {
+            if candidates.len() > MAX_CAPTURE_CANDIDATES {
+                self.boundary(
+                    Some(use_.occurrence),
+                    ObligationKind::ResourceRefused,
+                    "snapshot candidate work bound exceeded",
+                )?;
+                return Ok(());
+            }
+            let (inventory, members) = FlowCaptureInventory::new(&candidates)?;
+            for member in members {
+                self.context.emit(member)?;
+            }
+            self.context.emit(inventory.clone())?;
+            Some(inventory.id())
+        } else {
+            None
+        };
+        let constraint = match &native.constraint {
+            Some(condition) => {
+                match self.qualify(condition, enclosing_scope, Some(use_.occurrence))? {
+                    Some(q) => Some(q.condition),
+                    None => return Ok(()),
+                }
+            }
+            None => None,
+        };
+        let Some(mut q) = self.qualify(
+            &cpg_flow::Condition::always(),
+            *nested_scope,
+            Some(use_.occurrence),
+        )?
+        else {
+            return Ok(());
+        };
+        if native.lazy {
+            q.modality = Modality::Candidate;
+        }
+        if native.constraint_precision_lost {
+            q.approximation = Approximation::Over;
+        }
+        self.context.contribute(q.clone())?;
+        let row = FlowCaptureTimingObservation {
+            qualification: q.id(),
+            use_: use_.id(),
+            nested_scope: *nested_scope,
+            enclosing_scope,
+            origin: match native.origin {
+                cpg_flow::CaptureOrigin::OuterLocal => FlowCaptureOrigin::OuterLocal,
+                cpg_flow::CaptureOrigin::Global => FlowCaptureOrigin::Global,
+                cpg_flow::CaptureOrigin::Nonlocal => FlowCaptureOrigin::Nonlocal,
+            },
+            timing: if native.lazy {
+                lctx_model::domain::captures::CaptureTiming::LazySnapshot
+            } else {
+                lctx_model::domain::captures::CaptureTiming::EagerSnapshot
+            },
+            state: match native.state {
+                cpg_flow::SnapshotState::FoundBindings => FlowSnapshotState::FoundBindings,
+                cpg_flow::SnapshotState::FoundConstraint => FlowSnapshotState::FoundConstraint,
+                cpg_flow::SnapshotState::NotFound => FlowSnapshotState::NotFound,
+                cpg_flow::SnapshotState::NoLongerInEagerContext => {
+                    FlowSnapshotState::NoLongerInEagerContext
+                }
+            },
+            inventory,
+            constraint,
+            constraint_precision_lost: native.constraint_precision_lost,
+        };
+        row.validate()?;
+        supported!(
+            self,
+            FlowCaptureTimingObservation,
+            FlowCaptureTimingSupport,
+            row,
+            use_.occurrence
+        );
+        Ok(())
+    }
+    fn value(&mut self, native: cpg_flow::ValueSourceRef<'_>) -> Result<(), ModelError> {
+        let mut group_charge = StateCharge::new(self.context.budget(), "ty_flow_value_scratch");
+
+        let attached_use = self.state.uses.get(&native.use_ix).cloned();
+        let Some(Some((use_, scope))) = attached_use.as_ref() else {
+            return Ok(());
+        };
+        let Some(sink) = self.attach(native.span, None)? else {
+            return Ok(());
+        };
+        let Some(q) = self.qualify(native.condition, *scope, Some(sink))? else {
+            return Ok(());
+        };
+        let mut steps = Vec::new();
+        let mut attached = true;
+        for frame in native.call_path {
+            group_charge.grow(256)?;
+            match (
+                self.attach(frame.call, Some(SyntaxKind::ExprCall))?,
+                self.attach(frame.operand, None)?,
+            ) {
+                (Some(call), Some(operand)) => steps.push((call, operand, frame.role)),
+                _ => {
+                    attached = false;
+                    break;
+                }
+            }
+        }
+        if !attached {
+            return Ok(());
+        }
+        let kind = match native.sink {
+            cpg_flow::Sink::Definition => FlowSinkKind::Definition,
+            cpg_flow::Sink::Argument => FlowSinkKind::Argument,
+            cpg_flow::Sink::Return => FlowSinkKind::Return,
+            cpg_flow::Sink::Yield => FlowSinkKind::Yield,
+            cpg_flow::Sink::Raise => FlowSinkKind::Raise,
+        };
+        let value = FlowValueObservation {
+            qualification: q.id(),
+            use_: use_.id(),
+            sink,
+            kind,
+            transfer: if native.identity {
+                lctx_model::domain::transfer::TransferKind::Identity
+            } else {
+                lctx_model::domain::transfer::TransferKind::Derived
+            },
+            through_call: !steps.is_empty(),
+        };
+        supported!(
+            self,
+            FlowValueObservation,
+            FlowValueSupport,
+            value.clone(),
+            sink
+        );
+        if !steps.is_empty() {
+            let (path, steps) = FlowCallPath::new(&steps)?;
+            self.context.emit(path.clone())?;
+            for step in steps {
+                self.context.emit(step)?;
+            }
             supported!(
                 self,
-                FlowValueObservation,
-                FlowValueSupport,
-                value.clone(),
+                FlowValuePathObservation,
+                FlowValuePathSupport,
+                FlowValuePathObservation {
+                    qualification: q.id(),
+                    value: value.id(),
+                    path: path.id()
+                },
                 sink
             );
-            if !steps.is_empty() {
-                let (path, steps) = FlowCallPath::new(&steps)?;
-                self.context.emit(path.clone())?;
-                for step in steps {
-                    self.context.emit(step)?;
-                }
-                supported!(
-                    self,
-                    FlowValuePathObservation,
-                    FlowValuePathSupport,
-                    FlowValuePathObservation {
-                        qualification: q.id(),
-                        value: value.id(),
-                        path: path.id()
-                    },
-                    sink
-                );
-            }
         }
-        for native in &flow.regions {
-            if let Some(scope) = self.index.scope(self.artifact.id(), native.scope) {
-                let kinds: Vec<_> = flow
-                    .nodes
-                    .iter()
-                    .filter(|n| {
-                        n.span == native.span
-                            && n.kind.is_some_and(|k| (2..=26).contains(&(k as i16)))
-                    })
-                    .map(|n| n.kind.unwrap())
-                    .collect();
-                if let [kind] = kinds.as_slice() {
-                    if let Some(statement) = self.attach(native.span, Some(*kind))?
-                        && let Some(q) = self.qualify(&native.condition, scope, Some(statement))?
-                    {
-                        supported!(
-                            self,
-                            FlowRegionObservation,
-                            FlowRegionSupport,
-                            FlowRegionObservation {
-                                qualification: q.id(),
-                                statement,
-                                scope
-                            },
-                            statement
-                        );
-                    }
-                } else {
-                    self.boundary(
-                        None,
-                        ObligationKind::OutsideProviderModel,
-                        "native statement coordinate missing",
-                    )?;
+        Ok(())
+    }
+    fn region(&mut self, native: &cpg_flow::Region) -> Result<(), ModelError> {
+        let _scratch = self.context.budget().reserve(
+            "ty_flow_region_candidates",
+            self.prelude()?.nodes(native.span).len().saturating_mul(64),
+        )?;
+
+        if let Some(scope) = self.index.scope(self.artifact.id(), native.scope) {
+            let kinds: Vec<_> = self
+                .prelude()?
+                .nodes(native.span)
+                .iter()
+                .filter(|n| n.kind.is_some_and(|k| (2..=26).contains(&(k as i16))))
+                .map(|n| n.kind.unwrap())
+                .collect();
+            if let [kind] = kinds.as_slice() {
+                if let Some(statement) = self.attach(native.span, Some(*kind))?
+                    && let Some(q) = self.qualify(&native.condition, scope, Some(statement))?
+                {
+                    supported!(
+                        self,
+                        FlowRegionObservation,
+                        FlowRegionSupport,
+                        FlowRegionObservation {
+                            qualification: q.id(),
+                            statement,
+                            scope
+                        },
+                        statement
+                    );
                 }
             } else {
                 self.boundary(
                     None,
-                    ObligationKind::ScopeBoundary,
-                    "native region scope unattached",
+                    ObligationKind::OutsideProviderModel,
+                    "native statement coordinate missing",
                 )?;
             }
+        } else {
+            self.boundary(
+                None,
+                ObligationKind::ScopeBoundary,
+                "native region scope unattached",
+            )?;
         }
-        for native in &flow.tests {
-            if let Some(scope) = self.index.scope(self.artifact.id(), native.scope)
-                && let Some(test) = self.attach(native.span, None)?
-                && let Some(q) = self.qualify(&native.condition, scope, Some(test))?
+        Ok(())
+    }
+    fn test(&mut self, native: &cpg_flow::Test) -> Result<(), ModelError> {
+        if let Some(scope) = self.index.scope(self.artifact.id(), native.scope)
+            && let Some(test) = self.attach(native.span, None)?
+            && let Some(q) = self.qualify(&native.condition, scope, Some(test))?
+        {
+            supported!(
+                self,
+                FlowTestObservation,
+                FlowTestSupport,
+                FlowTestObservation {
+                    qualification: q.id(),
+                    test,
+                    scope
+                },
+                test
+            );
+        }
+        Ok(())
+    }
+    fn test_leaf(&mut self, native: cpg_flow::TestLeafRef<'_>) -> Result<(), ModelError> {
+        if let Some(scope) = self.index.scope(self.artifact.id(), native.scope)
+            && let Some(test) = self.attach(native.test_span, None)?
+            && let (Some(atom), Some(q)) = (
+                self.atom(native.atom, scope)?,
+                self.qualify(native.condition, scope, Some(test))?,
+            )
+        {
+            let operand = match native.operand_span {
+                Some(span) => self.attach(span, None)?,
+                None => None,
+            };
+            supported!(
+                self,
+                FlowTestLeafObservation,
+                FlowTestLeafSupport,
+                FlowTestLeafObservation {
+                    qualification: q.id(),
+                    test,
+                    atom,
+                    operand
+                },
+                test
+            );
+        }
+        Ok(())
+    }
+    fn attribute(&mut self, native: cpg_flow::AttributeLoadRef<'_>) -> Result<(), ModelError> {
+        if let Some(occurrence) = self.attach(native.span, None)? {
+            let scope = self
+                .index
+                .scopes
+                .values()
+                .find(|s| {
+                    s.kind == LexicalScopeKind::Module
+                        && self
+                            .index
+                            .occurrences
+                            .get(&s.owner)
+                            .is_some_and(|o| o.source == self.artifact.id())
+                })
+                .map(Record::id);
+            if let Some(scope) = scope
+                && let Some(q) =
+                    self.qualify(&cpg_flow::Condition::always(), scope, Some(occurrence))?
             {
                 supported!(
                     self,
-                    FlowTestObservation,
-                    FlowTestSupport,
-                    FlowTestObservation {
+                    FlowAttributeLoadObservation,
+                    FlowAttributeLoadSupport,
+                    FlowAttributeLoadObservation {
                         qualification: q.id(),
-                        test,
-                        scope
+                        occurrence,
+                        name: native.name.into()
                     },
-                    test
+                    occurrence
                 );
             }
         }
-        for native in &flow.test_leaves {
-            if let Some(scope) = self.index.scope(self.artifact.id(), native.scope)
-                && let Some(test) = self.attach(native.test_span, None)?
-                && let (Some(atom), Some(q)) = (
-                    self.atom(&native.atom, scope)?,
-                    self.qualify(&native.condition, scope, Some(test))?,
-                )
-            {
-                let operand = match native.operand_span {
-                    Some(span) => self.attach(span, None)?,
-                    None => None,
-                };
-                supported!(
-                    self,
-                    FlowTestLeafObservation,
-                    FlowTestLeafSupport,
-                    FlowTestLeafObservation {
-                        qualification: q.id(),
-                        test,
-                        atom,
-                        operand
-                    },
-                    test
-                );
-            }
-        }
-        for native in &flow.attribute_loads {
-            if let Some(occurrence) = self.attach(native.span, None)? {
-                let scope = self
-                    .index
-                    .scopes
-                    .values()
-                    .find(|s| {
-                        s.kind == LexicalScopeKind::Module
-                            && self
-                                .index
-                                .occurrences
-                                .get(&s.owner)
-                                .is_some_and(|o| o.source == self.artifact.id())
-                    })
-                    .map(Record::id);
-                if let Some(scope) = scope
-                    && let Some(q) =
-                        self.qualify(&cpg_flow::Condition::always(), scope, Some(occurrence))?
-                {
-                    supported!(
-                        self,
-                        FlowAttributeLoadObservation,
-                        FlowAttributeLoadSupport,
-                        FlowAttributeLoadObservation {
-                            qualification: q.id(),
-                            occurrence,
-                            name: native.name.clone()
-                        },
-                        occurrence
-                    );
-                }
-            }
-        }
+
         Ok(())
     }
 }

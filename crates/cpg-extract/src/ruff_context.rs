@@ -162,7 +162,9 @@ impl CanonicalSyntax<'_> {
         spans: &crate::syntax_records::Spans,
         qualification: &lctx_model::domain::assertion::AssertionQualification,
         budget: &ResourceBudget,
+        check: &dyn Fn() -> Result<(), ModelError>,
     ) -> Result<ContextRows, ModelError> {
+        check()?;
         if spans.source() != Some(self.source_id) || qualification.context != self.context_id {
             return Err(ModelError::Invalid(
                 "Ruff contextual attachment differs from captured source/context".into(),
@@ -184,8 +186,15 @@ impl CanonicalSyntax<'_> {
             bindings: BTreeMap<u32, Option<Vec<String>>>,
             seen: BTreeSet<Id<RuffContextObservation>>,
             error: Option<ModelError>,
+            check: &'a dyn Fn() -> Result<(), ModelError>,
         }
         impl Sink for Collect<'_> {
+            fn checkpoint(&mut self) -> Result<(), StopReason> {
+                (self.check)().map_err(|error| {
+                    self.error = Some(error);
+                    StopReason::Cancelled
+                })
+            }
             fn observe(&mut self, fact: Fact) -> Result<(), StopReason> {
                 self.output
                     .native
@@ -320,11 +329,13 @@ impl CanonicalSyntax<'_> {
             bindings: BTreeMap::new(),
             seen: BTreeSet::new(),
             error: None,
+            check,
         };
         sink.output.incomplete = self.observe(&mut sink).err();
         if let Some(error) = sink.error {
             return Err(error);
         }
+        check()?;
         sink.output.rows.sort_by_key(Record::id);
         Ok(sink.output)
     }
