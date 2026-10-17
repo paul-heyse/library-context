@@ -368,6 +368,21 @@ under controlled writes; independent semantic admission remains strict. Privileg
 require quiescence and rebuilding affected state. Native prerequisite controls passed before route
 replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
 
+**Implemented / focused-Tested,2026-10-17 (ADR-0184); integrated acceptance pending.** Ordinary attempt
+`FOR UPDATE` reads remain necessary optimistic commit-time protection on the pinned RocksDB
+realization; shared registered reads do not alone serialize disjoint stripe writes. Complete cuts,
+original replay and absent-request fencing retain their independent guarantees. Immutable-window
+preparation acquires missing guards once and classifies supplied expectations without reacquiring
+them. Packet-local deferred flags precede request hashing. Native `array::find` preserves first
+exact match over original ordered candidates; compound/numeric candidates are not collapsed.
+Private tagged scalar-identity indexes retain positions and final full equality; compound/unkeyed
+values use ordered exact fallback without generic Value hashing/ordering. Existing construction
+admission covers index scratch through last use. Necessary scalar locks, full collision checks,
+new-holder incidence and whole-window rollback remain. Generated control definitions alter native
+schema identity; the collection coordinator owns actual controls and authenticated state cutover.
+
+> Decision: ADR-0184, ADR-0178
+
 **Implemented / focused-Tested, integrated acceptance pending, 2026-10-17 UTC:** terminal `ReleaseRecovery` settlement
 is a monotone deletion after durable exact terminal knowledge. It retains the same transactional
 installation/stripe schema, generation, era and watermark checks and exact effect/reference

@@ -229,8 +229,20 @@ impl ExpectedObject {
                 .unwrap_or(Value::None),
         );
         row.insert("creation", creation.cloned().unwrap_or(Value::None));
+        row.insert("deferred_incidence", false);
         Value::Object(row)
     }
+}
+/// Generic effects have no WindowWriter complete-workspace grant. Reserve the
+/// additional host expectation preparation from their owning recovery budget.
+pub(super) fn reserve_expectation_preparation(
+    bindings: &Variables,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<Box<dyn lctx_model::domain::resources::Reservation>, ModelError> {
+    budget.reserve(
+        "native expectation preparation",
+        WindowWriter::expectation_workspace_bytes(bindings)?,
+    )
 }
 /// Internal plans declare physical guard IDs. Capture once before request hashing;
 /// neither transaction retries nor execute_request refresh these observations.
@@ -239,7 +251,7 @@ pub(super) async fn prepare_expectations(
     bindings: &mut Variables,
 ) -> Result<(), ModelError> {
     if bindings.get("__object_expectations").is_some() {
-        return Ok(());
+        return classify_expectations(bindings);
     }
     let mut guards = std::collections::BTreeSet::new();
     for key in ["guards", "hold_guards", "__write_guards"] {
@@ -322,57 +334,147 @@ pub(super) async fn prepare_expectations(
         })
         .collect::<Result<Vec<_>, _>>()?;
     bindings.insert("__object_expectations", expected);
-    Ok(())
+    classify_expectations(bindings)
 }
-// Only immutable plans declare these alternatives. Equal repeated declarations share
-// one index; differing full values at an address never gain a creation alternative.
-fn creation_indices(
-    bindings: &Variables,
-) -> Result<std::collections::BTreeMap<RecordId, Value>, ModelError> {
+/// Attach packet-local incidence metadata without refreshing physical observations.
+/// The source arrays retain every candidate; compound native numeric equality
+/// supplies no established lawful generic hash or representative-collapse contract.
+pub(super) fn classify_expectations(bindings: &mut Variables) -> Result<(), ModelError> {
+    struct Membership<'a> {
+        values: &'a surrealdb::types::Array,
+        field: Option<&'static str>,
+        index: exact_index::ExactRecordIndex,
+    }
+    impl<'a> Membership<'a> {
+        fn new(
+            bindings: &'a Object,
+            name: &str,
+            field: Option<&'static str>,
+        ) -> Result<Self, ModelError> {
+            static EMPTY: std::sync::LazyLock<surrealdb::types::Array> =
+                std::sync::LazyLock::new(Default::default);
+            let values = match bindings.get(name) {
+                Some(Value::Array(values)) => values,
+                None => &EMPTY,
+                _ => return Err(ModelError::Schema("native incidence membership array")),
+            };
+            let mut index = exact_index::ExactRecordIndex::default();
+            for (position, value) in values.iter().enumerate() {
+                if field == Some("blob")
+                    && exact_index::field(value, "id")
+                        .is_none_or(|id| id.table.as_str() != "original_chunk")
+                {
+                    continue;
+                }
+                let id = field.map_or_else(
+                    || exact_index::record(value),
+                    |name| exact_index::field(value, name),
+                );
+                index.insert(id, position);
+            }
+            Ok(Self {
+                values,
+                field,
+                index,
+            })
+        }
+        fn contains(&self, id: &RecordId) -> bool {
+            self.index.candidates(Some(id)).iter().any(|&position| {
+                let value = &self.values[position];
+                self.field.map_or_else(
+                    || exact_index::record(value),
+                    |name| exact_index::field(value, name),
+                ) == Some(id)
+            })
+        }
+    }
+    // Variables exposes immutable access only. Object conversion moves the same
+    // BTreeMap backing, allowing independent expectation/source borrows without
+    // cloning the packet or reallocating its nodes.
+    let mut packet: Object = std::mem::take(bindings).into();
+    let mut expectations = match packet.remove("__object_expectations") {
+        Some(Value::Array(values)) => values,
+        Some(value) => {
+            packet.insert("__object_expectations", value);
+            *bindings = packet.into();
+            return Err(ModelError::Schema("native object expectations"));
+        }
+        None => {
+            *bindings = packet.into();
+            return Err(ModelError::Schema("native object expectations absent"));
+        }
+    };
+    let result = (|| {
+        let mutable = Membership::new(&packet, "__mutable_write_guards", None)?;
+        let holds = Membership::new(&packet, "hold_guards", None)?;
+        let guards = Membership::new(&packet, "guards", None)?;
+        let writes = Membership::new(&packet, "__write_guards", None)?;
+        let blobs = Membership::new(&packet, "rows", Some("blob"))?;
+        for value in expectations.iter_mut() {
+            let Value::Object(expected) = value else {
+                return Err(ModelError::Schema("native expected incidence envelope"));
+            };
+            let (Some(Value::RecordId(guard)), Some(Value::RecordId(record))) =
+                (expected.get("guard"), expected.get("record"))
+            else {
+                return Err(ModelError::Schema("native expected incidence identity"));
+            };
+            let deferred = !mutable.contains(guard)
+                && (expected
+                    .get("creation")
+                    .is_some_and(|value| *value != Value::None)
+                    || blobs.contains(record)
+                    || (holds.contains(guard)
+                        && !guards.contains(guard)
+                        && !writes.contains(guard)));
+            expected.insert("deferred_incidence", deferred);
+        }
+        Ok(())
+    })();
+    packet.insert("__object_expectations", expectations);
+    *bindings = packet.into();
+    result
+}
+// Only immutable plans declare these alternatives. Candidate indexes retain all
+// rows and confirm original equality. Full payloads never enter an ordered key.
+#[derive(Default)]
+struct CreationReferences {
+    values: Vec<(RecordId, Value)>,
+    index: exact_index::ExactRecordIndex,
+}
+impl CreationReferences {
+    fn get(&self, record: &RecordId) -> Option<&Value> {
+        self.index
+            .candidates(Some(record))
+            .iter()
+            .find_map(|&position| {
+                let (candidate, value) = &self.values[position];
+                (candidate == record).then_some(value)
+            })
+    }
+}
+fn creation_indices(bindings: &Variables) -> Result<CreationReferences, ModelError> {
     let Some(values) = bindings.get("__immutable_creations") else {
-        return Ok(std::collections::BTreeMap::new());
+        return Ok(CreationReferences::default());
     };
     let Value::Array(values) = values else {
         return Err(ModelError::Schema("native immutable creations"));
     };
-    #[derive(Default)]
-    struct SourceIndex {
-        first: Option<usize>,
-        collision: bool,
-    }
-    #[derive(Default)]
-    struct CreationIndex {
-        sources: [SourceIndex; 2],
-        bound: Option<(usize, usize)>,
-    }
-    // Borrow wanted identities; retain only indices, not cloned payloads. This
-    // scratch replaces the output map until validation finishes, rather than
-    // retaining a second full-row index alongside the completed bindings.
-    let mut wanted = std::collections::BTreeMap::<&RecordId, CreationIndex>::new();
-    for value in values {
-        if let Some(Value::RecordId(record)) = value.as_object().and_then(|row| row.get("record")) {
-            wanted.entry(record).or_default();
-        }
-    }
-    for (source, name) in ["rows", "original_blobs"].into_iter().enumerate() {
-        if let Some(Value::Array(rows)) = bindings.get(name) {
-            for (index, row) in rows.iter().enumerate() {
-                let Some(Value::RecordId(record)) = row.as_object().and_then(|row| row.get("id"))
-                else {
-                    continue;
-                };
-                if let Some(wanted) = wanted.get_mut(record) {
-                    let selected = &mut wanted.sources[source];
-                    if let Some(first) = selected.first {
-                        selected.collision |= rows[first] != *row;
-                    } else {
-                        selected.first = Some(index);
-                    }
-                }
+    let mut sources = Vec::new();
+    for name in ["rows", "original_blobs"] {
+        let rows = match bindings.get(name) {
+            Some(Value::Array(rows)) => Some(rows),
+            _ => None,
+        };
+        let mut index = exact_index::ExactRecordIndex::default();
+        if let Some(rows) = rows {
+            for (position, row) in rows.iter().enumerate() {
+                index.insert(exact_index::field(row, "id"), position);
             }
         }
+        sources.push((rows, index));
     }
-    // Preserve declaration-order refusal and first equal payload selection.
+    let mut output = CreationReferences::default();
     for value in values {
         let Value::Object(creation) = value else {
             return Err(ModelError::Schema("native immutable creation"));
@@ -389,53 +491,47 @@ fn creation_indices(
         } else {
             return Err(ModelError::Schema("native immutable creation kind"));
         };
-        if !matches!(
-            bindings.get(["rows", "original_blobs"][source]),
-            Some(Value::Array(_))
-        ) {
-            return Err(ModelError::Schema("native immutable creation payload"));
-        }
-        let selected = wanted
-            .get_mut(record)
+        let (rows, index) = &sources[source];
+        let rows = rows.ok_or(ModelError::Schema("native immutable creation payload"))?;
+        let mut matches = index
+            .candidates(Some(record))
+            .iter()
+            .copied()
+            .filter(|&position| exact_index::field(&rows[position], "id") == Some(record));
+        let first = matches
+            .next()
             .ok_or(ModelError::Schema("native immutable creation row missing"))?;
-        if selected.sources[source].collision {
+        if matches.any(|position| rows[position] != rows[first]) {
             return Err(ModelError::Conflict("native immutable creation collision"));
         }
-        let index = selected.sources[source]
-            .first
-            .ok_or(ModelError::Schema("native immutable creation row missing"))?;
-        if let Some(previous) = selected.bound
-            && previous != (source, index)
+        let mut reference = Object::new();
+        reference.insert("kind", ["immutable", "original_blob"][source]);
+        reference.insert("index", first as i64);
+        let reference = Value::Object(reference);
+        if let Some(previous) = output.get(record)
+            && *previous != reference
         {
             return Err(ModelError::Conflict("native immutable creation collision"));
         }
-        selected.bound = Some((source, index));
+        // Keep every declaration as a candidate, including equal compound keys.
+        output.index.insert(Some(record), output.values.len());
+        output.values.push((record.clone(), reference));
     }
-    Ok(wanted
-        .into_iter()
-        .filter_map(|(record, selected)| {
-            selected.bound.map(|(source, index)| {
-                let mut reference = Object::new();
-                reference.insert("kind", ["immutable", "original_blob"][source]);
-                reference.insert("index", index as i64);
-                (record.clone(), Value::Object(reference))
-            })
-        })
-        .collect())
+    Ok(output)
 }
 
 pub(super) const EXPECTED_OBJECT_GUARD: &str = r#"
 // Immutable creation and hold-only guards are advanced by actual changed
 // incidence inside the installation function. Explicit mutable write guards
 // keep their original exclusion/revision behavior.
-LET $__deferred_guards=($__object_expectations ?? []).filter(|$expected| $expected.guard NOT IN ($__mutable_write_guards ?? []) AND ($expected.creation!=NONE OR $expected.record IN ($rows ?? []).filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob) OR ($expected.guard IN ($hold_guards ?? []) AND $expected.guard NOT IN ($guards ?? []) AND $expected.guard NOT IN ($__write_guards ?? []))));
+LET $__deferred_guards=($__object_expectations ?? []).filter(|$expected| $expected.deferred_incidence=true);
 FOR $__expected IN ($__object_expectations ?? []) {
     LET $__guard_id=$__expected.guard;
     LET $__before=SELECT * FROM ONLY $__guard_id FOR UPDATE;
     IF $__before!=NONE AND $__before.revision>=9223372036854775807 { THROW 'native guard revision exhausted'; };
     IF $__expected.phase='active' {
         IF $__before=NONE OR $__before.phase!='active' OR $__before.incarnation!=$__expected.incarnation { THROW 'native expected active incarnation changed'; };
-        IF ($__attempt_context=NONE OR $__expected.record!=$__attempt_context.attempt) AND array::len($__deferred_guards.filter(|$entry| $entry.guard=$__guard_id))=0 {
+        IF ($__attempt_context=NONE OR $__expected.record!=$__attempt_context.attempt) AND $__expected.deferred_incidence!=true {
             UPDATE $__guard_id SET revision+=1 RETURN NONE;
         };
     } ELSE {
@@ -597,17 +693,17 @@ mod tests {
             ],
         );
         let indices = creation_indices(&bindings).unwrap();
-        assert_eq!(indices.len(), 2);
+        assert_eq!(indices.values.len(), 3);
         assert_eq!(
-            indices[&a].as_object().unwrap().get("index"),
+            indices.get(&a).unwrap().as_object().unwrap().get("index"),
             Some(&Value::Number(surrealdb::types::Number::Int(1)))
         );
         assert_eq!(
-            indices[&b].as_object().unwrap().get("index"),
+            indices.get(&b).unwrap().as_object().unwrap().get("index"),
             Some(&Value::Number(surrealdb::types::Number::Int(0)))
         );
         assert_eq!(
-            indices[&b].as_object().unwrap().get("kind"),
+            indices.get(&b).unwrap().as_object().unwrap().get("kind"),
             Some(&Value::String("original_blob".into()))
         );
         bindings.insert("rows", vec![row(a.clone(), 1), row(a.clone(), 2)]);
@@ -638,6 +734,129 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn generic_preparation_reservation_refuses_before_growth_and_releases_with_owner() {
+        let record = RecordId::new("entity", "generic-preparation");
+        let guard = guard_id(&Value::RecordId(record.clone())).unwrap();
+        let expected = ExpectedObject {
+            record,
+            incarnation: 3,
+            phase: "active".into(),
+            tombstone_revision_if_vacant: None,
+        }
+        .binding(guard.clone(), None);
+        let mut bindings = Variables::new();
+        bindings.insert("__object_expectations", vec![expected]);
+        bindings.insert("hold_guards", vec![guard]);
+        let original = bindings.clone();
+        let tiny = lctx_model::domain::resources::ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            reserve_expectation_preparation(&bindings, &tiny),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(
+            bindings, original,
+            "reservation refuses before metadata mutation or candidate growth"
+        );
+        assert_eq!(tiny.reserved(), 0);
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(65536).unwrap();
+        let charge = reserve_expectation_preparation(&bindings, &budget).unwrap();
+        classify_expectations(&mut bindings).unwrap();
+        assert!(budget.reserved() > 0);
+        assert_eq!(
+            bindings
+                .get("__object_expectations")
+                .unwrap()
+                .as_array()
+                .unwrap()[0]
+                .as_object()
+                .unwrap()
+                .get("deferred_incidence"),
+            Some(&Value::Bool(true))
+        );
+        drop(bindings);
+        assert!(
+            budget.reserved() > 0,
+            "grant outlives its prepared envelope"
+        );
+        drop(charge);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn supplied_expectations_get_packet_metadata_without_recapturing_guards() {
+        let records = (0..7)
+            .map(|index| {
+                RecordId::new(
+                    if index == 1 {
+                        "original_blob"
+                    } else {
+                        "entity"
+                    },
+                    format!("classification-{index}"),
+                )
+            })
+            .collect::<Vec<_>>();
+        let guards = records
+            .iter()
+            .map(|id| guard_id(&Value::RecordId(id.clone())).unwrap())
+            .collect::<Vec<_>>();
+        let expected = records
+            .iter()
+            .zip(&guards)
+            .enumerate()
+            .map(|(index, (record, guard))| {
+                ExpectedObject {
+                    record: record.clone(),
+                    incarnation: 17,
+                    phase: ["active", "vacant", "retired"][index % 3].into(),
+                    tombstone_revision_if_vacant: Some(23),
+                }
+                .binding(
+                    guard.clone(),
+                    matches!(index, 0 | 6).then_some(&Value::Bool(true)),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut bindings = Variables::new();
+        bindings.insert("__object_expectations", expected.clone());
+        bindings.insert("guards", vec![guards[3].clone()]);
+        bindings.insert("__write_guards", vec![guards[4].clone()]);
+        bindings.insert(
+            "__mutable_write_guards",
+            vec![guards[5].clone(), guards[6].clone()],
+        );
+        bindings.insert("hold_guards", guards[2..].to_vec());
+        let mut chunk = Object::new();
+        chunk.insert("id", RecordId::new("original_chunk", "classify"));
+        chunk.insert("blob", records[1].clone());
+        bindings.insert("rows", vec![Value::Object(chunk)]);
+        // An unconnected client proves this supplied-envelope path does no query.
+        prepare_expectations(&Surreal::init(), &mut bindings)
+            .await
+            .unwrap();
+        let Some(Value::Array(classified)) = bindings.get("__object_expectations") else {
+            panic!("classified");
+        };
+        for (index, value) in classified.iter().enumerate() {
+            let mut observed = value.as_object().unwrap().clone();
+            assert_eq!(
+                observed.remove("deferred_incidence"),
+                Some(Value::Bool(matches!(index, 0..=2)))
+            );
+            let mut original = expected[index].as_object().unwrap().clone();
+            original.remove("deferred_incidence");
+            assert_eq!(observed, original, "physical capture never refreshes");
+        }
+        let first = classified.clone();
+        prepare_expectations(&Surreal::init(), &mut bindings)
+            .await
+            .unwrap();
+        assert_eq!(
+            bindings.get("__object_expectations"),
+            Some(&Value::Array(first)),
+            "repeat preparation is exact"
+        );
+    }
     #[test]
     fn active_expectations_ignore_hold_revision_but_tombstones_bind_revision() {
         let id = RecordId::new("original", "candidate");
@@ -841,6 +1060,59 @@ mod attempt_cut_controls {
             matches!(locked.what.as_slice(), [Expr::Param(parameter)] if parameter.as_str() == "effect_id")
         );
     }
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB campaign only"]
+    async fn native_deferred_first_match_preserves_order_and_none_for_compound_ids() {
+        use surrealdb::types::{Number, RecordIdKey};
+        let cfg = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned RocksDB campaign"),
+        ))
+        .unwrap();
+        let client = crate::installation::check_installation(&cfg).await.unwrap();
+        let compound = |number| {
+            RecordId::new(
+                "entity",
+                RecordIdKey::Array(vec![Value::Number(number)].into()),
+            )
+        };
+        let scalar = RecordId::new("entity", "scalar");
+        let entry = |record: RecordId, label: &str| {
+            let mut row = Object::new();
+            row.insert("record", record);
+            row.insert("label", label);
+            Value::Object(row)
+        };
+        let entries = vec![
+            entry(compound(Number::Int(1)), "first"),
+            entry(compound(Number::Float(1.0)), "later"),
+            entry(scalar.clone(), "scalar"),
+        ];
+        for (target, label) in [
+            (compound(Number::Int(1)), Some("first")),
+            (scalar, Some("scalar")),
+            (RecordId::new("entity", "absent"), None),
+        ] {
+            let mut response = client.query("RETURN {found:array::find($entries, |$entry| $entry.record=$target), original:($entries.filter(|$entry| $entry.record=$target)[0] ?? NONE)};").bind(("entries", entries.clone())).bind(("target", target)).await.unwrap().check().unwrap();
+            let result: Value = response.take(0).unwrap();
+            let result = result
+                .as_object()
+                .expect("native first-match comparison object");
+            assert_eq!(
+                result.get("found"),
+                result.get("original"),
+                "native first-match and absence semantics unchanged"
+            );
+            let found = result
+                .get("found")
+                .and_then(Value::as_object)
+                .and_then(|row| row.get("label"));
+            assert_eq!(
+                found,
+                label.map(|label| Value::String(label.into())).as_ref()
+            );
+        }
+        client.invalidate().await.unwrap();
+    }
     // Uses direct protocol packets to control native transaction commit order;
     // never selected on the shared fixture service. The enclosing owned campaign
     // owns leftover logical participants and failed-commit sessions through discard.
@@ -939,6 +1211,107 @@ mod attempt_cut_controls {
         .unwrap();
         left.commit().await.unwrap().invalidate().await.unwrap();
         right.commit().await.unwrap().invalidate().await.unwrap();
+        // Same-slot operations deliberately share the installation/attempt conflict
+        // address. This is combined production-packet evidence, not attribution
+        // to one of those two stripe families in isolation.
+        for first_commit in [true, false] {
+            let one = fresh_identity("same-slot-first").unwrap();
+            let mut two = fresh_identity("same-slot-second").unwrap();
+            while two == one || attempt_slot(two) != attempt_slot(one) {
+                two = fresh_identity("same-slot-second").unwrap();
+            }
+            let one_plan = make(one);
+            let two_plan = make(two);
+            let left = client.as_ref().clone().begin().await.unwrap();
+            let right = client.as_ref().clone().begin().await.unwrap();
+            checked_transaction(
+                left.query(body(&one_plan.query))
+                    .bind(one_plan.bindings.clone())
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            checked_transaction(
+                right
+                    .query(body(&two_plan.query))
+                    .bind(two_plan.bindings.clone())
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            let conflict = if first_commit {
+                left.commit().await.unwrap().invalidate().await.unwrap();
+                right
+                    .commit()
+                    .await
+                    .expect_err("same-slot second commit conflicts")
+            } else {
+                right.commit().await.unwrap().invalidate().await.unwrap();
+                left.commit()
+                    .await
+                    .expect_err("same-slot second commit conflicts")
+            };
+            assert!(
+                retryable_conflict(&conflict),
+                "expected same-slot native conflict: {conflict}"
+            );
+            let retry = if first_commit { &two_plan } else { &one_plan };
+            checked_transaction(
+                client
+                    .query(retry.query.clone())
+                    .bind(retry.bindings.clone())
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            // Replay the original request again and compare its complete receipt.
+            // No second epoch, participant or payload result may be manufactured.
+            let operation = if first_commit { two } else { one };
+            let request = NativeRequest {
+                issuance: era,
+                operation,
+                request: ContentHash::of(&operation.0),
+            };
+            let effect = RecordId::new("native_effect", operation.hex());
+            let mut observed = client
+                .query("SELECT * FROM ONLY $effect;")
+                .bind(("effect", effect.clone()))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let receipt: Option<Object> = observed.take(0).unwrap();
+            assert_eq!(
+                receipt.as_ref().and_then(|row| row.get("committed")),
+                Some(&Value::Bool(true))
+            );
+            checked_transaction(
+                client
+                    .query(retry.query.clone())
+                    .bind(retry.bindings.clone())
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            let mut observed = client
+                .query("SELECT * FROM ONLY $effect;")
+                .bind(("effect", effect))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let replayed: Option<Object> = observed.take(0).unwrap();
+            assert_eq!(
+                with_recovery_scope(
+                    scope.clone(),
+                    authorization::reconcile_request(&client, request)
+                )
+                .await
+                .unwrap(),
+                EffectDisposition::Committed
+            );
+            assert_eq!(receipt, replayed, "same original outcome exactly once");
+        }
         // Exact replay never executes payload again; an owner-context collision
         // refuses even when operation, request digest and original era agree.
         checked_transaction(
@@ -955,6 +1328,68 @@ mod attempt_cut_controls {
             checked_transaction(client.query(a.query.clone()).bind(collision).await.unwrap())
                 .is_err()
         );
+        // Both bodies read an absent effect before either commits. The losing
+        // commit must conflict, rather than inventing a second terminal result.
+        for fence_first in [false, true] {
+            let operation = fresh_identity("overlapping-absent-fence").unwrap();
+            let request = NativeRequest {
+                issuance: era,
+                operation,
+                request: ContentHash::of(&operation.0),
+            };
+            let apply = make(operation);
+            let (fence_sql, fence_bindings) =
+                authorization::reconciliation_plan(request, era).unwrap();
+            let applying = client.as_ref().clone().begin().await.unwrap();
+            let fencing = client.as_ref().clone().begin().await.unwrap();
+            checked_transaction(
+                applying
+                    .query(body(&apply.query))
+                    .bind(apply.bindings)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            checked_transaction(
+                fencing
+                    .query(body(&fence_sql))
+                    .bind(fence_bindings)
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+            let conflict = if fence_first {
+                fencing.commit().await.unwrap().invalidate().await.unwrap();
+                applying
+                    .commit()
+                    .await
+                    .expect_err("fence first excludes the original absent-snapshot apply")
+            } else {
+                applying.commit().await.unwrap().invalidate().await.unwrap();
+                fencing
+                    .commit()
+                    .await
+                    .expect_err("apply first excludes the original absent-snapshot fence")
+            };
+            assert!(
+                retryable_conflict(&conflict),
+                "expected exact absent-fence conflict: {conflict}"
+            );
+            assert_eq!(
+                with_recovery_scope(
+                    scope.clone(),
+                    authorization::reconcile_request(&client, request)
+                )
+                .await
+                .unwrap(),
+                if fence_first {
+                    EffectDisposition::FencedUncommitted
+                } else {
+                    EffectDisposition::Committed
+                }
+            );
+            assert_eq!(scope.pending_count().unwrap(), 0);
+        }
         let absent_operation = fresh_identity("atomic-absent-fence").unwrap();
         let absent = make(absent_operation);
         let absent_request = NativeRequest {
@@ -1002,9 +1437,26 @@ mod attempt_cut_controls {
             "expected conclusive native write conflict, not an unknown transport failure: {conflict}"
         );
         let delayed = make(fresh_identity("stripe-delayed-apply").unwrap());
+        let pending = client.as_ref().clone().begin().await.unwrap();
+        checked_transaction(
+            pending
+                .query(body(&delayed.query))
+                .bind(delayed.bindings.clone())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         let cut = client.as_ref().clone().begin().await.unwrap();
         cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,$action); UPDATE $attempt SET state=$next_state,revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).bind(("action",action.to_owned())).bind(("next_state",if action=="freeze" {"frozen"} else {"closing"})).await.unwrap().check().unwrap();
         cut.commit().await.unwrap().invalidate().await.unwrap();
+        let conflict = pending
+            .commit()
+            .await
+            .expect_err("completed cut excludes an older uncommitted apply body");
+        assert!(
+            retryable_conflict(&conflict),
+            "expected native commit conflict: {conflict}"
+        );
         assert!(
             checked_transaction(
                 client

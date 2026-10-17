@@ -1,6 +1,6 @@
 # Catalog collection efficiency: runtime decisions and safe integration
 
-**Proposed, 2026-10-17.** Companion to the
+**Approved target; NI00–NI03 implemented / focused-Tested, 2026-10-17.** Companion to the
 [coordinator](catalog-collection-efficiency-plan_2026-10-17.md), whose §6 alone owns current
 disposition and protected native checkpoint. This document develops residual functional leads
 and integration; it does not restart the delivered runtime redesign or its full acceptance campaign.
@@ -22,15 +22,22 @@ timeouts do not establish that any of these designs is absent or that the remain
 are the exclusive cause. Ordered ingress already pipelines accepted batches; same-contribution
 writer fan-out is not the default remedy.
 
-The four live questions are narrower: whether ordinary attempt authorization's shared row lock
-adds unnecessary contention; whether immutable installation repeats avoidable per-record preparation
-and deferred-array searches; whether ingress preparation can span its real lifetime; and whether
-bounded client coalescing should use keyed exact equality instead of repeated linear searches.
-NI00–NI02 decide these questions and implement supported improvements. A reasoned retain outcome
-is allowed only with the actual protection/complexity tradeoff explained; unsupported safety removal
-or a token probe cannot close the question. No performance gain has been measured.
+NI00–NI02's selected decisions are recorded below and in ADR-0184. The attempt's registered read
+is retained; packet classification, native first-match lookup, compatible ingress writer lifetime
+and exact scalar coalescing are improved. Source reasoning supports avoiding repeated work;
+no performance gain has been measured. The coordinator §6 owns actual implementation/acceptance
+and the NI03 target/cleanup boundary.
 
 ## 2. NI00 — Attempt authorization and complete-cut exclusion
+
+**Selected,2026-10-17: retain ordinary attempt `FOR UPDATE`.** The exact pinned RocksDB source
+uses optimistic commit-time read validation, not an exclusive waiting row lock. Registered reads
+of one owner plus distinct stripe writes do not alone conflict. Removing that read would lose
+independent stale-owner protection without an established concurrency benefit. Preserve all64
+cut stripes, original replay, absent-request fencing and terminal references. Expanded owned
+controls must cover both disjoint-slot commit orders, intentional same-slot conflicts, cut winning
+after an apply body has evaluated, and both overlapping absent-fence commit orders. These are
+functional conflict/rollback checks, not latency benchmarks.
 
 Start at `crates/lctx-native/src/control/authorization.rs::owner_effect_plan`: ordinary attempt
 authorization selects the shared owner `FOR UPDATE` before `native_attempt_participate` uses the
@@ -62,6 +69,16 @@ a wider lock is not disproved merely by a noisy wall-clock result.
 
 ## 3. NI01 — Immutable installation preparation and lookup
 
+**Selected,2026-10-17: pure packet classification plus native first match.** Separate missing
+physical-guard acquisition from metadata classification; supplied observations are not refreshed.
+Attach each expectation's deferred flag before request hashing and consume it directly. Replace
+native deferred `.filter(...)[0]` with pinned `array::find`, preserving original candidate order,
+first exact match and NONE. Do not collapse compound numeric candidates or replace necessary
+scalar locked reads with ordinary bulk reads. Original-blob mutable completion, parent fences,
+new-holder incidence and whole-window rollback remain. New scratch/metadata allocations need
+admission on both writer and generic effect routes. Generated control changes alter schema identity;
+the owning service must regenerate affected project state under NI03.
+
 Inspect `crates/lctx-native/src/control/schema.surql::native_immutable_install`, generated assets,
 `control/immutable_window.rs`, exact equality/collision validation, original blobs, deferred guards,
 incidence, new holds and authorized participant windows. Find the actual necessary read/lock set
@@ -85,6 +102,17 @@ their exact ownership. Test through existing fixture ownership after NI03 readin
 coalescing evidence alone does not establish server behavior.
 
 ## 4. NI02 — Ingress preparation lifetime and exact coalescing
+
+**Selected,2026-10-17: driver-owned writer and exact candidate-position indexes.** One writer
+spans compatible ingress batches and physical/original/alias/member phases. Reuse only issuance
+and fixed control sizing under exact client/attempt/contribution/producing scope/pool; per-window
+guards, identity, authorization and recovery remain fresh. Standalone public calls remain bounded,
+and post-freeze completion uses independent preparation. Tagged String/i64/UUID identities index
+candidate positions, followed by full original equality; compound/unkeyed values retain ordered
+scans. Membership indexes retain every source candidate. Unequal immutable collisions still refuse,
+unequal auxiliary entries remain available to native validation, and first order is preserved.
+Admit keys/positions/output scratch before growth and retain their charges to final use. No generic
+Value hash/ordering, global cache, fan-out or increased limits are selected.
 
 At authoring baseline, `crates/lctx-compiler-store/src/compiler.rs` creates `WindowWriter` in
 physical write paths near lines2455/5927. Establish the actual phase/batch/ingress lifetimes and
@@ -117,6 +145,15 @@ by explicit counters/lifetime gates if needed; no performance benchmark or produ
 platform is required. Do not fan out same-contribution writers or add job/thread caps.
 
 ## 5. NI03 — Exact readiness and conditional state cutover
+
+**Approved execution route,2026-10-17: campaign, then cutover.** The operator selected one
+wholly owned disposable campaign for focused native/race checks, using the already qualified
+server generation and current installer. After actual pass and independent source review,
+regenerate exact default installation58abe9ea-2088-4109-95ab-8440a3749c51 once over main/validation
+through authenticated service drainage, then run small final-target controls and dispose the
+campaign through its owner. Original historical Unknowns remain unchanged; a completed exact
+whole-target discard may acknowledge their ownership separately. No default mutation precedes
+that pre-cutover evidence, and unknown drainage still blocks destructive action.
 
 DB-free investigation and implementation can proceed while native ownership is unresolved. Before
 native effects, read the coordinator's protected checkpoint and the current existing owner/target.

@@ -5533,8 +5533,17 @@ impl NativeCompilerStore {
         batch: &RecordBatch,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        self.boxed_write_batch(contribution, relation, batch, None, Some(budget))
-            .await
+        let mut writer =
+            crate::control::WindowWriter::new(&self.client, Some(self.attempt), Some(budget));
+        self.boxed_write_batch_with_writer(
+            contribution,
+            relation,
+            batch,
+            None,
+            Some(budget),
+            &mut writer,
+        )
+        .await
     }
     /// Model-owned canonical buffers need physical lowering, not another typed decode/sort/encode.
     /// The contribution still independently checks its model, declared output and mutable lifetime.
@@ -5544,24 +5553,30 @@ impl NativeCompilerStore {
         batch: &CheckedCanonicalBatch,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        self.boxed_write_batch(
+        let mut writer =
+            crate::control::WindowWriter::new(&self.client, Some(self.attempt), Some(budget));
+        self.boxed_write_batch_with_writer(
             contribution,
             batch.relation(),
             batch.arrow(),
             Some(batch.model()),
             Some(budget),
+            &mut writer,
         )
         .await
     }
     // Keep all declared-record lowering and its poll frame inside the native library.
+    // Only the ingress driver retains this writer across checked batches. The
+    // ordinary API owns a fresh writer for its bounded operation above.
     #[inline(never)]
-    fn boxed_write_batch<'a>(
+    fn boxed_write_batch_with_writer<'a>(
         self: &'a Arc<Self>,
         contribution: &'a ContentHash,
         relation: &'a Relation,
         batch: &'a RecordBatch,
         checked_model: Option<ContentHash>,
         budget: Option<&'a ResourceBudget>,
+        writer: &'a mut crate::control::WindowWriter<'_>,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
         crate::control::with_retry_cancellation(self.signal_stop.clone(), async move {
             let phase = crate::phase::Phase::begin("native_batch_write");
@@ -5576,6 +5591,7 @@ impl NativeCompilerStore {
                             batch,
                             checked_model,
                             budget,
+                            writer,
                         )),
                     )
                     .await;
@@ -5598,7 +5614,9 @@ impl NativeCompilerStore {
         batch: &RecordBatch,
         checked_model: Option<ContentHash>,
         budget: Option<&ResourceBudget>,
+        writer: &mut crate::control::WindowWriter<'_>,
     ) -> Result<(), ModelError> {
+        writer.ensure_context(&self.client, Some(self.attempt), budget)?;
         self.check_failed()?;
         {
             let specifications = self
@@ -5854,7 +5872,7 @@ impl NativeCompilerStore {
             aliases.push(Value::Object(alias));
         }
         // Every selected record, alias and original range is valid before any window effect.
-        self.ensure_physical_rows(nodes.into_values().collect(), budget)
+        self.ensure_physical_rows_with_writer(nodes.into_values().collect(), budget, writer)
             .await?;
         if !original_headers.is_empty() || !original_chunks.is_empty() {
             let budget = budget.ok_or(ModelError::Conflict(
@@ -5872,21 +5890,23 @@ impl NativeCompilerStore {
             // Preserve the original failure and any independent local reader finalization.
             let result = async {
                 self.original_ingress
-                    .sources(
+                    .sources_with_writer(
                         &reader,
                         self.attempt,
                         contribution,
                         &original_headers,
                         budget,
+                        writer,
                     )
                     .await?;
                 self.original_ingress
-                    .chunks(
+                    .chunks_with_writer(
                         &reader,
                         self.attempt,
                         contribution,
                         &original_chunks,
                         budget,
+                        writer,
                     )
                     .await
             }
@@ -5895,22 +5915,12 @@ impl NativeCompilerStore {
             completion.step("original ingress reader close", reader.close().await);
             d::completion::complete(result, completion)?;
         }
-        self.ensure_immutable_rows(
-            "compiler_alias",
-            aliases,
-            "native alias same-key payload",
-            budget,
-        )
-        .await?;
+        self.ensure_physical_rows_with_writer(aliases, budget, writer)
+            .await?;
         // Repeated identical writes within this contribution are idempotent, without hiding
         // semantic uniqueness failures. Membership contains no separately editable payload.
-        self.ensure_immutable_rows(
-            "compiler_membership",
-            members.into_values().collect(),
-            "native membership same-key payload",
-            budget,
-        )
-        .await?;
+        self.ensure_physical_rows_with_writer(members.into_values().collect(), budget, writer)
+            .await?;
         Ok(())
     }
 
@@ -5919,12 +5929,22 @@ impl NativeCompilerStore {
         rows: Vec<Value>,
         budget: Option<&ResourceBudget>,
     ) -> Result<(), ModelError> {
+        let mut writer =
+            crate::control::WindowWriter::new(&self.client, Some(self.attempt), budget);
+        self.ensure_physical_rows_with_writer(rows, budget, &mut writer)
+            .await
+    }
+    async fn ensure_physical_rows_with_writer(
+        self: &Arc<Self>,
+        rows: Vec<Value>,
+        budget: Option<&ResourceBudget>,
+        writer: &mut crate::control::WindowWriter<'_>,
+    ) -> Result<(), ModelError> {
+        writer.ensure_context(&self.client, Some(self.attempt), budget)?;
         let contribution = WRITING_CONTRIBUTION.try_with(|id| *id).ok();
         let owner = contribution
             .map(|id| RecordId::new("compiler_contribution", id.hex()))
             .unwrap_or_else(|| RecordId::new("native_attempt", self.attempt.hex()));
-        let mut writer =
-            crate::control::WindowWriter::new(&self.client, Some(self.attempt), budget);
         for window in crate::control::ImmutableWindows::new(
             rows,
             Some(self.attempt),
@@ -5936,19 +5956,6 @@ impl NativeCompilerStore {
             writer.install(window?).await?;
         }
         Ok(())
-    }
-
-    // Compare only this bounded batch's complete immutable rows, then insert new rows in one
-    // statement. Identical replay is admitted without per-row transactions or silent conflicts.
-    async fn ensure_immutable_rows(
-        self: &Arc<Self>,
-        table: &str,
-        rows: Vec<Value>,
-        conflict: &'static str,
-        budget: Option<&ResourceBudget>,
-    ) -> Result<(), ModelError> {
-        let _ = (table, conflict);
-        self.ensure_physical_rows(rows, budget).await
     }
 
     /// Compose only explicitly selected, already completed owners. This operation earns the
@@ -11454,8 +11461,10 @@ mod completion_tests {
             ))
         ));
         let batch = d::analytics::QualityStep::encode(&[]).unwrap();
+        let mut writer =
+            crate::control::WindowWriter::new(&store.client, Some(store.attempt), None);
         let result = store
-            .write_batch_inner(&id, &relation, &batch, None, None)
+            .write_batch_inner(&id, &relation, &batch, None, None, &mut writer)
             .await;
         assert!(matches!(
             result,

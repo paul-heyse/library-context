@@ -131,6 +131,7 @@ pub(crate) fn live_pin_drain_predicate_for_control() -> &'static str {
 }
 pub use product_release::release_retained_product;
 mod cleanup;
+mod exact_index;
 mod history;
 mod immutable_window;
 pub mod staging;
@@ -369,7 +370,20 @@ fn immutable_row_plan(
     contribution: Option<ContentHash>,
     rows: Vec<Value>,
 ) -> Result<Option<(String, Variables)>, ModelError> {
-    let rows = coalesce_immutable_rows(rows)?;
+    immutable_row_plan_in(
+        attempt,
+        contribution,
+        rows,
+        CoalescingAdmission::ActiveRecovery,
+    )
+}
+fn immutable_row_plan_in(
+    attempt: Option<ContentHash>,
+    contribution: Option<ContentHash>,
+    rows: Vec<Value>,
+    admission: CoalescingAdmission,
+) -> Result<Option<(String, Variables)>, ModelError> {
+    let rows = coalesce_immutable_rows_in(rows, admission)?;
     if rows.is_empty() {
         return Ok(None);
     }
@@ -443,26 +457,64 @@ fn immutable_row_plan(
     );
     Ok(Some((sql, bindings)))
 }
-/// Keep the first exact row ordering, coalescing only complete equal values. The
-/// bounded window owns this preparation before any native effect can be issued.
+/// The caller either holds the Window unit/emission construction grant, or the
+/// common lowerer borrows the current recovery owner's budget for index scratch.
+#[derive(Clone, Copy)]
+enum CoalescingAdmission {
+    ActiveRecovery,
+    ExistingConstruction,
+}
+/// Keep the first exact row ordering, coalescing only complete equal values.
+#[cfg(test)]
 fn coalesce_immutable_rows(rows: Vec<Value>) -> Result<Vec<Value>, ModelError> {
-    let mut seen: std::collections::BTreeMap<RecordId, usize> = std::collections::BTreeMap::new();
-    let mut unique: Vec<Value> = Vec::with_capacity(rows.len());
-    for row in rows {
-        crate::loader::validate_native_row(&row)?;
-        let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id")) else {
+    coalesce_immutable_rows_in(rows, CoalescingAdmission::ActiveRecovery)
+}
+fn coalesce_immutable_rows_in(
+    mut rows: Vec<Value>,
+    admission: CoalescingAdmission,
+) -> Result<Vec<Value>, ModelError> {
+    let scope = match admission {
+        CoalescingAdmission::ActiveRecovery => capture_recovery_scope(),
+        CoalescingAdmission::ExistingConstruction => None,
+    };
+    let _index_charge = scope
+        .as_ref()
+        .map(|scope| {
+            let bytes = rows
+                .iter()
+                .map(exact_index::entry_workspace)
+                .fold(0usize, usize::saturating_add);
+            scope
+                .budget()
+                .reserve("native immutable exact coalescing", bytes)
+        })
+        .transpose()?;
+    let mut seen = exact_index::ExactRecordIndex::default();
+    // Compact in the original Vec backing. Index positions refer only to its
+    // completed prefix; no new output container escapes the temporary grant.
+    let mut kept = 0;
+    for position in 0..rows.len() {
+        crate::loader::validate_native_row(&rows[position])?;
+        let Some(id) = exact_index::field(&rows[position], "id") else {
             return Err(ModelError::Schema("native immutable record identity"));
         };
-        if let Some(&position) = seen.get(id) {
-            if unique[position] != row {
+        let prior = seen
+            .candidates(Some(id))
+            .iter()
+            .copied()
+            .find(|&prior| exact_index::field(&rows[prior], "id") == Some(id));
+        if let Some(prior) = prior {
+            if rows[prior] != rows[position] {
                 return Err(ModelError::Conflict("native immutable address collision"));
             }
         } else {
-            seen.insert(id.clone(), unique.len());
-            unique.push(row);
+            seen.insert(Some(id), kept);
+            rows.swap(kept, position);
+            kept += 1;
         }
     }
-    Ok(unique)
+    rows.truncate(kept);
+    Ok(rows)
 }
 /// Compose immutable rows and holds without replacing an earlier exact record map.
 /// Shared by immutable windows and internal completed-state staging.
@@ -547,6 +599,13 @@ fn hold_plan(
     attempt: Option<ContentHash>,
     references: Vec<(RecordId, RecordId)>,
 ) -> Result<Option<(EffectOwner, String, Variables)>, ModelError> {
+    hold_plan_in(attempt, references, CoalescingAdmission::ActiveRecovery)
+}
+fn hold_plan_in(
+    attempt: Option<ContentHash>,
+    references: Vec<(RecordId, RecordId)>,
+    admission: CoalescingAdmission,
+) -> Result<Option<(EffectOwner, String, Variables)>, ModelError> {
     if references.is_empty() {
         return Ok(None);
     }
@@ -586,7 +645,7 @@ fn hold_plan(
         ));
     }
     let mut bindings = Variables::new();
-    bindings.insert("holds", coalesce_immutable_rows(rows)?);
+    bindings.insert("holds", coalesce_immutable_rows_in(rows, admission)?);
     bindings.insert("hold_guards", guards);
     bindings.insert("__guard_records", guard_records(records.iter())?);
     let owner = if let Some(attempt) = attempt {
@@ -1059,6 +1118,120 @@ async fn nominate_pending_originals(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn common_lowerer_index_admission_refuses_before_query_and_releases_after_compaction() {
+        use lctx_model::domain::resources::ResourceBudget;
+        let directory = tempfile::tempdir().unwrap();
+        let receipts = directory.path().join("native-drain");
+        std::fs::create_dir(&receipts).unwrap();
+        let generation = ContentHash::of(b"lowerer-index-admission");
+        let cancellation = RetryCancellation::default();
+        let cancel = cancellation.clone();
+        let signals = crate::signal::SignalRegistration::new_bound(
+            "common lowerer index admission",
+            move || cancel.cancel(),
+            receipts,
+            "lowerer-index-admission".into(),
+            generation,
+        )
+        .unwrap();
+        let budget = ResourceBudget::fixed(65536).unwrap();
+        let client = Arc::new(Surreal::init());
+        let scope = RecoveryScope::new(
+            client.clone(),
+            budget.clone(),
+            cancellation,
+            signals.pending_recipient().unwrap(),
+            RecoveryTarget {
+                generation,
+                namespace: "owned".into(),
+                database: "validation".into(),
+                endpoint: Some("grpc://127.0.0.1:9000".into()),
+            },
+        )
+        .unwrap();
+        let baseline = budget.reserved();
+        let blocker = budget
+            .reserve("lowerer index refusal control", budget.limit() - baseline)
+            .unwrap();
+        let owner = RecordId::new("native_attempt", "lowerer");
+        let target = RecordId::new("entity", "lowerer");
+        let row = || {
+            let mut row = Object::new();
+            row.insert("id", target.clone());
+            row.insert("payload", 1i64);
+            Value::Object(row)
+        };
+        let result = with_recovery_scope(
+            scope.clone(),
+            hold_many(&client, None, vec![(owner.clone(), target.clone())]),
+        )
+        .await;
+        assert!(
+            matches!(
+                result,
+                Err(ModelError::Resource {
+                    owner: "native immutable exact coalescing",
+                    ..
+                })
+            ),
+            "hold lowerer refuses its new index before any native query: {result:?}"
+        );
+        let result =
+            with_recovery_scope(scope.clone(), ensure_rows(&client, None, vec![row()])).await;
+        assert!(
+            matches!(
+                result,
+                Err(ModelError::Resource {
+                    owner: "native immutable exact coalescing",
+                    ..
+                })
+            ),
+            "row lowerer refuses its new index before any native query: {result:?}"
+        );
+        assert_eq!(scope.pending_count().unwrap(), 0);
+        assert_eq!(
+            budget.reserved(),
+            budget.limit(),
+            "failed reservation adds no ownership"
+        );
+        drop(blocker);
+        let input = vec![row(), row()];
+        let backing = input.as_ptr();
+        let output = with_recovery_scope(scope.clone(), async { coalesce_immutable_rows(input) })
+            .await
+            .unwrap();
+        assert_eq!(output.len(), 1);
+        assert_eq!(
+            output.as_ptr(),
+            backing,
+            "compaction reuses original caller-owned backing"
+        );
+        assert!(budget.peak().unwrap() > baseline);
+        assert_eq!(
+            budget.reserved(),
+            baseline,
+            "scratch grant ends with compaction"
+        );
+        let lowered = with_recovery_scope(scope.clone(), async {
+            hold_plan(None, vec![(owner, target)])
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            budget.reserved(),
+            baseline,
+            "hold plan retains no temporary candidate index"
+        );
+        drop((output, lowered));
+        drop(scope);
+        assert_eq!(budget.reserved(), 0);
+        signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
+            .unwrap();
+    }
     #[test]
     fn immutable_witness_fragments_compose_inside_actual_payload_closure() {
         let attempt = ContentHash([17; 32]);

@@ -94,6 +94,18 @@ Behavioral Local/Base/Body/SourceCall remain fresh where full semantic validatio
 the production kernels and add cache overhead. The graph/reuse
 companions own qualification; no general incremental query engine or measured benefit is claimed.
 
+**Implemented / focused-Tested,2026-10-17 (ADR-0184); integrated acceptance pending.** One mutable window
+writer spans a compatible ordered ingress driver's actual async lifetime: physical rows, original
+sources/chunks, aliases and memberships share stable issuance/control sizing. Exact native client,
+attempt, contribution, producing scope and budget must match. Each window independently prepares
+guards, request, authorization, outcome and recovery; public bounded batch calls retain their own
+writer and post-freeze finalization prepares fresh context. Pre-mutation validation, batch order,
+acceptance versus commit, cancellation, joined finality and original EOF remain authoritative.
+No global cache or same-contribution writer fan-out is introduced. The collection coordinator
+owns focused evidence and later assembled acceptance.
+
+> Decision: ADR-0184
+
 **Accepted target,2026-10-14 (ADR-0168); implementation/focused acceptance in progress.**
 Execution readiness follows model-owned direct, invariant and assembly prerequisites. Ordered role
 recipes select exact completed contributor sets independently of arrival. A native-earned immutable

@@ -77,8 +77,14 @@ impl ImmutableWindow {
         };
         rows.push(row);
         let row_count = rows.len();
-        let (mut sql, mut bindings) = immutable_row_plan(attempt, contribution, rows)?
-            .ok_or(ModelError::Schema("native immutable unit"))?;
+        let admission = if charge.is_some() {
+            CoalescingAdmission::ExistingConstruction
+        } else {
+            CoalescingAdmission::ActiveRecovery
+        };
+        let (mut sql, mut bindings) =
+            immutable_row_plan_in(attempt, contribution, rows, admission)?
+                .ok_or(ModelError::Schema("native immutable unit"))?;
         if let Some(blob) = original_blob {
             bindings.insert("original_blobs", vec![blob.value(false)]);
             let mut scope = Variables::new();
@@ -98,7 +104,7 @@ impl ImmutableWindow {
             // The native window classifies declaration, layout and holds together.
             // Existing blob completion is mutable; immutable header equality remains strict.
         }
-        if let Some((hold_owner, _, holds)) = hold_plan(attempt, references)? {
+        if let Some((hold_owner, _, holds)) = hold_plan_in(attempt, references, admission)? {
             if !matches!(
                 hold_owner,
                 EffectOwner::OpenAttempt(_) | EffectOwner::Installation
@@ -134,13 +140,39 @@ impl ImmutableWindow {
             charges: charge.into_iter().collect(),
         })
     }
-    fn coalesce(mut self) -> Result<Self, ModelError> {
+    fn coalesce(mut self, budget: Option<&ResourceBudget>) -> Result<Self, ModelError> {
+        // Reserve all candidate backing before its first allocation. Existing unit
+        // charges retain their input bodies until compaction and acknowledgement.
+        let index_bytes = self
+            .bindings
+            .values()
+            .filter_map(|value| {
+                if let Value::Array(values) = value {
+                    Some(values)
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .map(exact_index::entry_workspace)
+            .fold(0usize, usize::saturating_add);
+        let scope = capture_recovery_scope();
+        let budget = budget.or_else(|| scope.as_ref().map(|scope| scope.budget()));
+        let _index_charge = budget
+            .map(|budget| budget.reserve("native immutable exact coalescing", index_bytes))
+            .transpose()?;
         // Units merge their already-admitted plans without rebuilding the growing
         // window. Compact once at emission, while all construction charges remain.
         if let Some(Value::Array(rows)) = self.bindings.remove("rows") {
             self.bindings.insert(
                 "rows".into(),
-                Value::Array(coalesce_immutable_rows(rows.into_iter().collect())?.into()),
+                Value::Array(
+                    coalesce_immutable_rows_in(
+                        rows.into_iter().collect(),
+                        CoalescingAdmission::ExistingConstruction,
+                    )?
+                    .into(),
+                ),
             );
         }
         for key in [
@@ -153,12 +185,14 @@ impl ImmutableWindow {
             "hold_guards",
         ] {
             if let Some(Value::Array(values)) = self.bindings.get_mut(key) {
-                let mut unique = Vec::with_capacity(values.len());
-                for value in std::mem::take(values).into_iter() {
-                    if !unique.contains(&value) {
-                        unique.push(value);
-                    }
-                }
+                let field = match key {
+                    "__guard_records" => Some("guard"),
+                    "__immutable_creations" => Some("record"),
+                    "original_blobs" | "holds" => Some("id"),
+                    _ => None,
+                };
+                let unique =
+                    exact_index::stable_unique(std::mem::take(values).into_iter().collect(), field);
                 *values = unique.into();
             }
         }
@@ -304,7 +338,9 @@ impl Iterator for ImmutableWindows<'_> {
                     None => output = Some(unit),
                 }
             }
-            output.map(ImmutableWindow::coalesce).transpose()
+            output
+                .map(|window| window.coalesce(self.budget.as_ref()))
+                .transpose()
         })();
         match result {
             Ok(Some(window)) => Some(Ok(window)),
@@ -351,6 +387,30 @@ impl<'a> WindowWriter<'a> {
             issuance: None,
             control_bytes: None,
         }
+    }
+    /// Reuse belongs to one exact client, effect owner and admission pool.
+    pub fn ensure_context(
+        &self,
+        client: &Surreal<Client>,
+        attempt: Option<ContentHash>,
+        budget: Option<&ResourceBudget>,
+    ) -> Result<(), ModelError> {
+        let same_owner = match (&self.owner, attempt) {
+            (EffectOwner::Installation, None) => true,
+            (EffectOwner::OpenAttempt(current), Some(attempt)) => *current == attempt,
+            _ => false,
+        };
+        let same_budget = match (self.budget, budget) {
+            (Some(current), Some(budget)) => current.shares_pool(budget),
+            (None, None) => true,
+            _ => false,
+        };
+        if !std::ptr::eq(self.client, client) || !same_owner || !same_budget {
+            return Err(ModelError::Conflict(
+                "native immutable writer context changed",
+            ));
+        }
+        Ok(())
     }
     pub async fn install(&mut self, window: ImmutableWindow) -> Result<(), ModelError> {
         let _charge: Option<Box<dyn Reservation>> = if window.charges.is_empty() {
@@ -405,7 +465,7 @@ impl<'a> WindowWriter<'a> {
                 _ => authorization::owner_issuance(self.client, &self.owner).await?,
             });
         }
-        let prepared = authorization::prepare_owner_effect(
+        let prepared = authorization::prepare_owner_effect_admitted(
             self.client,
             &self.owner,
             self.issuance
@@ -450,7 +510,7 @@ impl<'a> WindowWriter<'a> {
         self.control_bytes = Some(bytes);
         Ok(bytes)
     }
-    fn expectation_workspace_bytes(bindings: &Variables) -> Result<usize, ModelError> {
+    pub(super) fn expectation_workspace_bytes(bindings: &Variables) -> Result<usize, ModelError> {
         fn encoded(value: &impl serde::Serialize) -> Result<usize, ModelError> {
             struct Counter(usize);
             impl std::io::Write for Counter {
@@ -466,8 +526,30 @@ impl<'a> WindowWriter<'a> {
             serde_json::to_writer(&mut counter, value).map_err(ModelError::codec)?;
             Ok(counter.0)
         }
-        if bindings.get("__object_expectations").is_some() {
-            return Ok(0);
+        // Candidate indexes are temporary but coexist with the complete request.
+        // Count all source entries, including equal candidates retained for later
+        // compound membership queries, before any index allocates.
+        let index_bytes = [
+            "rows",
+            "original_blobs",
+            "__immutable_creations",
+            "__mutable_write_guards",
+            "hold_guards",
+            "guards",
+            "__write_guards",
+        ]
+        .into_iter()
+        .filter_map(|name| match bindings.get(name) {
+            Some(Value::Array(values)) => Some(values),
+            _ => None,
+        })
+        .flatten()
+        .map(exact_index::entry_workspace)
+        .fold(0usize, usize::saturating_add);
+        if let Some(Value::Array(expected)) = bindings.get("__object_expectations") {
+            // Supplied physical observations are immutable. Metadata is attached
+            // locally; a caller may have supplied the pre-metadata envelope.
+            return Ok(index_bytes.saturating_add(expected.len().saturating_mul(256)));
         }
         // Every selected guard occurs in this map. Counting extra entries is safe;
         // no identity is shortened to a digest or a fixed assumed string width.
@@ -555,9 +637,11 @@ impl<'a> WindowWriter<'a> {
         }
         // Match plan_bytes' resident-container and serialization workspace model.
         // This is not the protobuf wire bound; production preflight checks that separately.
-        Ok(native
-            .saturating_mul(2)
-            .saturating_add(serialized.saturating_mul(3)))
+        Ok(index_bytes.saturating_add(
+            native
+                .saturating_mul(2)
+                .saturating_add(serialized.saturating_mul(3)),
+        ))
     }
 }
 
@@ -565,6 +649,38 @@ impl<'a> WindowWriter<'a> {
 mod writer_workspace_controls {
     use super::*;
 
+    #[test]
+    fn coalescing_workspace_refuses_before_candidate_growth_and_releases_at_last_use() {
+        let row = |payload: i64| {
+            let mut row = Object::new();
+            row.insert("id", RecordId::new("entity", "index-admission"));
+            row.insert("payload", payload);
+            Value::Object(row)
+        };
+        let make = || ImmutableWindow::unit(row(1), None, None, None, false, None).unwrap();
+        let mut collision = make();
+        collision
+            .bindings
+            .insert("rows".into(), Value::Array(vec![row(1), row(2)].into()));
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(
+            matches!(
+                collision.coalesce(Some(&tiny)),
+                Err(ModelError::Resource { .. })
+            ),
+            "index reservation precedes collision scanning and backing growth"
+        );
+        assert_eq!(tiny.reserved(), 0);
+        let budget = ResourceBudget::fixed(4 * 1024 * 1024).unwrap();
+        let window = make().coalesce(Some(&budget)).unwrap();
+        assert!(budget.peak().unwrap() > 0, "temporary index was admitted");
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "index dies after compaction, not acknowledgement"
+        );
+        drop(window);
+    }
     #[test]
     fn complete_workspace_covers_distinct_endpoint_guards_and_creation_indices() {
         let attempt = ContentHash::of(b"immutable workspace control");
@@ -696,10 +812,9 @@ mod writer_workspace_controls {
                 actual <= capacity,
                 "derived capacity covers {phase}: capacity={capacity} actual={actual}"
             );
-            assert_eq!(
-                WindowWriter::expectation_workspace_bytes(&observed).unwrap(),
-                0,
-                "already captured envelopes are charged by raw plan sizing"
+            assert!(
+                WindowWriter::expectation_workspace_bytes(&observed).unwrap() > 0,
+                "supplied envelopes still require metadata and candidate scratch admission"
             );
         }
     }

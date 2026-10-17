@@ -1706,6 +1706,23 @@ impl PendingOriginals {
         chunks: &[lctx_model::domain::artifact::ArtifactChunk],
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        let mut writer =
+            crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
+        self.chunks_with_writer(reader, attempt, contribution, chunks, budget, &mut writer)
+            .await
+    }
+    /// Reuse only compatible issuance/sizing preparation from the caller's
+    /// owned ingress frame. Pending state, guards and effects remain per window.
+    pub async fn chunks_with_writer<Context>(
+        &self,
+        reader: &crate::NativeReader<Context>,
+        attempt: ContentHash,
+        contribution: Option<ContentHash>,
+        chunks: &[lctx_model::domain::artifact::ArtifactChunk],
+        budget: &ResourceBudget,
+        writer: &mut crate::control::WindowWriter<'_>,
+    ) -> Result<(), ModelError> {
+        writer.ensure_context(reader.client(), Some(attempt), Some(budget))?;
         let closed = self.gate.lock().await;
         if *closed {
             return Err(ModelError::Conflict("original ingress closed"));
@@ -1720,8 +1737,6 @@ impl PendingOriginals {
             .checked_mul(std::mem::size_of::<(Blob, u64, &[u8])>())
             .ok_or(ModelError::Schema("original ingress slice metadata"))?;
         let _metadata = budget.reserve("original ingress slice metadata", metadata_bytes)?;
-        let mut writer =
-            crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
         let mut segments = Vec::with_capacity(chunks.len());
         for chunk in chunks {
             chunk.validate()?;
@@ -1732,15 +1747,8 @@ impl PendingOriginals {
                     let owner = contribution
                         .map(|id| RecordId::new("compiler_contribution", id.hex()))
                         .unwrap_or_else(|| RecordId::new("native_attempt", attempt.hex()));
-                    install_owned(
-                        &mut writer,
-                        attempt,
-                        contribution,
-                        owner,
-                        layout.value(),
-                        budget,
-                    )
-                    .await?;
+                    install_owned(writer, attempt, contribution, owner, layout.value(), budget)
+                        .await?;
                     let start = u64::try_from(chunk.ordinal)
                         .map_err(ModelError::codec)?
                         .checked_mul(lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64)
@@ -1756,7 +1764,7 @@ impl PendingOriginals {
                     }
                     segments.push((layout.blob, start, chunk.body.0.as_slice()));
                 }
-                None => stage(&mut writer, attempt, contribution, &source, chunk, budget).await?,
+                None => stage(writer, attempt, contribution, &source, chunk, budget).await?,
             }
         }
         let pieces = blob_piece_rows(
@@ -1785,6 +1793,23 @@ impl PendingOriginals {
         sources: &[SourceArtifact],
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        let mut writer =
+            crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
+        self.sources_with_writer(reader, attempt, contribution, sources, budget, &mut writer)
+            .await
+    }
+    /// The source/layout and chunk phases share their ingress writer while each
+    /// physical effect still captures fresh guards and recovery ownership.
+    pub async fn sources_with_writer<Context>(
+        &self,
+        reader: &crate::NativeReader<Context>,
+        attempt: ContentHash,
+        contribution: Option<ContentHash>,
+        sources: &[SourceArtifact],
+        budget: &ResourceBudget,
+        writer: &mut crate::control::WindowWriter<'_>,
+    ) -> Result<(), ModelError> {
+        writer.ensure_context(reader.client(), Some(attempt), Some(budget))?;
         let closed = self.gate.lock().await;
         if *closed {
             return Err(ModelError::Conflict("original ingress closed"));
@@ -1792,33 +1817,14 @@ impl PendingOriginals {
         if !sources.is_empty() {
             self.retain_budget(budget)?;
         }
-        let mut writer =
-            crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
         for source in sources {
             let layout = Layout::source(source)?;
             validate_layout(reader, &layout).await?;
             let owner = contribution
                 .map(|id| RecordId::new("compiler_contribution", id.hex()))
                 .unwrap_or_else(|| RecordId::new("native_attempt", attempt.hex()));
-            install_owned(
-                &mut writer,
-                attempt,
-                contribution,
-                owner,
-                layout.value(),
-                budget,
-            )
-            .await?;
-            drain_pending(
-                reader,
-                &mut writer,
-                attempt,
-                contribution,
-                &layout,
-                budget,
-                true,
-            )
-            .await?;
+            install_owned(writer, attempt, contribution, owner, layout.value(), budget).await?;
+            drain_pending(reader, writer, attempt, contribution, &layout, budget, true).await?;
         }
         Ok(())
     }

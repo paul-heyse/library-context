@@ -253,7 +253,7 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
     // Host expectation preparation rejects different records sharing one physical
     // guard, and targets are distinct, so accepted packets advance each guard once.
     LET $changed_ids=$changed.map(|$row| $row.id);
-    LET $guard_entries=$targets.filter(|$target| $context=NONE OR $target!=$context.attempt).map(|$target| {target:$target,entry:($deferred.filter(|$entry| $entry.record=$target)[0] ?? NONE)}).filter(|$candidate| $candidate.entry!=NONE AND ($candidate.entry.phase='active' OR $candidate.target NOT IN $changed_ids));
+    LET $guard_entries=$targets.filter(|$target| $context=NONE OR $target!=$context.attempt).map(|$target| {target:$target,entry:array::find($deferred, |$entry| $entry.record=$target)}).filter(|$candidate| $candidate.entry!=NONE AND ($candidate.entry.phase='active' OR $candidate.target NOT IN $changed_ids));
     LET $guard_ids=$guard_entries.map(|$candidate| $candidate.entry.guard);
     LET $actual_guards=$guard_ids.map(|$id| (SELECT * FROM ONLY $id FOR UPDATE));
     IF array::len($actual_guards.filter(|$guard| $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807))>0 { THROW 'native changed incidence guard invalid'; };

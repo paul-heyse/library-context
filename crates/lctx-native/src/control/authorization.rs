@@ -515,8 +515,10 @@ pub(crate) async fn original_completion_effect(
     client: &Surreal<Client>,
     attempt: Option<ContentHash>,
     sql: &str,
-    mut bindings: Variables,
+    bindings: Variables,
 ) -> Result<OriginalCompletionOutcome, ModelError> {
+    let _preparation = expectation_preparation_charge(&bindings)?;
+    let mut bindings = bindings;
     coordination::prepare_expectations(client, &mut bindings).await?;
     let payload = PreparedNativePayload::new(sql, bindings)?;
     let owner = attempt
@@ -601,6 +603,7 @@ pub(super) async fn effect_for_owner(
     sql: &str,
     bindings: Variables,
 ) -> Result<(), ModelError> {
+    let _preparation = expectation_preparation_charge(&bindings)?;
     let mut bindings = bindings;
     coordination::prepare_expectations(client, &mut bindings).await?;
     let payload = PreparedNativePayload::new(sql, bindings)?;
@@ -630,9 +633,19 @@ pub(super) async fn effect_for_owner(
     };
     execute_recorded(client, request, owner, payload, false).await
 }
+fn expectation_preparation_charge(
+    bindings: &Variables,
+) -> Result<Box<dyn lctx_model::domain::resources::Reservation>, ModelError> {
+    let scope = capture_recovery_scope().ok_or(ModelError::Conflict(
+        "native expectation preparation requires its owning recovery scope",
+    ))?;
+    coordination::reserve_expectation_preparation(bindings, scope.budget())
+}
 pub(super) struct PreparedOwnerEffect {
     request: NativeRequest,
     plan: OwnerEffectPlan,
+    // Last: the prepared packet and its native consumer die before this grant.
+    _preparation: Option<Box<dyn lctx_model::domain::resources::Reservation>>,
 }
 impl PreparedOwnerEffect {
     pub(super) fn request(&self) -> NativeRequest {
@@ -670,6 +683,21 @@ pub(super) async fn prepare_owner_effect(
     owner: &EffectOwner,
     issuance: IssuanceEra,
     sql: &str,
+    bindings: Variables,
+) -> Result<PreparedOwnerEffect, ModelError> {
+    let charge = expectation_preparation_charge(&bindings)?;
+    let mut prepared =
+        prepare_owner_effect_admitted(client, owner, issuance, sql, bindings).await?;
+    prepared._preparation = Some(charge);
+    Ok(prepared)
+}
+/// WindowWriter retains the complete derived preparation grant through execution.
+/// It uses this private seam to avoid charging the same backing twice.
+pub(super) async fn prepare_owner_effect_admitted(
+    client: &Surreal<Client>,
+    owner: &EffectOwner,
+    issuance: IssuanceEra,
+    sql: &str,
     mut bindings: Variables,
 ) -> Result<PreparedOwnerEffect, ModelError> {
     coordination::prepare_expectations(client, &mut bindings).await?;
@@ -681,13 +709,21 @@ pub(super) async fn prepare_owner_effect(
     };
     request.validate()?;
     let plan = owner_effect_plan(request, owner, payload.sql, payload.bindings, false)?;
-    Ok(PreparedOwnerEffect { request, plan })
+    Ok(PreparedOwnerEffect {
+        request,
+        plan,
+        _preparation: None,
+    })
 }
 pub(super) async fn execute_prepared_owner_effect(
     client: &Surreal<Client>,
     prepared: PreparedOwnerEffect,
 ) -> Result<(), ModelError> {
-    let PreparedOwnerEffect { request, plan } = prepared;
+    let PreparedOwnerEffect {
+        request,
+        plan,
+        _preparation,
+    } = prepared;
     // Sizing did not accept a receipt. Register only the exact already prepared request.
     super::receipts::accepted(request).map_err(|error| request.error(error))?;
     let result = match execute_owner_plan(client, request, plan) {
@@ -1714,6 +1750,17 @@ async fn reconcile_request_observed(
     if current.generation != request.issuance.generation {
         return Err(request.error(ModelError::Conflict("native reconciliation generation")));
     }
+    let (sql, bindings) = reconciliation_plan(request, current)?;
+    super::run_recovery_transaction(client, &sql, bindings)
+        .await
+        .map_err(|error| request.error(error))?;
+    observe_request(client, request).await
+}
+/// Exact production lowering shared with overlapping-transaction protocol controls.
+pub(super) fn reconciliation_plan(
+    request: NativeRequest,
+    current: IssuanceEra,
+) -> Result<(String, Variables), ModelError> {
     let mut bindings = Variables::new();
     request.bind(&mut bindings);
     bindings.insert("original_era", request.issuance.era);
@@ -1725,10 +1772,7 @@ async fn reconcile_request_observed(
         "BEGIN; {ERA_GUARD} fn::native_touch($__effect); LET $state=SELECT * FROM ONLY $__effect FOR UPDATE; IF $state=NONE {{ IF $original_era>$__installation.closed_through {{ IF $original_era!=$__era {{ THROW 'native reconciliation era'; }}; CREATE $__effect SET attempt=NONE,owner=NONE,owner_kind='fence',generation=$__generation,era=$original_era,request=$__request,committed=false,resolved=true,revision=1,epoch=0 RETURN NONE; }}; }} ELSE {{ IF $state.request!=$__request OR $state.era!=$original_era OR $state.generation!=$__generation {{ THROW 'native reconciliation identity'; }}; fn::native_incidence($state); IF !$state.resolved {{ UPDATE $__effect SET resolved=true,revision+=1 RETURN NONE; IF $state.owner_kind='installation' AND $state.owner!=NONE {{ IF record::table($state.owner)!='native_operation_owner' {{ THROW 'native reconciliation local owner family'; }}; LET $local_owner=$state.owner; LET $local=SELECT * FROM ONLY $local_owner FOR UPDATE; IF $local=NONE OR $local.generation!=$__generation OR $local.era!=$original_era OR $local.epoch!=$state.epoch OR $local.operation!=$original_operation {{ THROW 'native reconciliation local owner identity'; }}; UPDATE $state.owner SET state='done' RETURN NONE; }}; }}; }}; COMMIT;"
     );
     coordination::preflight(&sql, &bindings)?;
-    super::run_recovery_transaction(client, &sql, bindings)
-        .await
-        .map_err(|error| request.error(error))?;
-    observe_request(client, request).await
+    Ok((sql, bindings))
 }
 /// ID-only observation cannot invent missing authorization. Callers that may retry
 /// use reconcile_request and retain NativeRequest, including its pre-intent era.

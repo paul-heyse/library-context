@@ -162,6 +162,14 @@ impl NativeCompilerStore {
                 let _retained = retained;
                 let result = lease
                     .within(producing_future(producing, async {
+                        // This frame fixes the client, attempt, contribution,
+                        // producing scope and pool for the driver's entire life.
+                        // Only issuance/fixed sizing survive a flushed window.
+                        let mut writer = crate::control::WindowWriter::new(
+                            &store.client,
+                            Some(store.attempt),
+                            Some(&budget),
+                        );
                         let mut failure: Option<Arc<ModelError>> = None;
                         while let Some(accepted) = receiver.recv().await {
                             if let Some(error) = &failure {
@@ -172,7 +180,14 @@ impl NativeCompilerStore {
                             }
                             let captured = crate::control::capture_effect_receipts(
                                 &budget,
-                                store.write_checked_batch(&contribution, &accepted.batch, &budget),
+                                store.boxed_write_batch_with_writer(
+                                    &contribution,
+                                    accepted.batch.relation(),
+                                    accepted.batch.arrow(),
+                                    Some(accepted.batch.model()),
+                                    Some(&budget),
+                                    &mut writer,
+                                ),
                             )
                             .await;
                             let result = match captured {
@@ -257,6 +272,238 @@ mod tests {
             d::serving::Name::new("ingress_control").unwrap(),
             d::serving::Name::new("owned_control").unwrap(),
         )
+    }
+    fn register_local_output(store: &NativeCompilerStore, relation: &Relation) -> ContentHash {
+        let spec = ContributionSpec {
+            captured_binding: None,
+            producer: "ingress-lifetime-control".into(),
+            profile: OutputProfile::Specific(d::stages::Profile::Catalog),
+            model: d::model().unwrap().digest(),
+            implementation: ContentHash::of(b"ingress-lifetime-control"),
+            configuration: None,
+            inputs: vec![],
+            outputs: [relation.name().into()].into(),
+        };
+        let id = attempt_contribution(store.attempt, spec.identity().unwrap());
+        store.specifications.lock().unwrap().insert(
+            id,
+            RegisteredContribution {
+                spec,
+                ownership: ContributionOwnership::Producing,
+                _transport_charge: None,
+            },
+        );
+        id
+    }
+    #[tokio::test]
+    async fn reused_ingress_preserves_each_batch_validation_ack_and_release() {
+        // Empty canonical batches exercise the real driver and lowering without
+        // fabricating a native effect or requiring a connected database.
+        let store = local_store();
+        let relation = Relation::of::<d::analytics::QualityStep>();
+        let contribution = register_local_output(&store, &relation);
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut ingress = store.ingress(contribution, &budget).unwrap();
+        for sequence in 0..2 {
+            let batch =
+                Batch::<d::analytics::QualityStep>::new(&d::model().unwrap(), vec![], &budget)
+                    .unwrap()
+                    .into_checked()
+                    .unwrap();
+            let accepted = ingress.accept(batch).await.unwrap();
+            assert_eq!(accepted.sequence(), sequence);
+            let committed = accepted.await_committed().await.unwrap();
+            assert_eq!(committed.sequence, sequence);
+            assert!(
+                committed.effects.entries().is_empty(),
+                "no native effect was requested"
+            );
+            assert_eq!(
+                budget.reserved(),
+                4096,
+                "flushed batches leave only the queue owner"
+            );
+        }
+        let undeclared =
+            Batch::<d::input::InputRevision>::new(&d::model().unwrap(), vec![], &budget)
+                .unwrap()
+                .into_checked()
+                .unwrap();
+        let refused = ingress.accept(undeclared).await.unwrap();
+        assert_eq!(refused.sequence(), 2);
+        assert!(refused.await_committed().await.is_err());
+        let report = ingress.finish_report().await;
+        assert!(
+            report.operation.is_err(),
+            "later validation cannot reuse earlier eligibility"
+        );
+        assert!(report.completion.is_satisfied());
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn shared_writer_refuses_foreign_context_before_batch_validation() {
+        let store = local_store();
+        let relation = Relation::of::<d::analytics::QualityStep>();
+        let contribution = register_local_output(&store, &relation);
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let foreign = ResourceBudget::fixed(1 << 20).unwrap();
+        let batch = d::analytics::QualityStep::encode(&[]).unwrap();
+        let mut writer =
+            crate::control::WindowWriter::new(&store.client, Some(store.attempt), Some(&budget));
+        let reader = crate::NativeReader::private(store.client.clone()).with_budget(&budget);
+        assert!(std::ptr::eq(reader.client(), store.client.as_ref()));
+        writer
+            .ensure_context(reader.client(), Some(store.attempt), Some(&budget))
+            .unwrap();
+        let foreign_client = Surreal::init();
+        assert!(
+            writer
+                .ensure_context(&foreign_client, Some(store.attempt), Some(&budget))
+                .is_err()
+        );
+        assert!(
+            store
+                .write_batch_inner(
+                    &contribution,
+                    &relation,
+                    &batch,
+                    Some(d::model().unwrap().digest()),
+                    Some(&foreign),
+                    &mut writer
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            !store.failed.load(Ordering::Acquire),
+            "context refusal precedes mutation admission"
+        );
+        assert_eq!(budget.reserved(), 0);
+        assert_eq!(foreign.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn native_reused_ingress_spans_pending_source_replay_and_later_refusal() {
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
+        ))
+        .unwrap();
+        let factory = recovery_factory(&config, budget.clone()).unwrap();
+        let store = NativeCompilerStore::begin(&config, Frontier::Facts, &factory)
+            .await
+            .unwrap();
+        let connection = store
+            .recovery_scope()
+            .unwrap()
+            .client()
+            .connection_completion()
+            .unwrap();
+        let reader = crate::NativeReader::private(store.client.clone()).with_budget(&budget);
+        let result = std::panic::AssertUnwindSafe(async {
+            let model = d::model()?;
+            let source_relation = Relation::of::<d::source::SourceArtifact>();
+            let chunk_relation = Relation::of::<d::artifact::ArtifactChunk>();
+            let contribution = store
+                .begin_contribution(ContributionSpec {
+                    captured_binding: None,
+                    producer: format!("ingress-reuse-{}", store.attempt.hex()),
+                    profile: OutputProfile::Specific(d::stages::Profile::Catalog),
+                    model: model.digest(),
+                    implementation: ContentHash::of(b"ingress-reuse-control"),
+                    configuration: None,
+                    inputs: vec![],
+                    outputs: [source_relation.name().into(), chunk_relation.name().into()].into(),
+                })
+                .await?;
+            let input = d::input::InputRevision::from_entries(vec![])?;
+            let mut bytes = vec![9; lctx_native::originals::CHUNK_BYTES + 7];
+            bytes[..32].copy_from_slice(&store.attempt.0);
+            let source =
+                d::source::SourceArtifact::from_bytes(input.id(), "ingress.py".into(), &bytes)?;
+            let chunks = d::artifact::ArtifactChunk::split(&source, &bytes)?.collect::<Vec<_>>();
+            let mut ingress = store.ingress(contribution, &budget)?;
+            // Deliberately arrive before the source header: the next batch must
+            // drain the pending original using the same writer's preparation.
+            let first = ingress
+                .accept(Batch::new(&model, chunks.clone(), &budget)?.into_checked()?)
+                .await?;
+            let second = ingress
+                .accept(Batch::new(&model, vec![source.clone()], &budget)?.into_checked()?)
+                .await?;
+            for (sequence, accepted) in [first, second].into_iter().enumerate() {
+                let committed = accepted.await_committed().await?;
+                assert_eq!(committed.sequence, sequence as u64);
+                assert!(!committed.effects.entries().is_empty());
+                assert!(committed.effects.entries().iter().all(
+                    |effect| effect.disposition == crate::control::EffectDisposition::Committed
+                ));
+            }
+            let replay = ingress
+                .accept(Batch::new(&model, chunks, &budget)?.into_checked()?)
+                .await?;
+            assert_eq!(replay.await_committed().await?.sequence, 2);
+            let source_id = RecordId::new("original", d::graph::EntityId::of(source.id()).0.hex());
+            // Completion keeps its independent writer and proves exact source EOF.
+            crate::control::with_recovery_scope(
+                store.recovery_scope()?,
+                lctx_native::originals::complete_selected(
+                    &reader,
+                    Some(store.attempt),
+                    std::slice::from_ref(&source_id),
+                    &budget,
+                ),
+            )
+            .await?;
+            let refused = ingress
+                .accept(
+                    Batch::<d::analytics::QualityStep>::new(&model, vec![], &budget)?
+                        .into_checked()?,
+                )
+                .await?;
+            assert_eq!(refused.sequence(), 3);
+            assert!(
+                refused.await_committed().await.is_err(),
+                "later output validation is mandatory"
+            );
+            let report = ingress.finish_report().await;
+            assert!(report.operation.is_err());
+            assert!(
+                report.completion.is_satisfied(),
+                "acknowledged refusal still joins its owner"
+            );
+            let ranges = lctx_native::originals::read_ranges(
+                &reader,
+                &[(source_id, 0, bytes.len())],
+                &budget,
+            )
+            .await?;
+            assert_eq!(
+                ranges,
+                vec![bytes],
+                "later refusal preserves earlier committed source bytes"
+            );
+            Ok::<(), ModelError>(())
+        })
+        .catch_unwind()
+        .await;
+        let mut completion = d::completion::Completion::default();
+        completion.step("ingress control reader close", reader.close().await);
+        completion.merge(store.abandon_finality_report().await);
+        let closed = d::completion::complete::<()>(Ok(()), completion);
+        drop(reader);
+        drop(store);
+        drop(factory);
+        if closed.is_ok() {
+            connection.wait().await.unwrap();
+            drop(connection);
+            assert_eq!(budget.reserved(), 0);
+        }
+        closed.unwrap();
+        match result {
+            Ok(result) => result.unwrap(),
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
     #[tokio::test]
     async fn admission_precedes_worker_poll_and_drop_keeps_global_drain_owned() {

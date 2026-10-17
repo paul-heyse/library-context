@@ -170,7 +170,77 @@ includes all consumers, error paths and removal of replaced code, not an isolate
 
 ## 6. Sole disposition and current checkpoint
 
-**Current,2026-10-17: PC00 complete; PA00–PA05/TF00–TF03 implemented and focused-Tested.**
+**Current,2026-10-17: NI00–NI03 complete / focused-Tested; scope-end hygiene passed.**
+Execution baseline is main `fcf123f155ca3687f5356dfb02bcbe4bbe428b09`; native and ingress changes
+are integrated in the shared tree, with no auxiliary worktrees. [ADR-0184](../adr/0184-exact-immutable-preparation-and-ingress-reuse.md)
+records the selected physical routes. PC90/PC99 and full validation remain later scope.
+
+| Package | Selected decision / current evidence boundary |
+|---|---|
+| NI00 | Retain ordinary attempt registered reads: pinned RocksDB uses optimistic commit validation, so shared reads plus distinct stripe writes do not alone serialize. Actual close/freeze controls passed: disjoint slots, intentional same-slot collisions, complete cut winning after an evaluated apply body and both absent-fence commit orders. Same-slot evidence covers combined installation/attempt stripes, not isolated causal attribution |
+| NI01 | Pure packet metadata classification without recapturing supplied guards; deferred flags before hashing; native `array::find` over original ordered entries. Necessary scalar fences/full collision/parent/new-holder/rollback contracts retained. Pure and actual native controls passed |
+| NI02 | Exact tagged scalar candidate positions with full equality and ordered compound/unkeyed fallback; all membership candidates retained. Driver-owned writer across physical/original/alias/member batches; standalone/post-freeze owners remain independent. Index/metadata admission covers generic and writer paths. Sixteen pure controls and actual multi-batch pending-source/replay/later-refusal control passed, with joined finality and zero reservations |
+| NI03 | Approved campaign-then-cutover complete: campaign798c6b71… passed14 selected native controls, exact default main/validation regeneration passed, final-target smoke passed3, campaign authenticated disposal passed. Both old attachments separately discard-acknowledged/released; original Unknowns unchanged |
+
+Independent static review accepted the main seams after generic expectation admission and
+same-slot controls were added. Follow-up found a new-index admission gap in generic
+`hold_many` lowering before effect preparation. The common coalescer now reserves before growth,
+compacts in the original Vec backing and uses an explicit admitted path for covered windows;
+the reviewer rechecked the fix and found no remaining material issue in this change.
+This is Interface-checked source, not native acceptance. Generated control assets now match the native authority; the schema identity
+changes despite unchanged published columns/codebooks. No speed or RSS improvement is measured.
+Scope-end full compile, strict keep-going Clippy and applicable leaves passed. PC90/PC99
+and deferred full Catalog/selected-complete/assembled acceptance remain open.
+
+| Outcome | Command / exact run | Scope |
+|---|---|---|
+| passed | `cargo nextest run --release -p lctx-native -p lctx-compiler-store --lib --no-fail-fast -E …`; `20261017T072122.629Z-0b4c78` | Final16 pure controls: exact auxiliary/immutable compound equality, preserved candidates, supplied observations, common-lowerer/generic/emission admission/refusal/release, full sizing/parser, ingress validation/ack/context/cancellation/join |
+| passed | `cargo build --release -p lctx --bin lctx -p lctx-surreal-dev --bin lctx-surreal-dev`; `20261017T072122.810Z-8edabc` | Final functional installer/tool source, no dependency/schema-column/codebook changes |
+| passed | `cargo run --release -p lctx-surreal-dev -- generate`; `20261017T070034.043Z-f29c18`; `target/release/lctx-surreal-dev generate --check`; `20261017T071328.909Z-ee5dff` and final direct check | Derived control asset changed exactly with native authority; generated definition changes schema identity |
+| passed | `just ready`; `20261017T070519.534Z-651bd8` | Guard-free current checkout readiness; no service installation or adoption implied by this command |
+| passed | Campaign fixture, `cargo nextest run --release -p lctx-native -p lctx-compiler-store --lib --run-ignored only --no-fail-fast -E test(native_deferred_first_match_preserves_order_and_none_for_compound_ids)`; `20261017T071656.323Z-956ba6` | Actual native ordered first match/NONE versus old filter; unchanged by later host coalescing correction |
+| passed | Same campaign command, exact close/freeze filters `native_atomic_disjoint_applies_overlap_and_complete_cut_fences_delayed_apply` / `native_atomic_disjoint_applies_overlap_and_complete_freeze_fences_delayed_apply`; `20261017T072945.242Z-b98a43`, `20261017T072955.378Z-c23d08` | Both native protocol controls, expanded commit orders and exact replay/refusal assertions |
+| passed | Same campaign command, filters `native_attempt_immutable_rows_and_hold_only_windows_overlap_both_commit_orders` / `native_attempt_immutable_guard_refusals_leave_rows_and_holds_absent`; `20261017T073002.749Z-568594`, `20261017T073037.287Z-835ffe` | Immutable overlap and guard/incarnation refusal, no partial rows/holds |
+| passed | Campaign fixture, ordinary keep-going nextest exact nine-case selection; `20261017T073049.901Z-d216e3` | Equal replay/new holders/context-free complete cuts, tail revision/collision rollback, foreign attempts, active absent guard, mixed rows/repeated blob parent, frozen equal successor, late collision, multi-batch ingress |
+| passed | `just service regenerate 58abe9ea-2088-4109-95ab-8440a3749c51 --project-scopes main,validation --installer target/release/lctx --server-generation …/9fbab612…/record.json`; `20261017T073124.787Z-f7ec16` | Authenticated whole-executor drainage, exact project replacement and main/validation checks; admission reopened |
+| passed | Default fixture keep-going nextest, replay/new-holder + tail collision rollback + multi-batch ingress; `20261017T073202.580Z-2ec8e8` | Three actual controls on final default generation |
+| passed | `just service dispose-campaign 798c6b71-803f-401a-b4e0-8bd98105e46d --participant-run …` under exact campaign config; `20261017T073212.462Z-7004f9` | All six exact campaign test runs named; authenticated host/native executor shutdown and whole-target disposal |
+| passed | `cargo check --release --workspace --all-targets --keep-going`; `20261017T073922.086Z-3bd66c` | Final formatted source, full workspace/all-target compile; earlier pre-format check073350…36cb9e also passed |
+| passed | `just clippy`; `20261017T073922.268Z-d4c2ab` | Final formatted release workspace/all-target keep-going `-D warnings`, entirely clear |
+| passed | `just ruff`, `just types`; `20261017T073351.174Z-2af39c`, `20261017T073351.389Z-bbb165` | Entire Python lint and warnings-inclusive Pyrefly; Python files remained unchanged through final formatting |
+| passed | `just deps`; `20261017T073551.437Z-bf7a8c` | Exact dependency/fork family policy, bans/sources, no unused direct dependencies and Hakari consistency |
+| passed | `just docs-check`, `just adr-lint`; `20261017T073922.442Z-551b23`, `20261017T073922.630Z-ca24e0` | 487 canonical pages/zero link errors;111 ADR records and governed owner references |
+| passed | `just turn-end`; `20261017T073909.439Z-e13b60` | Scope-end ADR index/Hakari/formatting; final compile and strict Clippy follow this source |
+| not_run | Full Catalog, selected-complete, old provider timeout matrix, assembled qualification, embedding/submitted MCP runtime, real-library/operator adoption | Outside this NI00–NI03 slice; remaining PC90/PC99 and §7 boundaries are unchanged |
+
+Campaign install `20261017T071329.110Z-296b2a` passed; its configuration owner is
+`/home/paul/.local/state/library-context/ni00-ni03-20261017/installation.json`. The final default
+installation remains58abe9ea…, server9fbab612…, now generation
+`d3cd79b988ca294b37efc1d6071b8c4c59f5667479cc6d961ded6645b12f5776`, regeneration journal
+`367e429f928a82c9da50e10bb065c43ea8e64ad70bbce8c4c192c843ff1e84db`, immutable installer8b39b390….
+Original project data was discarded and definitions regenerated; no operator adoption occurred.
+Attachments a5bd9a10… and d3666ab1… were separately discard-acknowledged/released at07:31:48UTC;
+ack digests are e6ea3a14… and 03cdeffa… respectively. Their original not_observed/Unknown remain.
+All listed completed runs have confirmed host cleanup/no survivors; cited receipts/logs retain
+`citation:catalog-collection-efficiency`. Actual test capture remains authoritative. Initial full
+check065907…daeb46 failed on Variables.remove returning unit; initial pure build070126…fa16f5
+failed on direct Object extraction. Both API mistakes were corrected before the final passes.
+Intermediate15-control pass070446…346bf4 predates the last common-lowerer admission fix.
+Strict Clippy073350…49b927 failed only on a collapsible creation-lookup conditional; it was
+corrected without an allowance. The final full strict keep-going rerun passed entirely clear.
+Only that equivalent conditional and mechanical formatting followed the native passes; native
+definitions, protocol/equality behavior and target generation did not change afterward.
+
+Bounded historical triage inspected request78fbb345… of attachmentd3666ab1… from run051405…b87d33.
+Its retained envelope is `Pin(native_pin:d74a820e…)`, `ReleaseTerminalReference`, `ReleaseRecovery`,
+observed `Committed`. The failed `typed_flow::native_bound_unattached…` log reports stopped recovery
+issuance and unconfirmed acknowledgement after that committed effect. This establishes a terminal
+release/handback failure boundary, not a payload collision, waiting/retry duration or the cause of
+the earlier slow run. Its parent Unknown and original failed test outcome remain unchanged.
+The earlier prepared-visibility request4f482179… has no matching envelope in that attachment's
+request directory; no timing or root-cause conclusion is inferred from that absence.
+
+**Previous slice,2026-10-17: PC00 complete; PA00–PA05/TF00–TF03 implemented and focused-Tested.**
 This slice began on main `15f5d2c1a7487769f4df02863ce7554c5315973e`; all contributions are
 integrated in the shared tree, with no auxiliary worktrees. PA02–PA05/TF03 decisions are settled
 below and in [ADR-0183](../adr/0183-collector-preparation-and-retention.md). Current source includes
@@ -178,8 +248,8 @@ shared immutable Ruff preparation, within-encounter display reuse, early depende
 payload selection with complete capture bases, narrow retained syntax, exhaustive shared kinds,
 direct reference partitions and owning per-source flow inputs. Type limits, output/failure semantics,
 normal concurrency and deadlines are unchanged. No schema/codebook change or measured speed claim.
-NI00–NI03, PC90/PC99, full Catalog/selected-complete acceptance and native recovery remain later scope.
-The previous selected native failure and both protected Unknown attachments below are unchanged.
+These receipts predate NI00–NI03 and do not test its changes. Full Catalog/selected-complete
+acceptance and native recovery remain separate; original selected failures/Unknowns below remain.
 
 The exact fork revisions are Ruff `c5254df81fc140dba1b1e80e1ae492b0cde887d0` and Pyrefly
 `b8a668daf1e100cc666b31c77d5bdbb70e319380`, at unchanged upstream versions and parents. New
@@ -290,12 +360,9 @@ its publication or pin-close receipt, adding narrow phase diagnostics only if th
 distinguish waiting from retry work. No retry, deadline extension or concurrency cap is implied. Cited captures use
 `citation:catalog-collection-efficiency`; full files remain authoritative.
 
-All NI00–NI03 and PC90/PC99 packages remain open, not started in this slice. The residual attempt-lock
-lead is open under NI00; immutable per-record preparation/deferred search under NI01; ingress
-preparation and bounded quadratic coalescing under NI02. NI03's wider native
-acceptance is not established by the scoped ready observation; the protected checkpoint below
-gates later effects. None of these
-source leads is a confirmed safe-removal or measured timeout diagnosis.
+The current NI00–NI03 checkpoint above owns the residual decisions and their new evidence.
+These historical source leads are not a measured timeout diagnosis; the original ready observation
+alone establishes neither new native acceptance nor resolution of protected ownership.
 
 | Python source IDs | Current disposition / responsible package | Closure evidence |
 |---|---|---|
@@ -351,7 +418,11 @@ their wider evidence belongs to §7's later validation scope.
 | [E:I07](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I07) | Selected-corpus postings delivered | Actual access/scoring/corruption/cold reconstruction; one BM25 pass is narrower |
 | [E:I08](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md#I08) | Channel-specific diagnostics delivered | Consumed-channel attribution/loss; no general platform |
 
-### Protected native checkpoint
+### Historical protected native checkpoint and current settlement
+
+**Current settlement,2026-10-17:** NI03 regeneration367e429f… separately discard-acknowledged
+and released both attachments at07:31:48UTC. Original not_observed/Unknown remain unchanged.
+The dated observations below are historical and do not prohibit borrowing the checked successor.
 
 **Current selected-run addition, 2026-10-17:** read-only service observation before the focused
 native command found the installed default ready with maintenance off and the same installation,
@@ -380,7 +451,7 @@ Its separate acknowledgement settled prior c1e9254f… ownership without rewriti
 Later run `20261017T033615.262Z-5c35a2` was operator-cancelled at03:37:19UTC, exit137;
 host cleanup confirmed03:37:24UTC/no survivors. It stopped during compilation with zero test-case
 outcomes. Attachment **`a5bd9a10-6a7f-437a-8245-275f9837f0f2`**, storage object
-**`8977b11b-f6ab-4aaa-b760-3f8bbd765b70`**, remains unreleased/protected, native completion
+**`8977b11b-f6ab-4aaa-b760-3f8bbd765b70`**, was unreleased/protected at that checkpoint, native completion
 `not_observed`, no discard acknowledgement. Host cleanup and zero tests do not settle native ownership.
 Before later native effects, NI03 establishes the exact current owner/target and uses only evidenced,
 authorized recovery/discard routes. DB-free source changes can progress independently.
@@ -389,7 +460,7 @@ Historical parser `032530…cbb117` passed2; native focus `033508…86ace9` pass
 cleanup; full release compile `033417…980709` and strict keep-going Clippy `033441…94b3ea` passed
 before mechanical test formatting; native refresh `033559…c0912a` passed/current at that time.
 These dated results do not test new changes or close wider acceptance. The owned8826… candidate
-was disposed. No new campaign/adoption occurred. Historical receipts/Unknowns and
+was disposed. No new campaign/adoption occurred in that historical slice. Historical receipts/Unknowns and
 `citation:catalog-runtime-efficiency` holds remain protected through existing owners. The
 [old completion checkpoint](catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations)
 and [old runtime checkpoint](catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
