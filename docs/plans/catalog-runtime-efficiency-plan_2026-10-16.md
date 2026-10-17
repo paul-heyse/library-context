@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: combined target and execution plan
 
-**Accepted target / implementation in progress, 2026-10-16; operator-approved rule directions.** This coordinator schedules
+**Accepted target / partial implementation; stopped at operator-requested closeout, 2026-10-17 UTC; operator-approved rule directions.** This coordinator schedules
 the [runtime review](../design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md)
 and takes over every remaining obligation of the previous Catalog-efficiency plan set.
 Approval of a direction establishes neither implementation nor verified closure.
@@ -175,7 +175,7 @@ interfaces permit parallel reasoning; verified working prerequisites permit depe
 
 ## 6. Sole disposition and current checkpoint
 
-**Current, 2026-10-16:** full execution authorized from `1f8a5537`. RE00 source/owner reconciliation is implemented; production packages remain open until their evidence closes them.
+**Current, 2026-10-17 UTC:** execution from `1f8a5537` is stopped at operator-requested closeout. RE00 source/owner reconciliation is implemented; production packages remain open until their evidence closes them. No further product execution is scheduled by this closeout.
 The previous efficiency functional implementation is integrated, CE80 delivered, and CE90/CE99
 transferred to RE90/RE99. Authoring checks and independent plan review remain at §8; they do not close production findings.
 CX00/CX01, typed Base/Summary, shared exact frontier capture/index/read ownership, RP00/RP01,
@@ -519,7 +519,7 @@ warnings/errors and with host cleanup confirmed. Independent source review accep
 and stopped-release control through `967cf1eb`. Root `just turn-end` passed at functional slice
 completion; Hakari was unchanged. Formatting and checkpoint are committed as `27d95963`.
 Native refresh `20261017T030211.887Z-c4c2a5` **passed** (already current), host cleanup confirmed.
-Outstanding selected-complete acceptance `20261017T030304.383Z-d28970` is running as
+Outstanding selected-complete acceptance `20261017T030304.383Z-d28970` began as
 `just verify --rerun 20261017T002012.086Z-41899e`, on the unchanged successor target, release profile,
 normal parallelism and original runtime exclusions. The five-control pass
 does not establish that the earlier normal-concurrency failures are resolved.
@@ -527,7 +527,7 @@ does not establish that the earlier normal-concurrency failures are resolved.
 Rerun `d28970` was stopped at 03:17:41 UTC after the next material source correction was selected;
 exit 137 and host cleanup confirmed at 03:17:47 UTC are separate from native finality. Extraction
 recorded 150 starts, 90 passes and 59 failures, including 26 timeouts and cancellation; its boundary
-is interrupted. Attachment `c1e9254f-9a4f-451f-848a-d716d5898f51` remains protected. Later boundaries
+is interrupted. Attachment `c1e9254f-9a4f-451f-848a-d716d5898f51` was protected until the separately acknowledged replacement below. Later boundaries
 are not_run. The new first timeout was still emitting Pyrefly immutable windows at the deadline;
 other bodies passed providers and were acquiring completed inputs. Immutable-install retries
 (`7243deb…`) dominate those retained examples. The cleanup/settlement corrections remain
@@ -541,15 +541,64 @@ existing scalar-lock/bulk-write pattern for that exact changed write set, preser
 foreign-attempt validation, context omission, context-free complete cuts, every classification and
 phase/MAX/collision check, and new-hold retirement exclusion. Row/hold insertion is already bulk.
 Expanded windows are bounded by their actual complete prepared packet, not an assumed 128 holds.
-This stored-definition refinement requires regenerated native assets, a current installer and
+This stored-definition refinement required regenerated native assets, a current installer and
 RE80 target replacement after authenticated drainage before new acceptance. No new campaign,
 striping protocol, lifecycle framework, deadline increase or concurrency cap is selected.
 
+**Implemented / focused-Tested, 2026-10-17 UTC:** `9d50080d` delivers this bounded immutable
+lowering; strict SDK test decoding and the first-guard revision oracle are included through
+`ae59c3cb`. Independent review accepts the inspected source. CLI/generator build
+`20261017T032530.032Z-17dc1c`, two actual-schema parser controls `032530.263Z-cbb117` and asset
+generation `033310.209Z-d3d723` **passed**; the native-owned generated definition is committed as
+`adb4fa42`. Exact default replacement `20261017T033334.019Z-0fed8e` **passed**, with authenticated
+shutdown/discard, main/validation checks, reopened admission and confirmed host cleanup. Successor
+generation is `2389e630fda629da1b2383d2223ffa246b5cf70ada22e38ebc116e93781576a8`, journal
+`89b0589b1c68de18a7a7da8ef38a57c34dd16a79f4a27386b791f61c60621958`, same exact installation and
+pinned peer. Its separate validated acknowledgement settles `c1e9254f-9a4f-451f-848a-d716d5898f51`;
+the original Unknown and interrupted workload outcomes remain unchanged. Native fixture run
+`20261017T033508.854Z-86ace9` **passed all14** with enclosing cleanup: equal replay, new holders,
+foreign attempts, context-free complete cuts, active/vacant guards, owner cuts, parent/blob
+incidence, successor races, late MAX/collision rollback, cleanup/pin batching and terminal release.
+Full release workspace/all-target compile `20261017T033417.562Z-980709` and strict keep-going
+Clippy `033441.565Z-94b3ea` **passed** without warnings/errors. Accidentally selected non-release
+check `033355.525Z-a5d8ec` was promptly cancelled, with confirmed host cleanup and no pass claimed.
+Mechanical test formatting is committed as `0a4da0f3`; native refresh `033559.320Z-c0912a`
+**passed**, already current. These focused controls do not establish expanded-packet or all
+concurrent commit-order qualification.
 
+**Operator-requested closeout, 2026-10-17 UTC:** selected-complete rerun
+`20261017T033615.262Z-5c35a2` was cancelled at 03:37:19 UTC, exit137; direct and delegated host
+cleanup were confirmed at 03:37:24 UTC with no survivors. It was still compiling the extraction
+boundary; no new executed test result or later-boundary pass is claimed. Native finality remains
+separate from host cleanup, and its exact remaining obligation is retained below. All source is
+integrated on main, with no auxiliary worktrees. RE90 and RE99 remain open. Older-track execution
+and final assumption handback have not resumed.
 
+Exact fixture attachment `a5bd9a10-6a7f-437a-8245-275f9837f0f2` on generation `2389e630…`
+remains unreleased and protected; native completion is `not_observed`, with no discard
+acknowledgement. Its existing storage object `8977b11b-f6ab-4aaa-b760-3f8bbd765b70` retains the
+unresolved immediate-use obligation. The run and its whole evidence scope retain permanent
+`citation:catalog-runtime-efficiency` holds. On later authorized resumption, first inspect this
+exact owner and current target, reconcile only proven completion or use an explicitly authorized
+authenticated recovery/discard route, then assess the source leads and rerun outstanding
+functional boundaries. Host cleanup, absence of test outcomes and earlier target discard grant
+no native release authority. Preserve the original older-run failures and runtime exclusions.
 
+**Carry-forward source leads, not diagnoses or selected changes:** ordinary owner authorization
+still locks the shared `native_attempt` row before per-slot participation
+(`control/authorization.rs`, `owner_effect_plan`); assess whether that lock is necessary under the
+complete cut protocol before changing it. Native immutable installation retains per-record
+reads/locks and repeated deferred-array searches. Compiler physical ingress recreates writer
+preparation per phase/batch; client coalescing retains bounded quadratic value deduplication.
+Investigate these against exact lock, collision, absence, ownership and finality contracts only
+on resumption. No exclusive timeout attribution, measured contribution or safe-removal claim is
+established. Ordered ingress already pipelines accepted batches and is not evidence of an
+accidental concurrency cap. Do not fan out same-contribution writers, weaken checks, extend
+deadlines or cap concurrency to bypass the unresolved design question.
 
-
+**Closeout documentation checks, 2026-10-17 UTC:** `just docs-check` **passed**, 477 canonical
+pages and zero link errors, including ADR lint (108 records) and agent lint. These results and
+the full compile/strict Clippy passes above do not close RE90 or the protected native obligation.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory
 claim. Cited runs and native captures retain permanent `citation:catalog-runtime-efficiency` holds

@@ -20,6 +20,14 @@ attribute the historical memory observation. Native focused controls and exact R
 are recorded by the coordinator; RE90 integrated acceptance remains pending. The alternatives
 and cases below preserve the decision/acceptance reasoning, not an unresolved protocol selection.
 
+**Focused follow-up, 2026-10-17 UTC:** terminal reference release preserves every issuance check
+without rewriting the ordinary stripe. Cleanup, pin release and immutable changed-incidence
+lowering retain scalar locks and complete attempt cuts, then batch the exact predicate/guard
+writes. The installed definition and 14 native controls passed at the coordinator's recorded
+scope. Per-record preparation and the shared attempt-row authorization lock remain investigation
+leads, not established removable checks or exclusive timeout causes. Execution is stopped at
+operator-requested closeout; the coordinator owns the remaining native obligation and RE90/RE99.
+
 ## 1. Responsibility, foundations and target
 
 `lctx-native` owns actual effects, protected physical content, incarnations, sessions and recovery.

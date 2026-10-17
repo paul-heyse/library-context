@@ -713,6 +713,15 @@ limit change is introduced. Existing wire preflight remains, without a native pe
 Late failures must roll back predicates, complete cuts, nominations and deletion together. The
 runtime coordinator owns current source and actual rollback/overlap/enclosing acceptance evidence.
 
+**Implemented / focused-Tested, integrated acceptance pending, 2026-10-17 UTC:** immutable install
+uses the same scalar-lock/bulk-write pattern for actual changed predicates and qualifying physical
+guards. Equal replay still requires declared-target admission; new-holder incidence still excludes
+retirement. Context-free attempt endpoints retain complete cuts. First guard creation, deferred
+qualification, full-byte collision and parent checks retain their meaning; late failure rolls back
+all rows, holds, revisions and participation. Expanded windows are bounded by complete prepared
+packet admission, not a presumed 128-hold limit. The runtime coordinator owns the exact target and
+14-control evidence; native peak memory and enclosing concurrency acceptance remain unqualified.
+
 **Implemented / functional verification in progress, 2026-10-16:** explicit project regeneration
 requires the exact installation ID, both main/validation scopes, actual root/namespace inventory,
 exclusive host admission, current client/lease quiescence and authenticated whole-executor shutdown.

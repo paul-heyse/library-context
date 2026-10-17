@@ -249,13 +249,27 @@ evidence without reopening the affected boundary.
 
 Rerun `3e0358` was subsequently stopped after native concurrency failures selected another bounded
 source correction. Exact authorized replacement `20261017T023906.406Z-682a66` **passed** after
-host/executor drainage, with main/validation check/open and host cleanup confirmed. Current generation
-is `ce1ca3917631274968a68eb7b028b1130463ac83f50c95abbbdd991985d66ff3`, journal
+host/executor drainage, with main/validation check/open and host cleanup confirmed. Its generation
+was `ce1ca3917631274968a68eb7b028b1130463ac83f50c95abbbdd991985d66ff3`, journal
 `fb4fa3e1f6e88ff92b9b9479cb8c87b04715dea2f7ae2ed6c3fb25e84f03e10d`, same installation/peer.
 Its exact separate discard acknowledgement settles attachment
 `12604101-fef7-4585-8858-a40960af4897`; original failures/cancellation and native observations
 remain unchanged. Subsequent acceptance must bind this successor, with no credit for workload
 success inferred from replacement. No new campaign or operator adoption occurred.
+
+The bounded immutable-install definition required one further exact authorized replacement:
+`20261017T033334.019Z-0fed8e` **passed** on 2026-10-17 UTC, with authenticated executor shutdown,
+discard, main/validation checks, reopened admission and confirmed host cleanup. Current generation
+is `2389e630fda629da1b2383d2223ffa246b5cf70ada22e38ebc116e93781576a8`, journal
+`89b0589b1c68de18a7a7da8ef38a57c34dd16a79f4a27386b791f61c60621958`, unchanged installation and
+pinned peer. Its separate validated acknowledgement settles attachment
+`c1e9254f-9a4f-451f-848a-d716d5898f51`; original Unknown and interrupted workload observations
+remain unchanged. Native focus `033508.854Z-86ace9` passed14 controls with enclosing cleanup.
+Later selected-complete `033615.262Z-5c35a2` was stopped at operator-requested closeout while
+compiling extraction; host cleanup is confirmed, but native ownership is assessed separately by
+the coordinator. No new target replacement, product run or older-track execution is part of
+this closeout. RE90/RE99 remain open, and future acceptance must bind this exact successor or
+explicitly reconcile a later authorized change.
 
 
 ## 6. RE90 — Integrated functional acceptance
