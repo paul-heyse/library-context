@@ -11,7 +11,10 @@ CX00 and CX01 are integrated on `main`. Demand-shaped provider acquisition now e
 namespaces and contextual preparation through exact dependency-owned slots. Upper producers run
 as independently polled joined tasks; one coordinator retains readiness, ordered integration and
 prefix publication. Stage joins precede provider-descendant discovery and native finality, so a
-late producer cannot register work after its owner has declared drainage.
+late producer cannot register work after its owner has declared drainage. Producer bodies are
+charged before boxing, then composed through small execution wrappers. Explicit future-before-grant
+destruction covers even never-polled runtime shutdown; queued result delivery retains its separate
+reservation. Actual normalized-frontier rerun must still establish stack-overflow closure.
 [ADR-0179](../adr/0179-joined-owned-producer-execution.md) and the semantic owner govern the
 changed placement; native capabilities retain [ADR-0178](../adr/0178-atomic-bounded-native-effects.md).
 The [integrated review](../design_review/reviews/design_review_catalog-runtime-efficiency-integrated_2026-10-16.md)

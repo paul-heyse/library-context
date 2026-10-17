@@ -325,13 +325,17 @@ Full strict rerun `20261017T001711.400Z-53c733` **passed** with no emitted warni
 host cleanup confirmed. Selected-complete functional acceptance remains pending.
 No warning is suppressed or reclassified as a pass.
 Native refresh `20261017T001958.237Z-c9e3e7` **passed** (already current), host cleanup confirmed.
-Final selected-complete run `20261017T002012.086Z-41899e` is running on exact regenerated default
+Selected-complete run `20261017T002012.086Z-41899e` ran on exact regenerated default
 `58abe9ea-2088-4109-95ab-8440a3749c51`. It selects full model/analytics/provider/compiler/store/
 Rust-serving/oracle/tooling boundaries and applicable non-functional leaves, using release and
 normal concurrency. Coverage inventory accounts for177 Rust targets and63 selected Python files,
 with no unexpected omission; five submitted-MCP Python files and embedding inference remain
-excluded. Full strict Clippy is the separate passed receipt above. Selected coverage is complete;
-global qualification is not claimed, and execution outcomes remain pending.
+excluded. Full strict Clippy is the separate passed receipt above. Selected coverage inventory is complete;
+global qualification is not claimed. The run was stopped on 2026-10-17 at01:26:04UTC after
+several material follow-ups integrated while its compiler binaries remained old. Parent exit137
+and host cleanup confirmed/no survivors are separate from native finality; later boundaries were
+not_run. Compiler event history records150 passed/113 failed (including cancellation),263 started,
+with eight explicit stack overflows; it is an interrupted boundary, not a completed pass.
 The full model, analytics and provider-flow boundaries **passed**. Provider extraction **failed**:
 251 run,88 passed,1 assertion failed,162 timed out and1 skipped; enclosing fixture ownership is
 retained in attachment `2faec210-e023-4b36-b2e0-b76f1f2911d4` (198 Complete/162 Started at its
@@ -369,8 +373,17 @@ Compiler acceptance binaries predate these final follow-ups. Eight preparation/l
 assertions are corrected by `7425458f`/`6eb0f01d`: native preparation uses its actual pool while
 typed hydration retains the original narrow allowances; lazy adjacency remains charged through
 the final prepared/source borrower. Actual reruns remain pending. Several Catalog cases separately
-abort with stack overflow after acknowledged native calls; source diagnosis is open. Neither
-stack overrides nor timeout/concurrency changes are selected.
+abort with stack overflow after providers pass/before first normalization launch. `f16ff276` /
+`0df21c7d` charge and erase concrete bodies before task wrappers and encode future-before-grant
+destruction through the existing carrier. Independent source review accepts that bounded route;
+actual normalized-frontier rerun remains mandatory, with attribution reopened if overflow recurs.
+Neither stack overrides nor timeout/concurrency changes are selected.
+Post-cancellation default attachments `2faec210-e023-4b36-b2e0-b76f1f2911d4` and
+`4f3b2fcf-9059-42a1-89c5-ef23484bce10` retain native obligations. Exact default regeneration
+`20261017T012711.701Z-53365f` is in progress through the approved RE80 authenticated
+shutdown/discard route; no new campaign is created. Original outcomes remain unchanged.
+Service-free producer launch controls `20261017T012336.994Z-c33c29` are building; source edits
+during that build require a stable-source rerun before final acceptance.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 The earlier service observation of23 protected attachments was separately settled by authenticated

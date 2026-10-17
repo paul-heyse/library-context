@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: assembled target review
 
-**Accept scoped, Interface-checked, 2026-10-16, latest source reassessment `6eb0f01d`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Accept scoped, Interface-checked, 2026-10-16, latest scoped source reassessment `0df21c7d`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
@@ -295,3 +295,29 @@ original outcomes until actual reruns settle them. The subsequent compiler stack
 requires its own diagnosis and correction assessment. This review establishes no whole-product
 qualification, historical memory attribution or excluded-runtime result. Coordinator §6 remains
 the sole disposition owner.
+
+
+## 11. Producer launch and destruction reassessment: `0df21c7d`
+
+**Accept scoped, Interface-checked, 2026-10-16.** Independent source inspection of `f16ff276` /
+`0df21c7d` supports boxing an already charged concrete producer body before retry, recovery,
+tracing and Tokio execution wrappers compose it. Those wrappers carry an indirect future rather
+than repeatedly embedding the full producer state. Launch-before-work registration, cancellation,
+context rebinding, result delivery and actual join ownership remain intact.
+
+The initial refinement retained task and sender-delivery grants as separate async captures, without
+explicit future-before-grant destruction in the never-polled state. The final correction uses the
+existing `continuation::retain` carrier around the complete traced small task and both grants.
+`WithContext` destroys its inner future under the captured dispatcher before the carrier releases
+those grants. The receiver's independent delivery reservation still protects a queued result after
+actual task exit. The shutdown sentinel schedules onto an unpolled current-thread runtime, drops
+that runtime, observes the full reservation in the producer destructor, requires cancellation on
+result/join and eventual zero charge. Large-body refusal and interrupted-cleanup controls preserve
+the concrete allocation allowance and actual task lifetime.
+
+This is a source-supported physical refinement within CX01/ADR-0179, with no new semantic rule
+impact. Actual normalized-frontier reruns remain mandatory. The normalization launcher still
+constructs its concrete body before this boundary, and nested producer polling remains unchanged.
+This assessment neither proves exclusive attribution nor establishes runtime closure of the observed
+stack overflows. Recurring overflow must reopen attribution rather than prompt stack, concurrency
+or deadline overrides. Builds, tests and service operations were **not_run by this reviewer**.

@@ -108,6 +108,9 @@ producer tasks retain their actual joins under WorkspaceExecutionOwner; coordina
 terminal results and retain ordered integration. A stage may progress during another stage's borrowed
 CPU work. Launch registration precedes execution, cancellation seals/drains all actual stages before
 provider finality is snapshotted, and task/result/snapshot reservations follow actual last consumers.
+Concrete producer bodies are charged before heap indirection; execution wrappers carry that small
+handle. Explicit future-before-grant destruction preserves task and sender reservations even if
+runtime shutdown destroys the task before its first poll.
 Tracing, retry admission and exact native recovery scope are rebound inside each task. ProducingScope
 remains attached to actual ports rather than the stage that must close those ports. Current-thread
 correctness does not promise CPU overlap. Earlier unspawned composition receipts remain historical;
