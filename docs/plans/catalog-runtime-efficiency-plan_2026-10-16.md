@@ -420,8 +420,11 @@ the nested executor prevents from resuming. `e6dcefc8` isolates only synchronous
 async callers/native actors retain ordinary scheduling. Current-thread bridge regression
 `20261017T015747.201Z-671cf1` **passed**10 controls, including512 calls and512 launches with
 actual drainage. `608d269b` migrates the CallScope fixture to awaited APIs and adds complete
-teardown/zero-charge assertions; actual rerun `20261017T015747.544Z-bdd652` is building. The same
-synchronous batch-iterator boundary is being corrected. Both new native attachments remain
+teardown/zero-charge assertions; actual rerun `20261017T015747.544Z-bdd652` **failed** in1.35s at strict original-blob
+completion, before scoped semantic assertions. Its fixture omitted original chunks for its two
+source records; `f8f44159` declares/supplies both streams without weakening readback. Attachment
+`25cd9e0a-d4c5-4285-a4bb-d90bfb8b7277` retains native Unknown after the assertion panic. The same
+synchronous batch-iterator boundary is being corrected. All three later native attachments remain
 protected; fresh full compile/strict Clippy and final enclosing acceptance remain required.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
