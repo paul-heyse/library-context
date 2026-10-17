@@ -284,7 +284,6 @@ pub struct NativeCompilerStore {
     endpoint: Option<String>,
     specifications: Mutex<BTreeMap<ContentHash, RegisteredContribution>>,
     known_views: Mutex<BTreeMap<ContentHash, CompletedView>>,
-    successful_view_declarations: Mutex<BTreeMap<ContentHash, SuccessfulViewDeclaration>>,
     view_mappings: Mutex<BTreeMap<ContentHash, SelectedViewMappings>>,
     installed_views:
         Mutex<BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>>,
@@ -308,23 +307,19 @@ struct RetainedViewMappings {
     mappings: Vec<lctx_native::installed_view::ContributorRealization>,
     _charge: d::charged::StateCharge,
 }
-/// Acknowledged declaration/holds only, never selection or semantic admission.
-/// Private to the exact compiler lifecycle and retained caller resource pool.
+/// Provenance of acknowledged declaration/holds, never selection or admission.
+/// The exact descriptor stays in the immutable known-view owner; mappings stay in
+/// their existing charged allocation. This compact marker uses its header allowance.
+#[derive(Clone)]
 struct SuccessfulViewDeclaration {
-    view: CompletedView,
-    mappings: SelectedViewMappings,
-    client: Weak<Surreal<Client>>,
     owner: Weak<OperationAdmission>,
     recovery: Weak<crate::control::RecoveryScope>,
-    attempt: ContentHash,
-    generation: ContentHash,
     budget: ResourceBudget,
-    _charge: Box<dyn Reservation>,
 }
 /// Private metadata handles retain the original owner; sharing never earns authority.
 #[derive(Clone)]
 enum SelectedViewMappings {
-    Live(Arc<RetainedViewMappings>),
+    Live(Arc<RetainedViewMappings>, Option<SuccessfulViewDeclaration>),
     Held(Arc<lctx_native::installed_view::HeldInstalledView>),
     Physical {
         selection: Arc<lctx_native::installed_view::SelectedViewDescriptor>,
@@ -335,10 +330,19 @@ enum SelectedViewMappings {
         _owner: lctx_native::completed_state::PublishedCompletedState,
     },
 }
+// Existing live mapping admission includes 256 bytes for the owner/registry
+// header. Keep provenance inline within that allowance, including the retained
+// vector header, Arc counters and conservative per-entry tree bookkeeping.
+const _: () = assert!(
+    std::mem::size_of::<RetainedViewMappings>()
+        + std::mem::size_of::<(ContentHash, SelectedViewMappings)>()
+        + 10 * std::mem::size_of::<usize>()
+        <= 256
+);
 impl SelectedViewMappings {
     fn as_slice(&self) -> &[lctx_native::installed_view::ContributorRealization] {
         match self {
-            Self::Live(owner) => &owner.mappings,
+            Self::Live(owner, _) => &owner.mappings,
             Self::Held(owner) => &owner.completion().mappings,
             Self::Physical { selection, .. } | Self::Published { selection, .. } => {
                 &selection.mappings
@@ -2220,11 +2224,13 @@ impl NativeCompilerStore {
         let (mappings, _mapping_charge) = self.selected_view_mappings(view, budget).await?;
         let declared = self.has_successful_view_declaration(view, &mappings, budget)?;
         // This receipt bridges declaration to the first earning execution only.
-        // Release its optional metadata before selection needs its working set;
-        // successful installed-view ownership handles subsequent reuse.
-        self.successful_view_declarations.lock()
+        // Successful installed-view ownership handles subsequent reuse.
+        if let Some(SelectedViewMappings::Live(_, receipt)) = self.view_mappings.lock()
             .map_err(|_| ModelError::Conflict("successful declaration receipt consumption"))?
-            .remove(&view.identity);
+            .get_mut(&view.identity)
+        {
+            receipt.take();
+        }
         if !declared {
             self.declare_view_inner(view, &mappings, budget).await?;
         }
@@ -2300,21 +2306,29 @@ impl NativeCompilerStore {
         let Some(recovery) = self.declaration_recovery()? else {
             return Ok(false);
         };
-        let declared = self.successful_view_declarations.lock()
+        // The mandatory known-view owner is insert-only with exact equality on
+        // collision. Its canonical identity commits relation, contributors and
+        // row count; only acknowledged declaration adds provenance to its mapping.
+        if !Arc::ptr_eq(recovery.client(), &self.client)
+            || recovery.target().generation != self.generation
+            || self.known_views.lock()
+                .map_err(|_| ModelError::Conflict("successful declaration descriptor"))?
+                .get(&view.identity) != Some(view)
+        {
+            return Ok(false);
+        }
+        let declared = self.view_mappings.lock()
             .map_err(|_| ModelError::Conflict("successful declaration receipts"))?;
-        Ok(declared.get(&view.identity).is_some_and(|receipt| {
-            receipt.view == *view
-                && receipt.mappings.as_slice() == mappings.as_slice()
-                && receipt.attempt == self.attempt
-                && receipt.generation == self.generation
-                && receipt.budget.shares_pool(budget)
-                && receipt.client.ptr_eq(&Arc::downgrade(&self.client))
-                && receipt.owner.ptr_eq(&Arc::downgrade(&self.admission))
-                && receipt.recovery.ptr_eq(&Arc::downgrade(&recovery))
-        }))
+        let Some(SelectedViewMappings::Live(previous, Some(receipt))) = declared.get(&view.identity) else {
+            return Ok(false);
+        };
+        Ok(previous.mappings.as_slice() == mappings.as_slice()
+            && receipt.budget.shares_pool(budget)
+            && receipt.owner.ptr_eq(&Arc::downgrade(&self.admission))
+            && receipt.recovery.ptr_eq(&Arc::downgrade(&recovery)))
     }
     /// Call only after the full declaration AND all dependency holds acknowledge.
-    /// Retaining optional reuse metadata must not make a feasible operation fail.
+    /// No second descriptor, mapping allocation or optional resource minimum is added.
     fn remember_successful_view_declaration(
         &self,
         view: &CompletedView,
@@ -2324,32 +2338,24 @@ impl NativeCompilerStore {
         let Some(recovery) = self.declaration_recovery()? else {
             return Ok(());
         };
-        if self.has_successful_view_declaration(view, mappings, budget)? {
+        let SelectedViewMappings::Live(owner, _) = mappings else {
+            // Held inventories already own their independent earning lifetime.
             return Ok(());
-        }
-        let bytes = std::mem::size_of::<SuccessfulViewDeclaration>()
-            .saturating_add(view.relation.capacity())
-            .saturating_add(view.contributions.len().saturating_mul(std::mem::size_of::<ContentHash>() + 64))
-            .saturating_add(512);
-        let charge = match budget.reserve("acknowledged view declaration receipt", bytes) {
-            Ok(charge) => charge,
-            Err(ModelError::Resource { .. }) => return Ok(()),
-            Err(error) => return Err(error),
         };
+        self.remember_view(view)?;
         let receipt = SuccessfulViewDeclaration {
-            view: view.clone(),
-            mappings: mappings.clone(),
-            client: Arc::downgrade(&self.client),
             owner: Arc::downgrade(&self.admission),
             recovery: Arc::downgrade(&recovery),
-            attempt: self.attempt,
-            generation: self.generation,
             budget: budget.clone(),
-            _charge: charge,
         };
-        self.successful_view_declarations.lock()
-            .map_err(|_| ModelError::Conflict("successful declaration receipts"))?
-            .insert(view.identity, receipt);
+        let mut registry = self.view_mappings.lock()
+            .map_err(|_| ModelError::Conflict("successful declaration receipts"))?;
+        let previous = registry.get(&view.identity)
+            .ok_or(ModelError::Conflict("successful declaration mapping owner missing"))?;
+        if previous.as_slice() != mappings.as_slice() {
+            return Err(ModelError::Conflict("successful declaration physical mapping changed"));
+        }
+        registry.insert(view.identity, SelectedViewMappings::Live(owner.clone(), Some(receipt)));
         Ok(())
     }
     /// Persist only model-owned semantic declaration and dependency incidence.
@@ -2599,7 +2605,7 @@ impl NativeCompilerStore {
                 SelectedViewMappings::Live(Arc::new(RetainedViewMappings {
                     mappings: selected,
                     _charge: charge,
-                })),
+                }), None),
             );
         }
         Ok(())
@@ -2635,9 +2641,6 @@ impl NativeCompilerStore {
             let installed = completed.inventory().installed(reference.logical_view)?;
             self.remember_view(&installed.view)?;
         }
-        self.successful_view_declarations.lock()
-            .map_err(|_| ModelError::Conflict("physical declaration receipt replacement"))?
-            .clear();
         self.view_mappings
             .lock()
             .map_err(|_| ModelError::Conflict("physical live mapping replacement"))?
@@ -2695,9 +2698,6 @@ impl NativeCompilerStore {
             let installed = completed.inventory().installed(reference.logical_view)?;
             self.remember_view(&installed.view)?;
         }
-        self.successful_view_declarations.lock()
-            .map_err(|_| ModelError::Conflict("published declaration receipt replacement"))?
-            .clear();
         self.view_mappings
             .lock()
             .map_err(|_| ModelError::Conflict("published live mapping replacement"))?
@@ -3007,7 +3007,7 @@ impl NativeCompilerStore {
         let retained = SelectedViewMappings::Live(Arc::new(RetainedViewMappings {
             mappings: mappings.into_values().collect(),
             _charge: charge,
-        }));
+        }), None);
         Ok((
             retained,
             d::charged::StateCharge::new(budget, "borrowed selected mappings"),
@@ -4084,7 +4084,6 @@ impl NativeCompilerStore {
             endpoint: Some(config.endpoint.clone()),
             specifications: Mutex::default(),
             known_views: Mutex::default(),
-            successful_view_declarations: Mutex::default(),
             view_mappings: Mutex::default(),
             installed_views: Mutex::default(),
             view_preparations: Mutex::default(),
@@ -4149,7 +4148,6 @@ impl NativeCompilerStore {
             endpoint: None,
             specifications: Mutex::default(),
             known_views: Mutex::default(),
-            successful_view_declarations: Mutex::default(),
             view_mappings: Mutex::default(),
             installed_views: Mutex::default(),
             view_preparations: Mutex::default(),
@@ -5311,8 +5309,14 @@ impl NativeCompilerStore {
         // Release protected publication clones only after all accepted compiler reads
         // are terminal; mapped metadata alone never retains selection authority.
         if completion.local == d::completion::LocalState::Terminal {
-            match self.successful_view_declarations.lock() {
-                Ok(mut receipts) => receipts.clear(),
+            match self.view_mappings.lock() {
+                Ok(mut mappings) => {
+                    for mapping in mappings.values_mut() {
+                        if let SelectedViewMappings::Live(_, receipt) = mapping {
+                            receipt.take();
+                        }
+                    }
+                }
                 Err(_) => completion.step(
                     "successful declaration receipt release",
                     Err(ModelError::Conflict("successful declaration receipts")),
@@ -10061,6 +10065,7 @@ mod completion_tests {
         let connections = [source.client.connection_completion().unwrap(), receiver.client.connection_completion().unwrap()];
         let result = std::panic::AssertUnwindSafe(async {
             let relation = Relation::of::<d::input::Package>();
+            let other_relation = Relation::of::<d::input::Release>();
             let contribution = source.begin_contribution(ContributionSpec {
                 captured_binding: None,
                 producer: format!("declaration-reuse-{}", source.attempt.hex()),
@@ -10069,10 +10074,10 @@ mod completion_tests {
                 implementation: ContentHash::of(b"acknowledged declaration reuse control"),
                 configuration: None,
                 inputs: vec![],
-                outputs: [relation.name().into()].into(),
+                outputs: [relation.name().into(), other_relation.name().into()].into(),
             }).await?;
             let views = source.complete_contribution(
-                contribution, ProviderOutcome::Complete, std::slice::from_ref(&relation),
+                contribution, ProviderOutcome::Complete, &[relation.clone(), other_relation],
                 &BTreeMap::new(), &budget,
             ).await?;
             let view = views[relation.name()].clone();
@@ -10082,10 +10087,19 @@ mod completion_tests {
                 let (mappings, _charge) = source.selected_view_mappings(&view, &budget).await?;
                 assert!(source.has_successful_view_declaration(&view, &mappings, &budget)?);
                 assert!(source.installed_views.lock().unwrap().is_empty(), "declaration has earned no selector");
+                let before_receipts = budget.reserved();
+                let pressure = budget.reserve("pending declarations leave no optional working set", budget.limit() - before_receipts)?;
+                for pending in views.values() {
+                    let selected = source.retained_selected_mappings(pending)?.expect("acknowledged mapping owner");
+                    source.remember_successful_view_declaration(pending, &selected, &budget)?;
+                    assert!(source.has_successful_view_declaration(pending, &selected, &budget)?);
+                }
+                assert_eq!(budget.reserved(), budget.limit(), "multiple pending declaration markers allocate no additional reservation under pressure");
+                drop(pressure);
+                assert_eq!(budget.reserved(), before_receipts);
                 let other_pool = ResourceBudget::fixed(256 << 20)?;
                 assert!(!source.has_successful_view_declaration(&view, &mappings, &other_pool)?);
-                let mut unequal = view.clone();
-                unequal.rows += 1;
+                let unequal = CompletedView::new(view.relation.clone(), view.contributions.clone(), view.rows + 1)?;
                 assert!(!source.has_successful_view_declaration(&unequal, &mappings, &budget)?);
                 let mut unequal_mappings = d::charged::StateCharge::new(&budget, "declaration unequal mapping control");
                 unequal_mappings.grow(1024)?;
@@ -10095,7 +10109,7 @@ mod completion_tests {
                 let unequal_mappings = SelectedViewMappings::Live(Arc::new(RetainedViewMappings {
                     mappings: unequal_selection,
                     _charge: unequal_mappings,
-                }));
+                }), None);
                 assert!(!source.has_successful_view_declaration(&view, &unequal_mappings, &budget)?);
                 let owner = RecordId::new("native_attempt", source.attempt.hex());
                 let mut response = source.client.query("SELECT VALUE count() FROM native_effect WHERE owner=$owner GROUP ALL")
@@ -11181,7 +11195,7 @@ mod completion_tests {
         let retained_before = budget.reserved();
         let first = store.retained_selected_mappings(&root).unwrap().unwrap();
         let second = store.retained_selected_mappings(&root).unwrap().unwrap();
-        let (SelectedViewMappings::Live(first_owner), SelectedViewMappings::Live(second_owner)) =
+        let (SelectedViewMappings::Live(first_owner, _), SelectedViewMappings::Live(second_owner, _)) =
             (&first, &second)
         else {
             panic!("live mapping owners");
