@@ -46,7 +46,9 @@ impl CleanupHolds {
         bindings.insert("owners", owners);
         bindings.insert("owner_incarnations", expected);
         bindings.insert("unadmitted", unadmitted);
-        effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"IF $unadmitted AND $__owner.admitted { THROW 'native cleanup admitted branch'; }; fn::native_touch($cleanup); fn::native_touch($__attempt); FOR $expected IN $owner_incarnations { fn::native_touch($expected.record); LET $physical_id=$expected.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected.incarnation OR ($physical.phase ?? 'vacant')!=$expected.phase { THROW 'native cleanup initial owner identity changed'; }; }; CREATE $cleanup SET attempt=$__attempt,generation=$__generation,era=$__era,epoch=$__epoch,owners=$owners,owner_incarnations=$owner_incarnations,unadmitted=$unadmitted,state='open',lineage=$cleanup RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("cleanup obligation",identity,issuance,error))?;
+        // TerminalAttempt participates in one stripe; this payload still needs one
+        // complete attempt cut. Reuse that cut only for the identical owner record.
+        effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"IF $unadmitted AND $__owner.admitted { THROW 'native cleanup admitted branch'; }; fn::native_touch($cleanup); fn::native_touch($__attempt); FOR $expected IN $owner_incarnations { IF $expected.record!=$__attempt { fn::native_touch($expected.record); }; LET $physical_id=$expected.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected.incarnation OR ($physical.phase ?? 'vacant')!=$expected.phase { THROW 'native cleanup initial owner identity changed'; }; }; CREATE $cleanup SET attempt=$__attempt,generation=$__generation,era=$__era,epoch=$__epoch,owners=$owners,owner_incarnations=$owner_incarnations,unadmitted=$unadmitted,state='open',lineage=$cleanup RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("cleanup obligation",identity,issuance,error))?;
         Ok(Self { identity })
     }
     pub(super) async fn step(&self, client: &Surreal<Client>) -> Result<bool, ModelError> {
@@ -182,11 +184,13 @@ fn validate_cleanup_origin(cleanup: &Object, origin: &Object) -> Result<(), Mode
     Ok(())
 }
 fn cleanup_step_sql() -> String {
-    // The exact owner was already touched before the physical/page checks. Union the
-    // checked page's remaining incidence predicates so its 64-stripe cut is not repeated
-    // for every outgoing hold. Other attempt targets retain their own complete cuts.
+    // EffectOwner::Cleanup touches the checked cleanup row's complete incidence,
+    // including its origin and successor/lineage predicates, before this payload.
+    // Reuse that origin cut only for the identical owner; distinct owners still cut.
+    // Cut each remaining hold target once before nomination. Its exact roots are
+    // derived from the checked hold page, so nomination reuses those object cuts.
     format!(
-        "fn::native_incidence($__owner); IF $__owner!=$cleanup_observed {{ THROW 'native cleanup original page changed'; }}; LET $origin_id=$__owner.attempt; LET $origin=SELECT * FROM ONLY $origin_id FOR UPDATE; IF $origin=NONE OR $origin!=$cleanup_origin OR $origin.generation!=$__owner.generation OR $origin.epoch<=0 OR $origin.epoch!=$__owner.epoch OR $origin.era<=0 OR $origin.era>$__owner.era OR $origin.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] OR ($__owner.unadmitted AND $origin.admitted) {{ THROW 'native cleanup origin changed'; }}; IF array::len($__owner.owners)=0 {{ UPDATE $cleanup SET state='done',predecessor=NONE RETURN NONE; }} ELSE {{ IF record::table($owner)!='native_attempt' {{ THROW 'retained product cleanup requires retirement owner'; }}; IF $__owner.owners[0]!=$owner OR $__owner.owner_incarnations[0].record!=$owner OR $__owner.owner_incarnations[0].incarnation!=$expected_owner.incarnation {{ THROW 'native cleanup owner raced'; }}; fn::native_touch($owner); LET $physical_id=$expected_owner.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected_owner.incarnation OR ($physical.phase ?? 'vacant')!=$expected_owner.phase {{ THROW 'native cleanup owner incarnation changed'; }}; LET $holds=SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object LIMIT {}; IF $holds!=$n09_holds {{ THROW 'native cleanup prepared hold page changed'; }}; {} LET $incidence_targets=array::distinct(array::flatten($holds.map(|$hold_row| fn::native_incidence_targets($hold_row)))); FOR $target IN $incidence_targets {{ IF $target!=$owner {{ fn::native_touch($target); }}; }}; FOR $hold_row IN $holds {{ DELETE $hold_row.id RETURN NONE; }}; IF array::len($holds)=0 {{ UPDATE $cleanup SET owners=array::slice(owners,1),owner_incarnations=array::slice(owner_incarnations,1) RETURN NONE; }}; }};",
+        "IF $__owner!=$cleanup_observed {{ THROW 'native cleanup original page changed'; }}; LET $origin_id=$__owner.attempt; LET $origin=SELECT * FROM ONLY $origin_id FOR UPDATE; IF $origin=NONE OR $origin!=$cleanup_origin OR $origin.generation!=$__owner.generation OR $origin.epoch<=0 OR $origin.epoch!=$__owner.epoch OR $origin.era<=0 OR $origin.era>$__owner.era OR $origin.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] OR ($__owner.unadmitted AND $origin.admitted) {{ THROW 'native cleanup origin changed'; }}; IF array::len($__owner.owners)=0 {{ UPDATE $cleanup SET state='done',predecessor=NONE RETURN NONE; }} ELSE {{ IF record::table($owner)!='native_attempt' {{ THROW 'retained product cleanup requires retirement owner'; }}; IF $__owner.owners[0]!=$owner OR $__owner.owner_incarnations[0].record!=$owner OR $__owner.owner_incarnations[0].incarnation!=$expected_owner.incarnation {{ THROW 'native cleanup owner raced'; }}; IF $owner!=$origin_id {{ fn::native_touch($owner); }}; LET $physical_id=$expected_owner.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected_owner.incarnation OR ($physical.phase ?? 'vacant')!=$expected_owner.phase {{ THROW 'native cleanup owner incarnation changed'; }}; LET $holds=SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object LIMIT {}; IF $holds!=$n09_holds {{ THROW 'native cleanup prepared hold page changed'; }}; LET $protected_targets=array::distinct(array::concat(fn::native_incidence_targets($__owner),[$owner])); LET $incidence_targets=array::distinct(array::flatten($holds.map(|$hold_row| fn::native_incidence_targets($hold_row)))); FOR $target IN $incidence_targets {{ IF $target NOT IN $protected_targets {{ fn::native_touch($target); }}; }}; {} FOR $hold_row IN $holds {{ DELETE $hold_row.id RETURN NONE; }}; IF array::len($holds)=0 {{ UPDATE $cleanup SET owners=array::slice(owners,1),owner_incarnations=array::slice(owner_incarnations,1) RETURN NONE; }}; }};",
         crate::loader::NATIVE_WINDOW_ROWS,
         retirement::CLEANUP_NOMINATE_PAGE
     )
@@ -423,11 +427,21 @@ mod cleanup_origin_controls {
         attempt: ContentHash,
         cleanup: &CleanupHolds,
     ) -> (RecordId, Variables) {
+        prepared_cleanup_owner_page(client, attempt, attempt, cleanup).await
+    }
+    async fn prepared_cleanup_owner_page(
+        client: &Surreal<Client>,
+        attempt: ContentHash,
+        cleanup_owner: ContentHash,
+        cleanup: &CleanupHolds,
+    ) -> (RecordId, Variables) {
         let id = RecordId::new("native_cleanup", cleanup.identity.hex());
-        let owner = RecordId::new("native_attempt", attempt.hex());
+        let origin = RecordId::new("native_attempt", attempt.hex());
+        let owner = RecordId::new("native_attempt", cleanup_owner.hex());
         let mut response = client
-            .query("SELECT * FROM $cleanup; SELECT * FROM $owner")
+            .query("SELECT * FROM $cleanup; SELECT * FROM $origin")
             .bind(("cleanup", id.clone()))
+            .bind(("origin", origin))
             .bind(("owner", owner.clone()))
             .await
             .unwrap()
@@ -556,7 +570,7 @@ mod cleanup_origin_controls {
             .zip(stripes_before)
             .map(|(after, before)| after - before)
             .collect::<Vec<_>>();
-        assert!(delta.iter().all(|change| *change > 0));
+        assert!(delta.iter().all(|change| *change == 1), "exactly one complete origin cut per page: {delta:?}");
         if let Some(expected) = &first_delta {
             assert_eq!(&delta, expected, "owner cuts depend on the page, not its hold count");
         } else {
@@ -595,6 +609,100 @@ mod cleanup_origin_controls {
             .unwrap();
         assert!(settled.remaining.is_empty());
         }
+        }).await;
+        finish_fixture(client, lease).await;
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cleanup_cuts_distinct_origin_and_owner_once_without_repeating_same_owner() {
+        let (client, lease) = fixture_client().await;
+        with_recovery_scope(lease.recovery_scope().clone(), async {
+            for (same_owner, root_kind) in [(true, "guard"), (false, "guard"), (true, "origin"), (false, "origin"), (false, "owner"), (false, "foreign")] {
+                let attempt = fresh_identity("cleanup-cut-origin").unwrap();
+                let cleanup_owner = if same_owner {
+                    attempt
+                } else {
+                    fresh_identity("cleanup-cut-foreign-owner").unwrap()
+                };
+                let foreign_root = fresh_identity("cleanup-cut-foreign-root").unwrap();
+                let mut attempts = BTreeSet::from([attempt, cleanup_owner]);
+                if root_kind == "foreign" {
+                    attempts.insert(foreign_root);
+                }
+                for identity in &attempts {
+                    begin_attempt_in(&client, *identity, IssuanceEra::capture(&client).await.unwrap())
+                        .await.unwrap();
+                }
+                let owner = RecordId::new("native_attempt", cleanup_owner.hex());
+                let root = match root_kind {
+                    "origin" => RecordId::new("native_attempt", attempt.hex()),
+                    "owner" => owner.clone(),
+                    "foreign" => RecordId::new("native_attempt", foreign_root.hex()),
+                    _ => RecordId::new("native_guard", format!("cleanup_cut_root_{}", attempt.hex())),
+                };
+                if root_kind == "guard" {
+                    ensure_rows(&client, None, vec![active_record(root.clone())]).await.unwrap();
+                }
+                // Installation-owned insertion legitimately admits distinct attempt
+                // endpoints; ordinary attempt windows intentionally reject them.
+                super::super::hold(&client, None, owner.clone(), vec![root.clone()])
+                    .await.unwrap();
+                let mut bindings = Variables::new();
+                bindings.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
+                effect(&client, Some(attempt), "fn::native_touch($attempt); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE", bindings).await.unwrap();
+                let origin_before = stripe_revisions(&client, attempt).await;
+                let owner_before = stripe_revisions(&client, cleanup_owner).await;
+                let cleanup = CleanupHolds::begin(
+                    &client, TerminalAttempt { identity: attempt, epoch: 1 }, vec![owner], true,
+                ).await.unwrap();
+                let begin_delta = stripe_revisions(&client, attempt).await.into_iter()
+                    .zip(origin_before).map(|(after, before)| after - before).collect::<Vec<_>>();
+                // One full cut is necessary even though the terminal wrapper also
+                // participates in its single request stripe.
+                assert_eq!(begin_delta.iter().filter(|delta| **delta == 1).count(), 63);
+                assert_eq!(begin_delta.iter().filter(|delta| **delta == 2).count(), 1);
+                if !same_owner {
+                    let delta = stripe_revisions(&client, cleanup_owner).await.into_iter()
+                        .zip(owner_before).map(|(after, before)| after - before).collect::<Vec<_>>();
+                    assert!(delta.iter().all(|change| *change == 1), "distinct owner begin cut: {delta:?}");
+                }
+                let (id, bindings) = prepared_cleanup_owner_page(&client, attempt, cleanup_owner, &cleanup).await;
+                let Some(Value::RecordId(job)) = bindings.get("n09_job") else {
+                    panic!("exact nomination job")
+                };
+                let job = job.clone();
+                let origins_before = stripe_revisions(&client, attempt).await;
+                let owners_before = stripe_revisions(&client, cleanup_owner).await;
+                let foreign_before = if root_kind == "foreign" {
+                    Some(stripe_revisions(&client, foreign_root).await)
+                } else {
+                    None
+                };
+                effect_for_owner(&client, EffectOwner::Cleanup(id), &cleanup_step_sql(), bindings).await.unwrap();
+                for (identity, before) in [(attempt, origins_before), (cleanup_owner, owners_before)] {
+                    let delta = stripe_revisions(&client, identity).await.into_iter()
+                        .zip(before).map(|(after, before)| after - before).collect::<Vec<_>>();
+                    assert!(delta.iter().all(|change| *change == 1), "one complete page cut for {identity:?}: {delta:?}");
+                }
+                if let Some(before) = foreign_before {
+                    let delta = stripe_revisions(&client, foreign_root).await.into_iter()
+                        .zip(before).map(|(after, before)| after - before).collect::<Vec<_>>();
+                    assert!(delta.iter().all(|change| *change == 1), "foreign nominated object cut: {delta:?}");
+                }
+                let snapshot = page_snapshot(&client, cleanup_owner, &job).await;
+                assert_eq!(snapshot[1].len(), 1);
+                assert_eq!(snapshot[1][0].get("object"), Some(&Value::RecordId(root)));
+                assert!(snapshot[2].is_empty());
+                resume_cleanup(&client, cleanup.identity).await.unwrap();
+                for identity in attempts {
+                    close_attempt(&client, identity, "abandoned").await.unwrap();
+                }
+                let surrealdb::types::RecordIdKey::String(job_key) = &job.key else {
+                    panic!("retirement identity")
+                };
+                let job_identity = ContentHash(hex::decode(job_key).unwrap().try_into().unwrap());
+                let settled = retirement::resume_retirement(&client, job_identity, 16).await.unwrap();
+                assert!(settled.remaining.is_empty());
+            }
         }).await;
         finish_fixture(client, lease).await;
     }
