@@ -431,6 +431,7 @@ fn composition_allowance(
     callee: &dyn CompositionOperand,
     call: &CallFrame<'_>,
     catalog: &CompositionCatalog<'_>,
+    projection_bytes: usize,
 ) -> Result<usize, ModelError> {
     let rows = call
         .arguments
@@ -445,10 +446,16 @@ fn composition_allowance(
             )
         })
         .ok_or_else(|| invalid("composition allowance overflow"))?;
-    // Catalog backing is borrowed, including the tiny projection overlay. Its total size
-    // neither needs traversal nor represents per-composition owned allocation.
-    let _ = catalog;
+    // Borrow complete catalogs; admit only selected copied names/projections. Keyword and
+    // field names are unbounded text, so a constant per-row allowance alone is insufficient.
+    let root_bytes = [caller.descriptor().input, caller.descriptor().output,
+        callee.descriptor().input, callee.descriptor().output].into_iter()
+        .filter_map(|id| catalog.guards.places.get(&id))
+        .filter_map(|place| catalog.guards.roots.get(&place.root))
+        .try_fold(0usize, |n, root| n.checked_add(root.heap_bytes()))
+        .ok_or_else(|| invalid("composition selected root allowance overflow"))?;
     rows.checked_mul(4096)
+        .and_then(|n| n.checked_add(projection_bytes.checked_add(root_bytes)?.checked_mul(4)?))
         .and_then(|n| n.checked_add(4096))
         .ok_or_else(|| invalid("composition allowance overflow"))
 }
@@ -773,22 +780,28 @@ impl<'a> PreparedCallee<'a> {
         )
     }
 }
+#[derive(Clone, Copy)]
+struct BoundProperties {
+    projection_bytes: usize,
+    digest: ContentHash,
+}
+impl BoundProperties {
+    fn of(bound: &BoundCall) -> Self {
+        Self { projection_bytes: bound.heap_bytes(), digest: binding_digest(bound) }
+    }
+}
 #[derive(Default)]
 struct PreparedPorts<'a> {
     guard_candidates: Option<&'a [&'a CallBinding]>,
     binding: Option<CallBindingFrame<'a>>,
     rows: Option<Result<Ports, ObligationKind>>,
+    properties: Option<BoundProperties>,
     guard_rows: Vec<CallBinding>,
     _reservation: Option<Box<dyn Reservation>>,
 }
 type PreparedPortResult<'a> = Result<(&'a Ports, &'a [CallBinding]), ObligationKind>;
 impl PreparedPorts<'_> {
-    fn get(
-        &mut self,
-        binding: &CallBindingFrame<'_>,
-        callee: &CalleeFrame<'_>,
-        budget: &ResourceBudget,
-    ) -> Result<PreparedPortResult<'_>, ModelError> {
+    fn check_binding(&self, binding: &CallBindingFrame<'_>) -> Result<(), ModelError> {
         if self.binding.is_some_and(|expected| {
             !std::ptr::eq(expected.checked, binding.checked)
                 || !std::ptr::eq(expected.admission, binding.admission)
@@ -801,6 +814,19 @@ impl PreparedPorts<'_> {
                 "prepared callee belongs to another checked call owner",
             ));
         }
+        Ok(())
+    }
+    fn properties(&mut self, binding: &CallBindingFrame<'_>) -> Result<BoundProperties, ModelError> {
+        self.check_binding(binding)?;
+        Ok(*self.properties.get_or_insert_with(|| BoundProperties::of(binding.checked.bound())))
+    }
+    fn get(
+        &mut self,
+        binding: &CallBindingFrame<'_>,
+        callee: &CalleeFrame<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<PreparedPortResult<'_>, ModelError> {
+        let properties = self.properties(binding)?;
         if self.rows.is_none() {
             let bound = binding.checked.bound();
             let guard_count = self.guard_candidates.map_or_else(
@@ -814,8 +840,7 @@ impl PreparedPorts<'_> {
                 },
                 <[_]>::len,
             );
-            let bytes = bound
-                .heap_bytes()
+            let bytes = properties.projection_bytes
                 .checked_mul(2)
                 .and_then(|n| {
                     n.checked_add(
@@ -878,10 +903,10 @@ fn compose_call_impl(
 ) -> Result<CompositionResults, ModelError> {
     let (caller_frame, callee_frame) = frames;
     let (caller_key, callee_key) = (caller.descriptor(), callee.descriptor());
-    let _work = budget.reserve(
-        "call_composition_work",
-        composition_allowance(caller, callee, call, catalog)?,
-    )?;
+    let properties = call.binding.as_ref().map(|binding| prepared.properties(binding)).transpose()?;
+    let pair_allowance = composition_allowance(caller, callee, call, catalog,
+        properties.map_or(0, |properties| properties.projection_bytes))?;
+    let _work = budget.reserve("call_composition_work", pair_allowance)?;
     if caller_key.owner != caller_frame.owner {
         return Err(invalid(
             "the caller transfer's owner does not own the call site",
@@ -1235,11 +1260,11 @@ fn compose_call_impl(
             attempt: binding_frame.checked.attempt(),
             selected_signature_enumeration,
             selected_signature_enumeration_support,
-            bindings: binding_digest(bound),
+            bindings: properties.expect("checked actual binding").digest,
         };
         let retained = budget.reserve(
             "call_composition_output",
-            composition_allowance(caller, callee, call, catalog)?
+            pair_allowance
                 .saturating_add(condition.allocation_allowance())
                 .saturating_add(basis.as_ref().map_or(0, |b| {
                     size_of::<assumptions::AssumptionSet>() + b.heap_bytes()
@@ -1792,7 +1817,7 @@ impl CompositionCheck {
             Self::get(&self.paths, &place.path, "composition access path absent")?,
         ))
     }
-    fn step(&self, row: &SummaryWitness, verified: &VerifiedBindings, path_allowance: usize) -> Result<(), ModelError> {
+    fn step(&self, row: &SummaryWitness, verified: &VerifiedBindings, path_allowance: usize, evidence_bytes: usize, properties: Option<BoundProperties>) -> Result<(), ModelError> {
         let (composed, composed_q) = self.witness_frame(row)?;
         let (caller, caller_q) = self.premise(row.caller)?;
         let (callee, callee_q) = self.premise(row.callee)?;
@@ -1817,10 +1842,7 @@ impl CompositionCheck {
         }
         let _evidence_charge = self.budget.reserve(
             "summary_witness_evidence",
-            (self.local_supports.values().map(Vec::len).sum::<usize>()
-                + self.model_supports.values().map(Vec::len).sum::<usize>()
-                + 2)
-            .saturating_mul(size_of::<super::analysis::support::SourceFacts>() + 64),
+            evidence_bytes,
         )?;
         let caller_facts = self.premise_facts(row.caller, invocation)?;
         let callee_facts = self.premise_facts(row.callee, invocation)?;
@@ -1854,7 +1876,7 @@ impl CompositionCheck {
         )
         .map_err(|reason| invalid(&format!("composition lacks checked admission: {reason:?}")))?;
         if binding.admission.target() != row.target
-            || binding_digest(binding.checked.bound()) != row.bindings
+            || properties.is_none_or(|properties| properties.digest != row.bindings)
             || binding.checked.bound().signature() != row.signature
             || binding.admission.callee() != callee.owner
             || selected_signature_premises(binding.admission.signature_closure())
@@ -1943,8 +1965,16 @@ impl CompositionCheck {
         }
         // Replay the shared port/path operation, not only root locality. A caller-side field with
         // a forged path must not become evidence for a different transfer proposition.
-        let _path_charge = self.budget.reserve("composition_path_replay", path_allowance)?;
         let bound = binding.checked.bound();
+        let selected_root_bytes = [caller.input, caller.output, callee.input, callee.output]
+            .into_iter().try_fold(0usize, |n, id| {
+                n.checked_add(self.place(id)?.0.heap_bytes())
+                    .ok_or_else(|| invalid("composition selected replay roots allowance overflow"))
+            })?;
+        let path_allowance = properties.expect("checked replay binding").projection_bytes.checked_add(selected_root_bytes)
+            .and_then(|n| n.checked_mul(4)).and_then(|n| n.checked_add(path_allowance))
+            .ok_or_else(|| invalid("composition selected replay allowance overflow"))?;
+        let _path_charge = self.budget.reserve("composition_path_replay", path_allowance)?;
         let declaration = self
             .binding_data
             .entity_declarations
@@ -2370,8 +2400,18 @@ impl InvariantCheck for CompositionCheck {
             .and_then(|n| n.checked_add(self.places.len().checked_mul(2048)?))
             .and_then(|n| n.checked_add(8192))
             .ok_or_else(|| invalid("composition path allowance overflow"))?;
+        let evidence_bytes = (self.local_supports.values().map(Vec::len).sum::<usize>()
+            + self.model_supports.values().map(Vec::len).sum::<usize>() + 2)
+            .saturating_mul(size_of::<super::analysis::support::SourceFacts>() + 64);
+        let mut properties = BTreeMap::new();
+        let mut properties_charge = StateCharge::new(&self.budget, "composition replay binding properties");
         for row in self.witnesses.values() {
-            self.step(row, &verified, path_allowance)?;
+            if let std::collections::btree_map::Entry::Vacant(entry) = properties.entry(row.attempt)
+                && let Some(bound) = verified.bound(row.attempt) {
+                properties_charge.grow(size_of::<BoundProperties>() + 128)?;
+                entry.insert(BoundProperties::of(bound.bound()));
+            }
+            self.step(row, &verified, path_allowance, evidence_bytes, properties.get(&row.attempt).copied())?;
         }
         for row in self.contributions.iter() {
             let witness = Self::get(
