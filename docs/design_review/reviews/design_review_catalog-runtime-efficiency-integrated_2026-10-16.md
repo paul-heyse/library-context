@@ -1,6 +1,6 @@
 # Catalog runtime efficiency: assembled target review
 
-**Accept scoped, Interface-checked, 2026-10-16; latest source reassessment `2dbc6b0e`, including `f8f44159`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; functional acceptance remains pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
+**Accept scoped, Interface-checked, 2026-10-16; latest bounded source reassessment `9297f305` (2026-10-17 UTC), following `2dbc6b0e` / `f8f44159`.** The assembled implementation has a coherent route for demand-shaped acquisition, independently joined producers, bounded atomic native effects, protected receiving, shared Base preparation and early backup source finalization. These changes remove identifiable repeated preparation, committed protocol stages and unnecessary resource lifetimes without moving semantic authority into orchestration. The initial `a5f50a53` assessment required two bounded corrections; both are now source-supported, as explained in §9. The subsequent F03 source reassessment in §12 accepts the completed synchronous adapter corrections; §13 accepts the mechanical facts-future ownership refinement at source strength. Functional acceptance remains pending. Earlier judgments retain their named baselines. Functional/native qualification remains with the coordinator, and no measured benefit is claimed.
 
 At the initial baseline, Summary still enumerated proof Cartesian products after queue exhaustion despite a smaller exact residual representation. A second defect affected singleton feasibility: an acquisition marker covered pure preparation before actual native execution, prohibiting narrowing after a locally recoverable reservation refusal. Those diagnoses retain stable IDs F01/F02 below. Their corrections preserve original queue admissions, admitted proofs and the prohibition on retrying issued/uncertain acquisition.
 
@@ -404,3 +404,25 @@ and final-source acceptance remain coordinator-owned; the reviewer's builds/test
 This assessment attributes neither all historical timeouts nor numerical performance changes to
 F03. No semantic rule change is required. A1–A4 and the earlier scoped core/profile judgments are
 source-supported through this reassessment, with actual enclosing functional acceptance still open.
+
+## 13. Facts producer future boundary reassessment: `9297f305`
+
+**Accept scoped, Interface-checked, 2026-10-17 UTC.** Direct comparison with the preceding source
+supports the private `provider_task` extraction in
+[`cpg-core::facts`](../../../crates/cpg-core/src/facts.rs). Its explicit `BoxFuture` return places
+the complete coroutine's type-erasure boundary inside the owning crate. The existing `.boxed()`
+moves into this helper: there is still one allocation at the same scheduling point. `run_provider`
+remains inside the async body, so input/output setup, captured-request checks and effects remain
+lazy until polling. Readiness checks, provider removal, started-set insertion and pending-future
+insertion order are unchanged.
+
+The future owns the same workspace, provider, declaration and captured-run guard. Provider
+completion, cancellation, sibling settlement, accepted-ingress drainage and tracing retain their
+existing paths. This is a mechanical ownership-boundary refinement; it introduces no new finding,
+scheduling policy, semantic rule or recursion-limit override. Earlier architectural judgments and
+their named baselines remain unchanged.
+
+Whether this resolves the downstream codegen-only recursion-depth failures requires the affected
+rebuild and functional rerun. Ongoing extraction against preceding binaries cannot qualify this
+revision. Codegen/runtime acceptance remains pending with the coordinator; builds, tests and
+service operations were **not_run by this reviewer**. No performance benefit is Measured.
