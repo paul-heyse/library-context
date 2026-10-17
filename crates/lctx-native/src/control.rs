@@ -125,6 +125,10 @@ mod product_recovery;
 mod product_release;
 mod retirement;
 pub use product_recovery::{HeldTerminalProduct, hold_terminal_product};
+#[cfg(test)]
+pub(crate) fn drained_predicate_for_control() -> &'static str {
+    coordination::DRAINED_PREDICATE
+}
 pub use product_release::release_retained_product;
 mod cleanup;
 mod history;
