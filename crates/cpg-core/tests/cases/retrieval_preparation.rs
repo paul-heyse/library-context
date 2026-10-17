@@ -1,5 +1,6 @@
 //! Product compiler contracts over actual completed native and normalized streams.
 use crate::catalog_runtime;
+use futures::FutureExt;
 use lctx_model::domain::{admission::Frontier, stages::Profile};
 #[tokio::test]
 async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources() {
@@ -11,6 +12,7 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
         None,
     )
     .await;
+    let result = std::panic::AssertUnwindSafe(async {
     for family in 0i16..4 {
         let units: i64 = catalog_runtime::one_with(
             &fixture,
@@ -41,4 +43,6 @@ async fn mandatory_four_family_preparation_uses_completed_native_catalog_sources
     );
     let unrun:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM retrieval_corpus_texts WHERE CAST(text AS VARCHAR) LIKE '%execution=NotRun%'").await;
     assert!(unrun > 0);
+    }).catch_unwind().await;
+    fixture.complete(result).await;
 }

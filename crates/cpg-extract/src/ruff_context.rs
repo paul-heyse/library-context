@@ -150,6 +150,7 @@ impl PreparedCanonicalSyntax<'_, '_> {
         artifact: &SourceArtifact,
         qualification: &lctx_model::domain::assertion::AssertionQualification,
         budget: &ResourceBudget,
+        check_operation: &dyn Fn() -> Result<(), ModelError>,
     ) -> Result<crate::diagnostic_records::Records, ModelError> {
         if artifact.id() != self.source_id || qualification.context != self.context_id {
             return Err(ModelError::Invalid(
@@ -163,6 +164,7 @@ impl PreparedCanonicalSyntax<'_, '_> {
             qualification,
             budget,
             &self.preparation,
+            check_operation,
         )
     }
     pub fn observe(&self, sink: &mut dyn Sink) -> Result<TraversalStats, Incomplete> {

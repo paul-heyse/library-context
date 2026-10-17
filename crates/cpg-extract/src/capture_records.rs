@@ -1,12 +1,8 @@
 //! Native function-key joins, including globals omitted by Pysa's exported capture projection.
 use crate::natives::Natives;
 use lctx_model::domain::{
-    assertion::AssertionQualification,
-    calls::{ProviderModule, ProviderSymbol},
-    captures::*,
-    charged::StateCharge,
-    resources::ResourceBudget,
-    *,
+    assertion::AssertionQualification, calls::ProviderModule, captures::*, charged::StateCharge,
+    resources::ResourceBudget, *,
 };
 use pyrefly::report::pysa::{
     captured_variable::{CaptureKind, ModuleCapturedVariables},
@@ -25,23 +21,6 @@ impl Records {
                 .saturating_mul(4)
                 .saturating_add(row.heap_bytes()),
         )
-    }
-}
-fn symbol(
-    natives: &Natives,
-    module: Id<ProviderModule>,
-    key: &str,
-) -> Result<Option<Id<ProviderSymbol>>, ModelError> {
-    let mut matches = natives
-        .symbols
-        .values()
-        .filter(|s| s.module == module && s.native_key == key);
-    match (matches.next(), matches.next()) {
-        (Some(s), None) => Ok(Some(s.id())),
-        (None, None) => Ok(None),
-        _ => Err(ModelError::Invalid(
-            "capture native function key is ambiguous".into(),
-        )),
     }
 }
 #[allow(
@@ -92,7 +71,7 @@ fn records_from_functions<'a>(
         rows: vec![],
     };
     for (id, name) in definitions {
-        let Some(function) = symbol(natives, module, &id.serialize_to_string())? else {
+        let Some(function) = natives.unique_symbol(module, &id.serialize_to_string())? else {
             continue;
         };
         let reference = FunctionRef {
@@ -113,13 +92,13 @@ fn records_from_functions<'a>(
                             "native local capture crosses declaring module".into(),
                         ));
                     }
-                    let declaring =
-                        symbol(natives, module, &outer.function_id.serialize_to_string())?
-                            .ok_or_else(|| {
-                                ModelError::Invalid(
-                                    "native declaring capture function was not retained".into(),
-                                )
-                            })?;
+                    let declaring = natives
+                        .unique_symbol(module, &outer.function_id.serialize_to_string())?
+                        .ok_or_else(|| {
+                            ModelError::Invalid(
+                                "native declaring capture function was not retained".into(),
+                            )
+                        })?;
                     (CaptureOrigin::OuterFunction, Some(declaring))
                 }
             };
@@ -249,6 +228,33 @@ mod selected_inventory_controls {
             assert!(actual.rows.iter().any(|row| row.name == "GLOBAL" && row.origin == CaptureOrigin::Global && row.declaring.is_none()));
             assert!(actual.rows.iter().any(|row| row.name == "value" && row.origin == CaptureOrigin::OuterFunction && row.declaring.is_some()));
             assert!(actual.rows.iter().any(|row| row.name == "cell" && row.origin == CaptureOrigin::OuterFunction));
+            let (capturing_id, capturing_name, outer) = bases.as_map().iter().find_map(|(key, base)| {
+                let reference = FunctionRef {
+                    module_id: full.module_id, module_name: full.module_name,
+                    function_id: key.clone(), function_name: base.name.clone(),
+                };
+                captured.get(&reference)?.values().find_map(|origin| match origin {
+                    CaptureKind::Local(outer) if outer.function_id != *key => Some((key, &base.name, outer)),
+                    _ => None,
+                })
+            }).expect("actual fixture contains a local capture from an outer function");
+            let outer_key = outer.function_id.serialize_to_string();
+            let outer_symbol = natives.unique_symbol(module, &outer_key).unwrap().unwrap();
+            assert!(actual.rows.iter().any(|row| row.origin == CaptureOrigin::OuterFunction
+                && row.declaring == Some(outer_symbol)));
+            let mut missing_outer = Natives::new(id(4), qualification.context,
+                std::iter::empty(), &budget).unwrap();
+            for (key, base) in bases.as_map() {
+                if *key != outer.function_id {
+                    missing_outer.symbol(module, key.serialize_to_string(), base.name.to_string(), SymbolKind::Function).unwrap();
+                }
+            }
+            let before = budget.reserved();
+            assert!(matches!(records_from_functions([(capturing_id, capturing_name)], &captured,
+                module, full.module_id, full.module_name, &qualification, &missing_outer, &budget),
+                Err(ModelError::Invalid(message)) if message == "native declaring capture function was not retained"));
+            assert_eq!(budget.reserved(), before, "outer-origin failure releases output scratch");
+            drop(missing_outer);
             drop(payload_only); drop(baseline); drop(actual); drop(natives); drop(selection);
             assert_eq!(budget.reserved(), 0);
         }).unwrap().join().unwrap();

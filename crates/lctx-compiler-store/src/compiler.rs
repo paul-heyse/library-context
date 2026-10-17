@@ -4750,6 +4750,11 @@ impl NativeCompilerStore {
         };
         pending.await.map_err(ModelError::SharedCause)
     }
+    /// Retained native tasks execute on the store owner's runtime, never a transient
+    /// submitting bridge. The runtime owner must remain alive through native drainage.
+    pub(crate) fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
+    }
     pub fn attempt(&self) -> ContentHash {
         self.attempt
     }

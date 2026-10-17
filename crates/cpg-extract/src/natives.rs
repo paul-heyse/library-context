@@ -26,6 +26,63 @@ pub struct Resolution {
     pub location: Option<String>,
 }
 
+#[derive(Clone, Copy)]
+struct SymbolCandidates {
+    first: Id<ProviderSymbol>,
+    ambiguous: bool,
+}
+impl SymbolCandidates {
+    fn include(&mut self, symbol: Id<ProviderSymbol>) {
+        self.ambiguous |= self.first != symbol;
+        self.first = self.first.min(symbol);
+    }
+}
+
+/// Derived candidates share the native inventory's lifetime and insertion authority.
+#[derive(Default)]
+struct SymbolLookup(BTreeMap<Id<ProviderModule>, BTreeMap<String, SymbolCandidates>>);
+impl SymbolLookup {
+    fn get(&self, module: Id<ProviderModule>, key: &str) -> Option<&SymbolCandidates> {
+        self.0.get(&module)?.get(key)
+    }
+    fn admission(&self, module: Id<ProviderModule>, key: &str) -> usize {
+        let module_bytes = if self.0.contains_key(&module) {
+            0
+        } else {
+            size_of::<(Id<ProviderModule>, BTreeMap<String, SymbolCandidates>)>() + 128
+        };
+        let key_bytes = if self.get(module, key).is_some() {
+            0
+        } else {
+            size_of::<(String, SymbolCandidates)>()
+                .saturating_add(key.len())
+                .saturating_add(128)
+        };
+        module_bytes.saturating_add(key_bytes)
+    }
+    /// The caller admits all growth before either native inventory is changed.
+    fn insert_admitted(
+        &mut self,
+        module: Id<ProviderModule>,
+        key: &str,
+        symbol: Id<ProviderSymbol>,
+    ) {
+        let keys = self.0.entry(module).or_default();
+        match keys.get_mut(key) {
+            Some(candidates) => candidates.include(symbol),
+            None => {
+                keys.insert(
+                    key.to_owned(),
+                    SymbolCandidates {
+                        first: symbol,
+                        ambiguous: false,
+                    },
+                );
+            }
+        }
+    }
+}
+
 /// Interns one session's provider modules and symbols; every entity is emitted once.
 pub struct Natives {
     /// Definitions actually retained, distinct from native reference-only symbols.
@@ -33,17 +90,19 @@ pub struct Natives {
     pub mro: BTreeMap<Id<ProviderSymbol>, lctx_model::domain::symbols::Linearization>,
     provider: Id<Provider>,
     context: Id<AnalysisContext>,
-    charge: StateCharge,
     /// The frozen roots, and their captured artifacts by absolute path.
     roots: Vec<PathBuf>,
     artifacts: HashMap<PathBuf, Id<SourceArtifact>>,
     /// Modules over captured artifacts, keyed by their provider module.
     pub modules: BTreeMap<Id<ProviderModule>, (ProviderModule, Option<Module>)>,
-    pub symbols: BTreeMap<Id<ProviderSymbol>, ProviderSymbol>,
+    symbols: BTreeMap<Id<ProviderSymbol>, ProviderSymbol>,
+    symbol_lookup: SymbolLookup,
     /// Each module's resolution, by provider module.
     pub resolutions: BTreeMap<Id<ProviderModule>, Resolution>,
     /// Each found module's name and path, from which its handle is rebuilt.
     pub paths: BTreeMap<Id<ProviderModule>, (String, ModulePath)>,
+    // Retain admission until every owned map and its derived lookup have been dropped.
+    charge: StateCharge,
 }
 impl Natives {
     /// `roots` pairs each frozen root with its captured artifacts (relative paths).
@@ -79,6 +138,7 @@ impl Natives {
             artifacts,
             modules: BTreeMap::new(),
             symbols: BTreeMap::new(),
+            symbol_lookup: SymbolLookup::default(),
             resolutions: BTreeMap::new(),
             paths: BTreeMap::new(),
         })
@@ -244,6 +304,33 @@ impl Natives {
             name,
             kind,
         };
+        self.retain_symbol(symbol)
+    }
+    pub fn symbols(&self) -> &BTreeMap<Id<ProviderSymbol>, ProviderSymbol> {
+        &self.symbols
+    }
+    /// Preserve the former Id-ordered inventory scan's first candidate.
+    pub fn first_symbol(
+        &self,
+        module: Id<ProviderModule>,
+        key: &str,
+    ) -> Option<Id<ProviderSymbol>> {
+        self.symbol_lookup
+            .get(module, key)
+            .map(|candidates| candidates.first)
+    }
+    pub fn unique_symbol(
+        &self,
+        module: Id<ProviderModule>,
+        key: &str,
+    ) -> Result<Option<Id<ProviderSymbol>>, ModelError> {
+        match self.symbol_lookup.get(module, key) {
+            None => Ok(None),
+            Some(candidates) if !candidates.ambiguous => Ok(Some(candidates.first)),
+            Some(_) => Err(invalid("capture native function key is ambiguous".into())),
+        }
+    }
+    fn retain_symbol(&mut self, symbol: ProviderSymbol) -> Result<Id<ProviderSymbol>, ModelError> {
         let id = symbol.id();
         match self.symbols.get(&id) {
             Some(existing) if *existing != symbol => Err(invalid(format!(
@@ -252,10 +339,160 @@ impl Natives {
             ))),
             Some(_) => Ok(id),
             None => {
-                self.charge.grow(symbol.heap_bytes().saturating_add(256))?;
+                self.charge.grow(
+                    symbol.heap_bytes().saturating_add(256).saturating_add(
+                        self.symbol_lookup
+                            .admission(symbol.module, &symbol.native_key),
+                    ),
+                )?;
+                self.symbol_lookup
+                    .insert_admitted(symbol.module, &symbol.native_key, id);
                 self.symbols.insert(id, symbol);
                 Ok(id)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod symbol_lookup_controls {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    #[test]
+    fn native_keys_are_live_reference_only_module_scoped_and_idempotent() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut natives = Natives::new(id(1), id(2), std::iter::empty(), &budget).unwrap();
+        let module = id(3);
+        assert_eq!(natives.first_symbol(module, "F:1"), None);
+        assert_eq!(natives.unique_symbol(module, "F:1").unwrap(), None);
+        let symbol = natives
+            .symbol(
+                module,
+                "F:1".into(),
+                "function".into(),
+                SymbolKind::Function,
+            )
+            .unwrap();
+        let before = budget.reserved();
+        assert_eq!(natives.first_symbol(module, "F:1"), Some(symbol));
+        assert_eq!(natives.unique_symbol(module, "F:1").unwrap(), Some(symbol));
+        assert_eq!(
+            natives
+                .symbol(
+                    module,
+                    "F:1".into(),
+                    "function".into(),
+                    SymbolKind::Function
+                )
+                .unwrap(),
+            symbol
+        );
+        assert_eq!(
+            budget.reserved(),
+            before,
+            "repeated identity adds no index entry"
+        );
+        assert!(
+            matches!(natives.symbol(module, "F:1".into(), "function".into(), SymbolKind::Class),
+            Err(ModelError::Invalid(message)) if message == "Pysa keys two symbols as F:1")
+        );
+        assert_eq!(budget.reserved(), before);
+        assert_eq!(natives.symbols()[&symbol].kind, SymbolKind::Function);
+        natives
+            .symbol(
+                id(4),
+                "F:1".into(),
+                "other module".into(),
+                SymbolKind::Class,
+            )
+            .unwrap();
+        assert_eq!(natives.unique_symbol(module, "F:1").unwrap(), Some(symbol));
+        assert!(
+            natives.definitions.is_empty(),
+            "reference-only symbols own the same lookup"
+        );
+        drop(natives);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn defensive_candidates_keep_lowest_id_and_ambiguity_across_kinds_and_order() {
+        let module = id(3);
+        let first = ProviderSymbol {
+            provider: id(1),
+            context: id(2),
+            module,
+            native_key: "F:1".into(),
+            name: "function".into(),
+            kind: SymbolKind::Function,
+        };
+        // A foreign context gives a distinct genuine identity; kind never filters candidates.
+        let second = ProviderSymbol {
+            context: id(4),
+            kind: SymbolKind::Class,
+            ..first.clone()
+        };
+        assert_ne!(first.id(), second.id());
+        for order in [[&first, &second], [&second, &first]] {
+            let budget = ResourceBudget::fixed(1 << 20).unwrap();
+            let mut natives = Natives::new(id(1), id(2), std::iter::empty(), &budget).unwrap();
+            // Private insertion tests the defensive index policy; public interning still rejects
+            // a changed name/kind under the same provider/context/module/native-key identity.
+            natives.retain_symbol(order[0].clone()).unwrap();
+            assert_eq!(
+                natives.unique_symbol(module, "F:1").unwrap(),
+                Some(order[0].id())
+            );
+            natives.retain_symbol(order[1].clone()).unwrap();
+            let before = budget.reserved();
+            natives.retain_symbol(order[1].clone()).unwrap();
+            assert_eq!(budget.reserved(), before);
+            assert_eq!(
+                natives.first_symbol(module, "F:1"),
+                Some(first.id().min(second.id()))
+            );
+            assert!(
+                matches!(natives.unique_symbol(module, "F:1"), Err(ModelError::Invalid(message))
+                if message == "capture native function key is ambiguous")
+            );
+            assert!(natives.definitions.is_empty());
+            drop(natives);
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+    #[test]
+    fn native_key_admission_refusal_keeps_both_inventories_unchanged() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut natives = Natives::new(id(1), id(2), std::iter::empty(), &budget).unwrap();
+        let module = id(3);
+        let original = natives
+            .symbol(
+                module,
+                "F:1".into(),
+                "function".into(),
+                SymbolKind::Function,
+            )
+            .unwrap();
+        let before = budget.reserved();
+        let refused = "x".repeat(8192);
+        assert!(matches!(
+            natives.symbol(
+                module,
+                refused.clone(),
+                "refused".into(),
+                SymbolKind::Function
+            ),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(budget.reserved(), before);
+        assert_eq!(natives.symbols().len(), 1);
+        assert_eq!(natives.first_symbol(module, &refused), None);
+        assert_eq!(
+            natives.unique_symbol(module, "F:1").unwrap(),
+            Some(original)
+        );
+        drop(natives);
+        assert_eq!(budget.reserved(), 0);
     }
 }

@@ -14,7 +14,7 @@ use pyrefly::report::pysa::{
     },
     function::{FunctionId, FunctionRef},
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 pub type ResolveFunction<'a> =
     dyn FnMut(&mut Natives, &FunctionRef) -> Result<Id<ProviderSymbol>, ModelError> + 'a;
@@ -160,11 +160,41 @@ fn symbol(
     key: &str,
 ) -> Result<Id<ProviderSymbol>, ModelError> {
     natives
-        .symbols
-        .values()
-        .find(|s| s.module == module && s.native_key == key)
-        .map(Record::id)
+        .first_symbol(module, key)
         .ok_or_else(|| invalid(format!("Pysa graph owner {key} has no native definition")))
+}
+
+/// Canonical input order owns duplicate-site selection; missing sites keep their fallback.
+struct CallSyntaxLookup<'a> {
+    calls: BTreeMap<Id<lctx_model::domain::source::Occurrence>, &'a CallSyntax>,
+    _charge: StateCharge,
+}
+impl<'a> CallSyntaxLookup<'a> {
+    fn new(
+        calls: &'a [(CallSyntax, Vec<CallArgument>)],
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut lookup = Self {
+            calls: BTreeMap::new(),
+            _charge: StateCharge::new(budget, "native_call_syntax_lookup"),
+        };
+        for (call, _) in calls {
+            if let Entry::Vacant(entry) = lookup.calls.entry(call.site) {
+                lookup._charge.grow(
+                    size_of::<(Id<lctx_model::domain::source::Occurrence>, &CallSyntax)>()
+                        .saturating_add(128),
+                )?;
+                entry.insert(call);
+            }
+        }
+        Ok(lookup)
+    }
+    fn callee(
+        &self,
+        site: Id<lctx_model::domain::source::Occurrence>,
+    ) -> Id<lctx_model::domain::source::Occurrence> {
+        self.calls.get(&site).map_or(site, |call| call.callee)
+    }
 }
 fn caller(
     id: &FunctionId,
@@ -398,6 +428,7 @@ pub fn records(
     resolve: &mut ResolveFunction<'_>,
     budget: &ResourceBudget,
 ) -> Result<Records, ModelError> {
+    let call_syntax = CallSyntaxLookup::new(calls, budget)?;
     let mut out = Records::new(budget);
     let mut regular = BTreeSet::new();
     let mut graphs: Vec<_> = graphs.call_graphs.iter().collect();
@@ -522,11 +553,7 @@ pub fn records(
             };
             out.hold(&row)?;
             out.sites.push(row);
-            let callee_occurrence = calls
-                .iter()
-                .find(|(c, _)| c.site == site)
-                .map(|(c, _)| c.callee)
-                .unwrap_or(site);
+            let callee_occurrence = call_syntax.callee(site);
             let actual = spans.child(callee_occurrence, SyntaxField::Value);
             let mut event = Event {
                 actual,
@@ -623,4 +650,41 @@ pub fn records(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod lookup_controls {
+    use super::*;
+    fn id<R>(n: u8) -> Id<R> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    #[test]
+    fn canonical_call_lookup_keeps_first_duplicate_missing_fallback_and_admission() {
+        let first = CallSyntax {
+            qualification: id(1),
+            site: id(2),
+            callee: id(9),
+            arguments: ContentHash::of(b"first"),
+            in_annotation: false,
+        };
+        let duplicate = CallSyntax {
+            callee: id(3),
+            ..first.clone()
+        };
+        let calls = [(first.clone(), vec![]), (duplicate, vec![])];
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let lookup = CallSyntaxLookup::new(&calls, &budget).unwrap();
+        assert_eq!(lookup.callee(first.site), first.callee);
+        assert_eq!(lookup.callee(id(8)), id(8));
+        assert_eq!(lookup.calls.len(), 1);
+        assert!(budget.reserved() > 0);
+        drop(lookup);
+        assert_eq!(budget.reserved(), 0);
+        let refused = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            CallSyntaxLookup::new(&calls, &refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(refused.reserved(), 0);
+    }
 }

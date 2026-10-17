@@ -156,7 +156,9 @@ impl NativeCompilerStore {
         let store = self.clone();
         let budget = budget.clone();
         let cancellation = crate::control::capture_retry_cancellation();
-        let terminal = tokio::spawn(crate::control::with_retry_context(
+        // Accepted batches can outlive their submitting bridge request. Its private
+        // runtime may shut down on cancellation before this driver acknowledges.
+        let terminal = self.runtime.spawn(crate::control::with_retry_context(
             cancellation,
             async move {
                 let _retained = retained;
@@ -294,6 +296,44 @@ mod tests {
             },
         );
         id
+    }
+    #[tokio::test]
+    async fn accepted_ingress_outlives_submitting_runtime_and_joins_on_store_owner() {
+        let store = local_store();
+        let relation = Relation::of::<d::analytics::QualityStep>();
+        let contribution = register_local_output(&store, &relation);
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let batch = Batch::<d::analytics::QualityStep>::new(&d::model().unwrap(), vec![], &budget)
+            .unwrap()
+            .into_checked()
+            .unwrap();
+        let submitted_store = store.clone();
+        let submitted_budget = budget.clone();
+        let (ingress, accepted) = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let mut ingress = submitted_store
+                    .ingress(contribution, &submitted_budget)
+                    .unwrap();
+                let accepted = ingress.accept(batch).await.unwrap();
+                (ingress, accepted)
+            })
+            // Dropping this submitting runtime must not destroy the accepted driver.
+        })
+        .join()
+        .unwrap();
+        let acknowledged = accepted.await_committed().await.unwrap();
+        assert_eq!(acknowledged.sequence, 0);
+        assert!(
+            acknowledged.effects.entries().is_empty(),
+            "DB-free empty batch only"
+        );
+        ingress.finish().await.unwrap();
+        d::completion::complete::<()>(Ok(()), store.drain_finality_report().await).unwrap();
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn reused_ingress_preserves_each_batch_validation_ack_and_release() {

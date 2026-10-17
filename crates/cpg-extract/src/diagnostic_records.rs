@@ -102,6 +102,10 @@ pub(crate) fn location(span: Option<EvidenceSourceSpanId>) -> DiagnosticLocation
         DiagnosticLocation::Unavailable
     }
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Native diagnostic inputs and the operation cancellation owner are independent contracts"
+)]
 pub fn ruff(
     artifact: &SourceArtifact,
     parsed: &Parsed<ModModule>,
@@ -109,7 +113,9 @@ pub fn ruff(
     q: &AssertionQualification,
     budget: &ResourceBudget,
     preparation: &SourcePreparation<'_>,
+    check_operation: &dyn Fn() -> Result<(), ModelError>,
 ) -> Result<Records, ModelError> {
+    check_operation()?;
     let source = preparation.locator().contents();
     let mut out = Records::new(budget);
     // All inputs are captured. Never call Default/for_rules, which read Ruff's cached cwd.
@@ -145,7 +151,10 @@ pub fn ruff(
         is_stub: native.source_type == PySourceType::Stub,
     };
     let check = |noqa| {
-        ruff_linter::linter::check_path(
+        check_operation()?;
+        // A native diagnostic traversal is indivisible. Check its boundary so an
+        // abandoned operation cannot start the next complete suppression channel.
+        let diagnostics = ruff_linter::linter::check_path(
             &native.path,
             native.package_root.as_deref().map(PackageRoot::root),
             locator,
@@ -159,10 +168,12 @@ pub fn ruff(
             parsed,
             settings.unresolved_target_version,
             &suppressions,
-        )
+        );
+        check_operation()?;
+        Ok::<_, ModelError>(diagnostics)
     };
-    let emitted = check(Noqa::Enabled);
-    let unsuppressed = check(Noqa::Disabled);
+    let emitted = check(Noqa::Enabled)?;
+    let unsuppressed = check(Noqa::Disabled)?;
     fn key(d: &Diagnostic) -> (String, String, Option<(u32, u32)>, String) {
         (
             d.id().as_str().into(),

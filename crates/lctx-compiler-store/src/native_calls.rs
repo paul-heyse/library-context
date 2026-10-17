@@ -150,7 +150,9 @@ impl NativeCalls {
         let cancellation = self.cancellation.clone();
         let finished = Arc::new(AtomicBool::new(false));
         let done = finished.clone();
-        let task = tokio::spawn(
+        // A caller may be polling on the provider bridge's short-lived runtime.
+        // Registered calls must retain the store owner's executor through drainage.
+        let task = self.native.runtime().spawn(
             async move {
                 let mut submitted = CallGuard {
                     native,
@@ -248,6 +250,58 @@ fn unfinished(error: ModelError) -> ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn dropped_waiter_and_submitting_runtime_keep_registered_call_alive() {
+        // No native operation: this isolates actual task/executor ownership.
+        let native = NativeCompilerStore::from_existing(
+            Arc::new(surrealdb::Surreal::init()),
+            lctx_model::domain::serving::Name::new("call_control").unwrap(),
+            lctx_model::domain::serving::Name::new("owned_control").unwrap(),
+        );
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let calls = Arc::new(NativeCalls::new(
+            native.clone(),
+            Cancellation::default(),
+            &budget,
+        ));
+        let (entered, entering) = oneshot::channel();
+        let (release, released) = oneshot::channel();
+        let completed = Arc::new(AtomicBool::new(false));
+        let observed = completed.clone();
+        let retained = budget.reserve("cross-runtime-call", 256).unwrap();
+        let request: Request = async move {
+            let _retained = retained;
+            entered.send(()).unwrap();
+            released.await.unwrap();
+            observed.store(true, Ordering::Release);
+            OperationResult::default()
+        }
+        .boxed();
+        let submitting = calls.clone();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async move {
+                let waiter = submitting.submit_guarded(request).await.unwrap();
+                drop(waiter); // Cancels caller admission; already submitted work still owns its join.
+            });
+            // This private executor ends before the operation is allowed to finish.
+        })
+        .join()
+        .unwrap();
+        entering.await.unwrap();
+        assert!(!completed.load(Ordering::Acquire));
+        assert!(budget.reserved() >= 256);
+        release.send(()).unwrap();
+        assert!(calls.drain_finality_report().await.is_satisfied());
+        assert!(completed.load(Ordering::Acquire));
+        assert!(native.drain_finality_report().await.is_satisfied());
+        drop(calls);
+        drop(native);
+        assert_eq!(budget.reserved(), 0);
+    }
     async fn close_fixture(calls: &NativeCalls) {
         let finality = calls.native.abandon_finality_report().await;
         assert_eq!(

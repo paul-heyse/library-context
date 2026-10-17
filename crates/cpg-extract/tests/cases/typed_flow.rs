@@ -6,6 +6,103 @@ use lctx_model::domain::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 use typed_driver::{Tables, rows};
+
+/// Deny only the real flow use-group allocation while funding every other owner normally.
+#[derive(Debug)]
+struct FlowUseGroupRefusal {
+    budget: lctx_model::domain::resources::ResourceBudget,
+    reached: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+impl lctx_model::domain::resources::ResourcePool for FlowUseGroupRefusal {
+    fn reserve(
+        &self,
+        owner: &'static str,
+        bytes: usize,
+    ) -> Result<Box<dyn lctx_model::domain::resources::Reservation>, ModelError> {
+        if owner == "flow_use_group" && bytes > 0 {
+            self.reached
+                .store(true, std::sync::atomic::Ordering::Release);
+            return Err(ModelError::Resource {
+                owner,
+                requested: bytes,
+                used: 0,
+                limit: 0,
+            });
+        }
+        self.budget.reserve(owner, bytes)
+    }
+    fn reserved(&self) -> usize {
+        self.budget.reserved()
+    }
+    fn limit(&self) -> usize {
+        self.budget.limit()
+    }
+}
+
+#[tokio::test]
+async fn native_flow_group_resource_refusal_drains_without_completed_observation() {
+    use cpg_extract::{
+        acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput,
+        native_context::NativeContextConfig, pyrefly_stage::Pyrefly, typed_syntax::SyntaxLimits,
+    };
+    use lctx_model::domain::{
+        batching::TransferLimits, resources::ResourceBudget, stages::Profile,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let reached = Arc::new(AtomicBool::new(false));
+    let resources = ResourceBudget::from_pool(Arc::new(FlowUseGroupRefusal {
+        budget: typed_driver::budget(),
+        reached: reached.clone(),
+    }))
+    .unwrap();
+    let source = tempfile::tempdir().unwrap();
+    std::fs::write(source.path().join("example.py"), b"x = 1\ny = x\n").unwrap();
+    let captured =
+        CapturedInput::capture(source.path(), &["example.py".into()], &resources).unwrap();
+    let captured = Arc::new(CapturedInputs::new(
+        vec![AcquiredInput::tree(captured, "flow-resource-refusal")],
+        NativeContextConfig::committed(Profile::Behavioral, &resources).unwrap(),
+    ));
+    let tables = Tables::default();
+    let error = typed_driver::run_profile_with_budget(
+        captured,
+        Pyrefly::new(SyntaxLimits::default()),
+        Flow(tables.clone()),
+        Profile::Behavioral,
+        TransferLimits::default(),
+        false,
+        resources.clone(),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        reached.load(Ordering::Acquire),
+        "actual native flow admission was not reached"
+    );
+    assert!(
+        matches!(
+            error.primary(),
+            Some(ModelError::Resource {
+                owner: "flow_use_group",
+                ..
+            })
+        ),
+        "{error:?}"
+    );
+    assert!(
+        tables.lock().unwrap().is_empty(),
+        "a failed producer must not be inspected as a completed observation"
+    );
+    assert!(error.permits_storage_cleanup(), "{error:?}");
+    // Refusal diagnostics retain admitted backing until their final consumer releases it.
+    drop(error);
+    assert_eq!(resources.reserved(), 0);
+}
+
 inspector!(
     Flow,
     lctx_model::domain::flow::FlowUse,

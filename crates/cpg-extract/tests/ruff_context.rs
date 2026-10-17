@@ -323,12 +323,12 @@ fn shared_preparation_keeps_both_diagnostic_channels_after_observer_exhaustion()
             approximation: Approximation::Exact,
         };
         let before = prepared
-            .diagnostics(&artifact, &qualification, &budget)
+            .diagnostics(&artifact, &qualification, &budget, &|| Ok(()))
             .unwrap();
         let stopped = prepared.observe(&mut Rows::default()).unwrap_err();
         assert_eq!(stopped.reason, expected_stop);
         let after = prepared
-            .diagnostics(&artifact, &qualification, &budget)
+            .diagnostics(&artifact, &qualification, &budget, &|| Ok(()))
             .unwrap();
         assert_eq!(
             (
@@ -375,4 +375,55 @@ fn shared_preparation_keeps_both_diagnostic_channels_after_observer_exhaustion()
         drop(canonical);
         assert_eq!(budget.reserved(), 0);
     }
+}
+
+#[test]
+fn diagnostic_cancellation_preserves_cause_and_releases_each_channel_boundary() {
+    use lctx_model::domain::{assertion::*, attribution::*, conditions::Diagram};
+    let source = "import os  # noqa: F401\nmissing\n";
+    let budget = ResourceBudget::fixed(16 << 20).unwrap();
+    let artifact = artifact(source);
+    let context = context();
+    let canonical = CanonicalSyntax::parse(
+        &artifact,
+        source,
+        &context,
+        ContextSettings::default(),
+        &budget,
+    )
+    .unwrap();
+    let prepared = canonical.prepare(&budget).unwrap();
+    let qualification = AssertionQualification {
+        assumptions: lctx_model::domain::assumptions::AssumptionSet::empty_id(),
+        context: context.id(),
+        scope: CoverageScope::Artifact {
+            artifact: artifact.id(),
+        }
+        .id(),
+        condition: Diagram::always().id(),
+        modality: Modality::Definite,
+        approximation: Approximation::Exact,
+    };
+    let retained = budget.reserved();
+    // Before diagnostic preparation, after the emitted channel (so the second
+    // traversal must not start), and after the unsuppressed channel. None may
+    // return partial Records or retain the native diagnostic allowance.
+    for stop_at in [1, 3, 5] {
+        let checks = std::cell::Cell::new(0);
+        let result = prepared.diagnostics(&artifact, &qualification, &budget, &|| {
+            checks.set(checks.get() + 1);
+            if checks.get() == stop_at {
+                Err(ModelError::Invalid("provider run cancelled".into()))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(result, Err(ModelError::Invalid(ref detail))
+            if detail == "provider run cancelled"));
+        assert_eq!(checks.get(), stop_at, "no work boundary may follow refusal");
+        assert_eq!(budget.reserved(), retained);
+    }
+    drop(prepared);
+    drop(canonical);
+    assert_eq!(budget.reserved(), 0);
 }

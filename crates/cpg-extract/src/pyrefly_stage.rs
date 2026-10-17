@@ -821,10 +821,13 @@ fn session<S: ProviderSink + 'static>(
             &run,
             &surfaces[&FactFamily::Types],
         )?;
+        cancellation.check()?;
         let prepared = canonical.prepare(context.budget())?;
         write_diagnostics(
             context,
-            prepared.diagnostics(artifact, &qualification, context.budget())?,
+            prepared.diagnostics(artifact, &qualification, context.budget(), &|| {
+                cancellation.check()
+            })?,
             &ruff_run,
             &ruff_context_surface,
         )?;
@@ -1416,7 +1419,7 @@ fn session<S: ProviderSink + 'static>(
         (std::collections::BTreeSet<String>, Vec<String>),
     > = BTreeMap::new();
     for symbol in natives
-        .symbols
+        .symbols()
         .values()
         .filter(|s| !root_modules.contains(&s.module))
     {
@@ -1555,7 +1558,7 @@ fn session<S: ProviderSink + 'static>(
                 // module's class declarations too, each module once in this same dependency pass.
                 if requirements.is_some() {
                     for member in records.sequences.iter().flat_map(|(_, members)| members) {
-                        let symbol = &natives.symbols[&member.symbol];
+                        let symbol = &natives.symbols()[&member.symbol];
                         if !root_modules.contains(&symbol.module)
                             && !visited.contains(&symbol.module)
                         {
@@ -1652,7 +1655,7 @@ fn session<S: ProviderSink + 'static>(
         }
         context.emit(module.clone())?;
     }
-    for symbol in natives.symbols.values() {
+    for symbol in natives.symbols().values() {
         context.emit(symbol.clone())?;
     }
     context.contribute(coverage(&input_scope, FactFamily::Signatures,
