@@ -78,6 +78,22 @@ pub(super) fn live_pin_drain_predicate_for_control() -> &'static str {
     live_pin_drain_predicate!()
 }
 
+/// Bounded hold-page lowering, shared by cleanup and pin release. Callers supply
+/// distinct exact `__page_incidence_targets`, excluding only targets already cut
+/// by their checked owner. Attempts keep their complete cut and predicate write;
+/// ordinary predicate records reuse retirement's scalar-lock/bulk-increment form.
+/// These arrays are derived inside the same bounded native packet, not a host cache.
+pub(super) const PREPARE_PAGE_INCIDENCE: &str = r#"
+FOR $__page_attempt IN $__page_incidence_targets.filter(|$record| record::table($record)='native_attempt') { fn::native_touch($__page_attempt); };
+LET $__page_predicate_rows=$__page_incidence_targets.filter(|$record| record::table($record)!='native_attempt').map(|$record| {id:type::record('native_predicate',[$record]),revision:1});
+LET $__page_predicate_ids=$__page_predicate_rows.map(|$row| $row.id);
+LET $__page_actual_predicates=$__page_predicate_ids.map(|$id| (SELECT id,revision FROM ONLY $id FOR UPDATE)).filter(|$row| $row!=NONE);
+IF array::len(SELECT * FROM $__page_actual_predicates WHERE revision>=9223372036854775807)>0 { THROW 'native predicate revision exhausted'; };
+"#;
+/// Execute only after all page-specific checks; every endpoint changes once and
+/// all item creation/hold deletion remains in this same owner effect transaction.
+pub(super) const WRITE_PAGE_INCIDENCE: &str = "IF array::len($__page_predicate_rows)>0 { INSERT INTO native_predicate $__page_predicate_rows ON DUPLICATE KEY UPDATE revision+=1 RETURN NONE; };";
+
 /// Size the complete lowered query with the pinned native protobuf codec. Context
 /// uses the maximum encoded widths of UUID/timeout/batch fields, so this is a wire
 /// bound, independently of resident construction/serialization workspace admission.

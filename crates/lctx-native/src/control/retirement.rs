@@ -238,14 +238,34 @@ fn cleanup_nomination_bindings(
     bindings.insert("n09_root_digest", digest.hex());
     Ok(bindings)
 }
-/// The caller has already rechecked exact cleanup/origin/owner identity and full hold
-/// page and cut its distinct incidence targets, including every nominated object.
-/// Its incoming holds remain live until this payload nominates every exact
-/// incarnation and then deletes those holds. Independent holders can advance a
-/// guard's revision without changing the active incarnation consumed by the item.
-/// All roots/items are created in this ONE payload before any hold deletion.
-/// A lost acknowledgement replays the original native effect, not a partial setup job.
-pub(super) const CLEANUP_NOMINATE_PAGE: &str = "IF array::len($holds)>0 { IF $n09_job=NONE OR $n09_root_count!=array::len($n09_roots) OR $n09_root_count!=array::len($holds) { THROW 'native cleanup nomination complete root count'; }; fn::native_touch($n09_job); LET $n09_existing_job=SELECT * FROM ONLY $n09_job FOR UPDATE; IF $n09_existing_job!=NONE { THROW 'native cleanup nomination job collision'; }; CREATE $n09_job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$n09_root_digest,lineage=$n09_job,state='open',root_count=$n09_root_count,roots_registered=$n09_root_count,examined=0,retired=0,revision=0 RETURN NONE; FOR $n09_root IN $n09_roots { fn::native_touch($n09_root.item); LET $n09_guard_id=$n09_root.guard; LET $n09_physical=SELECT * FROM ONLY $n09_guard_id FOR UPDATE; IF $n09_physical=NONE OR $n09_physical.phase!='active' OR $n09_physical.retired!=false OR $n09_root.incarnation<=0 OR $n09_physical.incarnation!=$n09_root.incarnation { THROW 'native cleanup nominated incarnation changed'; }; LET $n09_item_id=$n09_root.item; IF (SELECT VALUE id FROM ONLY $n09_item_id)!=NONE { THROW 'native cleanup nomination item collision'; }; CREATE $n09_item_id SET job=$n09_job,object=$n09_root.object,incarnation=$n09_root.incarnation,state='pending' RETURN NONE; }; };";
+/// Cleanup has rechecked exact owner/origin identity and its full hold page,
+/// completed distinct attempt cuts and scalar-locked ordinary predicate records.
+/// Validate every nomination before the shared bulk predicate increment; then
+/// create all roots/items before the caller deletes any actual hold ID. These
+/// phases remain in ONE effect transaction and retain no partial setup job.
+/// Revision churn on the same active incarnation remains legitimate reuse.
+pub(super) const CLEANUP_NOMINATE_VALIDATE: &str = r#"
+IF array::len($holds)>0 {
+    IF $n09_job=NONE OR $n09_root_count!=array::len($n09_roots) OR $n09_root_count!=array::len($holds) OR array::len(array::distinct($n09_roots.map(|$root| $root.item)))!=$n09_root_count { THROW 'native cleanup nomination complete root count'; };
+    LET $n09_existing_job=SELECT * FROM ONLY $n09_job FOR UPDATE;
+    IF $n09_existing_job!=NONE { THROW 'native cleanup nomination job collision'; };
+    FOR $n09_root IN $n09_roots {
+        LET $n09_guard_id=$n09_root.guard;
+        LET $n09_physical=SELECT * FROM ONLY $n09_guard_id FOR UPDATE;
+        IF $n09_physical=NONE OR $n09_physical.phase!='active' OR $n09_physical.retired!=false OR $n09_root.incarnation<=0 OR $n09_physical.incarnation!=$n09_root.incarnation { THROW 'native cleanup nominated incarnation changed'; };
+        LET $n09_item_id=$n09_root.item;
+        IF (SELECT VALUE id FROM ONLY $n09_item_id)!=NONE { THROW 'native cleanup nomination item collision'; };
+    };
+};
+"#;
+pub(super) const CLEANUP_NOMINATE_WRITE: &str = r#"
+IF array::len($holds)>0 {
+    CREATE $n09_job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$n09_root_digest,lineage=$n09_job,state='open',root_count=$n09_root_count,roots_registered=$n09_root_count,examined=0,retired=0,revision=0 RETURN NONE;
+    LET $n09_item_rows=$n09_roots.map(|$root| {id:$root.item,job:$n09_job,object:$root.object,incarnation:$root.incarnation,state:'pending'});
+    INSERT INTO native_retirement_item $n09_item_rows RETURN NONE;
+};
+"#;
+
 async fn enqueue_roots(
     client: &Surreal<Client>,
     job: &RecordId,

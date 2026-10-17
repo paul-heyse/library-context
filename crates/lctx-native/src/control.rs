@@ -644,9 +644,17 @@ pub async fn release_pin_checked(
         bindings.insert("holds", holds);
         // The fence committed separately: this page still touches the pin, once,
         // along with every exact hold/object target before any deletion commits.
-        effect(client,None,"LET $prior=SELECT * FROM ONLY $pin FOR UPDATE; IF $prior=NONE OR !$prior.released { THROW 'native pin release not fenced'; }; LET $owned=SELECT * FROM $holds WHERE owner=$pin; LET $incidence_targets=array::distinct(array::flatten($owned.map(|$hold_row| fn::native_incidence_targets($hold_row)))); FOR $target IN $incidence_targets { fn::native_touch($target); }; FOR $hold_row IN $owned { DELETE $hold_row.id RETURN NONE; }",bindings).await?;
+        effect(client,None,&pin_release_page_sql(),bindings).await?;
     }
     Ok(())
+}
+
+fn pin_release_page_sql() -> String {
+    format!(
+        "LET $prior=SELECT * FROM ONLY $pin FOR UPDATE; IF $prior=NONE OR !$prior.released {{ THROW 'native pin release not fenced'; }}; LET $owned=SELECT * FROM $holds WHERE owner=$pin; LET $__page_incidence_targets=array::distinct(array::flatten($owned.map(|$hold_row| fn::native_incidence_targets($hold_row)))); {} {} LET $hold_ids=$owned.map(|$hold_row| $hold_row.id); DELETE $hold_ids RETURN NONE;",
+        coordination::PREPARE_PAGE_INCIDENCE,
+        coordination::WRITE_PAGE_INCIDENCE,
+    )
 }
 
 pub async fn close_attempt(
