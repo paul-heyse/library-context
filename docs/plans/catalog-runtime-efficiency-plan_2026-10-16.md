@@ -332,6 +332,16 @@ normal concurrency. Coverage inventory accounts for177 Rust targets and63 select
 with no unexpected omission; five submitted-MCP Python files and embedding inference remain
 excluded. Full strict Clippy is the separate passed receipt above. Selected coverage is complete;
 global qualification is not claimed, and execution outcomes remain pending.
+The full model and analytics boundaries **passed**. Provider extraction has reported actual
+360-second timeouts and retry conflicts; its enclosing outcome remains pending. A separate
+Resource-negative control reached its semantic/finality assertions but failed strict zero-charge
+release (2700 bytes): acknowledged operation failures incorrectly suppressed an otherwise safe SDK
+engine join. `b3d8ce74` composes operation/finality before the existing recursive cleanup-permission
+decision in both provider fixture helpers; Unknown/Outstanding still prevents joining, assertions
+are unchanged and actual rerun is pending. Source inspection also exposed redundant complete
+attempt cuts within cleanup registration/pages and repeated nomination/incidence object touches.
+RN02 correction and affected acceptance are open. These are demonstrated unnecessary work,
+not a claim that they alone caused every timeout; no deadline or concurrency change is selected.
 RN04's read-only source/host decision is in the native companion: no leak established, historical
 143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
 Current service status observed23 protected attachments rather than the inherited16; all remain
