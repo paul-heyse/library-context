@@ -700,7 +700,10 @@ pub(super) async fn prepare_owner_effect_admitted(
     sql: &str,
     mut bindings: Variables,
 ) -> Result<PreparedOwnerEffect, ModelError> {
-    coordination::prepare_expectations(client, &mut bindings).await?;
+    let phase = crate::phase::Phase::begin("native_effect_expectations");
+    let result = coordination::prepare_expectations(client, &mut bindings).await;
+    phase.finish_result(&result);
+    result?;
     let payload = PreparedNativePayload::new(sql, bindings)?;
     let request = NativeRequest {
         issuance,
@@ -959,15 +962,19 @@ fn execute_owner_plan<'a>(
                 },
             )
             .map_err(|error| request.error(error))?;
+        let phase = crate::phase::Phase::begin("native_effect_apply");
         let result =
             super::retry::transaction_named(client, &query, bindings, false, "apply").await;
+        phase.finish_result(&result);
         let primary = match result {
             Ok(()) => {
                 // Durable knowledge precedes the last native witness release.
+                let phase = crate::phase::Phase::begin("native_effect_recovery_settlement");
                 let settled = match pending.committed() {
                     Ok(()) => settle_pending_recovery(&scope, &pending).await.map(|_| ()),
                     Err(error) => Err(error),
                 };
+                phase.finish_result(&settled);
                 return settled.map_err(|error| {
                     let mut completion = Completion {
                         local: LocalState::Outstanding,
@@ -980,7 +987,10 @@ fn execute_owner_plan<'a>(
             }
             Err(error) => request.error(error),
         };
-        match settle_pending_recovery(&scope, &pending).await {
+        let phase = crate::phase::Phase::begin("native_effect_recovery_settlement");
+        let settled = settle_pending_recovery(&scope, &pending).await;
+        phase.finish_result(&settled);
+        match settled {
             Ok(EffectDisposition::Committed) => Ok(()),
             Ok(_) => complete(Err(primary), Completion::default()),
             Err(error) => {
@@ -1176,10 +1186,22 @@ pub(super) async fn settle_reference(
         )
         .await;
     }
-    let current = IssuanceEra::capture(client).await?;
+    let phase = crate::phase::Phase::begin("native_effect_settlement_issuance");
+    let current = IssuanceEra::capture(client).await;
+    phase.finish_result(&current);
+    let current = current?;
     let (sql, bindings) = terminal_reference_settlement_plan(envelope, current)?;
-    super::retry::transaction_named(client, &sql, bindings, true, "outcome_reference_settlement")
-        .await
+    let phase = crate::phase::Phase::begin("native_effect_settlement_apply");
+    let result = super::retry::transaction_named(
+        client,
+        &sql,
+        bindings,
+        true,
+        "outcome_reference_settlement",
+    )
+    .await;
+    phase.finish_result(&result);
+    result
 }
 /// The original terminal result and its actual recipient already own this release.
 /// Share the exact lowering with native controls; this grants no production authority.

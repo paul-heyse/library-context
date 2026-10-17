@@ -583,12 +583,18 @@ placement is explicitly inline. Executing opaque kernels retain access and charg
 drain. Earlier retired-pipeline measurements do not establish current throughput or total RSS;
 preserved benchmark captures keep their original boundaries.
 
-**Accepted target, 2026-10-16 (ADR-0177); implementation/functional acceptance pending.** Shared
+**Implemented, 2026-10-17 (ADR-0177); focused-Tested; wider integrated acceptance remains open.** Shared
 `lctx-tracing` is a tracing utility leaf consumed by extraction and native execution, independent of
 the pure semantic model. Captured spans and inner futures/streams retain their actual dispatch
 through polling and destruction, including cancellation and never-polled rejection. Synchronous
 workers destroy their owned spans before restoring another default. This affects observation
 lifetime, not provider outcomes, semantic identity, scheduling or native completion authority.
+Async test entrypoints use that same poll-and-destruction owner. Tower's pinned buffer source
+patch retains each request span's actual dispatcher through message destruction and installs it
+while processing that request; a connection-wide default cannot cover mixed-origin requests.
+The [upper-execution coordinator](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+owns the focused regression and native integration outcomes. This repairs ADR-0177's existing
+lifetime contract; it does not change tracing registry semantics or confer native finality.
 
 > Decision: ADR-0086, ADR-0016, ADR-0116, ADR-0177
 

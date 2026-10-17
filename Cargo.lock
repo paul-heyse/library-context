@@ -4193,6 +4193,7 @@ version = "0.1.0"
 dependencies = [
  "futures-core",
  "pin-project-lite",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4235,7 +4236,6 @@ dependencies = [
  "futures 0.3.34",
  "futures-channel",
  "futures-core",
- "futures-io",
  "futures-task",
  "futures-util",
  "get-size2",
@@ -4294,6 +4294,7 @@ dependencies = [
  "subtle",
  "syn 2.0.119",
  "syn 3.0.6",
+ "sync_wrapper",
  "thin-vec",
  "tokio",
  "tokio-rustls",
@@ -8717,8 +8718,6 @@ dependencies = [
 [[package]]
 name = "tower"
 version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
 dependencies = [
  "futures-core",
  "futures-util",

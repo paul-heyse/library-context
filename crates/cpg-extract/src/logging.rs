@@ -5,7 +5,8 @@
 pub const DEFAULT_LOG_FILTER: &str = "warn,lctx_phase=info";
 
 /// Construct a stderr subscriber without changing the process-global subscriber. Async callers
-/// attach this dispatch with `WithSubscriber` so each poll has its own attribution.
+/// attach this dispatch with `lctx_tracing::InContext::with_tracing_dispatch` so polling
+/// and destruction of owned async state retain its originating attribution.
 pub fn dispatch() -> tracing::Dispatch {
     tracing::Dispatch::new(subscriber())
 }

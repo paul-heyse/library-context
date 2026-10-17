@@ -17,8 +17,8 @@ use lctx_native::{
     Loader, RuntimeConfig,
     surrealdb::types::{Value, Variables},
 };
+use lctx_tracing::InContext;
 use std::{panic::AssertUnwindSafe, sync::Arc};
-use tracing::instrument::WithSubscriber;
 
 #[derive(Clone, Copy)]
 enum Mutation {
@@ -336,7 +336,7 @@ fn same_refusal(actual: &ModelError, expected: &ModelError) -> bool {
 #[ignore = "requires coordinator-owned disposable maintenance campaign"]
 async fn materialize_search_then_mutate_document_seal_refuses() {
     control(Mutation::Search)
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await
         .unwrap();
 }
@@ -345,7 +345,7 @@ async fn materialize_search_then_mutate_document_seal_refuses() {
 #[ignore = "requires coordinator-owned disposable maintenance campaign"]
 async fn materialize_search_then_mutate_lexical_seal_refuses() {
     control(Mutation::Lexical)
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await
         .unwrap();
 }
@@ -354,7 +354,7 @@ async fn materialize_search_then_mutate_lexical_seal_refuses() {
 #[ignore = "requires exclusive coordinator-owned disposable maintenance campaign"]
 async fn materialize_search_then_change_actual_analyzer_seal_refuses() {
     control(Mutation::Analyzer)
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await
         .unwrap();
 }

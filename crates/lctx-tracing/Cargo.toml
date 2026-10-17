@@ -12,6 +12,7 @@ pin-project-lite.workspace = true
 futures-core.workspace = true
 
 [dev-dependencies]
+tower = { workspace = true, features = ["buffer", "util"] }
 tracing-subscriber.workspace = true
 
 [lints]

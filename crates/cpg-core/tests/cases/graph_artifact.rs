@@ -208,11 +208,11 @@ async fn transported_graph_refuses_missing_and_tampered_originals() {
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
+    use lctx_tracing::InContext;
     use std::{
         io::{self, Write},
         sync::Mutex,
     };
-    use tracing::instrument::WithSubscriber;
     #[derive(Clone, Default)]
     struct Output(Arc<Mutex<Vec<u8>>>);
     impl Write for Output {
@@ -260,7 +260,7 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
         )
         .await
     }
-    .with_subscriber(dispatch)
+    .with_tracing_dispatch(dispatch)
     .await;
     assert!(
         matches!(rejected,Err(lctx_model::domain::ModelError::Invalid(ref message))
@@ -1790,7 +1790,8 @@ async fn frontier_journey(
     frontier: Frontier,
     run: impl std::future::Future<Output = ()>,
 ) {
-    use tracing::{Instrument, instrument::WithSubscriber};
+    use lctx_tracing::InContext;
+    use tracing::Instrument;
     let dispatch = cpg_extract::logging::dispatch();
     let span = tracing::dispatcher::with_default(
         &dispatch,
@@ -1802,7 +1803,7 @@ async fn frontier_journey(
         phase.finish(lctx_native::phase::Terminal::Passed);
     }
     .instrument(span)
-    .with_subscriber(dispatch)
+    .with_tracing_dispatch(dispatch)
     .await;
 }
 

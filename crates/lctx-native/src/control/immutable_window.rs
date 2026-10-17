@@ -1,6 +1,7 @@
 //! Reachability-bounded immutable installation: rows and their holds share one outcome.
 use super::*;
 use lctx_model::domain::resources::{MAX_ROW_BYTES, Reservation, ResourceBudget, TRANSFER_BYTES};
+use lctx_tracing::InContext;
 
 pub struct ImmutableWindow {
     sql: String,
@@ -420,7 +421,15 @@ impl<'a> WindowWriter<'a> {
         } else {
             None
         };
-        self.effect(&window.sql, window.bindings.into()).await
+        let span = tracing::info_span!(target: "lctx_phase", "native_immutable_window", rows = window.rows, bytes = window.bytes);
+        async {
+            let phase = crate::phase::Phase::begin("native_immutable_window");
+            let result = self.effect(&window.sql, window.bindings.into()).await;
+            phase.finish_result(&result);
+            result
+        }
+        .with_tracing_span(span)
+        .await
     }
     pub(super) async fn effect(
         &mut self,

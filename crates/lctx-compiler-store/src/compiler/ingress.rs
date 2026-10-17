@@ -158,9 +158,10 @@ impl NativeCompilerStore {
         let cancellation = crate::control::capture_retry_cancellation();
         // Accepted batches can outlive their submitting bridge request. Its private
         // runtime may shut down on cancellation before this driver acknowledges.
-        let terminal = self.runtime.spawn(crate::control::with_retry_context(
-            cancellation,
-            async move {
+        // The store runtime is a separate ownership boundary; carry the submitting
+        // tracing origin through polling and destruction of the whole accepted driver.
+        let terminal = self.runtime.spawn(
+            crate::control::with_retry_context(cancellation, async move {
                 let _retained = retained;
                 let result = lease
                     .within(producing_future(producing, async {
@@ -229,8 +230,9 @@ impl NativeCompilerStore {
                     .await;
                 driver_stopped.store(true, Ordering::Release);
                 lease.finish_with(result)
-            },
-        ));
+            })
+            .in_tracing_context(),
+        );
         Ok(NativeIngress {
             sender: Some(sender),
             terminal: Some(terminal),
@@ -421,6 +423,143 @@ mod tests {
         );
         assert_eq!(budget.reserved(), 0);
         assert_eq!(foreign.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn native_summary_pair_outcome_batch_has_committed_window_receipts() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tracing_subscriber::{Layer, layer::Context, prelude::*};
+
+        struct BatchSpans(Arc<AtomicUsize>);
+        impl<S: tracing::Subscriber> Layer<S> for BatchSpans {
+            fn on_new_span(
+                &self,
+                attributes: &tracing::span::Attributes<'_>,
+                _id: &tracing::Id,
+                _context: Context<'_, S>,
+            ) {
+                if attributes.metadata().name() == "native_batch" {
+                    self.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+        let batch_spans = Arc::new(AtomicUsize::new(0));
+        let dispatch = tracing::Dispatch::new(
+            tracing_subscriber::fmt()
+                .with_env_filter("warn,lctx_phase=info")
+                .with_writer(std::io::stderr)
+                .finish()
+                .with(BatchSpans(batch_spans.clone())),
+        );
+        async {
+            // This tests actual guarded persistent ingress of the timed-out relation's
+            // physical shape. Synthetic nominal endpoints establish no Summary semantics.
+            use d::execution::summary_production::{PairDisposition, PairOutcome};
+            fn nominal<R>(attempt: ContentHash, role: &str, index: u64) -> d::Id<R> {
+                let mut key = KeySink::new("native-pair-batch-control");
+                attempt.encode(&mut key);
+                key.part(b"role", role.as_bytes());
+                key.part(b"index", &index.to_le_bytes());
+                serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                    _,
+                    serde::de::value::Error,
+                >::new(key.finish().0[..16].iter().copied()))
+                .unwrap()
+            }
+            let budget = ResourceBudget::fixed(512 << 20).unwrap();
+            let config = RuntimeConfig::read(std::path::Path::new(
+                &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
+            ))
+            .unwrap();
+            let factory = recovery_factory(&config, budget.clone()).unwrap();
+            let store = NativeCompilerStore::begin(&config, Frontier::Facts, &factory)
+                .await
+                .unwrap();
+            let connection = store
+                .recovery_scope()
+                .unwrap()
+                .client()
+                .connection_completion()
+                .unwrap();
+            let reader = crate::NativeReader::private(store.client.clone()).with_budget(&budget);
+            let result = std::panic::AssertUnwindSafe(async {
+                let model = d::model()?;
+                let relation = Relation::of::<PairOutcome>();
+                let contribution = store
+                    .begin_contribution(ContributionSpec {
+                        captured_binding: None,
+                        producer: format!("pair-batch-control-{}", store.attempt.hex()),
+                        profile: OutputProfile::Specific(d::stages::Profile::Behavioral),
+                        model: model.digest(),
+                        implementation: ContentHash::of(b"pair-batch-physical-control"),
+                        configuration: None,
+                        inputs: vec![],
+                        outputs: [relation.name().into()].into(),
+                    })
+                    .await?;
+                let rows = (0..4096)
+                    .map(|index| PairOutcome {
+                        invocation: nominal(store.attempt, "invocation", 0),
+                        attempt: nominal(store.attempt, "attempt", 0),
+                        caller_origin: nominal(store.attempt, "origin", 0),
+                        callee_origin: nominal(store.attempt, "origin", 1),
+                        caller: nominal(store.attempt, "caller", index),
+                        callee: nominal(store.attempt, "callee", index),
+                        disposition: PairDisposition::Disjoint,
+                        witness: None,
+                        reason: None,
+                    })
+                    .collect();
+                let batch = Batch::new(&model, rows, &budget)?.into_checked()?;
+                let mut ingress = store.ingress(contribution, &budget)?;
+                let phase = crate::phase::Phase::begin("native_pair_outcome_4096_ingress");
+                let accepted = ingress.accept(batch).await?;
+                let committed = accepted.await_committed().await;
+                phase.finish_result(&committed);
+                let committed = committed?;
+                assert_eq!(batch_spans.load(Ordering::SeqCst), 1,
+                    "the accepted store-runtime driver retains its submitting subscriber");
+                assert_eq!(committed.sequence, 0);
+                assert!(!committed.effects.entries().is_empty());
+                assert!(committed.effects.entries().iter().all(|effect| {
+                    effect.disposition == crate::control::EffectDisposition::Committed
+                }));
+                tracing::info!(target: "lctx_phase", observation = "native_pair_outcome_batch_committed",
+                    logical_rows = 4096, physical_effects = committed.effects.entries().len());
+                let report = ingress.finish_report().await;
+                assert!(report.completion.is_satisfied());
+                report.operation?;
+                let mut variables = Variables::new();
+                variables.insert("owner", RecordId::new("compiler_contribution", contribution.hex()));
+                variables.insert("relation", PairOutcome::NAME);
+                let persisted = reader.query::<Vec<u64>>(
+                    "SELECT VALUE count() FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation GROUP ALL",
+                    variables,
+                ).await?;
+                assert_eq!(persisted, vec![4096], "the exact contribution owns every committed physical row");
+                Ok::<(), ModelError>(())
+            })
+            .catch_unwind()
+            .await;
+            let mut completion = d::completion::Completion::default();
+            completion.step("pair batch reader close", reader.close().await);
+            completion.merge(store.abandon_finality_report().await);
+            let closed = d::completion::complete::<()>(Ok(()), completion);
+            drop(reader);
+            drop(store);
+            drop(factory);
+            if closed.is_ok() {
+                connection.wait().await.unwrap();
+                drop(connection);
+                assert_eq!(budget.reserved(), 0);
+            }
+            closed.unwrap();
+            match result {
+                Ok(result) => result.unwrap(),
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        }
+        .with_tracing_dispatch(dispatch)
+        .await;
     }
     #[tokio::test]
     async fn native_reused_ingress_spans_pending_source_replay_and_later_refusal() {

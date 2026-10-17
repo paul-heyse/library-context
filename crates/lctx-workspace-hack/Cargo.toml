@@ -50,7 +50,7 @@ foldhash = { version = "0.2.0" }
 form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.34", features = ["sink"] }
 futures-core = { version = "0.3.34" }
-futures-io = { version = "0.3.34" }
+futures-task = { version = "0.3.34", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", features = ["channel", "io", "sink"] }
 get-size2 = { version = "0.11.0", features = ["compact-str", "derive", "hashbrown", "indexmap", "ordermap", "parking_lot", "smallvec", "thin-vec"] }
 getrandom = { version = "0.3.4", default-features = false, features = ["std"] }
@@ -94,6 +94,7 @@ slab = { version = "0.4.12" }
 smallvec = { version = "1.16.2", default-features = false, features = ["const_new", "union"] }
 strum = { version = "0.28.0", features = ["derive"] }
 subtle = { version = "2.6.1" }
+sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
 thin-vec = { version = "0.2.20", features = ["serde"] }
 tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1.19", features = ["net", "sync"] }
@@ -102,6 +103,7 @@ toml = { version = "1.1.6", features = ["preserve_order"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.3" }
 toml_writer = { version = "1.1.2" }
+tower = { path = "../../third_party/tower", default-features = false, features = ["balance", "buffer", "limit", "load-shed"] }
 tracing = { version = "0.1.44", features = ["release_max_level_debug", "valuable"] }
 tracing-core = { version = "0.1.36", features = ["valuable"] }
 ty_python_core = { git = "https://github.com/paul-heyse/ruff", rev = "c5254df81fc140dba1b1e80e1ae492b0cde887d0", default-features = false, features = ["serde"] }
@@ -161,7 +163,6 @@ zstd-sys = { version = "2.1.0", default-features = false, features = ["experimen
 bitflags = { version = "2.13.2", default-features = false, features = ["std"] }
 flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 futures = { version = "0.3.34", features = ["compat"] }
-futures-task = { version = "0.3.34", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["compat"] }
 hyper = { version = "1.11.1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1.21", features = ["client-legacy", "client-proxy", "server-auto", "service"] }
@@ -174,7 +175,7 @@ rustls = { version = "0.23.45", default-features = false, features = ["aws-lc-rs
 simdutf8 = { version = "0.1.5", default-features = false, features = ["aarch64_neon", "public_imp"] }
 tokio = { version = "1.53.2", default-features = false, features = ["full", "test-util"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws-lc-rs", "logging", "tls12"] }
-tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "retry", "timeout"] }
+tower = { path = "../../third_party/tower", default-features = false, features = ["retry", "timeout"] }
 zstd-594e8ee84c453af0 = { package = "zstd", version = "0.13.3" }
 zstd-safe-15128469a54ed75a = { package = "zstd-safe", version = "7.3.0", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
 zstd-sys = { version = "2.1.0", default-features = false, features = ["experimental"] }

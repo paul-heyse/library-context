@@ -45,16 +45,16 @@ async fn compare<R: Record + PartialEq + Debug>(
 }
 #[tokio::test]
 async fn actual_summary_matches_complete_finite_whole_operation() {
-    use tracing::instrument::WithSubscriber;
+    use lctx_tracing::InContext;
     actual_summary_control("scoped_summary_preparation")
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await;
 }
 #[tokio::test]
 async fn actual_recursive_summary_preserves_scc_delta_answers_and_exhaustion() {
-    use tracing::instrument::WithSubscriber;
+    use lctx_tracing::InContext;
     actual_summary_control("scoped_recursive_summary")
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await;
 }
 async fn actual_summary_control(case: &str) {

@@ -7,8 +7,8 @@ use crate::{
 use cpg_extract::{acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput};
 use futures::TryStreamExt;
 use lctx_model::domain::{analysis::sources::SourceSnapshot, graph::Manifest};
+use lctx_tracing::InContext;
 use std::{collections::BTreeSet, io::Write, path::Path, sync::Mutex};
-use tracing::instrument::WithSubscriber;
 
 const ORIGINAL: &[u8] = b"def identity(value: int) -> int:\n    return value\n";
 const CHANGED: &[u8] =
@@ -278,7 +278,7 @@ async fn run_with_analytics(
             hit_log,
         }
     }
-    .with_subscriber(dispatch)
+    .with_tracing_dispatch(dispatch)
     .await
 }
 fn equivalent(expected: &Receipt, actual: &Receipt) {

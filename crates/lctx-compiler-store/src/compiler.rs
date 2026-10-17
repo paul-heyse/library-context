@@ -5745,7 +5745,7 @@ impl NativeCompilerStore {
         writer: &'a mut crate::control::WindowWriter<'_>,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
         let span = tracing::info_span!(target: "lctx_phase", "native_batch",
-            attempt = %self.attempt.hex(), contribution = %contribution.hex(), relation = relation.name());
+            attempt = %self.attempt.hex(), contribution = %contribution.hex(), relation = relation.name(), logical_rows = batch.num_rows());
         crate::control::with_retry_cancellation(self.signal_stop.clone(), async move {
             let phase = crate::phase::Phase::begin("native_batch_write");
             let result = async {
@@ -5811,6 +5811,7 @@ impl NativeCompilerStore {
                 ));
             }
         }
+        let lowering = crate::phase::Phase::begin("native_batch_lower");
         let adapter = crate::adapter::select(relation.name())?;
         if adapter.relation.type_id() != relation.type_id()
             || adapter.relation.schema() != relation.schema()
@@ -6042,8 +6043,15 @@ impl NativeCompilerStore {
             aliases.push(Value::Object(alias));
         }
         // Every selected record, alias and original range is valid before any window effect.
-        self.ensure_physical_rows_with_writer(nodes.into_values().collect(), budget, writer)
-            .await?;
+        lowering.finish(crate::phase::Terminal::Passed);
+        tracing::info!(target: "lctx_phase", observation = "native_batch_lowered",
+            logical_rows = batch.num_rows(), node_rows = nodes.len(), alias_rows = aliases.len(), member_rows = members.len());
+        let phase = crate::phase::Phase::begin("native_batch_nodes");
+        let result = self
+            .ensure_physical_rows_with_writer(nodes.into_values().collect(), budget, writer)
+            .await;
+        phase.finish_result(&result);
+        result?;
         if !original_headers.is_empty() || !original_chunks.is_empty() {
             let budget = budget.ok_or(ModelError::Conflict(
                 "original ingress requires caller budget",
@@ -6085,12 +6093,20 @@ impl NativeCompilerStore {
             completion.step("original ingress reader close", reader.close().await);
             d::completion::complete(result, completion)?;
         }
-        self.ensure_physical_rows_with_writer(aliases, budget, writer)
-            .await?;
+        let phase = crate::phase::Phase::begin("native_batch_aliases");
+        let result = self
+            .ensure_physical_rows_with_writer(aliases, budget, writer)
+            .await;
+        phase.finish_result(&result);
+        result?;
         // Repeated identical writes within this contribution are idempotent, without hiding
         // semantic uniqueness failures. Membership contains no separately editable payload.
-        self.ensure_physical_rows_with_writer(members.into_values().collect(), budget, writer)
-            .await?;
+        let phase = crate::phase::Phase::begin("native_batch_members");
+        let result = self
+            .ensure_physical_rows_with_writer(members.into_values().collect(), budget, writer)
+            .await;
+        phase.finish_result(&result);
+        result?;
         Ok(())
     }
 
@@ -6115,15 +6131,21 @@ impl NativeCompilerStore {
         let owner = contribution
             .map(|id| RecordId::new("compiler_contribution", id.hex()))
             .unwrap_or_else(|| RecordId::new("native_attempt", self.attempt.hex()));
-        for window in crate::control::ImmutableWindows::new(
+        let mut windows = crate::control::ImmutableWindows::new(
             rows,
             Some(self.attempt),
             contribution,
             Some(owner),
         )
-        .with_budget(budget)
-        {
-            writer.install(window?).await?;
+        .with_budget(budget);
+        loop {
+            let phase = crate::phase::Phase::begin("native_immutable_window_lower");
+            let next = windows.next().transpose();
+            phase.finish_result(&next);
+            let Some(window) = next? else {
+                break;
+            };
+            writer.install(window).await?;
         }
         Ok(())
     }

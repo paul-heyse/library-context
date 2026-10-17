@@ -342,11 +342,11 @@ async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn acknowledged_setup_authentication_failure_has_a_failed_phase_terminal() {
+    use lctx_tracing::InContext;
     use std::{
         io::{self, Write},
         sync::{Arc, Mutex},
     };
-    use tracing::instrument::WithSubscriber;
     #[derive(Clone, Default)]
     struct Output(Arc<Mutex<Vec<u8>>>);
     impl Write for Output {
@@ -385,7 +385,7 @@ async fn acknowledged_setup_authentication_failure_has_a_failed_phase_terminal()
         )
         .expect("owned native control factory"),
     )
-    .with_subscriber(dispatch)
+    .with_tracing_dispatch(dispatch)
     .await;
     assert!(result.is_err());
     let retained = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();

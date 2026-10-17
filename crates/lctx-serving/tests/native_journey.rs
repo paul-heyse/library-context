@@ -16,9 +16,10 @@ use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
 use lctx_native::phase::{Phase, Terminal};
 use lctx_native::{NativeReader, RecordSelection, RuntimeConfig};
 use lctx_serving::NativeService;
+use lctx_tracing::InContext;
 use native_library::library_fixture_tree;
 use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
-use tracing::{Instrument, instrument::WithSubscriber};
+use tracing::Instrument;
 
 async fn journey(name: &'static str, run: impl std::future::Future<Output = ()>) {
     let dispatch = cpg_extract::logging::dispatch();
@@ -32,7 +33,7 @@ async fn journey(name: &'static str, run: impl std::future::Future<Output = ()>)
         phase.finish(Terminal::Passed);
     }
     .instrument(span)
-    .with_subscriber(dispatch)
+    .with_tracing_dispatch(dispatch)
     .await;
 }
 // These journeys own the original compiler only until publication. Serving and

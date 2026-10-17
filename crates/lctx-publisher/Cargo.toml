@@ -39,6 +39,6 @@ workspace = true
 # datafusion and tracing dependencies are used by shared cpg-core test fixtures.
 # These #[path] sources are outside the local scan.
 [package.metadata.cargo-shear]
-ignored = ["blake3", "toml", "datafusion", "lctx-tracing", "tracing-subscriber"]
+ignored = ["blake3", "toml", "datafusion", "tracing-subscriber"]
 # backup.rs and native_publication.rs include these fixture modules through #[path].
 ignored-paths = ["tests/fixtures/grpc_export.rs", "tests/fixtures/publication_expectations.rs"]

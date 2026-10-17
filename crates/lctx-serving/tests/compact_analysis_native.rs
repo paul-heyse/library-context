@@ -447,9 +447,9 @@ async fn current_catalog_compact_owners_preserve_explicit_empty_input_across_fou
 
 #[tokio::test(flavor = "multi_thread")]
 async fn current_catalog_analysis_links_public_native_operations_and_original_evidence() {
-    use tracing::instrument::WithSubscriber;
+    use lctx_tracing::InContext;
     journey_with_native_queries(false, true)
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await
         .unwrap();
 }

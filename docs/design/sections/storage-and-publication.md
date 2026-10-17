@@ -450,10 +450,15 @@ administrative edits require quiescence/rebuild. The [collection coordinator §6
 
 > Decision: ADR-0181, ADR-0178
 
-**Implemented, 2026-10-16 (ADR-0177); integrated functional acceptance pending.** Native
+**Implemented, 2026-10-17 (ADR-0177); focused-Tested; wider integrated acceptance remains open.** Native
 worker and phase tracing contexts compose through the shared `lctx-tracing` leaf. Both polling and
 destruction enter the span's actual dispatcher; phase drop leaves unmatched starts incomplete.
-Tracing does not confer recovery authority or establish request/session/host finality.
+The accepted compiler ingress driver captures its submitting context before spawning on the store runtime; the same owner covers its entire retry-context future through destruction. Tracing does not confer recovery authority or establish request/session/host finality.
+The pinned Tower buffer also owns each message span's originating dispatcher through cancellation,
+readiness failure, response refusal and worker shutdown, installing it for per-message processing.
+Mixed subscribers therefore do not rely on a single connection-worker default. See the
+[upper-execution coordinator](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
+for current focused regression/native outcomes; historical Unknowns remain independent obligations.
 
 > Decision: ADR-0177
 

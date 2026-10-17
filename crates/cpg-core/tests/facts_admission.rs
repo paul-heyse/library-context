@@ -159,9 +159,9 @@ async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
 // Catalog contribution completion.
 #[tokio::test]
 async fn real_catalog_pyrefly_document_predecessor_uses_exact_completed_native_views() {
-    use tracing::instrument::WithSubscriber;
+    use lctx_tracing::InContext;
     real_pyrefly_document_predecessor([Profile::Catalog])
-        .with_subscriber(cpg_extract::logging::dispatch())
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await;
 }
 
@@ -268,7 +268,7 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 #[tokio::test]
 async fn availability_reuses_exact_admission_and_refuses_changed_invalid_membership() {
     use futures::FutureExt;
-    use tracing::instrument::WithSubscriber;
+    use lctx_tracing::InContext;
     async {
         use input::{ArtifactUse, InputRevision, SourceRole};
         use source::{CoverageScope, SourceArtifact};
@@ -511,7 +511,7 @@ async fn availability_reuses_exact_admission_and_refuses_changed_invalid_members
                 && expected_refusals.contains(&failure.error.to_string())
         }), "only the exact acknowledged control refusals may remain as diagnostics: {diagnostics:#?}");
     }
-    .with_subscriber(cpg_extract::logging::dispatch())
+    .with_tracing_dispatch(cpg_extract::logging::dispatch())
     .await;
 }
 

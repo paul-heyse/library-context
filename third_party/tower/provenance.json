@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "package": "tower",
+  "version": "0.5.3",
+  "archive_sha256": "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "4b0a6b0e688bd177eb2c9c97f5268dd9703c66fc"
+    },
+    "path_in_vcs": "tower"
+  },
+  "local_overrides": {
+    "src/buffer/message.rs": {
+      "source_sha256": "2f0b52f5757c57b667b8537ad7da77dda1fa84f4b305cb5ff8e7950bcf2adb2a",
+      "patched_sha256": "b05a857012dede4f252897124005a600e2999326f8ea974ad5d5929e11bf7261"
+    },
+    "src/buffer/service.rs": {
+      "source_sha256": "2568d32f8bb1038a5c06558971e8e81ecafdc326eef490515f0b83f7cc4efd7d",
+      "patched_sha256": "1d7eceaaead8bbe3530ef2706fa898aa163f4396bd84cf8bb2a5bb7d1287c332"
+    },
+    "src/buffer/worker.rs": {
+      "source_sha256": "c783ad67ff4acd5b116aa609fb57094e5aca14c1409d6c5f3d813437c4c94dfb",
+      "patched_sha256": "5bc302a72c18220e4acab1100eda72eec5fc803cfb0405aee27ab7509d41c3b3"
+    }
+  }
+}

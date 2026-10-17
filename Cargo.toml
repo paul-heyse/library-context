@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "python/lctx_semantics", "tools/lctx-surreal-dev"]
-exclude = ["third_party/allocative", "third_party/surrealdb", "third_party/surrealdb-rpc", "third_party/surrealdb-protocol", "third_party/surrealdb-engine-api", "third_party/surrealdb-types", "third_party/tonic", "third_party/surrealkit", "third_party/manyhow"]
+exclude = ["third_party/allocative", "third_party/surrealdb", "third_party/surrealdb-rpc", "third_party/surrealdb-protocol", "third_party/surrealdb-engine-api", "third_party/surrealdb-types", "third_party/tonic", "third_party/surrealkit", "third_party/manyhow", "third_party/tower"]
 
 [workspace.package]
 version = "0.1.0"
@@ -120,6 +120,7 @@ tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
 fs-err = "=3.3.2"
 anyhow = "=1.0.104"
 walkdir = "=2.5.0"
+tower = { version = "=0.5.3", default-features = false }
 tokio = { version = "=1.53.2", features = ["macros", "rt-multi-thread"] }
 futures = "=0.3.34"
 thiserror = "=2.0.21"
@@ -183,6 +184,7 @@ opt-level = 2
 
 # Narrow source fixes preserve the pinned dependency families; vendored notes own their scope.
 [patch.crates-io]
+tower = { path = "third_party/tower" }
 manyhow = { path = "third_party/manyhow" }
 surrealkit = { path = "third_party/surrealkit" }
 allocative = { path = "third_party/allocative" }
