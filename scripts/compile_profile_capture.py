@@ -1,6 +1,6 @@
 """Opt-in rustc telemetry and independently owned Linux perf observers.
 
-The wrapper uses the pinned Python 3.14.7 interpreter. No compiler flags
+The wrapper uses the pinned Python 3.14.8 interpreter. No compiler flags
 other than diagnostic profiling flags are introduced and no compilation is forced.
 """
 

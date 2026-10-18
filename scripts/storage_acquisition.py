@@ -1,4 +1,4 @@
-"""Pinned-library generation owner and explicit reader lease (Python 3.14.7).
+"""Pinned-library generation owner and explicit reader lease (Python 3.14.8).
 
 The Rust CLI owns semantic library validation and frozen capture. This helper owns only
 uv/git writers, generation selection and cooperating original-input reader lifetimes.

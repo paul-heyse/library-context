@@ -420,7 +420,7 @@ def automation(store: Storage, operation: str) -> dict:
         f"Environment={quote('LCTX_STORAGE_CONFIG=' + str(store.host_path))}\n"
         f"Environment={quote('LCTX_STORAGE_STATE=' + str(store.state))}\n"
         f"ExecStart={quote(uv)} run --no-project --offline --no-python-downloads "
-        f"--python 3.14.7 python {quote(ROOT / 'scripts/storage.py')} "
+        f"--python 3.14.8 python {quote(ROOT / 'scripts/storage.py')} "
         "sweep --scheduled --scope host --json\n"
     )
     timer.write_text(

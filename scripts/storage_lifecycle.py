@@ -1,4 +1,4 @@
-"""Small owner-directed storage policy; Python 3.14.7, standard library only.
+"""Small owner-directed storage policy; Python 3.14.8, standard library only.
 
 Descriptors and journals survive output deletion. Paths, age and inventory caches never
 authorize deletion. Native content is protected unless its own qualified owner retires it.

@@ -94,7 +94,15 @@ The [documentation task routes and repository map](docs/README.md) identify owne
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | Tools present? | `just doctor`, or `just ready` |
 
-The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0162). Do not pass floating `+nightly` or `+stable`. Python is 3.14.7 via `uv`; run Python tools as `uv run --no-sync …`. The system `python3` is 3.12, which cannot parse most scripts here. The type checker is **pyrefly**, not pyright or mypy.
+Prepare core tools with `bash scripts/setup-env`, which uses `just sync tools` and
+`just skills-sync`. Choose `native`, `vllm` or `docs` explicitly for those existing owners;
+core preparation does not build the native extension. Review `.envrc`, then `direnv allow`
+in each checkout. Activation uses `build_environment.py --shell`, preserves checkout/build
+normalization and `UV_NO_SYNC=1`, and never synchronizes packages. Ignored `.envrc.local`
+holds personal overrides. The workstation's Codex `local-env` profile activates direnv
+before each Bash command; changed or failing activation stops that command.
+
+The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (ADR-0162). Do not pass floating `+nightly` or `+stable`. Python is 3.14.8 via `uv`; run Python tools as `uv run --no-sync …`. The system `python3` is 3.12, which cannot parse most scripts here. The type checker is **pyrefly**, not pyright or mypy.
 
 **Cargo setup.**
 - Cargo uses available CPU parallelism, sccache, Clang/mold and workspace feature unification.
@@ -121,7 +129,7 @@ The Rust toolchain is pinned to `nightly-2026-09-29` in `rust-toolchain.toml` (A
 with storage admission held through child cleanup; use the fixed owner adapters rather than copied
 process facts. Temporary retention starts at confirmed owner cleanup, never mtime. Preserve live,
 retained, cited and unresolved content; do not add job/thread caps or broad cache purges to manage
-growth. `just storage` explicitly uses Python 3.14.7 without project sync. See the
+growth. `just storage` explicitly uses Python 3.14.8 without project sync. See the
 [operating guide](docs/workspace-storage.md) before changing producer, evidence or build-output
 lifecycle rules. Persistent service dependencies use `just service maintenance --stabilize-installer`;
 local attachment release and generic sweeps never retire native database content.

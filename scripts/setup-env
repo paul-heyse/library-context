@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Explicit setup. Existing workspace_env owns synchronization and its locks.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+mode=${1:-core}
+case "$mode" in core|native|vllm|docs) ;; *) echo 'usage: bash scripts/setup-env [core|native|vllm|docs]' >&2; exit 2;; esac
+[[ $# -le 1 ]] || exit 2
+unset VIRTUAL_ENV UV_NO_SYNC
+export UV_PROJECT_ENVIRONMENT=.venv
+just sync tools
+just skills-sync
+case "$mode" in
+    core) ;;
+    native) just sync native ;;
+    vllm) just sync vllm ;;
+    docs) just bootstrap-docs ;;
+esac

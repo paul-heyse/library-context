@@ -32,3 +32,6 @@ __pycache__/
 !/.claude/skills/pin-check/
 
 .claude/settings.local.json
+
+# Personal direnv overrides
+/.envrc.local

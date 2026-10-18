@@ -7,7 +7,7 @@ Use ``python3 scripts/build_environment.py --shell`` with eval in a shell,
 environment and uv settings. Intentional external targets use LCTX_CARGO_TARGET_DIR. Prefer Cargo
 config for non-default paths: exported CARGO_* paths participate in sccache's Rust key.
 
-This file is the justfile shell, launched with the pinned Python 3.14.7 independently of
+This file is the justfile shell, launched with the pinned Python 3.14.8 independently of
 the checkout environment. Ordinary shared builds import only the standard library.
 Explicitly managed isolated roots additionally hold lifecycle admission through the command.
 Native input fingerprints are computed only on request

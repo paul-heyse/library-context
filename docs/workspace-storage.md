@@ -13,11 +13,11 @@ command does not establish that every content category has a qualified retiremen
 
 ## Inspect and act
 
-Run commands from this checkout. `just storage` uses the installed **Python 3.14.7** directly,
+Run commands from this checkout. `just storage` uses the installed **Python 3.14.8** directly,
 offline and without synchronizing the project environment. Its equivalent launcher is:
 
 ```sh
-uv run --no-project --offline --no-python-downloads --python 3.14.7 python scripts/storage.py status
+uv run --no-project --offline --no-python-downloads --python 3.14.8 python scripts/storage.py status
 ```
 
 Do not invoke these scripts with the system `python3` (3.12).
@@ -118,7 +118,7 @@ mutated. The exact interpreter, frozen lock and uv copy isolation remain unchang
 owner release of an unused managed override is available as:
 
 ```sh
-uv run --no-project --offline --no-python-downloads --python 3.14.7 python scripts/storage_acquisition.py release ID
+uv run --no-project --offline --no-python-downloads --python 3.14.8 python scripts/storage_acquisition.py release ID
 ```
 
 This refuses active or unacknowledged readers, changes the owner's selection and starts grace;
