@@ -61,30 +61,16 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
             "CN02 exact campaign installer correspondence",
         ));
     }
-    let model = Arc::new(model()?);
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
-        &config,
-        Frontier::Catalog,
-        &lctx_compiler_store::compiler::recovery_factory(
-            &config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
-        )
-        .expect("owned native control factory"),
-    )
-    .await?;
-    let workspace = match Workspace::new(model, WorkspaceOptions::default(), native.clone()) {
-        Ok(workspace) => workspace,
-        Err(error) => return complete(Err(error), native.abandon_finality_report().await),
-    };
+    let options = WorkspaceOptions::default();
+    let budget = resources::ResourceBudget::fixed(options.memory_bytes)?;
+    let workspace = Workspace::private_with_budget(Arc::new(model()?), options, budget.clone())?;
+    let mut native_owner = None;
+    let mut factory_owner = None;
     let mut terminal = Completion::default();
     let mut expected_refusal = None;
     let result = AssertUnwindSafe(async {
         let scratch = tempfile::tempdir().map_err(ModelError::codec)?;
-        let module = format!("cn02_{}", native.attempt().hex());
+        let module = format!("cn02_{}", ContentHash::of(scratch.path().as_os_str().as_encoded_bytes()).hex());
         let path = format!("{module}.py");
         std::fs::write(scratch.path().join(&path), b"def discover(option: str = 'value') -> str:\n    \"\"\"Discover the requested option.\"\"\"\n    return option\n").map_err(ModelError::codec)?;
         let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(
@@ -104,7 +90,14 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
         let prepared = compilation::PreparedCompilation::new(Frontier::Catalog, analytics, captured.config().catalog(), None, workspace.budget()).map(std::sync::Arc::new)?;
         observed("cn02_compile", compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(prepared.clone()), None, None)).await?;
         drop(prepared);
-        let admitted = observed("cn02_admit", artifact::admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings)).await?;
+        if workspace.native().is_ok() {
+            return Err(ModelError::Conflict("CN02 compilation allocated a native output target"));
+        }
+        let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())?;
+        factory_owner = Some(factory.clone());
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog, &factory).await?;
+        native_owner = Some(native.clone());
+        let admitted = observed("cn02_admit", artifact::materialize_and_admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings, native.clone())).await?;
         let definitions = lctx_native::materialization::native_definitions();
         let client = lctx_native::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
         let root = Loader::new(client.clone()).with_budget(workspace.budget());
@@ -256,12 +249,26 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
     let drained = workspace.drain_owned_report().await;
     phase.finish(Terminal::Returned);
     terminal.merge(drained);
-    // Abandonment itself refuses unknown drainage. Its actual report must precede
-    // the workspace signal; historical negative-control errors are diagnostics.
-    let phase = Phase::begin("cn02_native_abandon");
-    let abandoned = native.abandon_finality_report().await;
-    phase.finish(Terminal::Returned);
-    terminal.merge(abandoned);
+    // Private work and native effects have distinct actual owners. Retain each
+    // through compile/admission errors and assertion unwinding.
+    if let Some(native) = &native_owner {
+        let phase = Phase::begin("cn02_native_drain");
+        terminal.merge(native.drain_finality_report().await);
+        phase.finish(Terminal::Returned);
+        // Abandonment itself refuses unknown drainage. Its actual report must
+        // precede the workspace signal; negative-control errors are diagnostics.
+        let phase = Phase::begin("cn02_native_abandon");
+        terminal.merge(native.abandon_finality_report().await);
+        phase.finish(Terminal::Returned);
+    }
+    if let Some(factory) = &factory_owner {
+        terminal.step(
+            "CN02 compiler factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+    }
     let signalled = observed(
         "cn02_workspace_signal",
         workspace.complete_signal(&terminal),
@@ -270,6 +277,9 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
     terminal.step("CN02 workspace signal finality", signalled);
     let mut diagnostics = Completion::default();
     workspace.append_operation_failures(&mut diagnostics);
+    if let Some(native) = &native_owner {
+        native.append_operation_failures(&mut diagnostics);
+    }
     match result {
         Ok(Ok(())) => {
             complete(Ok(()), terminal)?;

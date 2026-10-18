@@ -304,44 +304,6 @@ async fn restored_derived_excess_is_refused(
 /// neither an export nor a live compiler's native installation capabilities.
 #[tokio::test(flavor = "multi_thread")]
 async fn private_catalog_compilation_publishes_directly_and_a_cold_reader_recovers_it() {
-    async fn finish_private(
-        workspace: &Workspace,
-        native: Option<&Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
-        primary: Option<&ModelError>,
-    ) -> completion::Completion {
-        let mut terminal = workspace.drain_owned_report().await;
-        if let Some(native) = native {
-            terminal.merge(native.drain_finality_report().await);
-            if primary.is_some() || !terminal.failures.is_empty() {
-                native.fail();
-            }
-            if primary.is_none_or(ModelError::permits_storage_cleanup)
-                && terminal.local == completion::LocalState::Terminal
-                && terminal.remote == completion::RemoteState::Confirmed
-                && terminal
-                    .failures
-                    .iter()
-                    .all(|failure| failure.error.permits_storage_cleanup())
-            {
-                terminal.merge(native.abandon_finality_report().await);
-            } else {
-                terminal
-                    .storage
-                    .push(completion::StorageState::Orphan(format!(
-                        "native_attempt:{}",
-                        native.attempt().hex()
-                    )));
-                if primary.is_some_and(|error| !error.permits_storage_cleanup()) {
-                    terminal.remote = completion::RemoteState::Unknown;
-                }
-            }
-            native.append_operation_failures(&mut terminal);
-        }
-        let signal = workspace.complete_signal(&terminal).await;
-        terminal.step("private direct publication compiler signal", signal);
-        workspace.append_operation_failures(&mut terminal);
-        terminal
-    }
     cpg_extract::logging::init_logging();
     let scratch = tempfile::tempdir().unwrap();
     let mut config = RuntimeConfig::read(std::path::Path::new(
@@ -428,7 +390,7 @@ async fn private_catalog_compilation_publishes_directly_and_a_cold_reader_recove
         assert_eq!(manifest.originals.len(), 1);
         // Finish and drop every compiler/artifact owner before constructing the
         // independent reader. A live private buffer cannot satisfy its reads.
-        let mut compiler_finality = finish_private(&workspace, Some(&native), None).await;
+        let mut compiler_finality = finish_private_compiler(&workspace, Some(&native), None).await;
         compiler_finality.step(
             "private direct publication compiler factory drainage",
             factory
@@ -525,7 +487,7 @@ async fn private_catalog_compilation_publishes_directly_and_a_cold_reader_recove
         );
     }
     if let Some(workspace) = &workspace_owner {
-        finality.merge(finish_private(workspace, native_owner.as_ref(), primary).await);
+        finality.merge(finish_private_compiler(workspace, native_owner.as_ref(), primary).await);
     }
     if let Some(factory) = &compiler_factory_owner {
         finality.step(
@@ -578,7 +540,11 @@ async fn publication_control() {
     let mut inspector_owner = None;
     let mut viewer_owner = None;
     let mut source_workspace_owner = None;
+    let mut source_native_owner = None;
+    let mut source_factory_owner = None;
     let mut receiving_workspace_owner = None;
+    let mut receiving_native_owner = None;
+    let mut receiving_factory_owner = None;
     let outcome = AssertUnwindSafe(async {
         let scratch = tempfile::tempdir().unwrap();
         let mut config = RuntimeConfig::read(std::path::Path::new(
@@ -586,27 +552,11 @@ async fn publication_control() {
         ))
         .unwrap();
         config.selection = scratch.path().join("selected.json");
-        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
-            &config,
-            Frontier::Normalized,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
-        )
-        .await
-        .unwrap();
-        let workspace = Workspace::new(
-            Arc::new(model().unwrap()),
-            WorkspaceOptions::default(),
-            native.clone(),
-        )
-        .unwrap();
+        let options = WorkspaceOptions::default();
+        let budget = resources::ResourceBudget::fixed(options.memory_bytes).unwrap();
+        let workspace =
+            Workspace::private_with_budget(Arc::new(model().unwrap()), options, budget.clone())
+                .unwrap();
         source_workspace_owner = Some(workspace.clone());
         let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
         let settings = ContentHash::of(
@@ -631,35 +581,64 @@ async fn publication_control() {
         )
         .await
         .unwrap();
-        let admitted = artifact::admit(
+        assert!(
+            workspace.native().is_err(),
+            "the export producer compiles before native allocation"
+        );
+        let factory =
+            lctx_compiler_store::compiler::recovery_factory(&config, budget.clone()).unwrap();
+        source_factory_owner = Some(factory.clone());
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+            &config,
+            Frontier::Normalized,
+            &factory,
+        )
+        .await
+        .unwrap();
+        source_native_owner = Some(native.clone());
+        let admitted = artifact::materialize_and_admit(
             &workspace,
             &captured,
             Frontier::Normalized,
             Profile::Catalog,
             settings,
+            native.clone(),
         )
         .await
         .unwrap();
         let export = scratch.path().join("artifact");
         let export_receipt = admitted.export(&export).await.unwrap();
         drop(admitted);
-        finalize_compiler_workspace(&workspace).await.unwrap();
+        completion::complete::<()>(
+            Ok(()),
+            finish_private_compiler(&workspace, Some(&native), None).await,
+        )
+        .unwrap();
+        factory
+            .drain(&lctx_native::control::RetryCancellation::default())
+            .await
+            .unwrap();
         drop(source_workspace_owner.take());
+        drop(source_native_owner.take());
+        drop(source_factory_owner.take());
+        let input_id = captured.inputs()[0].captured().revision().id();
+        drop(captured);
+        drop(workspace);
+        drop(native);
+        drop(factory);
+        let receiving_budget =
+            resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+        let receiving_factory =
+            lctx_compiler_store::compiler::recovery_factory(&config, receiving_budget).unwrap();
+        receiving_factory_owner = Some(receiving_factory.clone());
         let restored = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             Frontier::Normalized,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &receiving_factory,
         )
         .await
         .unwrap();
+        receiving_native_owner = Some(restored.clone());
         let workspace = Workspace::new(
             Arc::new(model().unwrap()),
             WorkspaceOptions::default(),
@@ -855,9 +834,7 @@ async fn publication_control() {
         viewer
             .records::<source::SourceArtifact>(lctx_native::RecordSelection::Scope {
                 field: "input".into(),
-                values: vec![
-                    serde_json::to_value(captured.inputs()[0].captured().revision().id()).unwrap(),
-                ],
+                values: vec![serde_json::to_value(input_id).unwrap()],
             })
             .await
             .unwrap();
@@ -898,13 +875,34 @@ async fn publication_control() {
     let mut completion = finalize_reader_owners([&mut inspector_owner, &mut viewer_owner]).await;
     // Assertion unwinding must not drop either original compiler owner before its
     // actual native session and source/workspace signal have been reconciled.
-    for workspace in [receiving_workspace_owner, source_workspace_owner]
-        .into_iter()
-        .flatten()
-    {
+    if let Some(workspace) = receiving_workspace_owner {
         completion.step(
-            "publication control compiler finality",
+            "publication control receiving finality",
             finalize_compiler_workspace(&workspace).await,
+        );
+    } else if let Some(native) = receiving_native_owner {
+        completion.merge(native.drain_finality_report().await);
+        completion.merge(native.abandon_finality_report().await);
+        native.append_operation_failures(&mut completion);
+    }
+    if let Some(factory) = receiving_factory_owner {
+        completion.step(
+            "publication control receiving factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+    }
+    if let Some(workspace) = source_workspace_owner {
+        completion
+            .merge(finish_private_compiler(&workspace, source_native_owner.as_ref(), None).await);
+    }
+    if let Some(factory) = source_factory_owner {
+        completion.step(
+            "publication control source factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
         );
     }
     let cleanup = completion::complete(Ok(()), completion);
@@ -917,8 +915,9 @@ async fn publication_control() {
     cleanup.unwrap();
 }
 
-/// Small controls still compile and admit real provider outputs. Distinct bytes AND paths
-/// give every parallel case its own input revision and physical SourceArtifact anchors.
+/// Small controls compile real provider outputs privately, then earn native admission.
+/// Distinct bytes AND paths give every parallel case its own input revision and
+/// physical SourceArtifact anchors. Returned fixtures retain no compiler owner.
 struct SmallPublication {
     scratch: tempfile::TempDir,
     config: RuntimeConfig,
@@ -1124,26 +1123,12 @@ async fn small_publication_from_source(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     ))?;
     config.selection = scratch.path().join("selected.json");
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
-        &config,
-        frontier,
-        &lctx_compiler_store::compiler::recovery_factory(
-            &config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
-        )
-        .expect("owned native control factory"),
-    )
-    .await?;
-    let workspace = Workspace::new(
-        Arc::new(model()?),
-        WorkspaceOptions::default(),
-        native.clone(),
-    )?;
-    let built = async {
+    let options = WorkspaceOptions::default();
+    let budget = resources::ResourceBudget::fixed(options.memory_bytes)?;
+    let workspace = Workspace::private_with_budget(Arc::new(model()?), options, budget.clone())?;
+    let mut native_owner = None;
+    let mut factory_owner = None;
+    let outcome = AssertUnwindSafe(async {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nonce = format!(
             "{case}_{}_{}_{}",
@@ -1206,8 +1191,26 @@ async fn small_publication_from_source(
         )
         .await?;
         drop(prepared);
-        let admitted =
-            artifact::admit(&workspace, &captured, frontier, Profile::Catalog, settings).await?;
+        if workspace.native().is_ok() {
+            return Err(ModelError::Conflict(
+                "small publication compiled with native output ownership",
+            ));
+        }
+        let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())?;
+        factory_owner = Some(factory.clone());
+        let native =
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, frontier, &factory)
+                .await?;
+        native_owner = Some(native.clone());
+        let admitted = artifact::materialize_and_admit(
+            &workspace,
+            &captured,
+            frontier,
+            Profile::Catalog,
+            settings,
+            native.clone(),
+        )
+        .await?;
         let manifest = admitted.manifest().clone();
         let source_cleanup =
             source_cleanup_roots(&config, native.attempt(), workspace.budget()).await?;
@@ -1217,53 +1220,42 @@ async fn small_publication_from_source(
             &lctx_native::materialization::native_definitions(),
         )
         .await?;
-        Ok((handle, manifest, source, source_cleanup))
-    }
+        Ok((handle, manifest, source, source_cleanup, native.attempt()))
+    })
+    .catch_unwind()
     .await;
-    let mut completion = workspace.drain_owned_report().await;
-    if let Ok((handle, ..)) = &built {
+    let primary = match &outcome {
+        Ok(Err(error)) => Some(error),
+        _ => None,
+    };
+    let mut completion = finish_private_compiler(&workspace, native_owner.as_ref(), primary).await;
+    if let Ok(Ok((handle, ..))) = &outcome {
         completion.committed("small unselected publication", format!("{handle:?}"));
-    } else {
-        native.fail();
     }
-    if built
-        .as_ref()
-        .err()
-        .is_none_or(ModelError::permits_storage_cleanup)
-        && completion.local == completion::LocalState::Terminal
-        && completion.remote == completion::RemoteState::Confirmed
-        && completion
-            .failures
-            .iter()
-            .all(|failure| failure.error.permits_storage_cleanup())
-    {
-        completion.merge(native.abandon_finality_report().await);
-    } else {
-        completion
-            .storage
-            .push(completion::StorageState::Orphan(format!(
-                "native_attempt:{}",
-                native.attempt().hex()
-            )));
-        if built
-            .as_ref()
-            .err()
-            .is_some_and(|error| !error.permits_storage_cleanup())
-        {
-            completion.remote = completion::RemoteState::Unknown;
+    if let Some(factory) = factory_owner {
+        completion.step(
+            "small publication compiler factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+    }
+    let (handle, manifest, source, source_cleanup, source_attempt) = match outcome {
+        Ok(result) => completion::complete(result, completion)?,
+        Err(panic) => {
+            if let Err(error) = completion::complete::<()>(Ok(()), completion) {
+                eprintln!("small publication cleanup after assertion panic: {error:#?}");
+            }
+            std::panic::resume_unwind(panic);
         }
-    }
-    let signal = workspace.complete_signal(&completion).await;
-    completion.step("small publication workspace finality", signal);
-    workspace.append_operation_failures(&mut completion);
-    let (handle, manifest, source, source_cleanup) = completion::complete(built, completion)?;
+    };
     Ok(SmallPublication {
         scratch,
         config,
         handle,
         manifest,
         source,
-        source_attempt: native.attempt(),
+        source_attempt,
         source_cleanup,
     })
 }
@@ -2589,6 +2581,7 @@ async fn actual_installed_analyzer_drift_is_refused() {
     let config = &fixture.config;
     let handle = fixture.handle.clone();
     let definitions = lctx_native::materialization::native_definitions();
+    let mut admin_owner = None;
     let outcome = AssertUnwindSafe(async {
         let installer = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
@@ -2603,6 +2596,7 @@ async fn actual_installed_analyzer_drift_is_refused() {
         )
         .await
         .unwrap();
+        admin_owner = Some(admin.clone());
         admin
             .query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class FILTERS uppercase")
             .await
@@ -2610,21 +2604,88 @@ async fn actual_installed_analyzer_drift_is_refused() {
             .check()
             .unwrap();
         let refused = lctx_publisher::inspection::audit(config, &handle, &definitions).await;
-        let analyzer = definitions
-            .lines()
-            .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
-            .unwrap()
-            .replacen("DEFINE ANALYZER ", "DEFINE ANALYZER OVERWRITE ", 1);
-        admin.query(analyzer).await.unwrap().check().unwrap();
-        admin.invalidate().await.unwrap();
         assert!(refused.is_err(), "actual analyzer drift must be refused");
-        lctx_publisher::inspection::audit(config, &handle, &definitions)
-            .await
-            .unwrap();
     })
     .catch_unwind()
     .await;
+    let mut cleanup = completion::Completion::default();
+    if let Some(admin) = admin_owner {
+        let analyzer = definitions
+            .lines()
+            .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
+            .map(|line| line.replacen("DEFINE ANALYZER ", "DEFINE ANALYZER OVERWRITE ", 1))
+            .ok_or(ModelError::Schema("installed analyzer definition"));
+        let restored = match analyzer {
+            Ok(analyzer) => admin
+                .query(analyzer)
+                .await
+                .map_err(ModelError::codec)
+                .and_then(|response| response.check().map_err(ModelError::codec))
+                .map(|_| ()),
+            Err(error) => Err(error),
+        };
+        cleanup.step("installed analyzer restoration", restored);
+        cleanup.step(
+            "installed analyzer session close",
+            admin.invalidate().await.map_err(ModelError::codec),
+        );
+    }
+    cleanup.step(
+        "restored analyzer audit",
+        lctx_publisher::inspection::audit(config, &handle, &definitions)
+            .await
+            .map(|_| ()),
+    );
+    let restoration = completion::complete(Ok::<_, ModelError>(()), cleanup);
+    let outcome = match (outcome, restoration) {
+        (Err(primary), Err(secondary)) => {
+            eprintln!("analyzer assertion and restoration failed: {secondary:#?}");
+            Err(primary)
+        }
+        (Ok(()), Err(error)) => Err(Box::new(format!("analyzer restoration failed: {error:#?}"))
+            as Box<dyn std::any::Any + Send>),
+        (outcome, Ok(())) => outcome,
+    };
     finish_small_publication(&fixture, outcome, []).await;
+}
+
+async fn finish_private_compiler(
+    workspace: &Workspace,
+    native: Option<&Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
+    primary: Option<&ModelError>,
+) -> completion::Completion {
+    let mut terminal = workspace.drain_owned_report().await;
+    if let Some(native) = native {
+        terminal.merge(native.drain_finality_report().await);
+        if primary.is_some() || !terminal.failures.is_empty() {
+            native.fail();
+        }
+        if primary.is_none_or(ModelError::permits_storage_cleanup)
+            && terminal.local == completion::LocalState::Terminal
+            && terminal.remote == completion::RemoteState::Confirmed
+            && terminal
+                .failures
+                .iter()
+                .all(|failure| failure.error.permits_storage_cleanup())
+        {
+            terminal.merge(native.abandon_finality_report().await);
+        } else {
+            terminal
+                .storage
+                .push(completion::StorageState::Orphan(format!(
+                    "native_attempt:{}",
+                    native.attempt().hex()
+                )));
+            if primary.is_some_and(|error| !error.permits_storage_cleanup()) {
+                terminal.remote = completion::RemoteState::Unknown;
+            }
+        }
+        native.append_operation_failures(&mut terminal);
+    }
+    let signal = workspace.complete_signal(&terminal).await;
+    terminal.step("private direct publication compiler signal", signal);
+    workspace.append_operation_failures(&mut terminal);
+    terminal
 }
 
 async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelError> {

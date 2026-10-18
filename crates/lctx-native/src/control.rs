@@ -114,7 +114,7 @@ fn keyset_range_source(
     Ok(format!("type::record({})", range.to_sql()))
 }
 
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 mod coordination;
 pub mod operation_pages;
 pub use coordination::{ADMISSION_STRIPES, ExpectedObject};
@@ -230,8 +230,8 @@ pub(crate) mod held;
 pub(crate) mod live_view;
 pub use held::completed_admission_plan;
 pub use held::{
-    BackingMetadata, BackingObservations, inspect_expected_window_read, inspect_hold_window_read,
-    observe_backing_window_read,
+    BackingMetadata, BackingObservations, PageAcquireFailure, inspect_expected_page_read,
+    inspect_expected_window_read, inspect_hold_window_read, observe_backing_window_read,
 };
 pub use held::{
     ExpectedHold, ExpectedHolds, ExpectedRecord, ExpectedRecords, HeldRecord, hold_expected,

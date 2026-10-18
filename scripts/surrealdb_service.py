@@ -77,7 +77,7 @@ DEVELOPMENT_CAPABILITIES = [
     "system,record",
     "--deny-net",
 ]
-NATIVE_SCHEMA_VERSION = 11
+NATIVE_SCHEMA_VERSION = 12
 EXIT_BLOCKED = 75
 READY_TIMEOUT = 40.0
 # Best-effort logical cleanup shares the existing host readiness bound. Exact

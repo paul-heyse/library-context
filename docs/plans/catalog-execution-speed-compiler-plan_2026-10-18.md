@@ -1,6 +1,6 @@
 # Catalog execution speed: private compiler execution
 
-**Implemented source / integrated functional acceptance pending,2026-10-18.** Companion to the
+**Paused at operator stop,2026-10-18: implemented source / integrated functional acceptance pending.** Companion to the
 [coordinator](catalog-execution-speed-plan_2026-10-18.md). Its
 [§6](catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
 alone owns current execution disposition. This document owns SC00–SC04 and develops F01/F03/F04/F05/F11,
@@ -18,6 +18,27 @@ private scope release. Native admission reconciles full stored typed values and 
 current capabilities before adopting an exact context; whole-input, scoped and empty applicability
 remain distinct. This source implementation is independently accepted; its new native transfer
 control and the failed upper-frontier controls remain acceptance obligations in coordinator §6.
+
+**Authorized follow-up source checkpoint,2026-10-18:** remaining SC00–SC04 and all SN00–SN03
+are selected. ADR-0192 completes actual native packet/binding integration and releases independent
+ready materialization through existing accepted-work owners. Required closure follows all current/
+frozen binding roots and exact dependencies, retaining whole producer output sets and empty views.
+Real retained copying now checks cancellation between outputs and after EOF, and settles its native
+read before any copied private result is delivered. New revealing controls cover genuine nonempty
+uniform qualification, changed actual domains, closed operations, dependency readiness and joined
+peer failure. Source implementation is distinct from pending grouped/native acceptance in §6.
+
+**Closeout boundary,2026-10-18:** coordinator §6 owns the cancelled final build`dbc80a`, earlier
+focused passes and unresolved native failures/timeouts. Final integrated source is not compile-
+qualified. Explicit successful-private qualification selections now root exact native completion
+before freeze; native authority and independent receiving remain separate. View/contribution
+creation atomically earns attempt ownership; registration deduplicates bounded physical input holds
+without changing ordered roles, then finishes its metadata operation before independently budgeted
+payload production. Actual retained specification copies and construction carry grants. New native
+controls exercise failed binding prefixes and separate allocation pools; they remain not_run on
+final source. All workers are stopped, main is the sole worktree, and scope-end compile/Clippy/
+Python hygiene is deferred by the operator stop. Resume the exact remaining controls in coordinator
+§6; no default regeneration, operator adoption or wider qualification is implied.
 
 ## 1. Baseline, foundations and target
 

@@ -1529,7 +1529,7 @@ impl Workspace {
         future: impl Future<Output = Result<T, ModelError>> + Send + 'static,
     ) -> BoxFuture<'_, Result<T, ModelError>> {
         match &self.native_calls {
-            Some(calls) => calls.call_boxed(future.boxed()),
+            Some(calls) => calls.call(future),
             None => futures::future::ready(Err(ModelError::Conflict(
                 "private operation has no native effect owner",
             )))

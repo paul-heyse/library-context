@@ -90,6 +90,23 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Implemented source / focused acceptance pending,2026-10-18 (ADR-0192).** Compatible compiler
+physical rows, blocks, locators and exact holds share bounded contribution-operation pages.
+Original byte ingress retains required protected-endpoint ordering. View and contribution creation
+atomically earn attempt holds. Contribution registration deduplicates physical input targets into
+bounded pages without changing semantic roles, and finishes before payload production under its
+independent caller allocation. Native exact-set preparation
+and restricted generated-ID indexes preserve full native equality and compound-key fallback.
+Creation, incidence, completed-parent, retirement and collector hazards retain their guards;
+changed-incidence guards use conditional bulk revision updates with exact returned count and
+native identity-set agreement. Missing, retiring or exhausted guards roll back the whole page.
+Pinned3.3 rejects locked array reads; actual changed-key writes retain commit conflict protection,
+while read-only decision inputs keep scalar `FOR UPDATE` registration.
+issuance/participant stripes remain64. Schema12 installs these functions without changing semantic
+identity or public transport formats. Only the task-owned campaign is regenerated in this slice.
+
+> Decision: ADR-0192
+
 **Implemented source / functional acceptance pending,2026-10-18 (ADR-0191).** Ordinary compilation
 owns immutable private typed completed sources, exact producer/role/epoch meaning and one shared
 memory-first resource lifetime. Native target allocation and genuine admission occur at requested
@@ -669,6 +686,16 @@ mechanisms have independent scoped review acceptance; the coordinator owns uncom
 > Decision: ADR-0168
 
 ### §6.2 Readers
+
+**Implemented source / focused acceptance pending,2026-10-18 (ADR-0192).** A complete mutable
+compiler binding set validates its inventory before effects and installs bounded guarded pages
+under one real operation root. Same-attempt reads wait for the set; admitted/frozen consumers
+require terminal operation completion. Single-binding mutations share this exclusion. Failure
+poisons the attempt and retains recovery ownership rather than exposing a successful prefix.
+Bounded original-block reads settle before any reduced-slice retry, retaining actual page EOF,
+exact block bytes and layout associations.
+
+> Decision: ADR-0192
 
 **Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Borrow the actual
 authenticated reader/session owner; intentional forks have checked closure. Block slot reads

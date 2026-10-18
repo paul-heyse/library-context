@@ -1,6 +1,6 @@
 # Catalog execution speed: coordinating plan
 
-**Implementation in progress,2026-10-18: SC00–SC04 and required native boundary slices.** The operator
+**Paused at operator-requested closeout,2026-10-18: remaining SC00–SC04 and all SN00–SN03.** The operator
 approved the authoring approach and each RC01–RC09 direction on2026-10-18. Approval is a design
 direction, not verification. Selected SC00–SC04 source changes are **Implemented**, with integrated
 functional acceptance pending; unimplemented packages below remain **Proposed**.
@@ -244,11 +244,16 @@ Companions own design/package detail; the review remains dated evidence. Finding
 SC00–SC04 and their required native boundary slices retain partial functional acceptance; no enclosing
 package is closed. Other packages remain planned, with explicit conditional deferrals and source exclusions.
 
-**Operator-requested closeout,2026-10-18:** stop further implementation/native campaigns after the
-current semantic-transfer integration checkpoint. All delegated workers have released source;
-only the main checkout exists, so no auxiliary merge/removal is required. The root owns final
-compile/focused controls, local corrections, scope-end hygiene, commits and this handoff.
-Next resumption must select the still-open native acceptance below rather than infer completion.
+**Selected source scope,2026-10-18, baseline7386fb9d:** remaining SC00–SC04 and all
+SN00–SN03 under ADR-0192, retaining ADR-0191's private authority. Source now integrates compatible
+native packets, exact set/index preparation, bounded acknowledged-conflict retries, complete binding
+sets and dependency-ready exact-root materialization. Publication/receiving controls use genuine
+private compilation and full native admission. Independent source review corrected failure-before-
+unlock visibility and allocation-before-admission in binding preparation; cancelled mutations mark
+failure before releasing the set gate. New genuine uniform qualification and interrupted retained-
+copy controls supplement actual native transfer acceptance. Root alone runs the grouped compile,
+focused checks; workers have released source. One schema12 campaign was owned for this slice. Shared/default/operator targets, older plans and external inputs stay
+unchanged. SN04 default regeneration, wider packages and SP95 remain outside this endpoint.
 
 **Validation coordination, operator direction2026-10-18:** the root alone initiates builds and
 tests. Finish and reconcile source changes at a defined integration checkpoint, then group
@@ -269,148 +274,131 @@ accepts the inspected architecture at Implemented strength after SC-R01–SC-R08
 coherent snapshots, bounded canonical gathering, reachable shared-pool spill, real pool grants,
 independent ready preparation, sealed validation sources, actual-content property identity and
 compiler provider cancellation/lifetime. Root verification still owns their functional closure.
-Source now uses completed-state5, contribution identity3, logical source identity2 and schema11;
-the fresh task campaign will qualify that format. The shared default remains unchanged.
+The prior7386fb9d checkpoint used completed-state5, contribution identity3, logical source
+identity2 and schema11. ADR-0192 now selects schema12 for this slice's owned campaign;
+the semantic formats and shared default remain unchanged.
 
-**Compile/lint checkpoint passed,2026-10-18:** `a1ee73` ran
-`cargo clippy --workspace --all-targets --no-deps --keep-going -- -D warnings` successfully,
-with confirmed enclosing host cleanup and no warnings/errors. The preceding collection`691d84`
-compiled all targets and reported three warnings, corrected together: boxed terminal event payload,
-named preparation-join type and direct CLI error propagation. Earlier `f5d353` coordinator Send-bound
-and`d9bbf7` map-entry diagnostics are corrected, preserving their original failed receipts.
-The grouped release build`c8e967` rejected an unsupported `cargo test --keep-going` option before
-compilation or assertions, with host cleanup confirmed. Its corrected grouped invocation uses
-`--no-fail-fast` and builds affected library controls, model transport contracts, private
-frontier/profile controls, publication/export controls and the real CLI installer.
-Functional assertions, the owned native campaign and assembled acceptance remain pending.
+**Prior-source acceptance boundary,2026-10-18:** baseline7386fb9d passed123 focused pure
+controls (`75ffd6`), full workspace/all-target strict keep-going Clippy (`e49e42`), Python
+Ruff/Pyrefly (`7876ae`), turn-end/dependencies (`3d7c1d`) and ADR/agent lint (`6b6e9d`).
+Those receipts do not qualify ADR-0192 changes. Native`8cd27d` retained6 passed,4 failed and5
+360s timeouts. Campaign704a750d-7cf6-43a2-b80f-30ae6ff207bd was authentically disposed
+under`2aca78`: logical drain failed on its10s transaction deadline; executor shutdown, datastore
+removal and attachment release passed. Original failed/Unknown outcomes, including attachments
+`da4e2edb-1925-4984-b5ab-6491f9018011` and`c2cb2402-c7bc-472f-9e2d-07e05dc5b12e`,
+remain unchanged. Their owned physical obligations are settled; the shared/default target is untouched.
 
-**Grouped functional checkpoint,2026-10-18:** corrected release build`1d9517` passed with
-confirmed host cleanup. Service-free`7fbf8c` ran110 controls:103 passed and7 failed, with
-confirmed host cleanup. Six private Normalized/Analysis/Catalog failures shared one defect:
-model-owned `StateCharge` transferred real same-pool backing but did not forward that ownership
-through `Reservation::shares_pool`. The root directly corrected that witness, preserving foreign
-pool refusal. The remaining ingress control omitted the newly retained model-earned fingerprint
-buffer from its expected charge; its assertion now includes that buffer. A normalized-transfer
-control additionally checks actual/foreign pool identity and last-owner release. One grouped
-retry`c43f3d` rebuilds the affected targets and exercises the complete pure selection. No native
-campaign has launched. Clippy/hygiene remain the implementation-scope-end work.
+**Current integrated source acceptance,2026-10-18:** independent re-review accepts binding-set
+failure-before-unlock and cancellation visibility, separately admitted resident construction and
+encoded wire bounds, exact required-root/ready producer scheduling with joined accepted peers,
+actual grant-based native calls, and private/native assurance separation. Native transfer still
+requires full actual typed values and EOF under held capabilities, exact definition/model/profile/
+ordered-role/epoch/uniform qualification. Private sources and diagnostic metadata confer no incoming
+trust. Genuine nonempty uniform qualification is one boundary control, not assembled native uniform
+acceptance. Ordinary publication controls compile privately, genuinely materialize/admit, and mutate
+actual full admitted content; explicit export has independently owned receiving. Re-review found and
+the root fixed two fixture cleanup gaps: retain receiving native/factory owners before fallible
+Workspace construction, and restore installed analyzer definitions/close the admin session outside
+assertion unwinding. No test-only production API or raw-export prerequisite is added.
 
-**Current acceptance checkpoint,2026-10-18:** `c43f3d` passed111 service-free controls and
-confirmed host cleanup. Private Catalog/Catalog61.567s, Behavioral/Analysis93.663s and
-Behavioral/Catalog130.013s remain observed slow cases; no speedup or full-library claim follows.
-The initial campaign install`413ab4` blocked before daemon creation because the service owner still
-required format10. Its current schema check and regeneration target now share the format11
-constant; no older format is admitted. The affected service-owner suite`fc2322` passed. Its first
-invocation`c5a6f4` failed pytest setup on a foreign-owned default temporary directory, with no
-functional assertions; the retry used its managed run's own temporary directory instead.
-Campaign install`1e07ea` passed for exact target`704a750d-7cf6-43a2-b80f-30ae6ff207bd`, using
-the existing qualified server and current installer. Native group`e2677d` is running15 focused
-controls: eight frontiers/profiles, real hit/miss, enabled Analytic cold/warm, true independent
-Facts export/import, direct publication/cold reader, actual CLI export and generation refusal.
-No shared/default regeneration, operator adoption, embedding inference or submitted MCP runtime
-is selected. Scope-end lint/leaves and authenticated campaign disposal remain pending.
+**Grouped checks,2026-10-18:** release checkpoint`64c00d` compiled selected compiler/model/native/
+publisher/CLI targets and passed144 pure controls, with confirmed host cleanup. The three slow
+private frontiers were79.4/117.8/159.6s; this is no measured speedup claim. Focused service-owner
+schema12/installer handoff controls`e9de91` passed26, using the managed run's own pytest temporary
+folder. Earlier diagnostic compilations`9b8db5`,`c0f41c`,`cd1077`,`ee3e0e` failed and retain their
+original outcomes; localized corrections are integrated. `115481` was cancelled before assertions.
+Root-only Cargo initiation remains in force, with ordinary tool parallelism unchanged.
 
-**Native integration gaps,2026-10-18:** `e2677d` ended100 with2 passed,8 failed and5 timed
-out at the unchanged360s allowance; enclosing host cleanup is confirmed, native completion is
-Unknown on attachment`da4e2edb-1925-4984-b5ab-6491f9018011`. The independent Facts export/import
-and generation-refusal controls passed. Preserve the failed logical outcomes even after any later
-authenticated whole-campaign regeneration/disposal. Corrections in progress: frontier-appropriate
-cache-control preparation; isolated CLI registry capability; actual independently owned cache calls
-for pure-value consumers; bounded charged future composition at cache and borrowed/native drain
-boundaries. Three native cases earned actual artifact admission before overflowing during drainage;
-that is not successful command completion. Direct publication refused an expanded native stream row
-of1055371 bytes against its1048576-byte bound; its exact query/representation is under investigation.
-Other native timeouts included transaction conflicts and stopped recovery issuance; no single
-causal or performance conclusion is established. No cap, deadline or row-bound widening is selected.
+**Actual pinned-library correction,2026-10-18:** schema12 campaign install`fc9e25` passed for
+`3cdce05f-a3a4-4b87-bca3-2c0a0eb2db9f`. Native`b289de` ran34 controls:10 passed/24 failed,
+zero timeouts, host cleanup confirmed, native Unknown on attachment
+`78a02368-79aa-44ca-8d01-8a3a50d3e5dd`. Actual SQL refused array-valued `SELECT … FOR UPDATE`.
+Official documentation and exact3.3 engine/SurrealKV source establish that the guards' required
+writes already provide same-key commit conflict protection. ADR-0192 now uses conditional
+`UPDATE … RETURN BEFORE`, checking every returned native identity and count, with missing,
+retiring or exhausted peers rolling back atomically. Necessary read-only scalar registrations and
+all incarnation/creation/participant protections remain. No timeouts or limits are widened.
 
-**Corrected source checkpoint,2026-10-18:** pure-value cache operations use their actual independent
-cache session plus charged compiler task/result joins. The focused source re-review found and
-accepted a further correction: lookup, checked copying and awaited source closure now remain inside
-one accepted task, returning only settled private backing even if result delivery is abandoned.
-Borrowed admission drainage dispatches before constructing the unused owned-native branch;
-materialized native drainage uses the existing charged continuation owner, retaining honest
-Outstanding/Unknown on admission refusal. Contributor metadata now streams three individually
-bounded projections and reassembles every field before unchanged full native validation; source
-inspection found no immediate downstream recurrence on the selected artifact/publication path.
-`d6fcbc` was cancelled before assertions after compiler diagnostics exposed a cancellation guard's
-flag-only async capture. Its corrected consuming finish method retains the complete guard through
-result delivery; host cleanup is confirmed. Grouped retry`4cd5b3` is running the integrated pure
-selection, including owned cache-result, projected metadata and charged-continuation controls.
+The corrected release build`efc5eb` passed10 schema/packet/retry controls; generated schema
+assets`26a13d` passed. Same-owned-campaign regeneration`768dbc` passed through authenticated
+whole-executor drainage/discard, generation
+`d9bf38b18ccc0e7773cb2fa8a25fb0bac5090d98b6958f14d6e3a10b7bf769ce`,
+journal`c5f07b475bc06d0dc73c87a7bea223feb4a42aafa444eb1ec0aecb0640dda2a4`.
+Original`b289de`/Unknown receipts remain unchanged. Native boundary group`8483e7` passed8/9:
+complete binding set, actual private/whole/scoped transfer and mismatch controls, replay/fencing,
+mixed native windows and frozen creation. Its full physical envelope assertion incorrectly omitted
+the alias's genuine hold owner; the expected exact owner set is corrected. `332bef` ran the
+integrated35-case native consumer retry, including that correction. It exposed a required physical
+completion omission: successful compact qualifications retained singleton views not rooted by final
+bindings/producer inputs. Explicit actual qualification selections now travel through required-root
+materialization and registered-view validation into existing native completion before freeze;
+incoming owners remain independent. No arbitrary post-freeze widening or fake retained products.
 
-**Latest functional outcomes,2026-10-18:** `4cd5b3` passed119 pure controls with confirmed
-host cleanup. Same-owned-campaign regeneration`364a0a` passed; the default/operator targets
-were unchanged. Native retry`8cd27d` ended100:6 passed,4 failed and5 timed out at unchanged360s.
-Both profiles' Facts/Normalized native controls, true independent Facts export/import and
-generation refusal passed. Native drain no longer overflowed, and bounded contributor projection
-reached later semantic admission without its former oversized-row error. The root directly fixed
-optional content-token capability selection before native dispatch and joined the accepted cache
-retention child before its assertion; those changes await the next grouped functional checkpoint.
-Enclosing host cleanup is confirmed separately from native Unknown on attachment
-`c2cb2402-c7bc-472f-9e2d-07e05dc5b12e`; preserve that logical outcome after physical regeneration.
+`332bef` also exposed input-hold contention and a publication physical-state refusal. Source now
+atomically protects newly declared views, fuses contribution creation/attempt retention and emits
+deduplicated bounded input-view holds under its actual operation. Ordered semantic roles and all
+incidence protections remain. A bounded opaque guard-state observation identifies future refusals
+without payloads or retrying retiring/unknown state. The root cancelled the two remaining long
+cases after33 observations; exit143 and host cleanup confirmed13:39:57UTC. Attachment
+`98f4dc70-58c9-415e-8be1-69fbc297feb1` retains native Unknown until authenticated owned regeneration.
+Existing360s timeouts and failed outcomes remain unchanged. The mixed-blob control now owns unique
+attempt-derived content instead of redeclaring retained completed content as unfinished.
+Binding-set acceptance now additionally forces a real committed prefix followed by a late frozen
+replacement refusal, asserting preserved frozen bytes and refused successful inventory visibility.
+The native summary ultimately recorded19 passed,10 failed and6 timed out; the enclosing run
+was cancelled143 with confirmed host cleanup. Its final two failure observations completed during
+cancellation; preserve their actual diagnostics rather than treating cancellation as a pass. The cold
+backup source additionally reports `native expectation preparation requires its owning recovery
+scope` during exact job advancement; this remains an explicit follow-up, not a proven fix.
 
-**SC02/SN00 correction basis,2026-10-18:** source review confirmed private successful predicates
-were not transported into native artifact admission. Sharing the native-era memo did not carry
-the private whole-input premises or scoped/empty-domain terminal ledger. This selected-scope
-implementation is now integrated as SC-R09 below; actual native acceptance remains open. Retain actual executed properties and immutable sources, reconcile
-their complete actual typed native rows under held current capabilities, and adopt only exact
-definition/model/profile/ordered-role/epoch/uniform matches. Wider or unmatched final predicates
-still execute; incoming admission remains independent. The latest upper-frontier/publication
-timeouts do not establish that every final predicate duplicated private work or that this is their
-sole cause. Root integrated this substantive boundary change with the two local fixes in the
-clustered checkpoint below; Clippy and hygiene remain scope-end work.
+**Operator stop,2026-10-18,13:53UTC:** all worker source is integrated directly on main, with no
+auxiliary worktree or merge conflict. `80445a` exposed two test API compilation errors (Object
+versus Value response extraction, and an Object already being decoded); both are source-corrected.
+The root cancelled that stale build before assertions; cleanup confirmed13:47:04UTC. Final grouped
+release build`dbc80a` was cancelled on the operator's stop request before functional assertions;
+cleanup confirmed13:53:28UTC. Final-source compilation is therefore **not verified**. Latest source
+also charges retained specification clones and declaration construction before allocation, including
+actual retained-cache attachments. Contribution registration completes its own metadata operation;
+later payload production retains its independent caller allocation rather than binding every caller
+to the recovery metadata pool. Exact retained qualification-root grants still require their actual
+selection pool. The binding control now exercises independent metadata/payload pools.
 
-**Semantic transfer source correction,2026-10-18:** SC-R09 now retains charged actual successful
-per-predicate owners after complete private validation. Whole fixed-driver proofs, scoped terminal
-results and complete-empty applicability remain distinct. Native admission compares full stored
-typed values through EOF under held current capabilities before adopting exact model/definition/
-factory/profile/ordered-role/epoch/uniform context. Genuine compact qualification sources retain
-their own protection; explicitly independent scoped checks omit unused uniform dependencies.
-Independent re-review accepts this correction at Implemented/source-inspected strength. New pure
-controls cover context, ownership, failure, actual content ambiguity and framing; a counted native
-whole/scoped transfer and changed-content control is authored but not_run at this closeout.
-Initial grouped checkpoint`472699` failed compilation on the premise getter's test-only visibility;
-the root corrected it directly. Wrapper`4f9f0b` rejected unsupported `runs rerun` before any build or
-assertion. Both enclosing cleanups are confirmed. Corrected grouped checkpoint`75ffd6` passed:
-release compilation7m37s,123 focused controls passed in149.536s, enclosing host cleanup confirmed.
-The slow Catalog/Catalog, Behavioral/Analysis and Behavioral/Catalog cases were79.218/110.921/149.499s;
-these observations supply no measured speedup claim. Full current workspace strict keep-going
-Clippy and final applicable leaves run at this bounded closeout. Python Ruff/Pyrefly retry`7876ae`
-passed with confirmed host cleanup; initial`76407f` reported one line-length error, corrected directly.
-Full workspace/all-target compile checking and strict keep-going Clippy`e49e42` passed with
-zero warnings/errors and confirmed host cleanup. Initial scope-end collection`853a6f` identified
-one type-complexity warning; the root replaced the nested correspondence type with a named alias,
-then reran the complete command. No functional behavior changed in that correction. Final
-maintenance/ADR/dependency/docs leaves follow; native acceptance remains the separate open boundary.
+**Remaining on explicit resumption:** finish the single grouped compile/pure checkpoint against the
+integrated source; create one fresh owned current-schema campaign through the existing service owner;
+verify qualification-only completion roots, independent pools and actual failed binding prefixes,
+then affected requested-frontier/cache/receiving/publication/backup consumers. Run the authored
+exclusive guard rollback, first-match, commit-order/cut controls and all five genuine publication
+mutation/readback controls (analyzer in its own exclusive window). The guard rollback fixture's fresh
+active guard is explicitly established; `native_touch` only establishes an incidence predicate.
+Investigate residual shared input-hold conflict exhaustion, exact physical-state refusal and missing
+cold-backup recovery context without caps, widened deadlines or weakened physical trust. Run final
+workspace/all-target compile, full strict keep-going Clippy, Ruff/Pyrefly and applicable leaves once
+functional scope completes. These final checks are **not_run** at operator stop; prior-source passes
+are not current qualification. Dispose the fresh owned campaign authentically and update this owner.
 
-**Final closeout leaves,2026-10-18:** `3d7c1d` passed `just turn-end` (ADR index, unchanged
-Hakari feature union and formatting) and `just deps` (locked families, bans/sources, analyzer forks,
-unused dependencies and Hakari). ADR lint exposed a missing ADR-0191 decision link in its declared
-§15.11 owner; the root added the current physical-realization contract there. Retry`6b6e9d` passed
-`just adr-lint` for118 records and agent lint. Complete `just docs-check` is **blocked** by the
-unchanged operator-supplied `docs/external_review_execution_speed_and_diagnostics.md` lacking a
-title/H1. That external input and the other external review are preserved and excluded from this
-commit; no publisher exception or unrelated input repair is introduced. Source-owned compile,
-123 focused controls, strict Clippy, Python hygiene, dependency and ADR checks are clear within
-their recorded boundaries. New native transfer, corrected native cases, upper/publication
-acceptance and full qualification remain not_run or failed as recorded above. All workers are
-finished, no auxiliary worktree exists, and cited runs are retained for this coordinator's consumer.
+**Owned campaign disposal passed,2026-10-18:** `257fe6` disposed exact campaign
+`3cdce05f-a3a4-4b87-bca3-2c0a0eb2db9f`, generation
+`d9bf38b18ccc0e7773cb2fa8a25fb0bac5090d98b6958f14d6e3a10b7bf769ce`.
+Logical main drainage passed; validation drainage failed because native readers/backup holds remained
+live. Authenticated executor shutdown, whole datastore discard, attachment release and installer/
+unit/storage/credential removal passed. Enclosing cleanup confirmed13:54:27UTC/no survivors.
+Physical discard settles this campaign's remote obligations, including attachment98f4dc70…,
+without relabeling original failed/Unknown/cancelled receipts. Shared/default/operator targets remain
+unchanged. No owned campaign, build, test, worker or auxiliary worktree remains active.
 
-**Owned target disposal,2026-10-18:** `2aca78` passed exact campaign disposal for
-`704a750d-7cf6-43a2-b80f-30ae6ff207bd`, generation
-`7b07e91d9383ee8f02e645742db0ba658b66d443ea2be807c837fe41cb6e22f6`.
-The logical database drain failed on its existing10s transaction deadline. Authenticated whole
-executor shutdown, datastore disposal, attachment release and installer/unit/storage/credential
-removal passed; the enclosing host cleanup is confirmed. Physical discard settles the owned
-remote obligations without relabeling the original failed/Unknown logical outcomes. Shared/default/
-operator targets are unchanged. No new campaign, native test or regeneration follows this closeout.
+**Closeout maintenance,2026-10-18:** scoped `just turn-end --staged` (`d7483b`) passed
+ADR index generation,18 Rust file formats and two Python file formats; build-features was skipped
+because no Cargo manifests changed. `just adr-lint` passed119 records. No new compile, functional
+control, full Clippy, full Python hygiene or docs publication was started after the operator stop.
+These maintenance results do not qualify the final implementation.
 
-**Resume boundary:** the private-to-native transfer's actual native counter/mismatch control,
-the four corrected native failures and five timed-out upper/frontier/publication controls remain
-unverified on final source. Recreate one explicitly owned campaign through the existing service
-owner, then run one root-coordinated focused native selection at the existing budgets/parallelism.
-Preserve independent Facts receiving and cold publication/CLI obligations. Diagnose remaining
-functional failures without accepting wider deadlines, caps or metadata-only trust. Broad SN01/
-SN04/AA/AX/AD and SP95 remain separately planned. No full-library/assembled/Measured claim is made.
+**Selected completion boundary:** close SC00–SC04/SN00–SN03 only against their actual focused
+functional obligations. Full FastMCP/SP95, broad SN04 default regeneration, AA/AX/diagnostic packages,
+embedding inference, submitted MCP runtime and operator adoption remain outside this endpoint.
+Full docs publication remains blocked by the unchanged external input
+`docs/external_review_execution_speed_and_diagnostics.md` lacking a title/H1; preserve it and
+`docs/catalog-compile-performance-review_2026-10-18.md` rather than editing them or adding a
+publisher exception. No auxiliary worktree exists. Cited runs remain retained for this coordinator.
 
 | Source finding | Responsible packages | Closure obligation |
 |---|---|---|

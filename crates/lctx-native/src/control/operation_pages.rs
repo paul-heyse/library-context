@@ -80,6 +80,25 @@ impl OperationWriter {
         )?;
         immutable_window::plan_bytes(&query, &bindings)
     }
+    pub(super) fn wire_bytes(&self) -> Result<usize, ModelError> {
+        let request = NativeRequest {
+            issuance: IssuanceEra {
+                generation: ContentHash([0; 32]),
+                era: i64::MAX,
+            },
+            operation: ContentHash([0; 32]),
+            request: ContentHash([0; 32]),
+        };
+        let (query, bindings) = page_plan(
+            request,
+            request,
+            i64::MAX,
+            &self.owner,
+            "",
+            Variables::new(),
+        )?;
+        coordination::query_wire_bound(&query, &bindings)
+    }
     pub async fn apply(
         &self,
         client: &Surreal<Client>,

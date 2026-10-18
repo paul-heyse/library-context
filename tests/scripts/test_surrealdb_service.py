@@ -1115,14 +1115,14 @@ def archive_member(archive: tarfile.TarFile, name: str):
     return member
 
 
-def test_current_installer_schema_requires_format11_and_exact_digest():
-    service._current_schema({"schema_version": 11, "schema": "a" * 64})
-    for version in (None, 3, 7, 8, 9, 10, "11"):
-        with pytest.raises(service.FixtureBlocked, match="current native format11 schema"):
+def test_current_installer_schema_requires_format12_and_exact_digest():
+    service._current_schema({"schema_version": 12, "schema": "a" * 64})
+    for version in (None, 3, 7, 8, 9, 10, 11, "12"):
+        with pytest.raises(service.FixtureBlocked, match="current native format12 schema"):
             service._current_schema({"schema_version": version, "schema": "a" * 64})
     for digest in (None, "a" * 63, "A" * 64):
-        with pytest.raises(service.FixtureBlocked, match="current native format11 schema"):
-            service._current_schema({"schema_version": 11, "schema": digest})
+        with pytest.raises(service.FixtureBlocked, match="current native format12 schema"):
+            service._current_schema({"schema_version": 12, "schema": digest})
 
 
 @pytest.fixture
@@ -1134,7 +1134,7 @@ def installer_handoff_ready(recoverable, tmp_path, monkeypatch):
     old.chmod(0o700)
     original = storage_service.prepare(installation.directory, old)
     installation.record.update(
-        installer=original["path"], installer_generation=original, native_schema_version=11
+        installer=original["path"], installer_generation=original, native_schema_version=12
     )
     service.private_json(installation.directory / "installation.json", installation.record)
     candidate = tmp_path / "replacement-lctx"
@@ -1147,7 +1147,7 @@ def installer_handoff_ready(recoverable, tmp_path, monkeypatch):
             db: {
                 "generation": bytes(installation.record["service_generation"]).hex(),
                 "schema": "a" * 64,
-                "schema_version": 11,
+                "schema_version": 12,
                 "admission_open": True,
             }
             for db in service.DATABASES
@@ -1167,7 +1167,7 @@ def installer_handoff_ready(recoverable, tmp_path, monkeypatch):
         assert generation != original, "no operation invokes the broken predecessor CLI"
         actions.append((database, action))
         if action == "schema":
-            return {"schema": "a" * 64, "schema_version": 11}
+            return {"schema": "a" * 64, "schema_version": 12}
         marker = json.loads((inst.directory / "maintenance.json").read_text())
         assert token == marker["token"] and service.maintenance_owned(
             inst, {"LCTX_SURREAL_MAINTENANCE_TOKEN": token}
@@ -1434,7 +1434,7 @@ def test_installer_handoff_cli_executes_verified_fd_and_checks_exact_acknowledge
     installation, _, _ = recoverable
     source = tmp_path / "finite-metadata-cli"
     source.write_text(
-        '#!/bin/sh\nprintf \'%s\\n\' \'{"schema_version":11,"schema":"' + "a" * 64 + "\"}'\n"
+        '#!/bin/sh\nprintf \'%s\\n\' \'{"schema_version":12,"schema":"' + "a" * 64 + "\"}'\n"
     )
     source.chmod(0o700)
     candidate = storage_service.prepare(installation.directory, source)
@@ -1454,7 +1454,7 @@ def test_installer_handoff_cli_executes_verified_fd_and_checks_exact_acknowledge
     monkeypatch.setattr(service.subprocess, "run", observed)
     assert service._installer_handoff_cli(
         installation, candidate, "main", "schema", "actual-token"
-    ) == {"schema_version": 11, "schema": "a" * 64}
+    ) == {"schema_version": 12, "schema": "a" * 64}
     with pytest.raises(service.FixtureBlocked, match="acknowledgement differs"):
         service._installer_handoff_cli(installation, candidate, "main", "drain", "actual-token")
     assert calls == ["schema", "drain"]
@@ -3024,7 +3024,7 @@ def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_dire
     def metadata(*args, **kwargs):
         if not valid:
             raise service.FixtureBlocked("schema", "unsupported candidate metadata")
-        return {"schema_version": 11, "schema": "b" * 64}
+        return {"schema_version": 12, "schema": "b" * 64}
 
     monkeypatch.setattr(service, "_installer_cli", metadata)
     monkeypatch.setattr(
@@ -3038,7 +3038,7 @@ def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_dire
     valid = True
     with pytest.raises(service.FixtureBlocked, match="daemon-reload failed"):
         service.install(candidate, env=env)
-    assert json.loads((root / "installation.json").read_text())["native_schema_version"] == 11
+    assert json.loads((root / "installation.json").read_text())["native_schema_version"] == 12
     assert all((root / name).is_dir() for name in ("data", "tmp", "attachments", "serving"))
 
 
@@ -3895,7 +3895,7 @@ def test_lifecycle_install_retains_purpose_consumer_before_failed_enable(tmp_pat
         lambda directory, source: {"path": str(source), "sha256": service.file_sha256(source)},
     )
     monkeypatch.setattr(
-        service, "_installer_cli", lambda *a, **kw: {"schema_version": 11, "schema": "b" * 64}
+        service, "_installer_cli", lambda *a, **kw: {"schema_version": 12, "schema": "b" * 64}
     )
     enables = []
 

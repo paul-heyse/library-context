@@ -1015,6 +1015,16 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 
 ## §15.11 Compilation and physical realization
 
+**Implemented source / focused acceptance pending,2026-10-18 (ADR-0192).** Requested native
+materialization follows current/frozen binding roots and exact recursive producer dependencies,
+retaining complete producer outputs and declared empty views. Independent ready producers run
+through accepted task/native-call owners and all accepted results settle on failure. Final binding
+sets use one native operation with bounded guarded pages and complete-set visibility. Publication
+controls use genuine private compilation and full native admission; explicit export remains an
+independent product route. The execution-speed coordinator owns actual acceptance.
+
+> Decision: ADR-0192
+
 **Implemented source / native acceptance pending,2026-10-18 (ADR-0191).** Ordinary compilation
 uses immutable private completed sources and atomic host output sets; requested artifacts allocate
 their genuine native target at materialization. Private accepted computation owns cancellation,

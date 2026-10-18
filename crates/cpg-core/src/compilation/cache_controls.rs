@@ -642,6 +642,154 @@ async fn matrix(profile: Profile, frontier: Frontier) {
         finish(receipt).await;
     }
 }
+/// Pause only the first actual private segment allocation after a real retained
+/// lookup. The pool still grants and accounts every byte through its real parent.
+#[derive(Debug)]
+struct CopyInterruption {
+    pool: resources::ResourceBudget,
+    entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    released: Mutex<bool>,
+    release: std::sync::Condvar,
+}
+impl resources::ResourcePool for CopyInterruption {
+    fn reserve(
+        &self,
+        owner: &'static str,
+        bytes: usize,
+    ) -> Result<Box<dyn resources::Reservation>, ModelError> {
+        let reservation = self.pool.reserve(owner, bytes)?;
+        if owner == "private segment metadata" {
+            let entered = self.entered.lock().unwrap().take();
+            if let Some(entered) = entered {
+                entered.send(()).unwrap();
+                let released = self.released.lock().unwrap();
+                drop(
+                    self.release
+                        .wait_while(released, |released| !*released)
+                        .unwrap(),
+                );
+            }
+        }
+        Ok(reservation)
+    }
+    fn reserved(&self) -> usize {
+        self.pool.reserved()
+    }
+    fn limit(&self) -> usize {
+        self.pool.limit()
+    }
+}
+struct ReleaseCopy(Arc<CopyInterruption>);
+impl Drop for ReleaseCopy {
+    fn drop(&mut self) {
+        *self.0.released.lock().unwrap() = true;
+        self.0.release.notify_all();
+    }
+}
+async fn interrupted_retained_copy(cold: &Receipt, config: &lctx_native::RuntimeConfig) {
+    use lctx_model::domain::{
+        Key, KeySink,
+        producer_contract::{facts, request::CapturedRequest},
+    };
+    // Acquisition has no input roles, so its exact ordinary request can be
+    // reconstructed from the genuinely admitted producer without invented tokens.
+    let owner = cold
+        .native
+        .contributions(cold.workspace.budget())
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|owner| owner.spec.producer == facts::ACQUIRE)
+        .unwrap();
+    assert!(owner.spec.inputs.is_empty());
+    let model = cold.workspace.model().clone();
+    let mut contract = KeySink::new("compiler-product-row-contract/v1");
+    for name in &owner.spec.outputs {
+        name.encode(&mut contract);
+        model.digest().encode(&mut contract);
+    }
+    let request = CapturedRequest::new(owner.spec.clone(), contract.finish(), vec![]).unwrap();
+    let observer = Arc::new(CopyInterruption {
+        pool: resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap(),
+        entered: Mutex::new(None),
+        released: Mutex::new(false),
+        release: std::sync::Condvar::new(),
+    });
+    let budget = resources::ResourceBudget::from_pool(observer.clone()).unwrap();
+    let receiver = Workspace::private_with_budget(
+        model.clone(),
+        WorkspaceOptions {
+            batch_rows: 1,
+            ..Default::default()
+        },
+        budget.clone(),
+    )
+    .unwrap();
+    let factory = lctx_compiler_store::compiler::recovery_factory(config, budget.clone()).unwrap();
+    let cache = Arc::new(
+        lctx_compiler_store::NativeProductCache::connect(config, &factory)
+            .await
+            .unwrap()
+            .expect("genuine retained product cache"),
+    );
+    receiver.set_product_cache(Some(cache.clone())).unwrap();
+    let retained = cache
+        .lookup_compiled(&request, model.clone(), Profile::Catalog, &budget)
+        .await
+        .unwrap()
+        .expect("real admitted acquisition cache hit");
+    assert_eq!(retained.descriptor(), &owner);
+    let allowed = owner
+        .spec
+        .outputs
+        .iter()
+        .map(|name| model.relation(name).unwrap().name())
+        .collect::<BTreeSet<_>>();
+    let (entered, entering) = tokio::sync::oneshot::channel();
+    *observer.entered.lock().unwrap() = Some(entered);
+    let release = ReleaseCopy(observer);
+    let work = receiver.clone();
+    let settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = settled.clone();
+    let waiter = receiver.cache_call(async move {
+        let result = work.copy_retained_product(retained, &allowed).await;
+        observed.store(true, std::sync::atomic::Ordering::Release);
+        result
+    });
+    entering.await.unwrap();
+    // This is inside the genuine read-to-private copying body, after its first
+    // nonempty batch was checked and admitted, before delivery or completion.
+    drop(waiter);
+    assert!(!settled.load(std::sync::atomic::Ordering::Acquire));
+    assert!(receiver.cancellation().check().is_err());
+    assert!(receiver.completed_relations().unwrap().is_empty());
+    assert!(receiver.native().is_err());
+    drop(release);
+    let terminal = receiver.drain_owned_report().await;
+    assert!(
+        settled.load(std::sync::atomic::Ordering::Acquire),
+        "accepted copying and retained-read settlement must actually join"
+    );
+    assert!(
+        receiver.completed_relations().unwrap().is_empty(),
+        "an interrupted native copy cannot expose a partial private producer"
+    );
+    receiver.complete_signal(&terminal).await.unwrap();
+    if terminal.remote == completion::RemoteState::Unknown {
+        let error = completion::complete::<()>(Ok(()), terminal).unwrap_err();
+        assert!(
+            !error.permits_storage_cleanup(),
+            "actual native uncertainty must survive cancellation"
+        );
+    } else {
+        assert_eq!(terminal.local, completion::LocalState::Terminal);
+        let error = completion::complete::<()>(Ok(()), terminal).unwrap_err();
+        assert!(
+            error.to_string().contains("compilation cancelled"),
+            "the accepted cancellation must remain diagnosed: {error}"
+        );
+    }
+}
 #[tokio::test(flavor = "multi_thread")]
 async fn normalized_private_compiler_copies_a_real_retained_native_hit_with_fresh_ownership() {
     let config = lctx_native::RuntimeConfig::read(Path::new(
@@ -672,6 +820,7 @@ async fn normalized_private_compiler_copies_a_real_retained_native_hit_with_fres
         "actual materialized native products, rather than a retention marker, must be available"
     );
     drop((retained, retained_charge));
+    interrupted_retained_copy(&cold, &config).await;
     let warm = run(
         &config,
         input.path(),

@@ -55,7 +55,7 @@ pub(super) fn attempt_stripe_ids(attempt: &RecordId) -> Vec<RecordId> {
 // after a cut commits, but release-first cannot invalidate the cut's drain proof.
 // Keep one exact check literal for both routes.
 macro_rules! issuance_stripe_checks {
-    () => { "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=11 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; };" };
+    () => { "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=12 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; };" };
 }
 pub(super) const ERA_GUARD: &str = concat!(
     issuance_stripe_checks!(),
@@ -102,7 +102,7 @@ pub(super) const WRITE_PAGE_INCIDENCE: &str = "IF array::len($__page_existing_pr
 /// uses the maximum encoded widths of UUID/timeout/batch fields, so this is a wire
 /// bound, independently of resident construction/serialization workspace admission.
 /// The atomic request must pass before its first remote effect.
-fn query_wire_bound(sql: &str, bindings: &Variables) -> Result<usize, ModelError> {
+pub(super) fn query_wire_bound(sql: &str, bindings: &Variables) -> Result<usize, ModelError> {
     use prost::Message;
     use surrealdb_protocol::proto::{rpc::v1 as rpc, v1 as proto};
     let variables = bindings
@@ -133,6 +133,40 @@ fn query_wire_bound(sql: &str, bindings: &Variables) -> Result<usize, ModelError
         max_batch_bytes: u32::MAX,
     };
     Ok(request.encoded_len())
+}
+/// Wire-only expectation envelope. It covers every mapped physical record with
+/// maximum counter/index widths; actual observations are still captured once by
+/// prepare_expectations, never created by this sizing helper.
+pub(super) fn expectation_wire_bound(bindings: &Variables) -> Result<usize, ModelError> {
+    let creations = creation_indices(bindings)?;
+    let mut expected = Vec::new();
+    if let Some(Value::Array(records)) = bindings.get("__guard_records") {
+        for entry in records {
+            let (Some(record), Some(guard)) = (
+                exact_index::field(entry, "record"),
+                exact_index::field(entry, "guard"),
+            ) else {
+                return Err(ModelError::Schema("native wire expectation correspondence"));
+            };
+            let creation = creations.get(record).map(|value| {
+                let mut value = value.as_object().expect("creation index object").clone();
+                value.insert("index", i64::MAX);
+                Value::Object(value)
+            });
+            expected.push(
+                ExpectedObject {
+                    record: record.clone(),
+                    incarnation: i64::MAX,
+                    phase: "retired".into(),
+                    tombstone_revision_if_vacant: Some(i64::MAX),
+                }
+                .binding(guard.clone(), creation.as_ref()),
+            );
+        }
+    }
+    let mut vars = Variables::new();
+    vars.insert("__object_expectations", expected);
+    query_wire_bound("", &vars)
 }
 pub(crate) fn preflight(sql: &str, bindings: &Variables) -> Result<(), ModelError> {
     let bytes = query_wire_bound(sql, bindings)?;
@@ -203,6 +237,31 @@ impl ExpectedObject {
             || int_field(row, "revision")? < 0
             || int_field(row, "tombstone_revision")? < 0
         {
+            // Lifecycle refusal stays nonretryable. Identify the exact physical
+            // guard without recording payloads or arbitrary record-key text.
+            // This digest is the same opaque address used by guard_id.
+            let guard_identity = serde_json::to_vec(&Value::RecordId(record.clone()))
+                .ok()
+                .map(|bytes| ContentHash::of(&bytes).hex());
+            let record_family = record.table.as_str().chars().take(64).collect::<String>();
+            let phase_class = match phase.as_str() {
+                "active" => "active",
+                "retired" => "retired",
+                "retiring" => "retiring",
+                _ => "unrecognized",
+            };
+            let counter = |name| match row.get(name) {
+                Some(Value::Number(surrealdb::types::Number::Int(value))) => Some(*value),
+                _ => None,
+            };
+            let retired = match row.get("retired") {
+                Some(Value::Bool(value)) => Some(*value),
+                _ => None,
+            };
+            tracing::info!(target:"lctx_phase", observation="native_expected_object_refused",
+                guard_identity, record_family, phase=phase_class, incarnation,
+                revision=counter("revision"), tombstone_revision=counter("tombstone_revision"),
+                retired, "native physical expectation is not writable");
             return Err(ModelError::Conflict("native expected object not writable"));
         }
         let tombstone = if phase == "retired" {
@@ -554,8 +613,8 @@ FOR $group IN $old_groups {
 LET $new_locators=$locator_rows.filter(|$row|($old_by_id[<string>$row.id] ?? NONE)=NONE);
 LET $new_block_ids=array::distinct($new_locators.filter(|$row|$row.storage='block').map(|$row|$row.block));
 LET $__compiler_original_rows=$rows;
-LET $rows=$rows.filter(|$row|$row.id IN $new_block_ids);
-LET $holds=$holds.filter(|$hold|$hold.object IN $new_block_ids);
+LET $rows=$rows.filter(|$row|record::table($row.id)!='compiler_block' OR $row.id IN $new_block_ids);
+LET $holds=$holds.filter(|$hold|record::table($hold.object)!='compiler_block' OR $hold.object IN $new_block_ids);
 LET $__object_expectations=($__object_expectations ?? []).filter(|$entry| record::table($entry.record)!='compiler_block' OR $entry.record IN $new_block_ids);
 "#;
 pub(super) fn expected_object_guard(bindings: &Variables) -> std::borrow::Cow<'static, str> {
@@ -1134,14 +1193,44 @@ mod attempt_cut_controls {
             entry(compound(Number::Int(1)), "first"),
             entry(compound(Number::Float(1.0)), "later"),
             entry(scalar.clone(), "scalar"),
+            entry(RecordId::new("entity", "a".repeat(64)), "first generated"),
+            entry(RecordId::new("entity", "a".repeat(64)), "later generated"),
+            entry(RecordId::new("assertion", "a".repeat(64)), "other table"),
+            entry(
+                RecordId::new("entity", "A".repeat(64)),
+                "uppercase fallback",
+            ),
+            entry(RecordId::new("entity", 12i64), "number fallback"),
+            entry(
+                RecordId::new("custom", "a".repeat(64)),
+                "unknown table fallback",
+            ),
         ];
         for (target, label) in [
             (compound(Number::Int(1)), Some("first")),
             (scalar, Some("scalar")),
+            (
+                RecordId::new("entity", "a".repeat(64)),
+                Some("first generated"),
+            ),
+            (
+                RecordId::new("assertion", "a".repeat(64)),
+                Some("other table"),
+            ),
+            (
+                RecordId::new("entity", "A".repeat(64)),
+                Some("uppercase fallback"),
+            ),
+            (RecordId::new("entity", 12i64), Some("number fallback")),
+            (
+                RecordId::new("custom", "a".repeat(64)),
+                Some("unknown table fallback"),
+            ),
+            (RecordId::new("entity", "b".repeat(64)), None),
             (RecordId::new("entity", "absent"), None),
         ] {
-            let mut response = client.query("RETURN {found:array::find($entries, |$entry| $entry.record=$target), original:($entries.filter(|$entry| $entry.record=$target)[0] ?? NONE)};").bind(("entries", entries.clone())).bind(("target", target)).await.unwrap().check().unwrap();
-            let result: Value = response.take(0).unwrap();
+            let mut response = client.query("LET $index=object::from_entries(array::reverse($entries.filter(|$entry|fn::native_packet_key($entry.record)!=NONE).map(|$entry|[fn::native_packet_key($entry.record),$entry]))); RETURN {found:fn::native_packet_lookup($entries,$index,$target), original:array::find($entries, |$entry| $entry.record=$target)};").bind(("entries", entries.clone())).bind(("target", target)).await.unwrap().check().unwrap();
+            let result: Value = response.take(1).unwrap();
             let result = result
                 .as_object()
                 .expect("native first-match comparison object");
@@ -1159,6 +1248,14 @@ mod attempt_cut_controls {
                 label.map(|label| Value::String(label.into())).as_ref()
             );
         }
+        let mismatched = client.query("LET $index=object::from_entries([[fn::native_packet_key($target),{record:$other,label:'wrong table'}]]); RETURN fn::native_packet_lookup([],$index,$target);")
+            .bind(("target",RecordId::new("entity", "a".repeat(64))))
+            .bind(("other",RecordId::new("assertion", "a".repeat(64))))
+            .await.unwrap().check();
+        assert!(
+            mismatched.is_err(),
+            "indexed candidates still require complete native record equality"
+        );
         client.invalidate().await.unwrap();
     }
     // Uses direct protocol packets to control native transaction commit order;

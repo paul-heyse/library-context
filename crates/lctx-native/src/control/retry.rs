@@ -141,6 +141,52 @@ impl PremiseRetry {
         self.check()
     }
 }
+/// This allowance starts at the first acknowledged conflict. The initial query
+/// and every later issued query retain their actual terminal and reconciliation.
+#[derive(Default)]
+struct ConflictAllowance {
+    deadline: Option<tokio::time::Instant>,
+}
+impl ConflictAllowance {
+    fn observe(&mut self) {
+        self.deadline.get_or_insert_with(|| {
+            tokio::time::Instant::now()
+                + Duration::from_millis(
+                    lctx_model::domain::serving::ResourceLimits::default().request_deadline_ms,
+                )
+        });
+    }
+    fn remaining(&self) -> Option<Duration> {
+        self.deadline
+            .map(|deadline| deadline.saturating_duration_since(tokio::time::Instant::now()))
+    }
+    fn exhausted(&self) -> bool {
+        self.remaining()
+            .is_some_and(|remaining| remaining.is_zero())
+    }
+    fn error(&self, error: ModelError) -> ModelError {
+        error.alongside(ModelError::infrastructure(
+            lctx_model::domain::Infrastructure::Contention,
+            "native transaction acknowledged-conflict allowance exhausted",
+        ))
+    }
+}
+fn record_identity<'a>(bindings: &'a Variables, name: &str, table: &str) -> Option<&'a str> {
+    match bindings.get(name) {
+        Some(Value::RecordId(id)) if id.table.as_str() == table => match &id.key {
+            surrealdb::types::RecordIdKey::String(key)
+                if key.len() == 64
+                    && key
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
+            {
+                Some(key.as_str())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
 pub(super) async fn transaction(
     client: &Surreal<Client>,
     sql: &str,
@@ -166,21 +212,22 @@ pub(super) async fn transaction_named(
     // Identifies generated SQL shape and exact operation/stage without logging
     // SQL, payloads, credentials or caller-provided binding values.
     let query_digest = ContentHash::of(sql.as_bytes()).hex();
-    let operation = bindings
-        .get("__effect")
-        .or_else(|| bindings.get("effect"))
+    let operation = record_identity(&bindings, "__effect", "native_effect")
+        .or_else(|| record_identity(&bindings, "effect", "native_effect"));
+    let operation_root = record_identity(&bindings, "operation_root", "native_operation");
+    let operation_page = record_identity(&bindings, "operation_page", "native_operation_page");
+    let page_ordinal = bindings
+        .get("operation_ordinal")
         .and_then(|value| match value {
-            Value::RecordId(id) if id.table.as_str() == "native_effect" => match &id.key {
-                surrealdb::types::RecordIdKey::String(key) => Some(key.as_str()),
-                _ => None,
-            },
+            Value::Number(surrealdb::types::Number::Int(value)) => Some(*value),
             _ => None,
         });
     let started = std::time::Instant::now();
     let mut retries = 0u32;
+    let mut allowance = ConflictAllowance::default();
     loop {
         if cancellation.0.iter().any(RetryCancellation::stopped) {
-            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_before_issue", "native transaction terminal");
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_before_issue", "native transaction terminal");
             return Err(ModelError::Invalid(
                 "native transaction retry cancelled".into(),
             ));
@@ -206,20 +253,29 @@ pub(super) async fn transaction_named(
         };
         let Err(error) = result else {
             if retries > 0 {
-                tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="committed", "native transaction terminal");
+                tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="committed", "native transaction terminal");
             }
             return Ok(());
         };
         if !retryable_transaction(&error) {
             // This error may still reconcile as committed or remote Unknown.
-            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="error_returned", "native transaction terminal");
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="error_returned", "native transaction terminal");
             return Err(error);
         }
-        let wait = delay(retries, sequence);
+        allowance.observe();
+        if allowance.exhausted() {
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="contention_allowance_exhausted", "native transaction terminal");
+            return Err(allowance.error(error));
+        }
+        let wait = delay(retries, sequence).min(
+            allowance
+                .remaining()
+                .expect("acknowledged conflict allowance"),
+        );
         retries = retries.saturating_add(1);
         // Logarithmic observations bound conflict logging during sustained contention.
         if retries.is_power_of_two() {
-            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, delay_us=wait.as_micros(), recovery=recover, elapsed_ms=started.elapsed().as_millis(), conflict="transaction_conflict", "native transaction conflict; retaining original request");
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, delay_us=wait.as_micros(), recovery=recover, elapsed_ms=started.elapsed().as_millis(), conflict="transaction_conflict", "native transaction conflict; retaining original request");
         }
         let stopped = if !cancellation.0.is_empty() {
             let stops = cancellation
@@ -232,8 +288,12 @@ pub(super) async fn transaction_named(
             tokio::time::sleep(wait).await;
             false
         };
+        if !stopped && allowance.exhausted() {
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="contention_allowance_exhausted", "native transaction terminal");
+            return Err(allowance.error(error));
+        }
         if stopped {
-            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_after_conflict", "native transaction terminal");
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, operation_root, operation_page, page_ordinal, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_after_conflict", "native transaction terminal");
             return Err(error.alongside(ModelError::Invalid(
                 "native transaction retry cancelled".into(),
             )));
@@ -244,6 +304,42 @@ pub(super) async fn transaction_named(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn acknowledged_conflict_allowance_starts_once_and_identity_observations_are_typed() {
+        let mut allowance = ConflictAllowance::default();
+        assert!(allowance.remaining().is_none(), "no initial-query timeout");
+        allowance.observe();
+        let original = allowance.deadline;
+        allowance.observe();
+        assert_eq!(
+            allowance.deadline, original,
+            "retries do not renew the allowance"
+        );
+        allowance.deadline = Some(tokio::time::Instant::now());
+        assert!(allowance.exhausted());
+        let mut vars = Variables::new();
+        vars.insert(
+            "operation_root",
+            RecordId::new("native_operation", "a".repeat(64)),
+        );
+        assert_eq!(
+            record_identity(&vars, "operation_root", "native_operation"),
+            Some("a".repeat(64).as_str())
+        );
+        vars.insert(
+            "operation_root",
+            RecordId::new("native_operation", "caller text"),
+        );
+        assert_eq!(
+            record_identity(&vars, "operation_root", "native_operation"),
+            None
+        );
+        vars.insert("operation_root", RecordId::new("other", "a".repeat(64)));
+        assert_eq!(
+            record_identity(&vars, "operation_root", "native_operation"),
+            None
+        );
+    }
     #[tokio::test]
     async fn completion_recapture_obeys_nested_cancellation_and_reports_contention() {
         let outer = RetryCancellation::default();

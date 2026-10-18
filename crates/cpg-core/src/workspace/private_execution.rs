@@ -48,7 +48,10 @@ impl Workspace {
         {
             return Err(ModelError::Conflict("materialization native budget"));
         }
-        let (producers, bindings, dependency_views, _transfer) = {
+        let (qualification_views, qualification_transfer) = self
+            .private_validation
+            .materialization_qualification_views(&self.budget, &self.cancellation)?;
+        let (producers, bindings, dependency_views, transfer) = {
             let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
             let exact = self.completed_by_producer.lock().map_err(|_| poisoned())?;
             let current = self.completed.lock().map_err(|_| poisoned())?;
@@ -115,25 +118,37 @@ impl Workspace {
                 .collect();
             (producers, bindings, dependency_views, transfer)
         };
-        let contributions = producers
-            .iter()
-            .map(|producer| producer.descriptor.clone())
-            .collect();
-        super::native_materialization::materialize(
-            native.clone(),
-            producers,
-            bindings.clone(),
-            dependency_views,
-            &self.model,
-            &self.budget,
-            &self.cancellation,
-        )
-        .await?;
         let calls = Arc::new(crate::native_calls::NativeCalls::new(
             native.clone(),
             self.cancellation.clone(),
             &self.budget,
         ));
+        // The enclosing preparation retains source grants, native-call ownership
+        // and every child join even if the admission caller disappears.
+        let workspace = self.clone();
+        let target = native.clone();
+        let lowering_calls = calls.clone();
+        let lowering_bindings = bindings.clone();
+        let lowered = self.spawn_preparation(async move {
+            let _descriptor_grant = (transfer, qualification_transfer);
+            let result = super::native_materialization::materialize(
+                &workspace,
+                target,
+                lowering_calls.clone(),
+                producers,
+                lowering_bindings,
+                dependency_views,
+                qualification_views,
+            )
+            .await;
+            if result.is_err() {
+                let mut terminal = lowering_calls.drain_finality_report().await;
+                lowering_calls.append_operation_failures(&mut terminal);
+                return lctx_model::domain::completion::complete(result, terminal);
+            }
+            result
+        })?;
+        let lowered = lowered.await.map_err(ModelError::SharedCause)?;
         let execution = Arc::new(MaterializedExecution {
             private: self.execution.clone(),
             native: native.clone(),
@@ -152,7 +167,7 @@ impl Workspace {
             self.context.runtime_env(),
             execution,
         )?;
-        runtime.install_completed(profile, contributions, bindings)?;
+        runtime.install_completed(profile, lowered.contributions.clone(), bindings)?;
         runtime.attach_private_validation(self.private_validation.clone())?;
         Ok(runtime)
     }

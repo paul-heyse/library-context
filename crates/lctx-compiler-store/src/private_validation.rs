@@ -366,6 +366,66 @@ impl PrivateValidation {
         first.check_current(premise.model, budget, cancellation)?;
         Ok(Some(first.clone()))
     }
+    /// Exact selection requests retained by actually executed compact-consuming
+    /// properties. These descriptors confer no native authority: materialization
+    /// must earn their complete native inventory before freezing its content.
+    pub fn materialization_qualification_views(
+        &self,
+        budget: &ResourceBudget,
+        cancellation: &Cancellation,
+    ) -> Result<(Vec<d::completed::CompletedView>, StateCharge), ModelError> {
+        self.check_operation(self.model.digest(), budget, cancellation)?;
+        let executed = self.executed.lock().map_err(|_| poisoned())?;
+        let mut charge = StateCharge::new(budget, "private qualification selection transfer");
+        let mut views = BTreeMap::new();
+        for property in executed
+            .0
+            .iter()
+            .filter(|property| !property._uniform.is_empty())
+        {
+            property.check_current(self.model.digest(), budget, cancellation)?;
+            for binding in property.bindings() {
+                if let Some(known) = views.get(&binding.source.view()) {
+                    let known: &d::completed::CompletedView = known;
+                    if known.relation != binding.relation.name()
+                        || known.contributions != binding.contributions
+                        || known.rows != binding.immutable_source().rows()
+                    {
+                        return Err(ModelError::Conflict(
+                            "private qualification selection collision",
+                        ));
+                    }
+                    continue;
+                }
+                charge.grow(
+                    size_of::<d::completed::CompletedView>()
+                        + binding.relation.name().len() * 2
+                        + binding.contributions.len().saturating_mul(128)
+                        + 256,
+                )?;
+                let view = d::completed::CompletedView::new(
+                    binding.relation.name().into(),
+                    binding.contributions.clone(),
+                    binding.immutable_source().rows(),
+                )?;
+                if view.identity != binding.source.view() {
+                    return Err(ModelError::Conflict(
+                        "private qualification selection identity",
+                    ));
+                }
+                if views
+                    .get(&view.identity)
+                    .is_some_and(|known| known != &view)
+                {
+                    return Err(ModelError::Conflict(
+                        "private qualification selection collision",
+                    ));
+                }
+                views.insert(view.identity, view);
+            }
+        }
+        Ok((views.into_values().collect(), charge))
+    }
     fn prepare_executed(
         &self,
         invariant: &d::Invariant,
@@ -2012,6 +2072,260 @@ mod controls {
                     &[wrong_owner]
                 )
                 .is_err()
+        );
+    }
+    #[tokio::test]
+    async fn genuine_nonempty_uniform_qualification_refuses_changed_sources_and_closed_operation() {
+        use d::{
+            analysis::{
+                AnalysisDefinition,
+                owner::{AnalysisOwner, SelectedDefinitions},
+            },
+            attribution::{AnalysisContext, FactFamily, Provider, ProviderRun},
+            completed::{ContributionSpec, OutputContent, OutputProfile},
+            input::{ArtifactUse, InputRevision, ManifestEntry, SourceRole},
+            producer_assurance::ProducerAssurance,
+            source::{CoverageScope, SourceArtifact},
+            stages::PublicationOrder,
+        };
+        let runtime = runtime_for(d::model().unwrap());
+        let directory = Arc::new(tempfile::tempdir().unwrap());
+        let input = InputRevision::from_entries(vec![ManifestEntry {
+            path: "api.py".into(),
+            content: ContentHash::of(b""),
+            byte_len: 0,
+        }])
+        .unwrap();
+        let context = AnalysisContext {
+            python_version: "3.14.8".into(),
+            python_platform: "linux".into(),
+            search_path: vec![],
+            site_package_path: vec![],
+            config_digest: ContentHash::of(b"genuine-uniform-qualification-control"),
+            environment_digest: input.manifest,
+            lock_digest: None,
+        };
+        let provider = Provider {
+            tool: "finite-control".into(),
+            revision: "1".into(),
+            build_digest: ContentHash::of(b"finite-control"),
+        };
+        let (run, _) = ProviderRun::new(
+            provider.id(),
+            context.id(),
+            input.id(),
+            context.config_digest,
+            [FactFamily::Syntax],
+        )
+        .unwrap();
+        let artifact = SourceArtifact::from_bytes(input.id(), "api.py".into(), b"").unwrap();
+        let usage = ArtifactUse {
+            artifact: artifact.id(),
+            input: input.id(),
+            role: SourceRole::Release,
+        };
+        let (parameters, definition) = d::local_semantics::definition();
+        let mut metadata = BTreeMap::new();
+        macro_rules! rows {
+            ($ty:ty, $rows:expr) => {
+                metadata.insert(<$ty>::NAME, <$ty as d::Record>::encode($rows).unwrap());
+            };
+        }
+        rows!(InputRevision, std::slice::from_ref(&input));
+        rows!(AnalysisContext, std::slice::from_ref(&context));
+        rows!(ProviderRun, std::slice::from_ref(&run));
+        rows!(AnalysisDefinition, std::slice::from_ref(&definition));
+        rows!(
+            d::analysis::MethodParameters,
+            std::slice::from_ref(&parameters)
+        );
+        rows!(SourceArtifact, std::slice::from_ref(&artifact));
+        rows!(ArtifactUse, std::slice::from_ref(&usage));
+        rows!(
+            CoverageScope,
+            &[
+                CoverageScope::Input { input: input.id() },
+                CoverageScope::Artifact {
+                    artifact: artifact.id()
+                }
+            ]
+        );
+        let mut inputs = AnalysisUniformInputs::new(Profile::Catalog, &runtime.budget).unwrap();
+        for (name, batch) in &metadata {
+            inputs.visit(name, batch).unwrap();
+        }
+        let mut definitions = d::normalized::Rows::new(&runtime.budget);
+        definitions.insert(definition).unwrap();
+        let selected_definitions = SelectedDefinitions {
+            definitions: &definitions,
+            analytics: None,
+            text: None,
+            retrieval: None,
+        };
+        let order =
+            PublicationOrder::planning(&d::analysis::owner::publication_groups(vec![], true))
+                .unwrap();
+        let stage = AnalysisOwner::Local
+            .declaration(
+                Profile::Catalog,
+                &selected_definitions,
+                &runtime.model,
+                &order,
+            )
+            .unwrap();
+        let mut universe = Vec::new();
+        for (index, role) in stage.inputs.iter().enumerate() {
+            let relation = runtime.model.relation(role.name()).unwrap().clone();
+            let mut writer = crate::private_source::PrivateWriter::new(
+                runtime.model.digest(),
+                relation.clone(),
+                runtime.budget.clone(),
+                directory.clone(),
+            )
+            .unwrap();
+            if let Some(batch) = metadata.get(role.name()) {
+                writer
+                    .push(
+                        relation
+                            .checked_batch(&runtime.model, batch.clone(), &runtime.budget)
+                            .unwrap(),
+                    )
+                    .unwrap();
+            }
+            let mut binding = completed(
+                &runtime,
+                writer.finish().unwrap(),
+                index,
+                BTreeSet::from([ContentHash::of(role.name().as_bytes())]),
+            );
+            binding.requested = role.prefix();
+            binding.resolved = role.prefix();
+            universe.push(binding);
+        }
+        let sources = universe
+            .iter()
+            .map(|binding| binding.source.clone())
+            .collect::<Vec<_>>();
+        let declarations = inputs.declarations(&stage, &sources).unwrap();
+        let descriptor = declarations.iter().next().unwrap();
+        assert_eq!(
+            descriptor.members, 1,
+            "genuine release Python domain is nonempty"
+        );
+        let compact = immutable(
+            &runtime,
+            std::slice::from_ref(descriptor),
+            directory.clone(),
+        );
+        let outputs = stage
+            .outputs
+            .iter()
+            .chain(&stage.contributes)
+            .map(|relation| relation.name().to_owned())
+            .collect::<BTreeSet<_>>();
+        let owner = CompletedContribution {
+            spec: ContributionSpec {
+                captured_binding: None,
+                producer: stage.name.into(),
+                profile: OutputProfile::Specific(Profile::Catalog),
+                model: runtime.model.digest(),
+                implementation: stage.code,
+                configuration: Some(stage.configuration),
+                inputs: sources,
+                outputs: outputs.clone(),
+            },
+            assurance: ProducerAssurance::CurrentProviderInterface,
+            outcome: 0,
+            outputs: outputs
+                .into_iter()
+                .map(|name| {
+                    let (rows, content) = if name == UniformNotRequested::NAME {
+                        (compact.rows(), compact.content())
+                    } else {
+                        runtime.model.relation(&name).unwrap().content().finish()
+                    };
+                    (name, OutputContent { rows, content })
+                })
+                .collect(),
+        };
+        let selected = vec![completed(
+            &runtime,
+            compact,
+            0,
+            BTreeSet::from([owner.identity().unwrap()]),
+        )];
+        let session =
+            SessionContext::new_with_config_rt(SessionConfig::new(), runtime.runtime.clone());
+        let registered_selected = runtime.register(&session, &selected, "compact").unwrap();
+        let registered_universe = runtime.register(&session, &universe, "actual").unwrap();
+        let proof = runtime
+            .uniform(
+                &session,
+                Profile::Catalog,
+                &registered_selected,
+                &registered_universe,
+                std::slice::from_ref(&owner),
+            )
+            .await
+            .unwrap();
+        assert_eq!(proof.len(), 1);
+        assert_eq!(proof[0].descriptor(), descriptor);
+        assert_eq!(proof[0].analysis_owner(), Some(AnalysisOwner::Local));
+        // Preserve the declared compact payload, source identity and EOF count;
+        // change only an actual qualification input's analysis role.
+        let mut changed = universe.clone();
+        let usage_binding = changed
+            .iter_mut()
+            .find(|binding| binding.relation.name() == ArtifactUse::NAME)
+            .unwrap();
+        let old = usage_binding.clone();
+        let replacement = immutable(
+            &runtime,
+            &[ArtifactUse {
+                role: SourceRole::Dependency,
+                ..usage
+            }],
+            directory,
+        );
+        *usage_binding = PrivateBinding::completed(
+            old.role,
+            old.requested,
+            old.resolved,
+            old.source.clone(),
+            old.contributions.clone(),
+            replacement,
+        )
+        .unwrap();
+        assert_eq!(old.source, usage_binding.source);
+        assert_eq!(old.immutable.rows(), usage_binding.immutable.rows());
+        assert_ne!(old.immutable.content(), usage_binding.immutable.content());
+        let changed_registered = runtime.register(&session, &changed, "changed").unwrap();
+        assert!(
+            runtime
+                .uniform(
+                    &session,
+                    Profile::Catalog,
+                    &registered_selected,
+                    &changed_registered,
+                    std::slice::from_ref(&owner)
+                )
+                .await
+                .is_err(),
+            "equal compact payload cannot qualify a changed actual domain"
+        );
+        runtime.cancellation.cancel();
+        assert!(
+            runtime
+                .uniform(
+                    &session,
+                    Profile::Catalog,
+                    &registered_selected,
+                    &registered_universe,
+                    &[owner]
+                )
+                .await
+                .is_err(),
+            "retained genuine semantic owner cannot revive a closed operation"
         );
     }
     #[derive(

@@ -8,6 +8,8 @@ use lctx_native::completed_rows::{
 };
 pub use lctx_native::installation::*;
 pub use lctx_native::recovery::*;
+mod admission_roots;
+mod binding_sets;
 mod completed_metadata;
 mod ingress;
 mod production;
@@ -278,6 +280,18 @@ struct RegisteredContribution {
     _transport_charge: Option<Arc<Box<dyn Reservation>>>,
 }
 impl RegisteredContribution {
+    fn allocation_bytes(spec: &ContributionSpec) -> usize {
+        size_of::<Self>()
+            .saturating_add(spec.producer.capacity())
+            .saturating_add(spec.inputs.heap_bytes())
+            .saturating_add(spec.outputs.heap_bytes())
+            .saturating_add(
+                spec.captured_binding
+                    .as_ref()
+                    .map_or(0, |binding| binding.heap_bytes()),
+            )
+            .saturating_add(512)
+    }
     fn checked(&self) -> Result<(&ContributionSpec, bool), ModelError> {
         match self.ownership {
             ContributionOwnership::Registering => Err(ModelError::Conflict(
@@ -295,6 +309,9 @@ pub struct NativeCompilerStore {
     attempt: ContentHash,
     generation: ContentHash,
     published_bindings: Mutex<Option<Vec<CompletedBinding>>>,
+    binding_sets: tokio::sync::RwLock<()>,
+    admission_views:
+        Mutex<BTreeMap<ContentHash, (CompletedView, Box<dyn d::resources::Reservation>)>>,
     published_completion: Mutex<Option<lctx_native::completed_state::PublishedCompletedState>>,
     physical_completed: Mutex<Option<Arc<lctx_native::completed_state::NativeCompletedState>>>,
     terminal_product_owner: Mutex<Option<Arc<lctx_native::control::HeldTerminalProduct>>>,
@@ -342,6 +359,22 @@ impl d::HeapSize for PendingDependencyView {
         0
     }
 }
+/// Native holds are set-valued, while the producer's input roles remain ordered
+/// and may intentionally repeat the same view at distinct semantic positions.
+fn distinct_contribution_input_views(
+    spec: &ContributionSpec,
+    budget: &ResourceBudget,
+) -> Result<(BTreeSet<ContentHash>, d::charged::StateCharge), ModelError> {
+    let mut charge = d::charged::StateCharge::new(budget, "contribution distinct input views");
+    let mut views = BTreeSet::new();
+    for input in &spec.inputs {
+        if !views.contains(&input.view()) {
+            charge.grow(128)?;
+            views.insert(input.view());
+        }
+    }
+    Ok((views, charge))
+}
 /// One selected-root operation discovers each exact view before allocating its
 /// pending descriptor. Physical contributor expansion is a separate graph grain:
 /// every output slot is still checked, but a shared owner's input edges run once.
@@ -356,6 +389,57 @@ struct SelectedDependencyTraversal {
 #[cfg(test)]
 mod selected_dependency_traversal_controls {
     use super::*;
+
+    #[test]
+    fn contribution_input_holds_deduplicate_physical_views_without_changing_roles() {
+        let model = ContentHash::of(b"input-hold-model");
+        let relation = Relation::of::<d::analytics::QualityStep>();
+        let first = CompletedView::new(
+            relation.name().into(),
+            [ContentHash::of(b"first-input-owner")].into(),
+            0,
+        )
+        .unwrap();
+        let second = CompletedView::new(
+            relation.name().into(),
+            [ContentHash::of(b"second-input-owner")].into(),
+            0,
+        )
+        .unwrap();
+        let first_source =
+            d::analysis::sources::SourceSnapshot::of_completed_view(&relation, model, &first)
+                .unwrap();
+        let second_source =
+            d::analysis::sources::SourceSnapshot::of_completed_view(&relation, model, &second)
+                .unwrap();
+        let spec = ContributionSpec {
+            captured_binding: None,
+            producer: "input-hold-control".into(),
+            profile: d::completed::OutputProfile::Specific(d::stages::Profile::Catalog),
+            model,
+            implementation: ContentHash::of(b"input-hold-code"),
+            configuration: None,
+            inputs: vec![
+                first_source.clone(),
+                second_source.clone(),
+                first_source.clone(),
+            ],
+            outputs: [relation.name().to_string()].into(),
+        };
+        let original_identity = spec.identity().unwrap();
+        let budget = ResourceBudget::fixed(32 << 10).unwrap();
+        let (views, charge) = distinct_contribution_input_views(&spec, &budget).unwrap();
+        assert_eq!(views, [first.identity, second.identity].into());
+        assert_eq!(
+            spec.inputs,
+            [first_source.clone(), second_source, first_source]
+        );
+        assert_eq!(spec.identity().unwrap(), original_identity);
+        assert!(charge.reserved() > 0);
+        drop(views);
+        drop(charge);
+        assert_eq!(budget.reserved(), 0);
+    }
 
     #[test]
     fn selected_dependency_branching_cycles_and_shared_owners_keep_exact_views_once() {
@@ -2730,11 +2814,13 @@ impl NativeCompilerStore {
         });
         // The existing immutable owner splits by complete expanded request bytes
         // as well as row count, and retains each serialized input until its effect.
+        // Creation/reuse and this attempt's hold commit together: an initially
+        // unheld shared view must never appear between declaration and retention.
         let windows = crate::control::ImmutableWindows::from_charged_iter(
             rows,
             Some(self.attempt),
             None,
-            None,
+            Some(RecordId::new("native_attempt", self.attempt.hex())),
         )
         .with_budget(Some(budget));
         let operation = Arc::new(crate::control::operation_pages::OperationWriter::new(
@@ -2757,14 +2843,6 @@ impl NativeCompilerStore {
         let mut pairs = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
         for (view, mappings) in views {
             let owner = RecordId::new("compiler_view", view.identity.hex());
-            pairs.push((
-                RecordId::new("native_attempt", self.attempt.hex()),
-                owner.clone(),
-            ));
-            if pairs.len() == crate::loader::NATIVE_WINDOW_ROWS {
-                self.declare_view_holds(std::mem::take(&mut pairs), budget, &mut writer)
-                    .await?;
-            }
             for mapping in mappings.iter().filter(|mapping| {
                 mapping.view == view.identity && view.contributions.contains(&mapping.logical)
             }) {
@@ -3323,6 +3401,20 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<Arc<lctx_native::completed_state::NativeCompletedState>, ModelError> {
         self.check_frozen_content()?;
+        {
+            let prerequisites = self
+                .admission_views
+                .lock()
+                .map_err(|_| ModelError::Conflict("native admission selection roots"))?;
+            if prerequisites
+                .values()
+                .any(|(_, grant)| !grant.shares_pool(budget))
+            {
+                return Err(ModelError::Conflict(
+                    "native admission selection root foreign resource pool",
+                ));
+            }
+        }
         if let Some(completed) = self
             .physical_completed
             .lock()
@@ -3355,6 +3447,17 @@ impl NativeCompilerStore {
                 .chain(products.iter())
             {
                 traversal.discover(view)?;
+            }
+            // Only explicit operation-owned prerequisites join published roots.
+            // Registered logical views alone never widen completed authority.
+            {
+                let prerequisites = self
+                    .admission_views
+                    .lock()
+                    .map_err(|_| ModelError::Conflict("native admission selection roots"))?;
+                for (view, _) in prerequisites.values() {
+                    traversal.discover(view)?;
+                }
             }
             let mut selections = BTreeMap::new();
             let mut mapping_charges = Vec::new();
@@ -4156,13 +4259,17 @@ impl NativeCompilerStore {
                     }
                     sources.push(self.receiver_root_under_gate(held, budget).await?);
                 }
-                // Installed receiver caps below retain the exact immutable descriptor.
-                // Do not duplicate that same payload into the mutable mapping registry.
+                // Receiver caps protect the source descriptor; this registry's
+                // actual specification clone retains its own allocation grant.
                 let logical = descriptor.identity()?;
+                let specification_grant = Arc::new(budget.reserve(
+                    "attached retained contribution specification",
+                    RegisteredContribution::allocation_bytes(&descriptor.spec),
+                )?);
                 let registered = RegisteredContribution {
                     spec: descriptor.spec.clone(),
                     ownership: ContributionOwnership::Completed,
-                    _transport_charge: None,
+                    _transport_charge: Some(specification_grant),
                 };
                 let mut views = BTreeMap::new();
                 for (relation, output) in &descriptor.outputs {
@@ -4239,19 +4346,68 @@ impl NativeCompilerStore {
         &self,
         contribution: ContentHash,
         spec: &ContributionSpec,
+        budget: &ResourceBudget,
+        writer: &mut crate::control::WindowWriter<'_>,
     ) -> Result<(), ModelError> {
         let owner = RecordId::new("compiler_contribution", contribution.hex());
-        let mut references = vec![(
-            RecordId::new("native_attempt", self.attempt.hex()),
-            owner.clone(),
-        )];
-        references.extend(spec.inputs.iter().map(|input| {
-            (
-                owner.clone(),
-                RecordId::new("compiler_view", input.view().hex()),
-            )
-        }));
-        crate::control::hold_many(&self.client, Some(self.attempt), references).await
+        let (views, _identities) = distinct_contribution_input_views(spec, budget)?;
+        let _handles = budget.reserve(
+            "contribution input hold page handles",
+            crate::loader::NATIVE_WINDOW_ROWS
+                .saturating_mul(512)
+                .saturating_add(4096),
+        )?;
+        let mut page = Vec::new();
+        let mut grants = Vec::new();
+        let mut bytes = 0usize;
+        for view in views {
+            // These generated identities have bounded string keys, but their full
+            // native containers/guards still require actual preparation admission.
+            let reference = (owner.clone(), RecordId::new("compiler_view", view.hex()));
+            let construction = lctx_native::selection::node_bytes(&reference.0)
+                .saturating_add(lctx_native::selection::node_bytes(&reference.1))
+                .saturating_mul(256)
+                .saturating_add(131072);
+            let grant = match budget.reserve("contribution input hold construction", construction) {
+                Err(ModelError::Resource { .. }) if !page.is_empty() => {
+                    writer.hold_many(std::mem::take(&mut page)).await?;
+                    grants.clear();
+                    bytes = 0;
+                    budget.reserve("contribution input hold construction", construction)?
+                }
+                result => result?,
+            };
+            let (wire, controls) = writer.guarded_with_holds_wire_bound(
+                vec![],
+                vec![reference.clone()],
+                "",
+                Variables::new(),
+            )?;
+            if !page.is_empty()
+                && (page.len() == crate::loader::NATIVE_WINDOW_ROWS
+                    || bytes.saturating_add(wire).saturating_add(controls)
+                        > d::resources::TRANSFER_BYTES)
+            {
+                writer.hold_many(std::mem::take(&mut page)).await?;
+                grants.clear();
+                bytes = 0;
+            }
+            if wire.saturating_add(controls) > d::resources::TRANSFER_BYTES {
+                return Err(ModelError::Limit {
+                    owner: "contribution input holds",
+                    limit: "complete page bytes",
+                    observed: wire.saturating_add(controls),
+                    bound: d::resources::TRANSFER_BYTES,
+                });
+            }
+            bytes = bytes.saturating_add(wire);
+            page.push(reference);
+            grants.push(grant);
+        }
+        if !page.is_empty() {
+            writer.hold_many(page).await?;
+        }
+        Ok(())
     }
     pub fn producing_scope(
         self: &Arc<Self>,
@@ -4356,6 +4512,8 @@ impl NativeCompilerStore {
             attempt,
             generation: config.service_generation,
             published_bindings: Mutex::new(None),
+            binding_sets: tokio::sync::RwLock::new(()),
+            admission_views: Mutex::new(BTreeMap::new()),
             published_completion: Mutex::new(None),
             physical_completed: Mutex::new(None),
             terminal_product_owner: Mutex::new(None),
@@ -4421,6 +4579,8 @@ impl NativeCompilerStore {
                 .expect("system clock"),
             generation: ContentHash::of(b"detached-unadmitted"),
             published_bindings: Mutex::new(None),
+            binding_sets: tokio::sync::RwLock::new(()),
+            admission_views: Mutex::new(BTreeMap::new()),
             published_completion: Mutex::new(None),
             physical_completed: Mutex::new(None),
             terminal_product_owner: Mutex::new(None),
@@ -5722,6 +5882,22 @@ impl NativeCompilerStore {
     ) -> Result<ContentHash, ModelError> {
         self.check_failed()?;
         self.validate_inputs(&spec.inputs).await?;
+        let budget = self.recovery_budget()?.ok_or(ModelError::Conflict(
+            "native contribution registration resource owner",
+        ))?;
+        let specification_bytes = RegisteredContribution::allocation_bytes(&spec);
+        // Public and cache callers do not necessarily carry materializer scratch.
+        // Keep the retained clone charged and admit the encoded/projection workspace
+        // before either allocation; it survives the complete creating operation.
+        let retained_specification = Arc::new(budget.reserve(
+            "native retained contribution specification",
+            specification_bytes,
+        )?);
+        let _construction = budget.reserve(
+            "native contribution declaration construction",
+            specification_bytes.saturating_mul(64).saturating_add(65536),
+        )?;
+
         let id = attempt_contribution(self.attempt, spec.identity()?);
         {
             let mut specifications = self
@@ -5734,7 +5910,7 @@ impl NativeCompilerStore {
                     RegisteredContribution {
                         spec: spec.clone(),
                         ownership: ContributionOwnership::Registering,
-                        _transport_charge: None,
+                        _transport_charge: Some(retained_specification),
                     },
                 )
                 .is_some()
@@ -5760,8 +5936,22 @@ impl NativeCompilerStore {
         let mut b = Variables::new();
         b.insert("row", row);
         let write = async {
-            crate::control::guarded_effect(&self.client,Some(self.attempt),vec![RecordId::new("compiler_contribution",id.hex())],"IF $__owner.admitted { THROW 'native attempt canonical content admitted'; }; CREATE $row.id CONTENT $row RETURN NONE",b).await?;
-            self.hold_contribution_inputs(id,&spec).await?;
+            let contribution = RecordId::new("compiler_contribution", id.hex());
+            let attempt = RecordId::new("native_attempt", self.attempt.hex());
+            // Registration has a complete bounded metadata operation of its own.
+            // The later payload writer earns its distinct root from its caller's
+            // actual allocation pool; it need not share recovery metadata admission.
+            let registration = Arc::new(crate::control::operation_pages::OperationWriter::new(
+                crate::control::RecoveryOwner::OpenAttempt(self.attempt),
+                Some(contribution.clone()), &budget)?);
+            let mut writer = crate::control::WindowWriter::new(&self.client, Some(self.attempt), Some(&budget))
+                .with_operation(registration.clone());
+            // Establish the root hold in the same transaction that creates its
+            // contribution; no collector can observe an initially unheld owner.
+            writer.guarded_with_holds(vec![contribution.clone()], vec![(attempt, contribution)],
+                "IF $__owner.admitted { THROW 'native attempt canonical content admitted'; }; CREATE $row.id CONTENT $row RETURN NONE", b).await?;
+            self.hold_contribution_inputs(id, &spec, &budget, &mut writer).await?;
+            registration.finish(&self.client, &budget).await?;
             Ok::<(), ModelError>(())
         }
         .await;
@@ -6151,13 +6341,12 @@ impl NativeCompilerStore {
         lowering.finish(crate::phase::Terminal::Passed);
         tracing::info!(target: "lctx_phase", observation = "native_batch_lowered",
             logical_rows = batch.num_rows(), node_rows = nodes.len(), alias_rows = aliases.len(), member_rows = members.len());
-        let phase = crate::phase::Phase::begin("native_batch_nodes");
-        let result = self
-            .ensure_physical_rows_with_writer(nodes.into_values().collect(), budget, writer)
-            .await;
-        phase.finish_result(&result);
-        result?;
+        let mut physical = nodes.into_values().collect::<Vec<_>>();
         if !original_headers.is_empty() || !original_chunks.is_empty() {
+            // Original ingress observes already protected source endpoints. Keep this
+            // real dependency boundary; ordinary typed/graph/alias rows can share pages.
+            self.ensure_physical_rows_with_writer(std::mem::take(&mut physical), budget, writer)
+                .await?;
             let budget = budget.ok_or(ModelError::Conflict(
                 "original ingress requires caller budget",
             ))?;
@@ -6198,23 +6387,19 @@ impl NativeCompilerStore {
             completion.step("original ingress reader close", reader.close().await);
             d::completion::complete(result, completion)?;
         }
-        let phase = crate::phase::Phase::begin("native_batch_aliases");
-        let result = self
-            .ensure_physical_rows_with_writer(aliases, budget, writer)
-            .await;
-        phase.finish_result(&result);
-        result?;
+        physical.extend(aliases);
         // Repeated identical writes within this contribution are idempotent, without hiding
         // semantic uniqueness failures. Membership contains no separately editable payload.
         let phase = crate::phase::Phase::begin("native_batch_members");
         let result = writer
-            .install_compiler_packet(
+            .install_compiler_output_packet(
                 *contribution,
                 lctx_native::compiler_blocks::PreparedBlocks::prepare(
                     *contribution,
                     nongraph,
                     budget.ok_or(ModelError::Conflict("compiler block installation budget"))?,
                 )?,
+                physical,
                 members.into_values().collect(),
             )
             .await;
@@ -6401,21 +6586,38 @@ impl NativeCompilerStore {
             loop{
                 let mut page=Vec::new();while page.len()<32{let Some(row)=blocks.next_row()? else{break;};page.push(row);}
                 if page.is_empty(){break;}
-                let mut references=Vec::new();
-                for hold in page{
-                    let Some(Value::RecordId(block))=hold.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("compiler block original hold object"));};
-                    let block=block.clone();
-                    let mut observed=crate::control::inspect_expected_window_read(&reader,std::slice::from_ref(&block),budget).await?;let held=observed.take_required(&block)?;observed.finish()?;
-                    lctx_native::compiler_blocks::validate_block(held.row(),budget)?;
-                    let Some(Value::Array(rows))=held.row().as_object().and_then(|row|row.get("rows")) else{return Err(ModelError::Schema("compiler block original rows"));};
-                    let mut originals=BTreeSet::new();
-                    for row in rows{
-                        if row.as_object().and_then(|row|row.get("semantic_type"))==Some(&Value::String(d::artifact::ArtifactChunk::NAME.into())){
-                            let original=validate_state_row("compiler_record",row)?.ok_or(ModelError::Schema("compiler block original metadata"))?;
-                            originals.insert(lctx_native::originals::layout_id(d::graph::EntityId::of(original.artifact))?);
-                        }
+                let mut pending=std::collections::VecDeque::from([page.into_iter().map(|hold| {
+                    match hold.as_object().and_then(|row| row.get("id")) {
+                        Some(Value::RecordId(block)) => Ok(block.clone()),
+                        _ => Err(ModelError::Schema("compiler block original hold object")),
                     }
-                    references.extend(originals.into_iter().map(|original|(block.clone(),original)));
+                }).collect::<Result<Vec<_>,ModelError>>()?]);
+                let mut references=Vec::new();
+                let mut reference_charge=d::charged::StateCharge::new(budget,"original block association window");
+                while let Some(mut page)=pending.pop_front(){
+                    let mut observed=match crate::control::inspect_expected_page_read(&reader,&page,budget).await {
+                        Ok(observed)=>observed,
+                        Err(crate::control::PageAcquireFailure::Reducible(error)) if page.len()>1=>{
+                            let suffix=page.split_off(page.len()/2);
+                            pending.push_front(suffix);pending.push_front(page);drop(error);continue;
+                        }
+                        Err(crate::control::PageAcquireFailure::Reducible(error) | crate::control::PageAcquireFailure::Terminal(error))=>return Err(error),
+                    };
+                    for block in page {
+                        let held=observed.take_required(&block)?;
+                        lctx_native::compiler_blocks::validate_block(held.row(),budget)?;
+                        let Some(Value::Array(rows))=held.row().as_object().and_then(|row|row.get("rows")) else{return Err(ModelError::Schema("compiler block original rows"));};
+                        let mut originals=BTreeSet::new();
+                        for row in rows {
+                            if row.as_object().and_then(|row|row.get("semantic_type"))==Some(&Value::String(d::artifact::ArtifactChunk::NAME.into())){
+                                let original=validate_state_row("compiler_record",row)?.ok_or(ModelError::Schema("compiler block original metadata"))?;
+                                reference_charge.grow(512)?;
+                                originals.insert(lctx_native::originals::layout_id(d::graph::EntityId::of(original.artifact))?);
+                            }
+                        }
+                        references.extend(originals.into_iter().map(|original|(block.clone(),original)));
+                    }
+                    observed.finish()?;
                 }
                 let mut writer=crate::control::WindowWriter::new(&self.client,Some(self.attempt),Some(budget)).with_operation(operation.clone());
                 for page in references.chunks(crate::loader::NATIVE_WINDOW_ROWS){
@@ -7623,11 +7825,14 @@ impl NativeCompilerStore {
     }
     pub async fn bind(self: &Arc<Self>, binding: CompletedBinding) -> Result<(), ModelError> {
         let lease = self.admit_mutation("bind", true)?;
+        let _set = self.binding_sets.write().await;
+        let mut mutation = binding_sets::BindingMutation::new(self);
         let result = lease.within(self.bind_inner(binding)).await;
         let result = lease.finish_with(result);
         if result.is_err() {
             self.fail();
         }
+        mutation.finish(result.is_ok());
         result
     }
     async fn bind_inner(self: &Arc<Self>, binding: CompletedBinding) -> Result<(), ModelError> {
@@ -7706,6 +7911,8 @@ impl NativeCompilerStore {
         self: &'a Arc<Self>,
     ) -> BoxFuture<'a, Result<Vec<CompletedBinding>, ModelError>> {
         Box::pin(async move {
+            let _set = self.binding_sets.read().await;
+            self.check_failed()?;
             if let Some(bindings) = self
                 .published_bindings
                 .lock()

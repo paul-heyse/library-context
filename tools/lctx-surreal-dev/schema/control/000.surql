@@ -232,14 +232,39 @@ DEFINE FUNCTION fn::native_completed_incidence($completion: record<native_comple
     RETURN NONE;
 };
 
+// String indexing is safe only for the generated physical address grammar. Other
+// record keys retain native equality and the ordered first-match scan.
+DEFINE FUNCTION fn::native_packet_key($record: record) {
+    IF record::table($record) NOT IN ['entity','assertion','entity_anchor','assertion_anchor','external','compiler_alias','compiler_block','compiler_contribution','compiler_view','compiler_binding','original','original_blob','original_chunk','native_attempt','native_hold','native_completed_state','native_completed_view','native_completed_contributor','native_operation','native_operation_page','native_pending_original','native_publication_staging'] { RETURN NONE; };
+    LET $key=record::id($record);
+    IF type::is_string($key)=false { RETURN NONE; };
+    IF string::matches($key,'^[0-9a-f]{64}$')=false { RETURN NONE; };
+    RETURN <string>$record;
+};
+DEFINE FUNCTION fn::native_packet_lookup($entries: array<object>, $index: object, $target: record) {
+    LET $key=fn::native_packet_key($target);
+    IF $key=NONE { RETURN array::find($entries,|$entry|$entry.record=$target); };
+    LET $entry=$index[$key] ?? NONE;
+    IF $entry!=NONE AND $entry.record!=$target { THROW 'native packet indexed identity mismatch'; };
+    RETURN $entry;
+};
+
 // One bounded immutable effect prepares exact existing values and distinct parent
 // predicates once. Holds share incidence admission but retain their owner/target
 // existence checks after new rows are installed in the same transaction.
 DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array<object>, $context: option<object>, $deferred: array<object>, $originals: array<object>) {
     LET $all=array::concat($rows,$holds);
     LET $blobs=array::distinct($rows.filter(|$row| record::table($row.id)='original_chunk').map(|$row| $row.blob));
-    LET $prepared=$all.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
-    LET $original_prepared=$originals.map(|$row| { row: $row, existing: (SELECT * FROM ONLY $row.id) });
+    LET $row_ids=$all.map(|$row|$row.id);
+    LET $original_ids=$originals.map(|$row|$row.id);
+    LET $actual_rows=SELECT * FROM $row_ids;
+    LET $actual_originals=SELECT * FROM $original_ids;
+    LET $actual_row_entries=$actual_rows.map(|$row|{record:$row.id,row:$row});
+    LET $actual_original_entries=$actual_originals.map(|$row|{record:$row.id,row:$row});
+    LET $actual_row_index=object::from_entries(array::reverse($actual_row_entries.filter(|$entry|fn::native_packet_key($entry.record)!=NONE).map(|$entry|[fn::native_packet_key($entry.record),$entry])));
+    LET $actual_original_index=object::from_entries(array::reverse($actual_original_entries.filter(|$entry|fn::native_packet_key($entry.record)!=NONE).map(|$entry|[fn::native_packet_key($entry.record),$entry])));
+    LET $prepared=$all.map(|$row| { row: $row, existing: fn::native_packet_lookup($actual_row_entries,$actual_row_index,$row.id).row ?? NONE });
+    LET $original_prepared=$originals.map(|$row| { row: $row, existing: fn::native_packet_lookup($actual_original_entries,$actual_original_index,$row.id).row ?? NONE });
     FOR $entry IN $original_prepared { LET $prior=$entry.existing; LET $row=$entry.row; IF $prior!=NONE AND ($prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is_bool($prior.completed)=false OR array::len(object::keys($prior))!=5) { THROW 'original blob declaration collision'; }; };
     // Admission is required even for equal rows. Filtering writes must not turn
     // an unrelated attempt's existing incidence into an authorized success.
@@ -264,13 +289,19 @@ DEFINE FUNCTION fn::native_immutable_install($rows: array<object>, $holds: array
     // Host expectation preparation rejects different records sharing one physical
     // guard, and targets are distinct, so accepted packets advance each guard once.
     LET $changed_ids=$changed.map(|$row| $row.id);
-    LET $guard_entries=$targets.filter(|$target| $context=NONE OR $target!=$context.attempt).map(|$target| {target:$target,entry:array::find($deferred, |$entry| $entry.record=$target)}).filter(|$candidate| $candidate.entry!=NONE AND ($candidate.entry.phase='active' OR $candidate.target NOT IN $changed_ids));
+    // from_entries keeps its last entry. Reverse once to retain the original
+    // ordered first-match semantics, including duplicate equal observations.
+    LET $deferred_index=object::from_entries(array::reverse($deferred.filter(|$entry|fn::native_packet_key($entry.record)!=NONE).map(|$entry|[fn::native_packet_key($entry.record),$entry])));
+    LET $guard_entries=$targets.filter(|$target| $context=NONE OR $target!=$context.attempt).map(|$target| {target:$target,entry:fn::native_packet_lookup($deferred,$deferred_index,$target)}).filter(|$candidate| $candidate.entry!=NONE AND ($candidate.entry.phase='active' OR $candidate.target NOT IN $changed_ids));
     LET $guard_ids=$guard_entries.map(|$candidate| $candidate.entry.guard);
-    LET $actual_guards=$guard_ids.map(|$id| (SELECT * FROM ONLY $id FOR UPDATE));
-    IF array::len($actual_guards.filter(|$guard| $guard=NONE OR $guard.phase!='active' OR $guard.revision>=9223372036854775807))>0 { THROW 'native changed incidence guard invalid'; };
+    // Pinned 3.3 rejects array targets for SELECT FOR UPDATE. Every accepted
+    // guard is already genuinely written here, so its exact key has commit-time
+    // write conflict protection. WHERE runs before SET and RETURN BEFORE exposes
+    // the actual prior guards; a partial match throws and rolls back all peers.
+    LET $actual_guards=IF array::len($guard_ids)>0 { UPDATE $guard_ids SET revision+=1 WHERE phase='active' AND revision<9223372036854775807 RETURN BEFORE; } ELSE { [] };
+    IF array::len($actual_guards)!=array::len($guard_ids) OR array::sort($actual_guards.map(|$guard|$guard.id))!=array::sort($guard_ids) { THROW 'native changed incidence guard invalid'; };
     IF array::len($existing_predicate_ids)>0 { UPDATE $existing_predicate_ids SET revision+=1 RETURN NONE; };
     IF array::len($missing_predicate_rows)>0 { INSERT INTO native_predicate $missing_predicate_rows RETURN NONE; };
-    IF array::len($guard_ids)>0 { UPDATE $guard_ids SET revision+=1 RETURN NONE; };
     LET $attempts=array::distinct($rows.filter(|$row| record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging']).map(|$row| $row.attempt));
     FOR $attempt IN $attempts { IF $attempt=NONE OR (SELECT VALUE id FROM ONLY $attempt)=NONE { THROW 'native incidence attempt missing'; }; };
     LET $contributions=array::distinct($all.filter(|$row| record::table($row.id)='native_hold' AND record::table($row.owner)='compiler_contribution').map(|$row| $row.owner));

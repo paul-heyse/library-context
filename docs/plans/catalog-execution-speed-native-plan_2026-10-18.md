@@ -1,25 +1,44 @@
 # Catalog execution speed: native materialization and admission
 
-**Proposed implementation,2026-10-18.** Companion to the
+**Paused at operator stop,2026-10-18: SN00–SN03 source implemented; integrated acceptance pending; SN04 Proposed.** Companion to the
 [coordinator](catalog-execution-speed-plan_2026-10-18.md), whose
 [§6](catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
 alone owns current dispositions. SN00–SN04 develop F01/F02/F03/F05/F06 and I02, consuming the
 operator-approved RC01–RC04/RC06 directions. Existing plans and accepted ADRs are not changed by
 this document; the implementation schedules their required decision/owner migrations explicitly.
 
-**Selected integration checkpoint,2026-10-18:** ADR-0191 implements the SN00/SN02/SN03 slices
-needed by SC00–SC04: genuine requested-frontier allocation, exact private closure lowering,
-independent stored typed-content reconciliation and unchanged real publication/receiving ownership.
-Source selects schema11/completed-state5/contribution identity3/logical source identity2. The task-owned
-campaign qualifies these boundaries; shared default regeneration remains SN04's separate scope.
-Broad SN01 packet/hazard optimization and the remaining native obligations are still Proposed.
-Coordinator §6 alone owns actual verification and package closure.
-The SC02/SN00 follow-up now transports producing-process executed properties only after complete
-actual typed-row/native EOF correspondence, retaining exact uniform qualification protection.
-Incoming receivers keep independent validation. The new transfer control is not yet run; the
-operator-requested closeout preserves failed native outcomes and disposes the exact owned campaign
-through the existing authenticated owner. Resume remaining native acceptance from coordinator §6,
-without inferring whole SN00/SN02/SN03 completion from the inspected source or earlier lower-frontier passes.
+**Selected integration checkpoint,2026-10-18:** ADR-0191 private authority and ADR-0192 native
+operation packets govern the authorized remaining SC00–SC04/all SN00–SN03 slice. Compatible
+physical graph/alias/block/locator/hold pages, set observations, restricted exact indexes and actual
+binding-set operation roots are implemented. Fixed64 issuance/participant stripes and real hazard
+guards remain; retries consume the existing allowance only after acknowledged conflict, never
+abandon issued work. Exact current/frozen roots recursively retain complete producer outputs;
+changed-incidence guards combine the actual revision write with `RETURN BEFORE`, checking complete
+returned native identities and count. Missing, retiring or exhausted peers roll back together.
+This uses pinned3.3 write conflict protection; unsupported array `FOR UPDATE` reads are excluded,
+and necessary read-only scalar registrations remain.
+Ready independent producers run under joined task/native-call owners. Every ordinary current output
+is presently a genuine root, so no stage-name pruning is warranted. Genuine private compile→full
+native admission now backs publication, mutation, cold reader and backup controls; export remains
+explicit independent transport. Source selects schema12/completed-state5/contribution identity3/
+logical source identity2. Actual native acceptance remains pending; the owned campaign is disposed under coordinator §6.
+A future acceptance run requires a fresh owned campaign; default regeneration remains SN04. Coordinator §6 alone owns actual verification and package closure.
+SC02/SN00 properties still require complete actual typed/native EOF correspondence and exact
+uniform qualification; incoming receivers validate independently. Genuine nonempty private uniform
+qualification and real retained-read cancellation controls supplement the native transfer controls;
+they do not individually establish assembled native uniform transfer or whole-frontier acceptance.
+
+**Closeout boundary,2026-10-18:** coordinator §6 owns the cancelled final build`dbc80a`, earlier
+focused passes and unresolved native failures/timeouts. Final integrated source is not compile-
+qualified. Explicit successful-private qualification selections now root exact native completion
+before freeze; native authority and independent receiving remain separate. View/contribution
+creation atomically earns attempt ownership; registration deduplicates bounded physical input holds
+without changing ordered roles, then finishes its metadata operation before independently budgeted
+payload production. Actual retained specification copies and construction carry grants. New native
+controls exercise failed binding prefixes and separate allocation pools; they remain not_run on
+final source. All workers are stopped, main is the sole worktree, and scope-end compile/Clippy/
+Python hygiene is deferred by the operator stop. Resume the exact remaining controls in coordinator
+§6; no default regeneration, operator adoption or wider qualification is implied.
 
 ## 1. Native role, baseline and preserved capabilities
 
@@ -214,7 +233,7 @@ codec/definition contracts and existing service/run/storage owners. **Delivers:*
 state at the selected design, obsolete private-persistence/physical paths retired and exact outcomes
 preserved. No compatibility reader or historical data preservation is required solely for design phase.
 
-Current source declares schema10 while STATUS's default installation is schema9; this is a baseline
+The authoring baseline declared schema10 while STATUS's default installation was schema9; this is a baseline
 prerequisite, not authority to reset it during plan authoring or an assumption that10 is the final new
 format. Determine the actual target format from selected changes and update its native schema,
 definitions, codecs, snapshots and all consumers coherently. Explicitly review snapshot diffs.

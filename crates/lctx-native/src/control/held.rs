@@ -150,7 +150,7 @@ pub struct ExpectedRecords {
 /// Only explicit page correspondence/retention admission can authorize a smaller
 /// acquisition. Native transport and finality failures never authorize replay.
 #[derive(Debug)]
-pub(crate) enum PageAcquireFailure {
+pub enum PageAcquireFailure {
     Reducible(ModelError),
     Terminal(ModelError),
 }
@@ -530,7 +530,7 @@ pub(crate) async fn inspect_expected_window_read_observed<Context>(
 }
 /// Inspect one exact bounded page. A reducible refusal escapes only after every
 /// opened native stream has conclusively drained, retaining its original error.
-pub(crate) async fn inspect_expected_page_read<Context>(
+pub async fn inspect_expected_page_read<Context>(
     reader: &crate::NativeReader<Context>,
     records: &[RecordId],
     budget: &ResourceBudget,

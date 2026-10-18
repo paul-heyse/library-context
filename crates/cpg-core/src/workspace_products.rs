@@ -203,72 +203,10 @@ impl ProducerOutput {
                     else {
                         return Ok(None);
                     };
-                    // The accepted operation owns the native source through checked copying
-                    // and actual close. Only settled private backing crosses result delivery,
-                    // including when its waiter disappears after a successful lookup.
-                    let copied = async {
-                        let descriptor = retained.descriptor();
-                        if descriptor
-                            .outputs
-                            .keys()
-                            .map(String::as_str)
-                            .collect::<BTreeSet<_>>()
-                            != allowed
-                        {
-                            return Err(ModelError::Conflict("private retained output inventory"));
-                        }
-                        let mut outputs = BTreeMap::new();
-                        for name in &allowed {
-                            let relation = workspace
-                                .model
-                                .relation(name)
-                                .ok_or(ModelError::Schema("private cached relation"))?
-                                .clone();
-                            let mut writer = super::private_source::PrivateWriter::new_with_spill(
-                                workspace.model.digest(),
-                                relation.clone(),
-                                workspace.budget().clone(),
-                                workspace.private_directory(),
-                                workspace.private_spill.clone(),
-                            )?;
-                            let mut stream = retained
-                                .batches(
-                                    &relation,
-                                    workspace.budget(),
-                                    workspace.options.batch_rows,
-                                )
-                                .await?;
-                            while let Some(batch) =
-                                stream.try_next().await.map_err(ModelError::codec)?
-                            {
-                                workspace.cancellation.check()?;
-                                writer.push(relation.checked_batch(
-                                    &workspace.model,
-                                    batch,
-                                    workspace.budget(),
-                                )?)?;
-                            }
-                            let source = writer.finish()?;
-                            let expected = descriptor
-                                .outputs
-                                .get(*name)
-                                .ok_or(ModelError::Conflict("private cached output absent"))?;
-                            if source.rows() != expected.rows
-                                || source.content() != expected.content
-                            {
-                                return Err(ModelError::Conflict("private cached typed content"));
-                            }
-                            outputs.insert(*name, source);
-                        }
-                        Ok(outputs)
-                    }
-                    .await;
-                    let mut terminal = lctx_model::domain::completion::Completion::default();
-                    terminal.step(
-                        "private retained product source close",
-                        retained.close().await,
-                    );
-                    lctx_model::domain::completion::complete(copied, terminal).map(Some)
+                    workspace
+                        .copy_retained_product(retained, &allowed)
+                        .await
+                        .map(Some)
                 })
                 .await?
         } else {
@@ -518,6 +456,70 @@ pub(crate) fn decode_product_rows(
     })
 }
 
+impl Workspace {
+    /// Copy a genuine retained read into immutable private backing, then settle its
+    /// native owner before any private result can cross accepted-task delivery.
+    pub(crate) async fn copy_retained_product(
+        &self,
+        retained: lctx_compiler_store::product_cache::CompiledProductRead,
+        allowed: &BTreeSet<&'static str>,
+    ) -> Result<BTreeMap<&'static str, Arc<super::private_source::PrivateRelation>>, ModelError>
+    {
+        let copied = async {
+            let descriptor = retained.descriptor();
+            if descriptor
+                .outputs
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+                != *allowed
+            {
+                return Err(ModelError::Conflict("private retained output inventory"));
+            }
+            let mut outputs = BTreeMap::new();
+            for name in allowed {
+                self.cancellation.check()?;
+                let relation = self
+                    .model
+                    .relation(name)
+                    .ok_or(ModelError::Schema("private cached relation"))?
+                    .clone();
+                let mut writer = super::private_source::PrivateWriter::new_with_spill(
+                    self.model.digest(),
+                    relation.clone(),
+                    self.budget.clone(),
+                    self.private_directory(),
+                    self.private_spill.clone(),
+                )?;
+                let mut stream = retained
+                    .batches(&relation, &self.budget, self.options.batch_rows)
+                    .await?;
+                while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+                    self.cancellation.check()?;
+                    writer.push(relation.checked_batch(&self.model, batch, &self.budget)?)?;
+                }
+                self.cancellation.check()?;
+                let source = writer.finish()?;
+                let expected = descriptor
+                    .outputs
+                    .get(*name)
+                    .ok_or(ModelError::Conflict("private cached output absent"))?;
+                if source.rows() != expected.rows || source.content() != expected.content {
+                    return Err(ModelError::Conflict("private cached typed content"));
+                }
+                outputs.insert(*name, source);
+            }
+            Ok(outputs)
+        }
+        .await;
+        let mut terminal = lctx_model::domain::completion::Completion::default();
+        terminal.step(
+            "private retained product source close",
+            retained.close().await,
+        );
+        lctx_model::domain::completion::complete(copied, terminal)
+    }
+}
 impl Workspace {
     /// Queue a named reusable product without creating private-stage native effects.
     /// Its actual persistence uses the final target's completed content before native freeze.

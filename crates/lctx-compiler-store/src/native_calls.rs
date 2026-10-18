@@ -12,13 +12,12 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use tokio::sync::{Semaphore, oneshot};
+use tokio::sync::oneshot;
 
 pub struct NativeCalls {
     native: Arc<NativeCompilerStore>,
     cancellation: Cancellation,
     budget: ResourceBudget,
-    limit: Arc<Semaphore>,
     tasks: Mutex<(Vec<NativeCallTask>, StateCharge)>,
 }
 type Request = BoxFuture<'static, OperationResult>;
@@ -53,7 +52,6 @@ impl NativeCalls {
             native,
             cancellation,
             budget: budget.clone(),
-            limit: Arc::new(Semaphore::new(8)),
             tasks: Mutex::new((
                 Vec::new(),
                 StateCharge::new(budget, "native-call-ownership"),
@@ -65,7 +63,15 @@ impl NativeCalls {
         &self,
         future: impl Future<Output = Result<T, ModelError>> + Send + 'static,
     ) -> BoxFuture<'_, Result<T, ModelError>> {
-        self.call_boxed(future.boxed())
+        let future = match lctx_native::continuation::admit(
+            &self.budget,
+            "native-call operation body",
+            future,
+        ) {
+            Ok(future) => future,
+            Err(error) => return futures::future::ready(Err(error)).boxed(),
+        };
+        self.call_boxed(future)
     }
     /// Keep the typed acknowledgement adapter independent of the concrete operation future.
     pub fn call_boxed<T: Send + 'static>(
@@ -126,10 +132,10 @@ impl NativeCalls {
         Ok(waiting)
     }
     async fn submit(&self, request: Request) -> Result<(), ModelError> {
-        let permit = tokio::select! {
-            ()=self.cancellation.cancelled()=>return Err(ModelError::Invalid("compilation cancelled".into())),
-            permit=lctx_native::phase::wait("native_call_admission", self.limit.clone().acquire_owned())=>permit.map_err(ModelError::codec)?,
-        };
+        self.cancellation.check()?;
+        // Real allocation admission bounds accepted work. A fixed call-count
+        // semaphore unnecessarily serialized independent complete producers.
+        let accepted = self.budget.reserve("native-call accepted task", 4096)?;
         // Serialize registration with drainage. No call is submitted after cancellation.
         let mut tasks = self
             .tasks
@@ -162,7 +168,7 @@ impl NativeCalls {
                 };
                 let terminal = request.await;
                 submitted.finished = true;
-                drop(permit);
+                drop(accepted);
                 terminal
             }
             .in_tracing_context(),
@@ -250,6 +256,58 @@ fn unfinished(error: ModelError) -> ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn resource_admitted_native_work_does_not_wait_for_a_fixed_call_count() {
+        // Isolate actual accepted-task ownership; no native result is fabricated.
+        let native = NativeCompilerStore::from_existing(
+            Arc::new(surrealdb::Surreal::init()),
+            lctx_model::domain::serving::Name::new("call_control").unwrap(),
+            lctx_model::domain::serving::Name::new("resource_control").unwrap(),
+        );
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let calls = NativeCalls::new(native.clone(), Cancellation::default(), &budget);
+        let mut guards = Vec::new();
+        let mut releases = Vec::new();
+        let mut entries = Vec::new();
+        for _ in 0..16 {
+            let (entered, entry) = oneshot::channel();
+            let (release, released) = oneshot::channel();
+            guards.push(
+                calls
+                    .submit_guarded(
+                        async move {
+                            entered.send(()).unwrap();
+                            released.await.unwrap();
+                            OperationResult::default()
+                        }
+                        .boxed(),
+                    )
+                    .await
+                    .unwrap(),
+            );
+            entries.push(entry);
+            releases.push(release);
+        }
+        for entry in entries {
+            entry.await.unwrap();
+        }
+        assert!(
+            budget.reserved() >= 16 * 4096,
+            "accepted bodies retain real allocation grants"
+        );
+        for release in releases {
+            release.send(()).unwrap();
+        }
+        for guard in &mut guards {
+            guard.finished = true;
+        }
+        drop(guards);
+        assert!(calls.drain_finality_report().await.is_satisfied());
+        assert!(native.drain_finality_report().await.is_satisfied());
+        drop(calls);
+        drop(native);
+        assert_eq!(budget.reserved(), 0);
+    }
     #[tokio::test]
     async fn dropped_waiter_and_submitting_runtime_keep_registered_call_alive() {
         // No native operation: this isolates actual task/executor ownership.
