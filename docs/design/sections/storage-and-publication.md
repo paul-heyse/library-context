@@ -135,15 +135,19 @@ their independently necessary captured universe. This avoids recursively expandi
 nested SQL while preserving duplicate left rows, exact scope and declared ordering. The
 publication coordinator owns current native integration and the observed SQL-parser stack fault.
 
-**Implemented / focused qualification in progress,2026-10-18:** expected-domain admission reuses
+**Implemented / pure focused-Tested; Catalog integration pending,2026-10-18:** expected-domain admission reuses
 an actual admitted compact AnalysisOwner descriptor only under its exact captured completed-input
 permit and selected contributor view. It retains semantic-owner/profile/definition checks and
 independent expected-domain reconstruction. Admitted metadata remains separate from raw stream
 observations, preserving strict raw duplicate refusal and Facts-only native evidence. Structural,
 C1, C2 and Synthesis share this route; no full compact stream or synthetic Local invocation is
-needed to recover an already protected explicit NotRequested predecessor.
+needed to recover an already protected explicit NotRequested predecessor. Raw compact observations retain charged source/descriptor receipts:
+identical bodies coalesce across distinct captured checkpoints, while duplicates within one
+actual source refuse. NativeFamily evidence enters expected-domain reconstruction only from
+the compiler's explicitly selected captured Facts permit; higher checkpoint copies remain
+independently body-checked observations. Metadata reuse cannot manufacture that observation.
 
-**Implemented / focused qualification in progress,2026-10-18:** durable whole-input validation
+**Implemented / focused-Tested,2026-10-18:** durable whole-input validation
 erases each substantial native child continuation before entering its enclosing semantic poll.
 The existing budgeted continuation owner retains the actual allocation through child destruction;
 no worker, stack or deadline limit changes. Preparation keeps the exact recovery scope, and

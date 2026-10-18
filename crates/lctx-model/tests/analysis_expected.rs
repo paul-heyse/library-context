@@ -244,6 +244,11 @@ fn with_capture_omitting<T>(
     let sources = inputs.0.values().cloned().collect::<Vec<_>>();
     let captured = CapturedSources::capture(profile, sources.clone(), &budget).unwrap();
     let mut admission = CoverageAdmission::new(&captured, &budget).unwrap();
+    if omit != Some(uniform_outcome::UniformNotRequested::NAME) {
+        // This fixture's compact native descriptor belongs to its explicitly supplied Facts
+        // inventory, rather than a cumulative analysis checkpoint.
+        admission.select_facts_uniform_source(&inputs.read::<uniform_outcome::UniformNotRequested>().unwrap()).unwrap();
+    }
     if let Some(owner) = &universe.uniform_owner {
         admission.admit_uniform_owner(owner).unwrap();
     }

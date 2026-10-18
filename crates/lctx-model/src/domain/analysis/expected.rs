@@ -1133,8 +1133,29 @@ pub enum VisitResult {
 pub struct CoverageAdmission<'a> {
     sources: &'a super::sources::CapturedSources,
     index: FrontierIndex,
+    uniform_receipts: charged::ChargedSet<(ContentHash, Id<uniform_outcome::UniformNotRequested>)>,
+    observed_uniform: charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>, uniform_outcome::UniformNotRequested>,
+    facts_uniform_source: Option<ContentHash>,
 }
 impl<'a> CoverageAdmission<'a> {
+    /// The compiler supplies the permit from its actual declared Facts role before loading
+    /// streams. Captured metadata has no epoch of its own; higher checkpoints cannot nominate
+    /// themselves as the native expected-domain source merely by containing the same rows.
+    pub fn select_facts_uniform_source(
+        &mut self,
+        permit: &CompletedInput<uniform_outcome::UniformNotRequested>,
+    ) -> Result<(), ModelError> {
+        self.sources.accepts(permit)?;
+        let source = permit.source().identity();
+        if self.facts_uniform_source == Some(source) {
+            return Ok(());
+        }
+        if self.facts_uniform_source.is_some() || !self.uniform_receipts.is_empty() {
+            return Err(invalid("compact Facts source changed after selection or observation"));
+        }
+        self.facts_uniform_source = Some(source);
+        Ok(())
+    }
     pub fn uniform_analysis(
         &self,
         kind: super::owner::AnalysisOwner,
@@ -1198,6 +1219,9 @@ impl<'a> CoverageAdmission<'a> {
         Ok(Self {
             sources,
             index: FrontierIndex::new(profile, budget),
+            uniform_receipts: Default::default(),
+            observed_uniform: Default::default(),
+            facts_uniform_source: None,
         })
     }
     /// Route expected-domain rows through the owned dispatch. A skipped relation does not
@@ -1207,6 +1231,41 @@ impl<'a> CoverageAdmission<'a> {
         permit: &CompletedInput<R>,
         batch: &arrow_array::RecordBatch,
     ) -> Result<VisitResult, ModelError> {
+        if R::NAME == uniform_outcome::UniformNotRequested::NAME {
+            self.sources.accepts(permit)?;
+            // Independently selected cumulative checkpoints may share a canonical descriptor.
+            // A duplicate inside one actual source remains a malformed stream, including when
+            // its two occurrences arrive in separate batches. Metadata reuse is not a receipt.
+            let source = permit.source().identity();
+            for row in uniform_outcome::UniformNotRequested::decode(batch)? {
+                let id = row.id();
+                if !self.uniform_receipts.insert(&mut self.index.charge, (source, id))? {
+                    return Err(ModelError::Conflict(uniform_outcome::UniformNotRequested::NAME));
+                }
+                if let Some(previous) = self.observed_uniform.get(&id) {
+                    if previous != &row {
+                        return Err(ModelError::Conflict(uniform_outcome::UniformNotRequested::NAME));
+                    }
+                } else {
+                    self.observed_uniform.insert(&mut self.index.charge, id, row.clone())?;
+                }
+                if row.kind == uniform_outcome::UniformKind::NativeFamily
+                    && self.facts_uniform_source != Some(source)
+                {
+                    // This is a real observed higher-role copy, but not native Facts evidence.
+                    continue;
+                }
+                if let Some(previous) = self.index.uniform.get(&id) {
+                    if previous != &row {
+                        return Err(ModelError::Conflict(uniform_outcome::UniformNotRequested::NAME));
+                    }
+                } else {
+                    self.index.prepared_uniforms.take();
+                    self.index.uniform.insert(&mut self.index.charge, id, row)?;
+                }
+            }
+            return Ok(VisitResult::Handled);
+        }
         // The dispatch checks source identity for handled inputs before decoding or mutation.
         Ok(
             if self
@@ -1277,6 +1336,49 @@ mod tests {
         input::{ManifestEntry, SourceRole},
         normalized::coverage::EvidenceAvailability,
     };
+    #[test]
+    fn captured_compact_checkpoint_union_coalesces_only_across_actual_views() {
+        use super::super::{owner::AnalysisOwner, sources::{CapturedSources, CompletedInput}};
+        use uniform_outcome::{UniformNotRequested, test_support};
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let model = crate::domain::model().unwrap();
+        let (input, context) = test_support::input_context();
+        let local = test_support::empty_owner(AnalysisOwner::Local, &input, &context, &budget);
+        let calls = test_support::empty_owner(AnalysisOwner::SourceCalls, &input, &context, &budget);
+        let local_view = completed::CompletedView::new(UniformNotRequested::NAME.into(), [local.owner.contribution()].into(), 1).unwrap();
+        let calls_view = completed::CompletedView::new(UniformNotRequested::NAME.into(), [local.owner.contribution(), calls.owner.contribution()].into(), 2).unwrap();
+        let permit = |view: &completed::CompletedView| CompletedInput::<UniformNotRequested>::new(
+            "actual-selected-checkpoint", model.digest(), ContentHash::of(b"typed-view-contract"), view.identity, view.rows,
+        ).unwrap();
+        let local_permit = permit(&local_view);
+        let calls_permit = permit(&calls_view);
+        let sources = CapturedSources::capture(Profile::Catalog, [local_permit.snapshot(), calls_permit.snapshot()], &budget).unwrap();
+        let local_batch = UniformNotRequested::encode(&[local.owner.descriptor().clone()]).unwrap();
+        let cumulative_batch = UniformNotRequested::encode(&[local.owner.descriptor().clone(), calls.owner.descriptor().clone()]).unwrap();
+        let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
+        admission.visit_if_expected(&local_permit, &local_batch).unwrap();
+        admission.visit_if_expected(&calls_permit, &cumulative_batch).unwrap();
+        assert_eq!(admission.index.uniform.len(), 2);
+        assert_eq!(admission.uniform_receipts.len(), 3);
+        assert!(matches!(admission.visit_if_expected(&local_permit, &local_batch), Err(ModelError::Conflict(UniformNotRequested::NAME))), "one source cannot repeat a row across batches");
+
+        let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
+        let repeated = UniformNotRequested::encode(&[local.owner.descriptor().clone(), local.owner.descriptor().clone()]).unwrap();
+        assert!(matches!(admission.visit_if_expected(&local_permit, &repeated), Err(ModelError::Conflict(UniformNotRequested::NAME))), "one batch cannot repeat a row");
+        let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
+        let foreign = CompletedInput::<UniformNotRequested>::new(
+            "foreign-source", model.digest(), ContentHash::of(b"typed-view-contract"), local_view.identity, local_view.rows,
+        ).unwrap();
+        assert!(admission.visit_if_expected(&foreign, &local_batch).is_err());
+        assert!(admission.uniform_receipts.is_empty(), "capture checks precede receipt mutation");
+        admission.visit_if_expected(&local_permit, &local_batch).unwrap();
+        let mut changed_columns = local_batch.columns().to_vec();
+        let members = local_batch.schema().index_of("members").unwrap();
+        changed_columns[members] = std::sync::Arc::new(arrow_array::Int64Array::from(vec![local.owner.descriptor().members + 1]));
+        let changed_body = arrow_array::RecordBatch::try_new(local_batch.schema(), changed_columns).unwrap();
+        assert!(matches!(admission.visit_if_expected(&calls_permit, &changed_body), Err(ModelError::Identity(UniformNotRequested::NAME))), "a cumulative role cannot relabel a changed body with an observed identity");
+        assert_eq!(admission.uniform_receipts.len(), 1, "typed body refusal precedes receipt mutation");
+    }
     #[test]
     fn admitted_compact_analysis_uses_exact_captured_owner_without_stream_replay() {
         use super::super::owner::AnalysisOwner;
@@ -1984,12 +2086,7 @@ mod tests {
             spec,
             outcome: 0,
         };
-        visit(&mut f.index, std::slice::from_ref(&descriptor));
         let method = method_contract(AnalysisMethod::Execution).unwrap();
-        assert!(
-            f.index.domain(f.input, f.context, method).is_err(),
-            "serialized descriptor alone is insufficient"
-        );
         let owner = ValidatedUniformOwner::validate_semantic_binding(
             &completed,
             &descriptor,
@@ -1997,7 +2094,29 @@ mod tests {
             &f.budget,
         )
         .unwrap();
-        f.index.admit_uniform_owner(&owner).unwrap();
+        {
+            use super::super::sources::{CapturedSources, CompletedInput};
+            let facts = completed::CompletedView::new(UniformNotRequested::NAME.into(), [owner.contribution()].into(), 1).unwrap();
+            let higher = completed::CompletedView::new(UniformNotRequested::NAME.into(), [owner.contribution(), ContentHash::of(b"another-completed-checkpoint-contribution")].into(), 1).unwrap();
+            let permit = |view: &completed::CompletedView| CompletedInput::<UniformNotRequested>::new(
+                "selected-compact-checkpoint", completed.spec.model, ContentHash::of(b"typed-view-contract"), view.identity, view.rows,
+            ).unwrap();
+            let facts_permit = permit(&facts);
+            let higher_permit = permit(&higher);
+            let sources = CapturedSources::capture(Profile::Catalog, [facts_permit.snapshot(), higher_permit.snapshot()], &f.budget).unwrap();
+            let mut admission = CoverageAdmission::new(&sources, &f.budget).unwrap();
+            std::mem::swap(&mut admission.index, &mut f.index);
+            admission.select_facts_uniform_source(&facts_permit).unwrap();
+            let batch = UniformNotRequested::encode(std::slice::from_ref(&descriptor)).unwrap();
+            admission.visit_if_expected(&higher_permit, &batch).unwrap();
+            assert!(admission.index.uniform.is_empty(), "a higher-only native descriptor grants no Facts evidence");
+            assert!(admission.index.domain(f.input, f.context, method).is_err());
+            admission.visit_if_expected(&facts_permit, &batch).unwrap();
+            assert!(admission.index.domain(f.input, f.context, method).is_err(), "serialized descriptor alone is insufficient");
+            admission.admit_uniform_owner(&owner).unwrap();
+            assert!(admission.index.domain(f.input, f.context, method).is_ok());
+            std::mem::swap(&mut admission.index, &mut f.index);
+        }
         let domain = f.index.domain(f.input, f.context, method).unwrap();
         assert_eq!(domain.scopes.len(), 1);
         assert_eq!(domain.scopes[0].native.len(), 4);

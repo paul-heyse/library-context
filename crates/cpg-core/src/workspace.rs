@@ -687,6 +687,15 @@ impl Workspace {
         }
         let owners = self.uniform_owners(access).await?;
         let mut admission = analysis::expected::CoverageAdmission::new(sources, self.budget())?;
+        if let Some(source) = access.relations.get(&(
+            uniform_outcome::UniformNotRequested::NAME,
+            Some(lctx_model::domain::stages::PublicationBoundary::Facts),
+        )) {
+            let permit = CompletedInputs::read_source::<uniform_outcome::UniformNotRequested>(&source.source)?;
+            if sources.iter().any(|captured| captured == permit.source()) {
+                admission.select_facts_uniform_source(&permit)?;
+            }
+        }
         for owner in owners.owners() {
             admission.admit_uniform_owner(owner)?;
             if owner.analysis_owner().is_some() {
