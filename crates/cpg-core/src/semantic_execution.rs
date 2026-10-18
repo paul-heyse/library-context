@@ -2156,7 +2156,10 @@ mod produced_authority_controls {
         drop(changed);
         for attempt in [runtime, other] {
             let budget = attempt.budget().clone();
-            let native = attempt.native().clone();
+            let native = attempt
+                .native()
+                .expect("actual native fixture owner")
+                .clone();
             let connection = native
                 .recovery_scope()
                 .unwrap()

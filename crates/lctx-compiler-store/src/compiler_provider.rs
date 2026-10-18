@@ -200,6 +200,11 @@ impl ReferenceSource {
     }
 }
 /// Compact current tokens for finer product domains; finite providers retain their own route.
+pub fn supports_content_tokens(provider: &Arc<dyn TableProvider>) -> bool {
+    provider
+        .downcast_ref::<NativeTable>()
+        .is_some_and(|source| source.keys.is_empty())
+}
 pub async fn content_tokens(
     provider: &Arc<dyn TableProvider>,
     keys: &[[u8; 16]],

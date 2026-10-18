@@ -3991,6 +3991,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "async-trait",
+ "bytes",
  "datafusion",
  "futures 0.3.34",
  "hex",

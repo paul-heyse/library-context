@@ -293,7 +293,10 @@ mod receiver_scope_controls {
         drop(session);
         drop(access);
         let budget = runtime.budget().clone();
-        let native = runtime.native().clone();
+        let native = runtime
+            .native()
+            .expect("actual native fixture owner")
+            .clone();
         let connection = native
             .recovery_scope()
             .unwrap()

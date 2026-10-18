@@ -30,7 +30,10 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
         )
         .unwrap();
         let budget = workspace.budget().clone();
-        let native = workspace.native().clone();
+        let native = workspace
+            .native()
+            .expect("actual native fixture owner")
+            .clone();
         let connection = native
             .recovery_scope()
             .unwrap()
@@ -113,7 +116,13 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
         drop(inputs);
         drop(configuration);
         let mut finality = workspace.drain_owned_report().await;
-        finality.merge(workspace.native().abandon_finality_report().await);
+        finality.merge(
+            workspace
+                .native()
+                .expect("actual native fixture owner")
+                .abandon_finality_report()
+                .await,
+        );
         let signal = workspace.complete_signal(&finality).await;
         finality.step("embedding configuration control signal", signal);
         completion::complete(Ok(()), finality).unwrap();

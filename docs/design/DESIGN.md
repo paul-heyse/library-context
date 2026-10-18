@@ -386,6 +386,14 @@ in-process extraction/CLI parity receipts retain their original scope.
 
 ### §B2 Typed graph declarations own the data contract
 
+**Accepted compiler target,2026-10-18:** [ADR-0191](../adr/0191-private-completed-compilation.md)
+selects private immutable typed/spillable completion for ordinary computation, with genuine native
+authority at requested outputs and actual retained effects. Existing native/incoming/publication
+guarantees remain; semantic owner §15.1 and the active execution-speed plan own migration.
+
+> Decision: ADR-0191
+
+
 **Implemented, 2026-10-06; targeted evidence is in the coordinator.** `lctx-model` owns nominal entities,
 attributed assertions, participant roles, provenance, coverage, policies and shared validation.
 Typed Arrow views support computation; the old relation registry is not the published schema.
@@ -399,6 +407,14 @@ implementation provenance and physical realization. Original bytes remain author
 <a id="section-b3"></a>
 
 ### §B3 Completed inputs and shared semantic operations
+
+**Accepted compiler target,2026-10-18:** [ADR-0191](../adr/0191-private-completed-compilation.md)
+selects private immutable typed/spillable completion for ordinary computation, with genuine native
+authority at requested outputs and actual retained effects. Existing native/incoming/publication
+guarantees remain; semantic owner §15.1 and the active execution-speed plan own migration.
+
+> Decision: ADR-0191
+
 
 **Implemented / targeted verification in progress, 2026-10-07 (ADR-0138).** Pure model operations
 retain semantic ownership. Compilation reads exact completed native contribution views and uses
@@ -518,6 +534,14 @@ rendered text and presentation limits cannot strengthen it.
 
 ### §B7 Separate admitted content from its native realization
 
+**Accepted compiler target,2026-10-18:** [ADR-0191](../adr/0191-private-completed-compilation.md)
+selects private immutable typed/spillable completion for ordinary computation, with genuine native
+authority at requested outputs and actual retained effects. Existing native/incoming/publication
+guarantees remain; semantic owner §15.1 and the active execution-speed plan own migration.
+
+> Decision: ADR-0191
+
+
 **Accepted target / implementation in progress, 2026-10-09 (ADR-0145).** Compilation writes
 attempt-owned memberships over immutable content in shared storage. Admission freezes and checks
 exact completed views; publication atomically commits a manifest rather than sealing a database.
@@ -606,6 +630,14 @@ templates and extractive selection; the generative-model trigger remains **Propo
 <a id="section-b12"></a>
 
 ### §B12 One semantic graph and derived projections
+
+**Accepted compiler target,2026-10-18:** [ADR-0191](../adr/0191-private-completed-compilation.md)
+selects private immutable typed/spillable completion for ordinary computation, with genuine native
+authority at requested outputs and actual retained effects. Existing native/incoming/publication
+guarantees remain; semantic owner §15.1 and the active execution-speed plan own migration.
+
+> Decision: ADR-0191
+
 
 **Accepted target / implementation in progress, 2026-10-09 (ADR-0145).** One native immutable
 payload authority serves compilation and publication across attempts and worktrees. Nominal

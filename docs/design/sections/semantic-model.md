@@ -62,6 +62,27 @@ from this architectural decision.
 
 ## §15.1 Layers, owners and mechanisms
 
+**Implemented source / functional acceptance pending,2026-10-18 (ADR-0191).** Ordinary compilation
+owns immutable private typed completed sources, exact producer/role/epoch meaning and one shared
+memory-first resource lifetime. Native target allocation and genuine admission occur at requested
+artifact boundaries or actual retained-product effects. Spill is a contingency under the existing
+64GiB default and available CPU parallelism. Pure semantic evidence never grants native authority;
+independent receiving, actual physical reconciliation, pins and committed-effect finality remain.
+Private semantic properties bind actual sealed content and complete EOF; compiler-exposed providers
+retain execution/cancellation through plans and streams. Successful per-predicate owners survive
+scope release for materialization; native adoption compares complete actual typed values and EOF
+under retained current capabilities, including required compact qualification sources. Exact
+definitions, factories, profiles and ordered input/epoch/uniform premises must agree. Unmatched
+checks execute normally; incoming admission receives no producing-process private evidence.
+Whole-input proofs remain distinct from scoped or complete-empty applicability. Completed-state5, logical contribution3,
+logical source2 and schema11 mark the current cutover; earlier receipts retain their original scope.
+The [execution-speed coordinator §6](../../plans/catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
+owns SC00–SC04 implementation, required native integration slices and current verification limits.
+Native rules below continue for actual persisted and incoming consumers; the coordinator bounds current-source verification.
+
+> Decision: ADR-0191
+
+
 **Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Exact semantic
 dependency identity and sufficient coverage properties do not imply rich payload demand.
 Protected preparation binds ordered roles/views and actual model/context/pin/resource owners.
@@ -993,6 +1014,18 @@ the attempt budget. Optional analytics retain their existing disabled defaults.
 <a id="section-15-11"></a>
 
 ## §15.11 Compilation and physical realization
+
+**Implemented source / native acceptance pending,2026-10-18 (ADR-0191).** Ordinary compilation
+uses immutable private completed sources and atomic host output sets; requested artifacts allocate
+their genuine native target at materialization. Private accepted computation owns cancellation,
+resources and joins independently of actual native effects. Per-predicate semantic properties may
+cross that boundary only after complete actual stored equality under current held protection and
+exact executable/role/epoch/profile/uniform correspondence. Independent incoming admission retains
+fresh semantic and physical assurance. The [execution-speed coordinator §6](../../plans/catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
+owns current verification and the operator-requested closeout; older native clauses below apply to
+real persisted consumers and effects, rather than imposing native ownership on private handoff.
+
+> Decision: ADR-0191
 
 **Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Canonical output moves
 charged backing after its last semantic use. Ready ordered private prefixes integrate while

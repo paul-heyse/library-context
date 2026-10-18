@@ -300,6 +300,273 @@ async fn restored_derived_excess_is_refused(
     }
 }
 
+/// Ordinary private compilation publishes directly; the cold consumer receives
+/// neither an export nor a live compiler's native installation capabilities.
+#[tokio::test(flavor = "multi_thread")]
+async fn private_catalog_compilation_publishes_directly_and_a_cold_reader_recovers_it() {
+    async fn finish_private(
+        workspace: &Workspace,
+        native: Option<&Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
+        primary: Option<&ModelError>,
+    ) -> completion::Completion {
+        let mut terminal = workspace.drain_owned_report().await;
+        if let Some(native) = native {
+            terminal.merge(native.drain_finality_report().await);
+            if primary.is_some() || !terminal.failures.is_empty() {
+                native.fail();
+            }
+            if primary.is_none_or(ModelError::permits_storage_cleanup)
+                && terminal.local == completion::LocalState::Terminal
+                && terminal.remote == completion::RemoteState::Confirmed
+                && terminal
+                    .failures
+                    .iter()
+                    .all(|failure| failure.error.permits_storage_cleanup())
+            {
+                terminal.merge(native.abandon_finality_report().await);
+            } else {
+                terminal
+                    .storage
+                    .push(completion::StorageState::Orphan(format!(
+                        "native_attempt:{}",
+                        native.attempt().hex()
+                    )));
+                if primary.is_some_and(|error| !error.permits_storage_cleanup()) {
+                    terminal.remote = completion::RemoteState::Unknown;
+                }
+            }
+            native.append_operation_failures(&mut terminal);
+        }
+        let signal = workspace.complete_signal(&terminal).await;
+        terminal.step("private direct publication compiler signal", signal);
+        workspace.append_operation_failures(&mut terminal);
+        terminal
+    }
+    cpg_extract::logging::init_logging();
+    let scratch = tempfile::tempdir().unwrap();
+    let mut config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+            .expect("owned current-format validation runtime"),
+    ))
+    .unwrap();
+    config.selection = scratch.path().join("unselected.json");
+    let options = WorkspaceOptions::default();
+    let budget = resources::ResourceBudget::fixed(options.memory_bytes).unwrap();
+    let mut workspace_owner = Some(
+        Workspace::private_with_budget(Arc::new(model().unwrap()), options, budget.clone())
+            .unwrap(),
+    );
+    let mut native_owner = None;
+    let mut artifact_owner = None;
+    let mut compiler_factory_owner = None;
+    let mut reader_factory_owner = None;
+    let mut reader_owner = None;
+    let mut publication_owner = None;
+    let definitions = lctx_native::materialization::native_definitions();
+    let outcome = AssertUnwindSafe(async {
+        let workspace = workspace_owner.as_ref().unwrap().clone();
+        let captured =
+            runtime::try_capture("native_signature", Profile::Catalog, workspace.budget())?;
+        let input = captured.inputs()[0].captured().revision().id();
+        let expected = std::fs::read(runtime::root("native_signature").join("native_signature.py"))
+            .map_err(ModelError::codec)?;
+        let prepared = compilation::PreparedCompilation::new(
+            Frontier::Catalog,
+            runtime::settings("native_signature"),
+            captured.config().catalog(),
+            None,
+            workspace.budget(),
+        )
+        .map(Arc::new)?;
+        let settings = ContentHash::of(b"private-catalog-direct-unselected-publication-control/v1");
+        compilation::compile(
+            &workspace,
+            captured.clone(),
+            Profile::Catalog,
+            settings,
+            Frontier::Catalog,
+            Some(prepared),
+            None,
+            None,
+        )
+        .await?;
+        assert!(
+            workspace.native().is_err(),
+            "the real Catalog compiler completed before any output target existed"
+        );
+        let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())?;
+        compiler_factory_owner = Some(factory.clone());
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+            &config,
+            Frontier::Catalog,
+            &factory,
+        )
+        .await?;
+        native_owner = Some(native.clone());
+        artifact_owner = Some(
+            artifact::materialize_and_admit(
+                &workspace,
+                &captured,
+                Frontier::Catalog,
+                Profile::Catalog,
+                settings,
+                native.clone(),
+            )
+            .await?,
+        );
+        let admitted = artifact_owner.as_ref().unwrap();
+        let manifest = admitted.manifest().clone();
+        let handle = lctx_publisher::seal_completed(admitted, &config, &definitions).await?;
+        publication_owner = Some(handle.clone());
+        assert!(
+            !config.selection.exists(),
+            "ordinary publication never adopts an operator selection"
+        );
+        assert_eq!(handle.semantic, manifest.content());
+        assert_eq!(manifest.frontier, Frontier::Catalog);
+        assert_eq!(manifest.profile, Profile::Catalog);
+        assert_eq!(manifest.originals.len(), 1);
+        // Finish and drop every compiler/artifact owner before constructing the
+        // independent reader. A live private buffer cannot satisfy its reads.
+        let mut compiler_finality = finish_private(&workspace, Some(&native), None).await;
+        compiler_finality.step(
+            "private direct publication compiler factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+        completion::complete::<()>(Ok(()), compiler_finality)?;
+        artifact_owner.take();
+        native_owner.take();
+        workspace_owner.take();
+        compiler_factory_owner.take();
+        drop(captured);
+        drop(workspace);
+        drop(native);
+        drop(factory);
+        let reader_budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES)?;
+        let reader_factory = lctx_native::control::RecoveryFactoryOwner::new(
+            config.receipt_binding()?,
+            reader_budget.clone(),
+        )?;
+        reader_factory_owner = Some(reader_factory.clone());
+        reader_owner = Some(
+            NativeReader::connect(
+                &config.endpoint,
+                &config.writer_credentials(),
+                handle.clone(),
+                &reader_budget,
+                &reader_factory,
+            )
+            .await?,
+        );
+        let reader = reader_owner.as_ref().unwrap();
+        assert_eq!(reader.handle(), &handle);
+        let details = lctx_publisher::inspection::show(reader).await?;
+        assert_eq!(details.manifest.content(), manifest.content());
+        assert!(!details.bindings.is_empty());
+        for owner in [
+            analysis::owner::AnalysisOwner::CatalogCore,
+            analysis::owner::AnalysisOwner::CatalogEvidence,
+            analysis::owner::AnalysisOwner::Selection,
+            analysis::owner::AnalysisOwner::Synthesis,
+            analysis::owner::AnalysisOwner::Retrieval,
+        ] {
+            assert!(
+                details
+                    .contributions
+                    .iter()
+                    .any(|completed| completed.spec.producer == owner.name()),
+                "the actual Catalog frontier must retain {}",
+                owner.name()
+            );
+        }
+        let artifacts = reader
+            .records::<source::SourceArtifact>(lctx_native::RecordSelection::Scope {
+                field: "input".into(),
+                values: vec![serde_json::to_value(input).map_err(ModelError::codec)?],
+            })
+            .await?;
+        assert_eq!(artifacts.len(), 1);
+        assert_eq!(artifacts[0].path, "native_signature.py");
+        assert_eq!(artifacts[0].content, ContentHash::of(&expected));
+        let original = &manifest.originals[0];
+        let bytes = reader
+            .original_bytes(
+                original.source,
+                0,
+                usize::try_from(original.byte_len).map_err(ModelError::codec)?,
+            )
+            .await?;
+        assert_eq!(
+            bytes.as_ref(),
+            expected.as_slice(),
+            "cold native reading recovers the actual original source"
+        );
+        assert!(!config.selection.exists());
+        Ok::<(), ModelError>(())
+    })
+    .catch_unwind()
+    .await;
+    // Owners survive both ordinary errors and assertion unwinding. Reader
+    // factory construction failures and failed materialization retain their own
+    // authentic drainage routes instead of being treated as a successful body.
+    let primary = match &outcome {
+        Ok(Err(error)) => Some(error),
+        _ => None,
+    };
+    let mut finality = finalize_reader_owners([&mut reader_owner]).await;
+    if let Some(factory) = &reader_factory_owner {
+        finality.step(
+            "private direct publication cold reader factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+    }
+    if let Some(workspace) = &workspace_owner {
+        finality.merge(finish_private(workspace, native_owner.as_ref(), primary).await);
+    }
+    if let Some(factory) = &compiler_factory_owner {
+        finality.step(
+            "private direct publication failed compiler factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+    }
+    if let Some(handle) = &publication_owner {
+        finality.committed(
+            "private direct unselected Catalog publication",
+            format!("{handle:?}"),
+        );
+        if primary.is_none_or(ModelError::permits_storage_cleanup)
+            && finality.local == completion::LocalState::Terminal
+            && finality.remote == completion::RemoteState::Confirmed
+            && finality
+                .failures
+                .iter()
+                .all(|failure| failure.error.permits_storage_cleanup())
+        {
+            finality.step(
+                "private direct publication named retirement",
+                lctx_publisher::backup::retire(&config, handle, true)
+                    .await
+                    .map(|_| ()),
+            );
+        }
+    }
+    match outcome {
+        Ok(result) => completion::complete(result, finality).unwrap(),
+        Err(panic) => {
+            if let Err(error) = completion::complete::<()>(Ok(()), finality) {
+                eprintln!("private direct publication cleanup after assertion panic: {error:#?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+    }
+}
+
 #[tokio::test]
 async fn compiled_export_publishes_unselected_and_viewer_is_immutable() {
     publication_control().await;
@@ -2369,13 +2636,23 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup())
     {
-        terminal.merge(workspace.native().abandon_finality_report().await);
+        terminal.merge(
+            workspace
+                .native()
+                .expect("actual native fixture owner")
+                .abandon_finality_report()
+                .await,
+        );
     } else {
         terminal
             .storage
             .push(completion::StorageState::Orphan(format!(
                 "native_attempt:{}",
-                workspace.native().attempt().hex()
+                workspace
+                    .native()
+                    .expect("actual native fixture owner")
+                    .attempt()
+                    .hex()
             )));
     }
     let settled = workspace.complete_signal(&terminal).await;

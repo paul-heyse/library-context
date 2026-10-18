@@ -30,6 +30,11 @@ pub struct Relation {
     row_fingerprints: fn(&arrow_array::RecordBatch) -> Result<Vec<RowFingerprint>, ModelError>,
     ordered_canonical:
         fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
+    checked_batch: fn(
+        &super::ValidatedModel,
+        arrow_array::RecordBatch,
+        &super::resources::ResourceBudget,
+    ) -> Result<super::CheckedCanonicalBatch, ModelError>,
 }
 impl Relation {
     pub fn of<R: Record>() -> Self {
@@ -49,6 +54,7 @@ impl Relation {
             hash_rows: hash_rows::<R>,
             row_fingerprints: row_fingerprints::<R>,
             ordered_canonical: ordered_canonical::<R>,
+            checked_batch: checked_batch::<R>,
             proofs: proofs::<R>,
         }
     }
@@ -119,6 +125,16 @@ impl Relation {
             previous: None,
             count: 0,
         }
+    }
+    /// Re-enter typed canonical admission for an independently consumed columnar batch.
+    /// Schema equality or an earlier serialized descriptor alone cannot create this witness.
+    pub fn checked_batch(
+        &self,
+        model: &super::ValidatedModel,
+        batch: arrow_array::RecordBatch,
+        budget: &super::resources::ResourceBudget,
+    ) -> Result<super::CheckedCanonicalBatch, ModelError> {
+        (self.checked_batch)(model, batch, budget)
     }
     /// Validate and reencode complete typed rows while preserving their supplied order.
     /// `canonical` separately sorts IDs for canonical relation storage and is not suitable
@@ -969,6 +985,27 @@ pub struct RelationContent {
     count: u64,
 }
 impl RelationContent {
+    /// Accumulate logical content from fingerprints of already checked canonical rows.
+    /// This computes identity only; it grants no semantic or persistence authority.
+    pub fn push_fingerprint(&mut self, row: RowFingerprint) -> Result<(), ModelError> {
+        if self
+            .previous
+            .is_some_and(|previous| previous >= row.nominal)
+        {
+            return Err(ModelError::Invalid(format!(
+                "{} content rows must have strictly increasing IDs",
+                self.relation
+            )));
+        }
+        self.sink.part(b"id", &row.nominal);
+        self.sink.part(b"payload", &row.content.0);
+        self.previous = Some(row.nominal);
+        self.count = self
+            .count
+            .checked_add(1)
+            .ok_or_else(|| ModelError::Invalid("row count overflow".into()))?;
+        Ok(())
+    }
     pub fn finish(mut self) -> (u64, ContentHash) {
         self.sink.part(b"row-count", &self.count.to_le_bytes());
         (self.count, self.sink.finish())
@@ -982,6 +1019,13 @@ fn ordered_canonical<R: Record>(
         row.validate()?;
     }
     R::encode(&rows)
+}
+fn checked_batch<R: Record>(
+    model: &super::ValidatedModel,
+    batch: arrow_array::RecordBatch,
+    budget: &super::resources::ResourceBudget,
+) -> Result<super::CheckedCanonicalBatch, ModelError> {
+    super::Batch::<R>::read(model, &batch, budget)?.into_checked()
 }
 fn row_fingerprints<R: Record>(
     batch: &arrow_array::RecordBatch,
@@ -1002,20 +1046,10 @@ fn hash_rows<R: Record>(
     content: &mut RelationContent,
 ) -> Result<(), ModelError> {
     for row in R::decode(batch)? {
-        let id = *row.id().bytes();
-        if content.previous.is_some_and(|previous| previous >= id) {
-            return Err(ModelError::Invalid(format!(
-                "{} content rows must have strictly increasing IDs",
-                R::NAME
-            )));
-        }
-        content.sink.part(b"id", &id);
-        content.sink.part(b"payload", &row.content_digest().0);
-        content.previous = Some(id);
-        content.count = content
-            .count
-            .checked_add(1)
-            .ok_or_else(|| ModelError::Invalid("row count overflow".into()))?;
+        content.push_fingerprint(RowFingerprint {
+            nominal: *row.id().bytes(),
+            content: row.content_digest(),
+        })?;
     }
     Ok(())
 }

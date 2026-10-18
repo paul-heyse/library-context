@@ -202,7 +202,7 @@ async fn run_provider(
     let inputs = workspace.stage_inputs(&declaration, profile)?;
     let output = Arc::new(workspace.producer(&declaration, profile, inputs));
     output.captured_request()?;
-    let span = tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name, attempt=%workspace.native().attempt().hex());
+    let span = tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name, attempt=%workspace.operation_identity().hex());
     async move {
         let execution = lctx_native::phase::Phase::begin("provider_execution");
         let result = bundle::run_provider_bound_guarded(
@@ -250,7 +250,6 @@ pub async fn inspect(
     captured: Arc<CapturedInputs>,
     options: WorkspaceOptions,
     profile: Profile,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
     inspect_with(
         captured,
@@ -258,7 +257,6 @@ pub async fn inspect(
         profile,
         providers(ContentHash::of(b"facts-inspection")),
         TransferLimits::default(),
-        native,
     )
     .await
 }
@@ -268,37 +266,10 @@ pub async fn inspect_with(
     profile: Profile,
     providers: Vec<Box<dyn ProviderStage<ProducerOutput>>>,
     limits: TransferLimits,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
-    let setup = (|| {
-        let model = Arc::new(lctx_model::domain::model()?);
-        let workspace = Workspace::with_budget(
-            model.clone(),
-            options,
-            captured.config().budget().clone(),
-            native.clone(),
-        )?;
-        Ok::<_, ModelError>((model, workspace))
-    })();
-    let (model, workspace) = match setup {
-        Ok(value) => value,
-        Err(error) => {
-            native.fail();
-            return lctx_model::domain::completion::complete(
-                Err(error),
-                native.drain_report().await,
-            );
-        }
-    };
-    if let Err(error) = compile_facts(&workspace, &captured, profile, providers, limits).await {
-        return lctx_model::domain::completion::complete(
-            Err(error),
-            workspace.drain_report().await,
-        );
-    }
-    Ok((model, workspace))
+    let budget = captured.config().budget().clone();
+    inspect_with_budget(captured, options, profile, providers, limits, budget).await
 }
-
 pub async fn inspect_with_budget(
     captured: Arc<CapturedInputs>,
     options: WorkspaceOptions,
@@ -306,23 +277,9 @@ pub async fn inspect_with_budget(
     providers: Vec<Box<dyn ProviderStage<ProducerOutput>>>,
     limits: TransferLimits,
     budget: lctx_model::domain::resources::ResourceBudget,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
 ) -> Result<(Arc<ValidatedModel>, Arc<Workspace>), ModelError> {
-    let setup = (|| {
-        let model = Arc::new(lctx_model::domain::model()?);
-        let workspace = Workspace::with_budget(model.clone(), options, budget, native.clone())?;
-        Ok::<_, ModelError>((model, workspace))
-    })();
-    let (model, workspace) = match setup {
-        Ok(value) => value,
-        Err(error) => {
-            native.fail();
-            return lctx_model::domain::completion::complete(
-                Err(error),
-                native.drain_report().await,
-            );
-        }
-    };
+    let model = Arc::new(lctx_model::domain::model()?);
+    let workspace = Workspace::private_with_budget(model.clone(), options, budget)?;
     let result = async {
         compile_facts(&workspace, &captured, profile, providers, limits).await?;
         workspace.validate().await?;

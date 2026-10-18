@@ -243,6 +243,13 @@ impl StateCharge {
     }
 }
 impl Reservation for StateCharge {
+    fn shares_pool(&self, budget: &ResourceBudget) -> bool {
+        // All backing is acquired from this binding; split preserves it and absorb
+        // refuses a foreign pool before transferring any charge.
+        self.budget
+            .as_ref()
+            .is_some_and(|owner| owner.shares_pool(budget))
+    }
     fn size(&self) -> usize {
         self.reserved()
     }

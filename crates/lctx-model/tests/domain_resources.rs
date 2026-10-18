@@ -655,6 +655,31 @@ mod charged_state {
 }
 
 #[test]
+fn checked_normalized_transfer_preserves_its_actual_pool_and_last_owner_charge() {
+    use lctx_model::domain::{batching::TransferLimits, input::Package, model, normalized::Rows};
+    let model = model().unwrap();
+    let budget = ResourceBudget::fixed(16 << 20).unwrap();
+    let foreign = ResourceBudget::fixed(16 << 20).unwrap();
+    let mut rows = Rows::new(&budget);
+    rows.insert(Package {
+        name: "normalized".into(),
+    })
+    .unwrap();
+    let canonical = rows.take_batch(4096, 8 << 20).unwrap().unwrap();
+    let checked = canonical
+        .into_batch(&model, &budget, TransferLimits::default())
+        .unwrap()
+        .into_checked()
+        .unwrap();
+    drop(rows);
+    assert!(checked.shares_pool(&budget));
+    assert!(!checked.shares_pool(&foreign));
+    assert!(budget.reserved() >= checked.reserved());
+    drop(checked);
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
 fn checked_ingress_moves_canonical_buffers_and_releases_only_typed_row_charge() {
     use lctx_model::domain::{Batch, Record, input::Package, model};
     let model = model().unwrap();
@@ -684,8 +709,10 @@ fn checked_ingress_moves_canonical_buffers_and_releases_only_typed_row_charge() 
     let checked = batch.into_checked().unwrap();
     assert_eq!(checked.model(), model.digest());
     assert_eq!(checked.relation().name(), Package::NAME);
-    assert_eq!(checked.reserved(), encoded);
-    assert_eq!(budget.reserved(), encoded);
+    let fingerprints = std::mem::size_of_val(checked.fingerprints());
+    assert_eq!(checked.reserved(), encoded + fingerprints);
+    assert_eq!(budget.reserved(), encoded + fingerprints);
+    assert!(checked.shares_pool(&budget));
     assert_eq!(
         pointers,
         checked

@@ -25,6 +25,13 @@ pub enum AnalysisOwner {
     Synthesis,
     Retrieval,
 }
+/// Selected before declaration closure or physical preparation. Uniform production still
+/// owns its complete output inventory and its independently reconstructed authored domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisDemand {
+    Requested,
+    UniformNotRequested,
+}
 impl AnalysisOwner {
     pub const ALL: [Self; 15] = [
         Self::Local,
@@ -191,6 +198,38 @@ impl AnalysisOwner {
                     | Self::Summary
             )
     }
+    pub fn demand(
+        self,
+        profile: Profile,
+        analytics: Option<&super::settings::AnalyticsConfiguration>,
+        text: Option<&embedding::text::TextDefinition>,
+    ) -> Result<AnalysisDemand, ModelError> {
+        let unrequested = if self.compact_catalog(profile) {
+            true
+        } else {
+            match self {
+                Self::Analytic => {
+                    let settings = analytics
+                        .ok_or(ModelError::Conflict("analysis selected settings absent"))?;
+                    settings.validate()?;
+                    !analytics::build::requested(settings)
+                }
+                Self::Embedding => {
+                    let text = text.ok_or(ModelError::Conflict(
+                        "analysis selected text definition absent",
+                    ))?;
+                    text.validate()?;
+                    !text.requested
+                }
+                _ => false,
+            }
+        };
+        Ok(if unrequested {
+            AnalysisDemand::UniformNotRequested
+        } else {
+            AnalysisDemand::Requested
+        })
+    }
     pub(crate) fn uniform_checkpoint(self) -> PublicationBoundary {
         match self {
             Self::Local | Self::CatalogCore => PublicationBoundary::Facts,
@@ -216,38 +255,53 @@ impl AnalysisOwner {
         model: &ValidatedModel,
         order: &PublicationOrder,
     ) -> Result<Stage, ModelError> {
+        let demand = self.demand(profile, selected.analytics, selected.text)?;
         let definition = || selected.definition(self.methods()[0].0);
-        let mut stage = match self {
-            Self::Local => local_semantics::stage(profile, definition()?, model, order),
-            Self::Base => execution::production::stage(profile, definition()?, model, order),
-            Self::Completion => {
-                execution::completion_production::stage(profile, definition()?, model, order)
+        let mut stage = match (self, demand) {
+            (Self::Analytic, AnalysisDemand::UniformNotRequested) => {
+                analytics::build::stage_shape(profile, selected.settings()?)?
             }
-            Self::SourceCalls => {
-                execution::source_call::stage(profile, definition()?, model, order)
+            (Self::Embedding, AnalysisDemand::UniformNotRequested) => {
+                embedding::analytic::stage_shape(profile, selected.text()?.requested)
             }
-            Self::Enriched => {
-                execution::enriched_production::stage(profile, definition()?, model, order)
-            }
-            Self::Models => {
-                execution::model_production::stage(profile, definition()?, model, order)
-            }
-            Self::Summary => execution::summary_replay::stage(profile, definition()?, model, order),
-            Self::Structural => {
-                structural::build::stage(profile, selected.settings()?, model, order)
-            }
-            Self::Analytic => analytics::build::stage(profile, selected.settings()?, model, order),
-            Self::Embedding => {
-                embedding::analytic::stage(profile, selected.text()?.requested, model, order)
-            }
-            Self::CatalogCore => catalog::build::stage(profile, model, order),
-            Self::CatalogEvidence => catalog::evidence::build::stage(profile, model, order),
-            Self::Selection => selection::build::stage(profile, model, order),
-            Self::Synthesis => synthesis::build::stage(profile, selected.settings()?, model, order),
-            Self::Retrieval => {
-                retrieval::build::stage(profile, selected.retrieval()?, model, order)
-            }
-        }?;
+            _ => match self {
+                Self::Local => local_semantics::stage(profile, definition()?, model, order),
+                Self::Base => execution::production::stage(profile, definition()?, model, order),
+                Self::Completion => {
+                    execution::completion_production::stage(profile, definition()?, model, order)
+                }
+                Self::SourceCalls => {
+                    execution::source_call::stage(profile, definition()?, model, order)
+                }
+                Self::Enriched => {
+                    execution::enriched_production::stage(profile, definition()?, model, order)
+                }
+                Self::Models => {
+                    execution::model_production::stage(profile, definition()?, model, order)
+                }
+                Self::Summary => {
+                    execution::summary_replay::stage(profile, definition()?, model, order)
+                }
+                Self::Structural => {
+                    structural::build::stage(profile, selected.settings()?, model, order)
+                }
+                Self::Analytic => {
+                    analytics::build::stage(profile, selected.settings()?, model, order)
+                }
+                Self::Embedding => {
+                    embedding::analytic::stage(profile, selected.text()?.requested, model, order)
+                }
+                Self::CatalogCore => catalog::build::stage(profile, model, order),
+                Self::CatalogEvidence => catalog::evidence::build::stage(profile, model, order),
+                Self::Selection => selection::build::stage(profile, model, order),
+                Self::Synthesis => {
+                    synthesis::build::stage(profile, selected.settings()?, model, order)
+                }
+                Self::Retrieval => {
+                    retrieval::build::stage(profile, selected.retrieval()?, model, order)
+                }
+            }?,
+        };
         if self.can_be_wholly_unrequested() {
             stage
                 .outputs
@@ -282,7 +336,7 @@ impl AnalysisOwner {
                     .push(RelationUse::completed::<models::ModelCatalog>());
             }
         }
-        if self.compact_catalog(profile) {
+        if demand == AnalysisDemand::UniformNotRequested {
             // Keep the complete ordinary output inventory, authored definition and
             // producer implementation, but derive inputs from the actual compact
             // domain rather than the Behavioral kernel or preceding result owner.
@@ -387,6 +441,39 @@ pub fn validate_selected_roles(
     bindings: &[CompletedBinding],
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
+    let selected = bindings
+        .iter()
+        .map(|binding| {
+            binding.validate()?;
+            Ok(AnalysisSelectedBinding {
+                boundary: binding
+                    .boundary
+                    .as_deref()
+                    .map(|name| {
+                        PublicationBoundary::from_name(name).ok_or(ModelError::Conflict(
+                            "analysis owner unknown selected boundary",
+                        ))
+                    })
+                    .transpose()?,
+                source: binding.source.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>, ModelError>>()?;
+    validate_selected_source_roles(stage, owner, &selected, model)
+}
+/// Logical selected roles. These describe the actual immutable inputs held by the caller;
+/// they grant neither native persistence nor a read capability.
+#[derive(Debug, Clone)]
+pub struct AnalysisSelectedBinding {
+    pub boundary: Option<PublicationBoundary>,
+    pub source: analysis::sources::SourceSnapshot,
+}
+pub fn validate_selected_source_roles(
+    stage: &Stage,
+    owner: &CompletedContribution,
+    bindings: &[AnalysisSelectedBinding],
+    model: &ValidatedModel,
+) -> Result<(), ModelError> {
     if owner.spec.model != model.digest()
         || owner.spec.producer != stage.name
         || owner.spec.configuration != Some(stage.configuration)
@@ -418,12 +505,9 @@ pub fn validate_selected_roles(
                 .iter()
                 .filter(|binding| binding.source.relation() == role.name())
             {
-                let Some(name) = binding.boundary.as_deref() else {
+                let Some(boundary) = binding.boundary else {
                     continue;
                 };
-                let boundary = PublicationBoundary::from_name(name).ok_or(ModelError::Conflict(
-                    "analysis owner unknown selected boundary",
-                ))?;
                 let ordinal = order.resolve(boundary)?.ordinal();
                 if first.is_none_or(|(prior, _)| ordinal < prior) {
                     first = Some((ordinal, boundary));
@@ -442,19 +526,17 @@ pub fn validate_selected_roles(
         let mut matching = bindings.iter().filter(|binding| {
             binding.source == *snapshot
                 && match prefix {
-                    Some(prefix) => binding.boundary.as_deref() == Some(prefix.name()),
+                    Some(prefix) => binding.boundary == Some(prefix),
                     None => binding.boundary.is_none(),
                 }
         });
         let binding = matching.next().ok_or(ModelError::Conflict(
             "analysis owner selected input role absent",
         ))?;
-        binding.validate()?;
         // With no declared boundary, copies of one exact immutable snapshot are harmless;
         // distinct sources cannot match. Explicit boundaries must have one actual binding.
         for duplicate in matching {
-            duplicate.validate()?;
-            if prefix.is_some() || duplicate.view != binding.view {
+            if prefix.is_some() || duplicate.source != binding.source {
                 return Err(ModelError::Conflict(
                     "analysis owner selected input role ambiguous",
                 ));
@@ -466,6 +548,136 @@ pub fn validate_selected_roles(
 #[cfg(test)]
 mod controls {
     use super::*;
+    fn optional_settings() -> super::super::settings::AnalyticsConfiguration {
+        super::super::settings::AnalyticsConfiguration {
+            module_prefixes: vec!["cases".into()],
+            public_roots: vec!["cases".into()],
+            configured_seeds: vec![],
+            depth: 2,
+            vertices: 512,
+            arcs: 2048,
+            witnesses: 3,
+            brief_budget: 8,
+            communities: false,
+            pagerank: false,
+            fca: false,
+            rca: false,
+            type_layer: false,
+            mention_layer: false,
+            knn: false,
+            knn_layer: false,
+        }
+    }
+    #[test]
+    fn optional_demand_precedes_rich_closure_and_preserves_authored_output_contracts() {
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let model = crate::domain::model().unwrap();
+        let order = PublicationOrder::planning(&publication_groups(Vec::new(), true)).unwrap();
+        let mut settings = optional_settings();
+        let mut text = embedding::text::TextDefinition::builtin();
+        let mut definitions = normalized::Rows::new(&budget);
+        for method in analytics::build::METHODS {
+            definitions
+                .insert(analytics::build::definition(&settings, method).unwrap().1)
+                .unwrap();
+        }
+        definitions
+            .insert(embedding::analytic::definition().1)
+            .unwrap();
+        for profile in Profile::ALL {
+            let selected = SelectedDefinitions {
+                definitions: &definitions,
+                analytics: Some(&settings),
+                text: Some(&text),
+                retrieval: None,
+            };
+            for owner in [AnalysisOwner::Analytic, AnalysisOwner::Embedding] {
+                assert_eq!(
+                    owner.demand(profile, Some(&settings), Some(&text)).unwrap(),
+                    AnalysisDemand::UniformNotRequested
+                );
+                let stage = owner
+                    .declaration(profile, &selected, &model, &order)
+                    .unwrap();
+                let shape = if owner == AnalysisOwner::Analytic {
+                    analytics::build::stage_shape(profile, &settings).unwrap()
+                } else {
+                    embedding::analytic::stage_shape(profile, false)
+                };
+                assert_eq!(stage.configuration, shape.configuration);
+                assert_eq!(stage.effect, Effect::Pure);
+                assert_eq!(
+                    stage
+                        .outputs
+                        .iter()
+                        .filter(|r| r.name() != uniform_outcome::UniformNotRequested::NAME)
+                        .map(|r| r.name())
+                        .collect::<Vec<_>>(),
+                    shape.outputs.iter().map(|r| r.name()).collect::<Vec<_>>()
+                );
+                let inputs = stage
+                    .inputs
+                    .iter()
+                    .map(|r| r.name())
+                    .collect::<std::collections::BTreeSet<_>>();
+                for absent in [
+                    structural::StructuralFrame::NAME,
+                    projection::ProjectionSnapshot::NAME,
+                    embedding::value::FullValue::NAME,
+                    embedding::text::TextWindow::NAME,
+                    uniform_outcome::UniformNotRequested::NAME,
+                ] {
+                    assert!(
+                        !inputs.contains(absent),
+                        "{} acquired {absent}",
+                        owner.name()
+                    );
+                }
+                for required in
+                    uniform_outcome::AnalysisUniformInputs::authored_inputs(owner.name()).unwrap()
+                {
+                    assert!(
+                        inputs.contains(required.name()),
+                        "{} omitted authored {}",
+                        owner.name(),
+                        required.name()
+                    );
+                }
+            }
+        }
+        settings.pagerank = true;
+        text.requested = true;
+        for profile in Profile::ALL {
+            assert_eq!(
+                AnalysisOwner::Analytic
+                    .demand(profile, Some(&settings), Some(&text))
+                    .unwrap(),
+                AnalysisDemand::Requested
+            );
+            assert_eq!(
+                AnalysisOwner::Embedding
+                    .demand(profile, Some(&settings), Some(&text))
+                    .unwrap(),
+                AnalysisDemand::Requested
+            );
+        }
+        assert!(
+            AnalysisOwner::Analytic
+                .demand(Profile::Catalog, None, Some(&text))
+                .is_err()
+        );
+        assert!(
+            AnalysisOwner::Embedding
+                .demand(Profile::Catalog, Some(&settings), None)
+                .is_err()
+        );
+        settings.depth = -1;
+        assert!(
+            AnalysisOwner::Analytic
+                .demand(Profile::Catalog, Some(&settings), Some(&text))
+                .is_err()
+        );
+    }
     #[test]
     fn family_invariants_retain_the_producer_compact_checkpoint() {
         for (owner, expected) in [

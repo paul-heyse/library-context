@@ -2052,6 +2052,12 @@ impl PreparedRootBatch {
                         continue;
                     }
                     let provider = self.union.edges.provider(table).await?.clone();
+                    // This optional native-token key is unavailable for finite/private
+                    // providers. Decline before requesting native execution ownership;
+                    // unsupported preparation is not a failed accepted cache operation.
+                    if !crate::compiler_provider::supports_content_tokens(&provider) {
+                        return Ok(None);
+                    }
                     let requested = keys.clone();
                     let read_budget = budget.clone();
                     let found = runtime

@@ -15,7 +15,7 @@ impl Needs {
     pub fn remaining(
         stages: impl IntoIterator<Item = UpperStage>,
         profile: Profile,
-        analytics_requested: bool,
+        mut requested: impl FnMut(UpperStage) -> bool,
     ) -> Self {
         let mut needs = Self {
             graphs: BTreeSet::new(),
@@ -26,9 +26,10 @@ impl Needs {
             source_calls: false,
         };
         for stage in stages {
-            if stage != UpperStage::Analytic || analytics_requested {
-                needs.graphs.extend(stage.graphs(profile));
+            if !requested(stage) {
+                continue;
             }
+            needs.graphs.extend(stage.graphs(profile));
             needs.bindings |= stage.bindings(profile);
             if profile == Profile::Behavioral {
                 needs.local |= matches!(
@@ -60,6 +61,28 @@ mod controls {
     use super::*;
     use lctx_model::domain::{charged::StateCharge, resources::ResourceBudget};
 
+    fn requested(analytics: bool) -> impl FnMut(UpperStage) -> bool {
+        move |stage| stage != UpperStage::Analytic || analytics
+    }
+
+    #[test]
+    fn uniform_demand_retains_no_rich_preparation() {
+        use UpperStage::*;
+        let needs = Needs::remaining(
+            [SourceCalls, Enriched, Models, Summary, Analytic, Embedding],
+            Profile::Behavioral,
+            |_| false,
+        );
+        assert!(needs.graphs.is_empty());
+        assert!(
+            !needs.bindings
+                && !needs.local
+                && !needs.evaluations
+                && !needs.bodies
+                && !needs.source_calls
+        );
+    }
+
     #[test]
     fn selected_consumers_release_graphs_and_bindings_before_later_work() {
         use ProjectionName::*;
@@ -73,7 +96,7 @@ mod controls {
             Analytic,
             Synthesis,
         ];
-        let needs = Needs::remaining(selected, Profile::Behavioral, false);
+        let needs = Needs::remaining(selected, Profile::Behavioral, requested(false));
         assert_eq!(
             needs.graphs,
             BTreeSet::from([CallableInvocation, DefinitionContainment])
@@ -89,17 +112,18 @@ mod controls {
         let after_summary = Needs::remaining(
             [Structural, Analytic, Synthesis],
             Profile::Behavioral,
-            false,
+            requested(false),
         );
         release_unused(&mut bindings, after_summary.bindings);
         release_unused(&mut graphs, !after_summary.graphs.is_empty());
         assert_eq!(graphs.as_ref().unwrap().reserved(), 2048);
         assert_eq!(budget.reserved(), graph_bytes);
-        let after_structural = Needs::remaining([Analytic, Synthesis], Profile::Behavioral, false);
+        let after_structural =
+            Needs::remaining([Analytic, Synthesis], Profile::Behavioral, requested(false));
         release_unused(&mut graphs, !after_structural.graphs.is_empty());
         assert_eq!(budget.reserved(), 0);
         assert!(
-            Needs::remaining([Synthesis], Profile::Behavioral, true)
+            Needs::remaining([Synthesis], Profile::Behavioral, requested(true))
                 .graphs
                 .is_empty()
         );
@@ -109,11 +133,12 @@ mod controls {
     fn optional_analytic_retains_only_invocation_and_catalog_has_no_binding_owner() {
         use ProjectionName::*;
         use UpperStage::*;
-        let remaining = Needs::remaining([Analytic, Retrieval], Profile::Behavioral, true);
+        let remaining =
+            Needs::remaining([Analytic, Retrieval], Profile::Behavioral, requested(true));
         assert_eq!(remaining.graphs, BTreeSet::from([CallableInvocation]));
         assert!(!remaining.bindings);
         assert!(
-            Needs::remaining([Summary], Profile::Catalog, false)
+            Needs::remaining([Summary], Profile::Catalog, requested(false))
                 .graphs
                 .is_empty()
         );
@@ -121,13 +146,13 @@ mod controls {
             !Needs::remaining(
                 [SourceCalls, Enriched, Models, Summary],
                 Profile::Catalog,
-                true
+                requested(true)
             )
             .bindings
         );
         // An absent Structural stage cannot keep its containment projection alive.
         assert_eq!(
-            Needs::remaining([Summary], Profile::Behavioral, false).graphs,
+            Needs::remaining([Summary], Profile::Behavioral, requested(false)).graphs,
             BTreeSet::from([CallableInvocation])
         );
     }
@@ -142,7 +167,7 @@ mod controls {
                     .into_iter()
                     .filter(|stage| !completed.contains(stage.name())),
                 Profile::Behavioral,
-                true,
+                requested(true),
             )
         };
         // Structural completes while Summary runs and Analytic remains unstarted.

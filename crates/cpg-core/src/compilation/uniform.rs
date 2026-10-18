@@ -8,39 +8,58 @@ pub(super) fn unrequested(
     profile: Profile,
     prepared: &PreparedCompilation,
 ) -> bool {
-    match binding {
-        UpperStage::Local
-        | UpperStage::Base
-        | UpperStage::Completion
-        | UpperStage::SourceCalls
-        | UpperStage::Enriched
-        | UpperStage::Models
-        | UpperStage::Summary => profile == Profile::Catalog,
-        UpperStage::Embedding => !prepared.text.requested,
-        UpperStage::Analytic => !analytics::build::requested(prepared.settings()),
-        _ => false,
-    }
+    prepared.demand(binding, profile) == analysis::owner::AnalysisDemand::UniformNotRequested
 }
 /// Operation-local exact-source preparation. The retained CompletedInputs are the
 /// actual protected dependencies; no digest or nominal descriptor grants reuse.
 pub(super) struct Preparation {
-    state: tokio::sync::Mutex<PreparedFragments>,
+    state: std::sync::Mutex<PreparedFragments>,
 }
 struct PreparedFragments {
-    entries: Vec<std::sync::Arc<Fragment>>,
+    entries: Vec<std::sync::Arc<PendingFragment>>,
     charge: charged::StateCharge,
 }
-struct Fragment {
+type FragmentResult = futures::future::Shared<
+    BoxFuture<'static, Result<std::sync::Arc<Fragment>, std::sync::Arc<ModelError>>>,
+>;
+struct PendingFragment {
+    sources: std::sync::Arc<FragmentSources>,
+    terminal: FragmentResult,
+}
+/// The fixed preparation algorithm reads these exact protected sources under these
+/// typed relation/order contracts. Consumer names and incidental declaration order
+/// are deliberately absent from the compatibility test.
+struct FragmentSources {
     access: CompletedInputs,
-    inputs: AnalysisUniformInputs,
+    required: Vec<ValidationInput>,
     _charge: charged::StateCharge,
+}
+impl FragmentSources {
+    fn matches(&self, access: &CompletedInputs, required: &[ValidationInput]) -> bool {
+        self.access.same_preparation_sources(access)
+            && self.required.len() == required.len()
+            && self.required.iter().all(|input| {
+                required.iter().any(|candidate| {
+                    input.type_id() == candidate.type_id()
+                        && input.name() == candidate.name()
+                        && input.prefix() == candidate.prefix()
+                        && input.order() == candidate.order()
+                })
+            })
+    }
+}
+struct Fragment {
+    inputs: AnalysisUniformInputs,
+    // A useful borrower outlives the registry without dropping its protected source
+    // or the reservation which admitted preparation metadata.
+    _sources: std::sync::Arc<FragmentSources>,
 }
 impl Preparation {
     pub(super) fn new(budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "compact metadata registry");
         charge.grow(size_of::<Self>() + 2 * size_of::<usize>())?;
         Ok(Self {
-            state: tokio::sync::Mutex::new(PreparedFragments {
+            state: std::sync::Mutex::new(PreparedFragments {
                 entries: Vec::new(),
                 charge,
             }),
@@ -50,40 +69,104 @@ impl Preparation {
         &self,
         access: &CompletedInputs,
         required: &[ValidationInput],
-        workspace: &Workspace,
+        workspace: &Arc<Workspace>,
     ) -> Result<std::sync::Arc<Fragment>, ModelError> {
+        self.acquire_with(access, required, workspace, |sources, owner| async move {
+            load_fragment(&sources.access, &sources.required, &owner).await
+        })
+        .await
+    }
+    /// The sole production caller supplies the fixed loader above. Keeping launch
+    /// separate from result borrowing makes accepted work independent of waiters.
+    async fn acquire_with<F, Fut>(
+        &self,
+        access: &CompletedInputs,
+        required: &[ValidationInput],
+        workspace: &Arc<Workspace>,
+        load: F,
+    ) -> Result<std::sync::Arc<Fragment>, ModelError>
+    where
+        F: FnOnce(Arc<FragmentSources>, Arc<Workspace>) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<AnalysisUniformInputs, ModelError>>
+            + Send
+            + 'static,
+    {
         workspace.cancellation().check()?;
         let mut allocation =
             charged::StateCharge::new(workspace.budget(), "compact metadata fragment");
-        allocation.grow(required.len() * (size_of::<ValidationInput>() + 128))?;
+        allocation.grow(required.iter().fold(0_usize, |bytes, input| {
+            bytes
+                .saturating_add(size_of::<ValidationInput>() + 128)
+                .saturating_add(input.order().len().saturating_mul(size_of::<&str>()))
+        }))?;
+        if required.iter().enumerate().any(|(index, input)| {
+            required[..index].iter().any(|previous| {
+                input.name() == previous.name() && input.prefix() == previous.prefix()
+            })
+        }) {
+            return Err(ModelError::Conflict("duplicate compact preparation input"));
+        }
         let selected = access.select(required)?;
-        // Serialize only construction of this operation's small finite metadata. A
-        // cancelled initializer drops its private partial state and publishes no entry.
-        let mut state = self.state.lock().await;
-        if let Some(entry) = state
-            .entries
-            .iter()
-            .find(|entry| entry.access.same_preparation_sources(&selected))
-        {
-            return Ok(entry.clone());
-        }
-        allocation.grow(size_of::<Fragment>() + 2 * size_of::<usize>())?;
-        let inputs = load_fragment(&selected, required, workspace).await?;
-        workspace.cancellation().check()?;
-        if state.entries.len() == state.entries.capacity() {
-            let additional = state.entries.capacity().max(4);
-            state
-                .charge
-                .grow(additional * size_of::<std::sync::Arc<Fragment>>())?;
-            state.entries.reserve_exact(additional);
-        }
-        let fragment = std::sync::Arc::new(Fragment {
-            access: selected,
-            inputs,
-            _charge: allocation,
-        });
-        state.entries.push(fragment.clone());
-        Ok(fragment)
+        let terminal = {
+            // Only exact-key lookup, admission and owned task registration occur under
+            // this lock. Session acquisition and all stream/EOF work run outside it.
+            let mut state = self.state.lock().map_err(|_| {
+                ModelError::Conflict("compact metadata preparation registry poisoned")
+            })?;
+            if let Some(entry) = state
+                .entries
+                .iter()
+                .find(|entry| entry.sources.matches(&selected, required))
+            {
+                entry.terminal.clone()
+            } else {
+                allocation.grow(
+                    size_of::<FragmentSources>()
+                        + size_of::<PendingFragment>()
+                        + size_of::<Fragment>()
+                        + 6 * size_of::<usize>(),
+                )?;
+                if state.entries.len() == state.entries.capacity() {
+                    let additional = state.entries.capacity().max(4);
+                    state
+                        .charge
+                        .grow(additional.saturating_mul(size_of::<Arc<PendingFragment>>()))?;
+                    state.entries.reserve_exact(additional);
+                }
+                let sources = Arc::new(FragmentSources {
+                    access: selected,
+                    required: required.to_vec(),
+                    _charge: allocation,
+                });
+                let protected = sources.clone();
+                let owner = workspace.clone();
+                // The Workspace first reserves/registers observation of the actual body
+                // result, including cancellation before its first poll and panics. A
+                // JoinHandle-only observer would lose body errors when waiters disappear.
+                let launched = workspace.spawn_preparation(async move {
+                    let inputs = load(protected.clone(), owner.clone()).await?;
+                    owner.cancellation().check()?;
+                    Ok(Fragment {
+                        inputs,
+                        _sources: protected,
+                    })
+                });
+                let terminal = match launched {
+                    Ok(terminal) => terminal,
+                    Err(error) => futures::future::ready(Err(Arc::new(error)))
+                        .boxed()
+                        .shared(),
+                };
+                state.entries.push(Arc::new(PendingFragment {
+                    sources,
+                    terminal: terminal.clone(),
+                }));
+                terminal
+            }
+        };
+        // Terminal failures remain in the registry under their original exact key.
+        // No waiter cancellation can turn them into an implicit effect retry.
+        terminal.await.map_err(ModelError::SharedCause)
     }
 }
 /// Every whole-fragment stream must exhaust the exact immutable selected view.
@@ -195,7 +278,7 @@ async fn load_fragment(
 pub(super) async fn produce(
     access: CompletedInputs,
     output: ProducerOutput,
-    workspace: &Workspace,
+    workspace: &Arc<Workspace>,
     declaration: &Stage,
     preparation: &Preparation,
 ) -> Result<(), ModelError> {
@@ -250,19 +333,17 @@ mod metadata_controls {
         assert!(overflow.accept(1).is_err());
     }
     #[tokio::test]
-    async fn completed_uniform_common_registry_reuses_exact_sources_and_never_publishes_refused_initialization()
-     {
+    async fn completed_uniform_common_registry_single_flight_and_retained_failure() {
         use crate::workspace::WorkspaceOptions;
         use futures::FutureExt;
         let budget = resources::ResourceBudget::fixed(128 << 20).unwrap();
-        let workspace = Workspace::with_budget(
+        let workspace = Workspace::private_with_budget(
             Arc::new(lctx_model::domain::model().unwrap()),
             WorkspaceOptions {
                 memory_bytes: 128 << 20,
                 ..Default::default()
             },
             budget.clone(),
-            crate::test_native::store_with_budget(budget.clone()),
         )
         .unwrap();
         let result = std::panic::AssertUnwindSafe(async {
@@ -283,45 +364,97 @@ mod metadata_controls {
             // Shared metadata has its own fixed preparation algorithm identity.
             let other_owner = workspace.inputs("uniform-common-different-owner-program", Profile::Catalog,
                 required.iter().rev().map(ValidationInput::name)).unwrap();
-            let second = preparation.acquire(&other_owner, &required, &workspace).await.unwrap();
+            let reversed = required.iter().rev().cloned().collect::<Vec<_>>();
+            let second = preparation.acquire(&other_owner, &reversed, &workspace).await.unwrap();
             assert!(Arc::ptr_eq(&first, &second), "the same ready fragment returns before a second physical loader can start");
-            assert_eq!(preparation.state.lock().await.entries.len(), 1);
+            assert_eq!(preparation.state.lock().unwrap().entries.len(), 1);
             let narrow = preparation.acquire(&access, &[ValidationInput::of::<input::InputRevision>(&["id"])], &workspace).await.unwrap();
             assert!(!Arc::ptr_eq(&first, &narrow), "a changed dependency set never borrows the broader ready index");
-            assert_eq!(preparation.state.lock().await.entries.len(), 2);
-            assert!(preparation.acquire(&access, &[ValidationInput::of::<input::Package>(&["id"])], &workspace).await.is_err());
-            assert_eq!(preparation.state.lock().await.entries.len(), 2, "no entry from a failed initializer");
+            assert_eq!(preparation.state.lock().unwrap().entries.len(), 2);
+            let differently_ordered = preparation.acquire(&access,
+                &[ValidationInput::of::<input::InputRevision>(&[])], &workspace).await.unwrap();
+            assert!(!Arc::ptr_eq(&narrow, &differently_ordered), "a different typed ordering contract earns its own preparation");
+            let package = [ValidationInput::of::<input::Package>(&["id"])];
+            let failure = match preparation.acquire(&access, &package, &workspace).await {
+                Err(ModelError::SharedCause(error)) => error,
+                _ => panic!("unsupported initializer did not retain its typed error"),
+            };
+            let repeated = match preparation.acquire(&access, &package, &workspace).await {
+                Err(ModelError::SharedCause(error)) => error,
+                _ => panic!("failed exact key was retried or its error changed"),
+            };
+            assert!(Arc::ptr_eq(&failure, &repeated));
+            assert_eq!(preparation.state.lock().unwrap().entries.len(), 4, "failed initialization remains terminal under its exact key");
+
+            // Hold both actual loaders at explicit admission barriers. A same-key
+            // waiter must share the first owner; a distinct key must enter without
+            // releasing it. No elapsed-time assumption establishes concurrency.
+            let concurrent = Preparation::new(&budget).unwrap();
+            let (entered, mut entering) = tokio::sync::mpsc::unbounded_channel();
+            let release = Arc::new(tokio::sync::Semaphore::new(0));
+            let blocked_loader = |entered: tokio::sync::mpsc::UnboundedSender<()>, release: Arc<tokio::sync::Semaphore>| {
+                move |sources: Arc<FragmentSources>, owner: Arc<Workspace>| async move {
+                    entered.send(()).map_err(ModelError::codec)?;
+                    release.acquire_owned().await.map_err(ModelError::codec)?.forget();
+                    load_fragment(&sources.access, &sources.required, &owner).await
+                }
+            };
+            let mut first_waiter = Box::pin(concurrent.acquire_with(&access, &required, &workspace,
+                blocked_loader(entered.clone(), release.clone())));
+            assert!(futures::poll!(&mut first_waiter).is_pending());
+            entering.recv().await.unwrap();
+            let mut same_waiter = Box::pin(concurrent.acquire(&other_owner, &required, &workspace));
+            assert!(futures::poll!(&mut same_waiter).is_pending());
+            assert_eq!(concurrent.state.lock().unwrap().entries.len(), 1);
+            let narrow_required = [ValidationInput::of::<input::InputRevision>(&["id"])];
+            let mut distinct_waiter = Box::pin(concurrent.acquire_with(&access, &narrow_required, &workspace,
+                blocked_loader(entered, release.clone())));
+            assert!(futures::poll!(&mut distinct_waiter).is_pending());
+            entering.recv().await.unwrap();
+            assert_eq!(concurrent.state.lock().unwrap().entries.len(), 2);
+            // Losing the initiating waiter does not cancel or reissue accepted work.
+            drop(first_waiter);
+            release.add_permits(2);
+            let shared = same_waiter.await.unwrap();
+            let distinct = distinct_waiter.await.unwrap();
+            assert!(!Arc::ptr_eq(&shared, &distinct));
+            let borrowed = concurrent.acquire(&access, &required, &workspace).await.unwrap();
+            assert!(Arc::ptr_eq(&shared, &borrowed));
+            drop(concurrent);
+            assert!(Arc::ptr_eq(&shared, &borrowed), "last useful borrowers keep completed backing after registry release");
+            drop(shared); drop(distinct); drop(borrowed);
             let cancelled = Preparation::new(&budget).unwrap();
             workspace.cancellation().cancel();
             assert!(cancelled.acquire(&access, &required, &workspace).await.is_err());
-            assert!(cancelled.state.lock().await.entries.is_empty());
-            drop(first); drop(second); drop(narrow); drop(preparation); drop(cancelled); drop(access); drop(other_owner);
+            assert!(cancelled.state.lock().unwrap().entries.is_empty());
+            drop(first); drop(second); drop(narrow); drop(differently_ordered); drop(preparation); drop(cancelled); drop(access); drop(other_owner);
+            failure
         }).catch_unwind().await;
         let mut finality = workspace.drain_owned_report().await;
-        if finality.local == completion::LocalState::Terminal
-            && finality.remote == completion::RemoteState::Confirmed
-            && finality
-                .failures
-                .iter()
-                .all(|failure| failure.error.permits_storage_cleanup())
-        {
-            finality.merge(workspace.native().abandon_finality_report().await);
-        } else {
-            finality
-                .storage
-                .push(completion::StorageState::Orphan(format!(
-                    "native_attempt:{}",
-                    workspace.native().attempt().hex()
-                )));
-        }
         let signal = workspace.complete_signal(&finality).await;
         finality.step("uniform metadata control workspace signal", signal);
-        if let Err(panic) = result {
-            if let Err(error) = completion::complete::<()>(Ok(()), finality) {
-                eprintln!("uniform metadata cleanup after panic: {error:#?}");
+        let expected = match result {
+            Ok(expected) => expected,
+            Err(panic) => {
+                if let Err(error) = completion::complete::<()>(Ok(()), finality) {
+                    eprintln!("uniform metadata cleanup after panic: {error:#?}");
+                }
+                std::panic::resume_unwind(panic);
             }
-            std::panic::resume_unwind(panic);
-        }
+        };
+        assert_eq!(
+            finality.failures.len(),
+            1,
+            "only the intentional initializer failure reaches drainage: {finality:#?}"
+        );
+        assert!(
+            std::ptr::eq(
+                finality.failures[0].error.primary().unwrap(),
+                expected.primary().unwrap(),
+            ),
+            "drainage preserves the same initializer error even after every registry waiter drops"
+        );
+        finality.failures.clear();
         completion::complete::<()>(Ok(()), finality).unwrap();
     }
 }

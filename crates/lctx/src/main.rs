@@ -505,34 +505,11 @@ fn flow_file(
         )],
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
-    let native_path = std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(crate::newnative::default_config);
-    let native_config = crate::newnative::config(&native_path)?;
-    let factory = lctx_compiler_store::compiler::recovery_factory(&native_config, budget.clone())?;
-    let native = runtime.block_on(lctx_compiler_store::compiler::NativeCompilerStore::begin(
-        &native_config,
-        lctx_model::domain::admission::Frontier::Facts,
-        &factory,
-    ))?;
-    let (model, workspace) = match runtime.block_on(cpg_core::facts::inspect(
+    let (model, workspace) = runtime.block_on(cpg_core::facts::inspect(
         captured,
         flow_workspace_options(&budget),
         Profile::Behavioral,
-        native.clone(),
-    )) {
-        Ok(result) => result,
-        Err(error) => {
-            native.fail();
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step(
-                "facts inspection abandon",
-                runtime.block_on(native.abandon()),
-            );
-            return lctx_model::domain::completion::complete::<()>(Err(error), completion)
-                .map_err(Into::into);
-        }
-    };
+    ))?;
     let output = (|| -> anyhow::Result<String> {
         let digest = workspace.identity()?;
         fn read<R: Record>(
@@ -655,7 +632,7 @@ fn flow_file(
     })();
     let output = output.map_err(crate::newnative::operation_error);
     let completion = runtime.block_on(crate::newnative::finalize_compilation(
-        &workspace, &native, &output, None,
+        &workspace, None, &output, None,
     ));
     let output = lctx_model::domain::completion::complete(output, completion)?;
     println!("{output}");

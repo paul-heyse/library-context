@@ -68,6 +68,7 @@ impl ErasedWriter for ReplayWriter {
             Ok(PendingRelation {
                 relation: self.relation,
                 contribution: self.contribution,
+                private: None,
             })
         }
         .boxed()
@@ -155,6 +156,153 @@ impl ProducerOutput {
     {
         self.reuse_product_inner(true, check)
     }
+    async fn reuse_private_product<'a, F>(
+        &'a self,
+        prepare_owner: bool,
+        check: F,
+    ) -> Result<Option<ProviderOutcome>, ModelError>
+    where
+        F: FnOnce(Arc<ProductCandidate>) -> BoxFuture<'a, Result<(), ModelError>> + Send + 'a,
+    {
+        self.check()?;
+        let Some(cache) = self.workspace.product_cache()? else {
+            // No configured retained-product consumer: decline before a native request.
+            return Ok(None);
+        };
+        let request = self.product_request()?;
+        if !self.writers.lock().map_err(|_| poisoned())?.is_empty() {
+            return Err(ModelError::Conflict(
+                "private product lookup after output started",
+            ));
+        }
+        let cached = if self.workspace.product_reuse_enabled() {
+            let request = self.captured_request()?;
+            let request_charge = self.workspace.budget().reserve(
+                "private compiled cache request transfer",
+                request
+                    .product()
+                    .retained_bytes()?
+                    .saturating_mul(2)
+                    .saturating_add(65536),
+            )?;
+            let request = request.clone();
+            let workspace = self.workspace.clone();
+            let allowed = self.allowed.clone();
+            let profile = self.profile;
+            self.workspace
+                .cache_call(async move {
+                    let _request_charge = request_charge;
+                    let Some(retained) = cache
+                        .lookup_compiled(
+                            &request,
+                            workspace.model.clone(),
+                            profile,
+                            workspace.budget(),
+                        )
+                        .await?
+                    else {
+                        return Ok(None);
+                    };
+                    // The accepted operation owns the native source through checked copying
+                    // and actual close. Only settled private backing crosses result delivery,
+                    // including when its waiter disappears after a successful lookup.
+                    let copied = async {
+                        let descriptor = retained.descriptor();
+                        if descriptor
+                            .outputs
+                            .keys()
+                            .map(String::as_str)
+                            .collect::<BTreeSet<_>>()
+                            != allowed
+                        {
+                            return Err(ModelError::Conflict("private retained output inventory"));
+                        }
+                        let mut outputs = BTreeMap::new();
+                        for name in &allowed {
+                            let relation = workspace
+                                .model
+                                .relation(name)
+                                .ok_or(ModelError::Schema("private cached relation"))?
+                                .clone();
+                            let mut writer = super::private_source::PrivateWriter::new_with_spill(
+                                workspace.model.digest(),
+                                relation.clone(),
+                                workspace.budget().clone(),
+                                workspace.private_directory(),
+                                workspace.private_spill.clone(),
+                            )?;
+                            let mut stream = retained
+                                .batches(
+                                    &relation,
+                                    workspace.budget(),
+                                    workspace.options.batch_rows,
+                                )
+                                .await?;
+                            while let Some(batch) =
+                                stream.try_next().await.map_err(ModelError::codec)?
+                            {
+                                workspace.cancellation.check()?;
+                                writer.push(relation.checked_batch(
+                                    &workspace.model,
+                                    batch,
+                                    workspace.budget(),
+                                )?)?;
+                            }
+                            let source = writer.finish()?;
+                            let expected = descriptor
+                                .outputs
+                                .get(*name)
+                                .ok_or(ModelError::Conflict("private cached output absent"))?;
+                            if source.rows() != expected.rows
+                                || source.content() != expected.content
+                            {
+                                return Err(ModelError::Conflict("private cached typed content"));
+                            }
+                            outputs.insert(*name, source);
+                        }
+                        Ok(outputs)
+                    }
+                    .await;
+                    let mut terminal = lctx_model::domain::completion::Completion::default();
+                    terminal.step(
+                        "private retained product source close",
+                        retained.close().await,
+                    );
+                    lctx_model::domain::completion::complete(copied, terminal).map(Some)
+                })
+                .await?
+        } else {
+            None
+        };
+        let Some(outputs) = cached else {
+            *self.product_capture.lock().map_err(|_| poisoned())? = Some(request);
+            return Ok(None);
+        };
+        if prepare_owner {
+            let mut charge = self
+                .workspace
+                .budget
+                .reserve("private product application metadata", 0)?;
+            let mut sections = Vec::new();
+            for source in outputs.values() {
+                let mut batches = Vec::new();
+                for batch in source.read_batches()? {
+                    charge
+                        .try_resize(charge.size().saturating_add(size_of::<RecordBatch>() + 256))?;
+                    batches.push(batch?);
+                }
+                sections.push((source.relation().clone(), batches));
+            }
+            check(Arc::new(ProductCandidate {
+                sections,
+                _charge: charge,
+            }))
+            .await?;
+        }
+        self.workspace.cancellation.check()?;
+        self.install_private_product(outputs)?;
+        Ok(Some(ProviderOutcome::Complete))
+    }
     fn reuse_product_inner<'a, F>(
         &'a self,
         prepare_owner: bool,
@@ -164,6 +312,9 @@ impl ProducerOutput {
         F: FnOnce(Arc<ProductCandidate>) -> BoxFuture<'a, Result<(), ModelError>> + Send + 'a,
     {
         async move {
+            if self.workspace.is_private() {
+                return self.reuse_private_product(prepare_owner, check).await;
+            }
             self.check()?;
             let request = self.product_request()?;
             let inventory = self
@@ -182,7 +333,7 @@ impl ProducerOutput {
             {
                 return Err(ModelError::Conflict("product lookup after output started"));
             }
-            let native = self.workspace.native.clone();
+            let native = self.workspace.native()?.clone();
             let budget = self.workspace.budget().clone();
             let captured = self.captured_request()?.clone();
             let model = self.workspace.model.clone();
@@ -215,7 +366,7 @@ impl ProducerOutput {
                         for relation in &inventory {
                             let mut stream = self
                                 .workspace
-                                .native
+                                .native()?
                                 .scan_held_candidate_batches(
                                     &candidate,
                                     relation,
@@ -261,7 +412,7 @@ impl ProducerOutput {
                 }
                 // The candidate remains physically held through complete receiver
                 // preflight; only now install receiver views and output ownership.
-                let native = self.workspace.native.clone();
+                let native = self.workspace.native()?.clone();
                 let budget = self.workspace.budget().clone();
                 let (id, _, descriptor) = self
                     .workspace
@@ -368,6 +519,69 @@ pub(crate) fn decode_product_rows(
 }
 
 impl Workspace {
+    /// Queue a named reusable product without creating private-stage native effects.
+    /// Its actual persistence uses the final target's completed content before native freeze.
+    pub(super) async fn retain_private_product(
+        &self,
+        request: ProductRequest,
+        descriptor: lctx_model::domain::completed::CompletedContribution,
+        outputs: BTreeMap<String, Arc<super::private_source::PrivateRelation>>,
+    ) -> Result<(), ModelError> {
+        if self.product_cache()?.is_none()
+            || descriptor.outcome != 0
+            || descriptor.spec.producer == lctx_model::domain::producer_contract::facts::ASSEMBLE
+        {
+            return Ok(());
+        }
+        if outputs.keys().ne(descriptor.outputs.keys()) {
+            return Err(ModelError::Conflict("private retained output inventory"));
+        }
+        for (name, source) in &outputs {
+            let expected = &descriptor.outputs[name];
+            if source.model() != self.model.digest()
+                || source.rows() != expected.rows
+                || source.content() != expected.content
+            {
+                return Err(ModelError::Conflict("private retained output content"));
+            }
+        }
+        let mut charge = StateCharge::new(&self.budget, "pending native product retention");
+        charge.grow(
+            request
+                .retained_bytes()?
+                .saturating_add(lctx_native::installed_view::contribution_heap(&descriptor))
+                .saturating_add(512),
+        )?;
+        let mut pending = self.private_products.lock().map_err(|_| poisoned())?;
+        pending.try_reserve(1).map_err(ModelError::codec)?;
+        pending.push((request, descriptor, charge));
+        Ok(())
+    }
+    pub(crate) async fn retain_materialized_products(
+        &self,
+        native: &Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+    ) -> Result<(), ModelError> {
+        let pending = std::mem::take(&mut *self.private_products.lock().map_err(|_| poisoned())?);
+        for (request, descriptor, _charge) in pending {
+            self.cancellation.check()?;
+            let physical = lctx_model::domain::completed::attempt_contribution(
+                native.attempt(),
+                descriptor.spec.identity()?,
+            );
+            let actual = native.completed_contribution(physical).await?;
+            if actual != descriptor {
+                return Err(ModelError::Conflict(
+                    "materialized retained product descriptor",
+                ));
+            }
+            // The first request is a real accepted native effect. Propagate refusal and
+            // Unknown unchanged; native finalization remains owned by the explicit target.
+            native
+                .retain_product_identity(request.identity()?, physical, &self.budget)
+                .await?;
+        }
+        Ok(())
+    }
     pub(super) async fn retain_product(
         &self,
         request: ProductRequest,
@@ -379,7 +593,7 @@ impl Workspace {
         let prepared = tokio::select! {
             biased;
             () = self.cancellation.cancelled() => { self.cancellation.check()?; unreachable!("cancelled token checked"); }
-            prepared = self.native.prepare_product_retention(identity, production, &self.budget) => prepared?,
+            prepared = self.native()?.prepare_product_retention(identity, production, &self.budget) => prepared?,
         };
         match prepared {
             RetentionPreparation::Declined => {
@@ -388,7 +602,7 @@ impl Workspace {
             }
             RetentionPreparation::Ready(prepared) => {
                 self.cancellation.check()?;
-                let native = self.native.clone();
+                let native = self.native()?.clone();
                 let budget = self.budget.clone();
                 self.native_call(
                     async move { native.retain_prepared_product(prepared, &budget).await },
@@ -473,7 +687,7 @@ mod controls {
         let id = produced.registration_request().await.unwrap();
         let scope = produced.producing_scope().unwrap();
         produced.finish(ProviderOutcome::Complete).await.unwrap();
-        let native = workspace.native.clone();
+        let native = workspace.native().unwrap().clone();
         let budget = workspace.budget.clone();
         let result = workspace
             .native_call(async move {
@@ -544,7 +758,7 @@ mod controls {
         assert_eq!(workspace.relation(Package::NAME).unwrap().rows(), 0);
         observer.invalidate().await.unwrap();
         workspace.drain().await.unwrap();
-        workspace.native.abandon().await.unwrap();
+        workspace.native().unwrap().abandon().await.unwrap();
     }
     #[tokio::test]
     async fn private_capture_wait_does_not_hold_disjoint_completion_or_change_old_view() {
@@ -559,7 +773,8 @@ mod controls {
         // A wholly local prepared owner holds this exact request gate. No native
         // product or pin has been created by that preparation.
         let RetentionPreparation::Ready(blocker) = workspace
-            .native
+            .native()
+            .expect("actual native fixture owner")
             .prepare_product_retention(identity, seed.clone(), &workspace.budget)
             .await
             .unwrap()
@@ -663,7 +878,7 @@ mod controls {
         observer.invalidate().await.unwrap();
         drop(seed);
         workspace.drain().await.unwrap();
-        workspace.native.abandon().await.unwrap();
+        workspace.native().unwrap().abandon().await.unwrap();
     }
     #[tokio::test]
     async fn optional_capture_declines_before_dispatch_and_preserves_empty_required_output() {
@@ -682,7 +897,8 @@ mod controls {
             .unwrap();
         assert!(matches!(
             workspace
-                .native
+                .native()
+                .expect("actual native fixture owner")
                 .prepare_product_retention(identity, production.clone(), &workspace.budget)
                 .await
                 .unwrap(),
@@ -699,7 +915,8 @@ mod controls {
         drop(fill);
         assert_eq!(workspace.budget.reserved(), before);
         let (retained, charge) = workspace
-            .native
+            .native()
+            .expect("actual native fixture owner")
             .retained_product_views(&workspace.budget)
             .await
             .unwrap();
@@ -714,7 +931,8 @@ mod controls {
             .await
             .unwrap();
         let (retained, charge) = workspace
-            .native
+            .native()
+            .expect("actual native fixture owner")
             .retained_product_views(&workspace.budget)
             .await
             .unwrap();
@@ -723,7 +941,7 @@ mod controls {
         drop((retained, charge, production));
         workspace.freeze_for_admission(None).await.unwrap();
         workspace.drain().await.unwrap();
-        workspace.native.abandon().await.unwrap();
+        workspace.native().unwrap().abandon().await.unwrap();
     }
     #[tokio::test]
     async fn prepared_capture_drop_releases_local_backing_and_post_cutoff_refusal_is_fatal() {
@@ -732,12 +950,13 @@ mod controls {
         let (request, production) = earned(&workspace, "capture-cutoff").await;
         let identity = request.identity().unwrap();
         let prepared = workspace
-            .native
+            .native()
+            .expect("actual native fixture owner")
             .prepare_product_retention(identity, production.clone(), &workspace.budget)
             .await
             .unwrap();
         let retained = workspace.budget.reserved();
-        let mut waiting = Box::pin(workspace.native.prepare_product_retention(
+        let mut waiting = Box::pin(workspace.native().unwrap().prepare_product_retention(
             identity,
             production.clone(),
             &workspace.budget,
@@ -750,7 +969,8 @@ mod controls {
         drop(prepared);
         assert!(workspace.budget.reserved() < retained);
         let RetentionPreparation::Ready(prepared) = workspace
-            .native
+            .native()
+            .expect("actual native fixture owner")
             .prepare_product_retention(identity, production.clone(), &workspace.budget)
             .await
             .unwrap()
@@ -764,7 +984,7 @@ mod controls {
                 workspace.budget.limit() - workspace.budget.reserved(),
             )
             .unwrap();
-        let native = workspace.native.clone();
+        let native = workspace.native().unwrap().clone();
         let budget = workspace.budget.clone();
         let failure = workspace
             .native_call(async move { native.retain_prepared_product(prepared, &budget).await })
@@ -781,7 +1001,7 @@ mod controls {
         lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
         lctx_model::domain::completion::complete::<()>(
             Ok(()),
-            workspace.native.abandon_finality_report().await,
+            workspace.native().unwrap().abandon_finality_report().await,
         )
         .unwrap();
     }
@@ -864,6 +1084,74 @@ mod controls {
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
+    async fn private_cache_miss_queues_local_retention_without_allocating_native_target() {
+        let config = config();
+        let options = WorkspaceOptions::default();
+        let budget = ResourceBudget::fixed(options.memory_bytes).unwrap();
+        let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+            .expect("actual cache recovery owner");
+        let workspace = Workspace::private_with_budget(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            options,
+            budget,
+        )
+        .unwrap();
+        let cache = lctx_compiler_store::NativeProductCache::connect(&config, &factory)
+            .await
+            .unwrap()
+            .map(Arc::new)
+            .expect("real configured retained-product cache");
+        workspace.set_product_cache(Some(cache)).unwrap();
+        let produced = output(&workspace, "private-cache-miss-no-native-target");
+        assert!(
+            produced.reuse_product().await.unwrap().is_none(),
+            "fresh exact request has no retained native product"
+        );
+        assert!(produced.product_capture.lock().unwrap().is_some());
+        assert!(
+            workspace.native().is_err(),
+            "cache discovery has its own genuine owner, never a receiver compilation attempt"
+        );
+        produced.declare_async::<Package>().await.unwrap();
+        produced
+            .push(Package {
+                name: "private-cache-miss".into(),
+            })
+            .await
+            .unwrap();
+        produced.finish(ProviderOutcome::Complete).await.unwrap();
+        workspace.execution.join_retention().await.unwrap();
+        assert_eq!(
+            workspace.private_products.lock().unwrap().len(),
+            1,
+            "the useful consumer queues local retention metadata before native materialization"
+        );
+        let completed = workspace.completed::<Package>().unwrap();
+        let rows = completed
+            .private_source()
+            .unwrap()
+            .read_batches()
+            .unwrap()
+            .flat_map(|batch| Package::decode(&batch.unwrap()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rows,
+            vec![Package {
+                name: "private-cache-miss".into()
+            }]
+        );
+        assert!(
+            workspace.native().is_err(),
+            "a completed local producer cannot trigger persistence for optional capture"
+        );
+        drop(completed);
+        workspace.drain().await.unwrap();
+        assert!(
+            workspace.product_cache().unwrap().is_none(),
+            "actual cache session close belongs to private execution drainage"
+        );
+    }
+    #[tokio::test]
     async fn completion_and_marker_only_admission_cannot_grant_attachment() {
         let config = config();
         let first = workspace(&config).await;
@@ -886,13 +1174,13 @@ mod controls {
                 .is_none(),
             "completion alone grants no admitted attachment"
         );
-        unadmitted.native().abandon().await.unwrap();
+        unadmitted.native().unwrap().abandon().await.unwrap();
         // A Package-only fixture cannot earn full semantic admission. Positive attachment and
         // fresh-owner checks live in compilation::cache_controls after artifact::admit executes
         // the actual captured-provider and native premises.
         first.freeze_for_admission(None).await.unwrap();
         assert!(matches!(
-            first.native().mark_attempt_admitted().await,
+            first.native().unwrap().mark_attempt_admitted().await,
             Err(ModelError::Conflict(
                 "native admission requires exact physical completion and executed full premises"
             ))
@@ -902,8 +1190,8 @@ mod controls {
         assert!(hit.reuse_product().await.unwrap().is_none());
         assert!(second.relation(Package::NAME).is_err());
         drop(hit);
-        first.native().abandon().await.unwrap();
-        second.native().abandon().await.unwrap();
+        first.native().unwrap().abandon().await.unwrap();
+        second.native().unwrap().abandon().await.unwrap();
     }
 }
 
@@ -911,16 +1199,48 @@ mod controls {
 mod retention_join_controls {
     use super::*;
     #[tokio::test]
-    async fn accepted_retention_failure_is_observed_by_the_enclosing_join() {
-        let native = lctx_compiler_store::compiler::NativeCompilerStore::from_existing(
-            Arc::new(lctx_native::surrealdb::Surreal::init()),
-            lctx_model::domain::serving::Name::new("retention-join-control").unwrap(),
-            lctx_model::domain::serving::Name::new("retention-join-control").unwrap(),
-        );
-        let workspace = Workspace::new(
+    async fn unconfigured_private_cache_declines_before_request_or_retention_effects() {
+        let workspace = Workspace::private(
             Arc::new(lctx_model::domain::model().unwrap()),
             Default::default(),
-            native,
+        )
+        .unwrap();
+        let produced = workspace.output(
+            "private-no-cache",
+            Profile::Catalog,
+            ContentHash::of(b"private-no-cache"),
+            workspace
+                .inputs("private-no-cache", Profile::Catalog, [])
+                .unwrap(),
+            [lctx_model::domain::input::Package::NAME],
+        );
+        assert!(produced.reuse_product().await.unwrap().is_none());
+        assert!(
+            produced.captured_request.get().is_none(),
+            "no configured consumer means no rich request preparation"
+        );
+        assert!(produced.product_capture.lock().unwrap().is_none());
+        produced
+            .declare_async::<lctx_model::domain::input::Package>()
+            .await
+            .unwrap();
+        produced.finish(ProviderOutcome::Complete).await.unwrap();
+        assert!(workspace.private_products.lock().unwrap().is_empty());
+        assert!(workspace.native().is_err());
+        assert_eq!(
+            workspace
+                .completed::<lctx_model::domain::input::Package>()
+                .unwrap()
+                .rows(),
+            0
+        );
+        workspace.drain().await.unwrap();
+    }
+    #[tokio::test]
+    async fn accepted_retention_failure_is_observed_by_the_enclosing_join() {
+        let workspace = Workspace::private(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            Default::default(),
         )
         .unwrap();
         let (release, held) = tokio::sync::oneshot::channel();

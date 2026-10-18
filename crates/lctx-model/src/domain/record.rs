@@ -817,14 +817,41 @@ impl<R: Record> Batch<R> {
     }
     /// Move checked canonical buffers and their allocation authority into native ingress.
     /// Construction and raw decoding both earn this witness through the typed model boundary.
-    pub fn into_checked(self) -> Result<CheckedCanonicalBatch, ModelError> {
-        let model = self.model;
-        let (arrow, reservation) = self.into_arrow()?;
+    pub fn into_checked(mut self) -> Result<CheckedCanonicalBatch, ModelError> {
+        let fingerprint_bytes = self
+            .rows
+            .len()
+            .checked_mul(std::mem::size_of::<super::model::RowFingerprint>())
+            .ok_or(ModelError::Schema("checked fingerprint size"))?;
+        self.reservation
+            .try_resize(self.reservation.size().saturating_add(fingerprint_bytes))?;
+        // Earn once while canonical typed rows already exist, before handing off Arrow.
+        let fingerprints = self
+            .rows
+            .iter()
+            .map(|row| super::model::RowFingerprint {
+                nominal: *row.id().bytes(),
+                content: row.content_digest(),
+            })
+            .collect::<Vec<_>>();
+        let Self {
+            model,
+            rows,
+            arrow,
+            mut reservation,
+        } = self;
+        drop(rows);
+        reservation.try_resize(
+            arrow
+                .get_array_memory_size()
+                .saturating_add(fingerprint_bytes),
+        )?;
         Ok(CheckedCanonicalBatch {
             model,
             relation: super::Relation::of::<R>(),
             arrow,
             reservation,
+            fingerprints,
         })
     }
 }
@@ -838,8 +865,27 @@ pub struct CheckedCanonicalBatch {
     relation: super::Relation,
     arrow: RecordBatch,
     reservation: Box<dyn Reservation>,
+    fingerprints: Vec<super::model::RowFingerprint>,
 }
 impl CheckedCanonicalBatch {
+    pub fn shares_pool(&self, budget: &ResourceBudget) -> bool {
+        self.reservation.shares_pool(budget)
+    }
+    pub fn fingerprints(&self) -> &[super::model::RowFingerprint] {
+        &self.fingerprints
+    }
+    /// Transfer the checked buffers together with their actual allocation reservation.
+    /// The receiver must retain the reservation through every borrower of these buffers.
+    pub fn into_parts(
+        self,
+    ) -> (
+        ContentHash,
+        super::Relation,
+        RecordBatch,
+        Box<dyn Reservation>,
+    ) {
+        (self.model, self.relation, self.arrow, self.reservation)
+    }
     pub const CODEC_REVISION: u32 = 1;
     pub fn model(&self) -> ContentHash {
         self.model

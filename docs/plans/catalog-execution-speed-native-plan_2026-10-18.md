@@ -7,6 +7,20 @@ alone owns current dispositions. SN00–SN04 develop F01/F02/F03/F05/F06 and I02
 operator-approved RC01–RC04/RC06 directions. Existing plans and accepted ADRs are not changed by
 this document; the implementation schedules their required decision/owner migrations explicitly.
 
+**Selected integration checkpoint,2026-10-18:** ADR-0191 implements the SN00/SN02/SN03 slices
+needed by SC00–SC04: genuine requested-frontier allocation, exact private closure lowering,
+independent stored typed-content reconciliation and unchanged real publication/receiving ownership.
+Source selects schema11/completed-state5/contribution identity3/logical source identity2. The task-owned
+campaign qualifies these boundaries; shared default regeneration remains SN04's separate scope.
+Broad SN01 packet/hazard optimization and the remaining native obligations are still Proposed.
+Coordinator §6 alone owns actual verification and package closure.
+The SC02/SN00 follow-up now transports producing-process executed properties only after complete
+actual typed-row/native EOF correspondence, retaining exact uniform qualification protection.
+Incoming receivers keep independent validation. The new transfer control is not yet run; the
+operator-requested closeout preserves failed native outcomes and disposes the exact owned campaign
+through the existing authenticated owner. Resume remaining native acceptance from coordinator §6,
+without inferring whole SN00/SN02/SN03 completion from the inspected source or earlier lower-frontier passes.
+
 ## 1. Native role, baseline and preserved capabilities
 
 At baseline`9c457a0c`, ordinary completed artifacts are actual NativeCompilerStore/view owners.

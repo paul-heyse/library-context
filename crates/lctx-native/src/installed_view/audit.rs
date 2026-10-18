@@ -3086,7 +3086,6 @@ async fn audit_one_protected_contributor(
     audit: &InstallationAudit,
     full: bool,
 ) -> Result<Option<(AuditedContributorMembership, Option<LogicalContributorRows>)>, ModelError> {
-    use d::{Key, KeySink, completed::OutputContent};
     audit.ensure_context(reader, budget).await?;
     let owner = expected.record().clone();
     if let Some(cached) = audit.contributors.get(&owner) {
@@ -3121,16 +3120,10 @@ async fn audit_one_protected_contributor(
             .saturating_mul(8)
             .saturating_add(1024),
     )?;
-    let mut outputs = descriptor
-        .outputs
-        .keys()
-        .map(|name| {
-            (
-                name.clone(),
-                (0u64, KeySink::new("native-contribution-output/v1")),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    let mut outputs = crate::completed_rows::LogicalOutputDigests::new(
+        descriptor.outputs.keys().map(String::as_str),
+        budget,
+    )?;
     let mut after_relation = String::new();
     let mut after_key = String::new();
     let owners = BTreeMap::from([(owner.clone(), descriptor.clone())]);
@@ -3187,7 +3180,6 @@ async fn audit_one_protected_contributor(
             };
             let relation = text("relation")?;
             let key = text("semantic_key")?;
-            let content = text("content")?;
             if object.get("contribution") != Some(&Value::RecordId(owner.clone()))
                 || (!after_relation.is_empty()
                     && (relation.as_str(), key.as_str())
@@ -3197,14 +3189,6 @@ async fn audit_one_protected_contributor(
                     "installed membership owner/order/duplicate",
                 ));
             }
-            let (count, sink) = outputs.get_mut(&relation).ok_or(ModelError::Conflict(
-                "installed undeclared output membership",
-            ))?;
-            key.encode(sink);
-            content.encode(sink);
-            *count = count
-                .checked_add(1)
-                .ok_or(ModelError::Schema("installed membership count"))?;
             let Some(Value::RecordId(node)) = object.get("node") else {
                 return Err(ModelError::Schema("installed membership node"));
             };
@@ -3225,15 +3209,31 @@ async fn audit_one_protected_contributor(
             if window.len() >= crate::loader::NATIVE_WINDOW_ROWS
                 || charge.reserved() >= d::resources::TRANSFER_BYTES
             {
-                audit_membership_window(reader, &owner, &window, budget, audit, backing.as_mut())
-                    .await?;
+                audit_membership_window(
+                    reader,
+                    &owner,
+                    &window,
+                    budget,
+                    audit,
+                    backing.as_mut(),
+                    &mut outputs,
+                )
+                .await?;
                 window.clear();
                 charge = StateCharge::new(budget, "installed membership window");
             }
         }
         if !window.is_empty() {
-            audit_membership_window(reader, &owner, &window, budget, audit, backing.as_mut())
-                .await?;
+            audit_membership_window(
+                reader,
+                &owner,
+                &window,
+                budget,
+                audit,
+                backing.as_mut(),
+                &mut outputs,
+            )
+            .await?;
         }
         Ok::<_, ModelError>(())
     }
@@ -3244,18 +3244,7 @@ async fn audit_one_protected_contributor(
         stream.drain_transport().await,
     );
     d::completion::complete(observed, terminal)?;
-    let actual = outputs
-        .into_iter()
-        .map(|(relation, (rows, sink))| {
-            (
-                relation,
-                OutputContent {
-                    rows,
-                    content: sink.finish(),
-                },
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    let actual = outputs.finish()?;
     if actual != descriptor.outputs {
         // Keep the refusal contract while identifying the failed independent EOF
         // premise. Only bounded output metadata is recorded, never payload rows.
@@ -3510,6 +3499,7 @@ async fn audit_membership_window(
     budget: &ResourceBudget,
     audit: &InstallationAudit,
     mut logical_backing: Option<&mut AuditRows>,
+    logical_outputs: &mut crate::completed_rows::LogicalOutputDigests,
 ) -> Result<(), ModelError> {
     let mut metadata = BTreeMap::new();
     let mut charge = StateCharge::new(budget, "installed set backing correspondence");
@@ -3552,8 +3542,16 @@ async fn audit_membership_window(
     audit_owned_keys(reader, owner, &physical, budget).await?;
     let mut endpoints = BTreeMap::new();
     let mut endpoint_charge = StateCharge::new(budget, "installed endpoint set preparation");
-    for (node, member) in metadata {
-        let located = actual.take_required(&node)?;
+    // Membership order is relation/nominal-key order. Physical payload IDs have
+    // a different ordering and cannot drive model logical content accumulation.
+    for member in members {
+        let member = member
+            .as_object()
+            .ok_or(ModelError::Schema("installed ordered member object"))?;
+        let Some(Value::RecordId(node)) = member.get("node") else {
+            return Err(ModelError::Schema("installed ordered member backing"));
+        };
+        let located = actual.take_required(node)?;
         let row = located.row();
         let backing = row
             .as_object()
@@ -3574,6 +3572,9 @@ async fn audit_membership_window(
         if let Some(original) = original {
             audit_original(reader, &original, budget, audit).await?;
         }
+        // Compute model-owned logical content from this same independently
+        // observed backing. Physical content still protects its native envelope.
+        logical_outputs.push(reader, row).await?;
         for endpoint in expected {
             let Some(Value::RecordId(id)) = endpoint.as_object().and_then(|row| row.get("id"))
             else {

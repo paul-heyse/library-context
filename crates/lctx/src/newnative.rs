@@ -96,7 +96,7 @@ pub async fn publish(
     }
     .await;
     let committed = result.as_ref().ok().map(|handle| format!("{handle:?}"));
-    let completion = finalize_compilation(&workspace, &native, &result, committed).await;
+    let completion = finalize_compilation(&workspace, Some(&native), &result, committed).await;
     lctx_model::domain::completion::complete(result, completion).map_err(Into::into)
 }
 
@@ -105,7 +105,7 @@ pub async fn publish(
 /// Borrowed seals and exports must leave this decision to their actual owner.
 pub(crate) async fn finalize_compilation<T>(
     workspace: &cpg_core::workspace::Workspace,
-    native: &lctx_compiler_store::compiler::NativeCompilerStore,
+    native: Option<&lctx_compiler_store::compiler::NativeCompilerStore>,
     result: &Result<T, lctx_model::domain::ModelError>,
     committed: Option<String>,
 ) -> lctx_model::domain::completion::Completion {
@@ -117,33 +117,36 @@ pub(crate) async fn finalize_compilation<T>(
     if let Some(identity) = committed {
         completion.committed("published unselected manifest", identity);
     }
-    if result.is_err() || !completion.failures.is_empty() {
-        native.fail();
-    }
-    if result
-        .as_ref()
-        .err()
-        .is_none_or(ModelError::permits_storage_cleanup)
-        && completion.local == LocalState::Terminal
-        && completion.remote == RemoteState::Confirmed
-        && completion
-            .failures
-            .iter()
-            .all(|failure| failure.error.permits_storage_cleanup())
-    {
-        let finality = native.abandon_finality_report().await;
-        completion.merge(finality);
-    } else {
-        completion.storage.push(StorageState::Orphan(format!(
-            "native_attempt:{}",
-            native.attempt().hex()
-        )));
+    if let Some(native) = native {
+        completion.merge(native.drain_finality_report().await);
+        if result.is_err() || !completion.failures.is_empty() {
+            native.fail();
+        }
         if result
             .as_ref()
             .err()
-            .is_some_and(|error| !error.permits_storage_cleanup())
+            .is_none_or(ModelError::permits_storage_cleanup)
+            && completion.local == LocalState::Terminal
+            && completion.remote == RemoteState::Confirmed
+            && completion
+                .failures
+                .iter()
+                .all(|failure| failure.error.permits_storage_cleanup())
         {
-            completion.remote = RemoteState::Unknown;
+            let finality = native.abandon_finality_report().await;
+            completion.merge(finality);
+        } else {
+            completion.storage.push(StorageState::Orphan(format!(
+                "native_attempt:{}",
+                native.attempt().hex()
+            )));
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| !error.permits_storage_cleanup())
+            {
+                completion.remote = RemoteState::Unknown;
+            }
         }
     }
     let settled = workspace.complete_signal(&completion).await;

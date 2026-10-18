@@ -84,6 +84,9 @@ impl Workspace {
     /// Current and actually bound frozen roots remain needed by final admission. Pending consumers
     /// additionally retain the actual completed singleton ingredients their recipes will select.
     pub(crate) fn refresh_membership_demand(&self) -> Result<(), ModelError> {
+        if self.is_private() {
+            return Ok(());
+        }
         let owner = self.membership_demand.lock().map_err(|_| poisoned())?;
         let Some(demand) = owner.as_ref() else {
             return Ok(());
@@ -115,7 +118,7 @@ impl Workspace {
             }
         }
         drop((current, frozen, producers));
-        self.native.retain_membership_preparations(
+        self.native()?.retain_membership_preparations(
             exact.iter().map(|source| &source.view),
             future.iter().map(|source| &source.view),
             demand.pending_outputs(),

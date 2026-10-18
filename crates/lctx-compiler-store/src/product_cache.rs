@@ -214,6 +214,181 @@ impl LeasedProduct {
         &self.product
     }
 }
+
+/// A genuine retained native product read under its source hold. No receiver compiler
+/// attempt is allocated. Callers copy checked rows into private ownership before closing it.
+pub struct CompiledProductRead {
+    native: Option<Arc<crate::compiler::NativeCompilerStore>>,
+    source: Option<Arc<lctx_native::control::HeldTerminalProduct>>,
+    descriptor: lctx_model::domain::completed::CompletedContribution,
+    _admission: crate::admission::candidate::CandidateAdmission,
+}
+impl CompiledProductRead {
+    pub fn descriptor(&self) -> &lctx_model::domain::completed::CompletedContribution {
+        &self.descriptor
+    }
+    pub async fn batches(
+        &self,
+        relation: &lctx_model::domain::Relation,
+        budget: &ResourceBudget,
+        rows: usize,
+    ) -> Result<datafusion::physical_plan::SendableRecordBatchStream, ModelError> {
+        let source = self
+            .source
+            .as_ref()
+            .ok_or(ModelError::Conflict("compiled product read closed"))?;
+        let logical = self.descriptor.identity()?;
+        let content = self
+            .descriptor
+            .outputs
+            .get(relation.name())
+            .ok_or(ModelError::Conflict("compiled product output absent"))?;
+        let expected = lctx_model::domain::completed::CompletedView::new(
+            relation.name().into(),
+            [logical].into(),
+            content.rows,
+        )?;
+        let held = source
+            .views()
+            .get(&expected.identity)
+            .ok_or(ModelError::Conflict(
+                "compiled product exact output hold absent",
+            ))?;
+        if held.completion().view != expected {
+            return Err(ModelError::Conflict("compiled product read identity"));
+        }
+        self.native
+            .as_ref()
+            .ok_or(ModelError::Conflict("compiled product reader closed"))?
+            .scan_batches(&expected, relation, None, None, budget, rows)
+            .await
+    }
+    pub async fn close(mut self) -> Result<(), ModelError> {
+        let mut terminal = lctx_model::domain::completion::Completion::default();
+        if let Some(native) = self.native.take() {
+            terminal.merge(native.drain_finality_report().await);
+            drop(native);
+        }
+        if let Some(source) = self.source.take() {
+            if terminal.local != lctx_model::domain::completion::LocalState::Terminal
+                || terminal.remote != lctx_model::domain::completion::RemoteState::Confirmed
+            {
+                source.retain_unknown();
+            } else {
+                terminal.step("compiled product source read hold", source.close().await);
+            }
+        }
+        lctx_model::domain::completion::complete(Ok(()), terminal)
+    }
+}
+impl Drop for CompiledProductRead {
+    fn drop(&mut self) {
+        if let Some(source) = &self.source {
+            source.retain_unknown();
+        }
+    }
+}
+
+impl NativeProductCache {
+    /// Discovery alone is not eligibility. The returned source owns actual native holds,
+    /// exact request admission and complete read finality independently of private compilation.
+    #[inline(never)]
+    pub fn lookup_compiled<'a>(
+        &'a self,
+        request: &'a lctx_model::domain::producer_contract::request::CapturedRequest,
+        model: Arc<lctx_model::domain::ValidatedModel>,
+        profile: lctx_model::domain::stages::Profile,
+        budget: &'a ResourceBudget,
+    ) -> futures::future::BoxFuture<'a, Result<Option<CompiledProductRead>, ModelError>> {
+        use futures::FutureExt;
+        // Exact candidate admission is a substantial nested operation. Erase it at the
+        // cache boundary before producer/coordinator futures embed its complete state.
+        let body = async move {
+            if request.contribution().model != model.digest() {
+                return Err(ModelError::Conflict("compiled product model"));
+            }
+            request.contribution().validate_profile(profile)?;
+            let identity = request.identity()?;
+            let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+            let mut variables = Variables::new();
+            variables.insert("request", identity.hex());
+            variables.insert("model", model.digest().hex());
+            let discovered = reader.query_native::<Vec<surrealdb::types::Object>>("SELECT id FROM native_product WHERE request=$request AND released=false AND contribution.model=$model AND contribution.completed=true AND contribution.attempt.state IN ['closed','abandoned','maintenance_fenced','frozen'] ORDER BY id LIMIT 1", variables).await;
+            let mut finality = lctx_model::domain::completion::Completion::default();
+            finality.step(
+                "compiled product discovery reader close",
+                reader.close().await,
+            );
+            let discovered = lctx_model::domain::completion::complete(discovered, finality)?;
+            let Some(row) = discovered.first() else {
+                return Ok(None);
+            };
+            let Some(surrealdb::types::Value::RecordId(product)) = row.get("id") else {
+                return Err(ModelError::Schema("compiled product nomination"));
+            };
+            let source = Arc::new(
+                lctx_native::control::hold_terminal_product(
+                    self.client.clone(),
+                    product.clone(),
+                    identity,
+                    budget,
+                )
+                .await?,
+            );
+            let admitted: Result<Option<CompiledProductRead>, ModelError> = async {
+                let descriptor = source.descriptor().clone();
+                if descriptor.outcome != 0
+                    || descriptor.spec.producer
+                        == lctx_model::domain::producer_contract::facts::ASSEMBLE
+                {
+                    return Ok(None);
+                }
+                let native =
+                    crate::compiler::NativeCompilerStore::terminal_read_owner(&source, budget)?;
+                let admission = crate::admission::candidate::admit(
+                    native.clone(),
+                    source.clone(),
+                    request,
+                    model,
+                    profile,
+                    budget,
+                )
+                .await?;
+                admission.require(&descriptor)?;
+                Ok(Some(CompiledProductRead {
+                    native: Some(native),
+                    source: Some(source.clone()),
+                    descriptor,
+                    _admission: admission,
+                }))
+            }
+            .await;
+            if !matches!(&admitted, Ok(Some(_))) {
+                if admitted
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| !error.permits_storage_cleanup())
+                {
+                    source.retain_unknown();
+                } else {
+                    let mut terminal = lctx_model::domain::completion::Completion::default();
+                    terminal.step("rejected compiled product source", source.close().await);
+                    return lctx_model::domain::completion::complete(admitted, terminal);
+                }
+            }
+            admitted
+        };
+        let body = match lctx_native::continuation::admit(
+            budget,
+            "compiled cache discovery and admission",
+            body,
+        ) {
+            Ok(body) => body,
+            Err(error) => return futures::future::ready(Err(error)).boxed(),
+        };
+        async move { self.session.run(body).await }.boxed()
+    }
+}
 #[derive(SurrealValue)]
 #[surreal(crate = "surrealdb::types")]
 struct Header {

@@ -34,7 +34,11 @@ use std::{
 type OwnedTaskJoin = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
 
+mod cache_calls;
 mod stage_execution;
+pub(crate) use lctx_compiler_store::private_source;
+mod native_materialization;
+mod private_execution;
 use stage_execution::StageExecution;
 mod membership_demand;
 use membership_demand::MembershipDemand;
@@ -43,22 +47,23 @@ use input_catalog::{InputAliases, InputPort, InputSchema};
 
 pub use lctx_compiler_store::admission::{AdmissionOptions as WorkspaceOptions, Cancellation};
 struct WorkspaceFiles {
-    _directory: tempfile::TempDir,
+    _directory: Arc<tempfile::TempDir>,
 }
 /// Execution ownership survives a compiler catalog handoff without retaining that catalog.
 type RetentionJoin = futures::future::Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 struct WorkspaceExecutionOwner {
     _files: Arc<WorkspaceFiles>,
     cancellation: Cancellation,
-    bridge: Arc<crate::native_bridge::NativeBridge>,
-    native_calls: Arc<crate::native_calls::NativeCalls>,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+    bridge: Option<Arc<crate::native_bridge::NativeBridge>>,
+    native_calls: Option<Arc<crate::native_calls::NativeCalls>>,
+    native: Option<Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
     stages: StageExecution,
     retention: Mutex<Vec<(RetentionJoin, Box<dyn Reservation>)>>,
+    preparations: Mutex<Vec<(RetentionJoin, Box<dyn Reservation>)>>,
     provider_drains: Arc<Mutex<Vec<OwnedTaskJoin>>>,
     product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
     membership_demand: Arc<Mutex<Option<MembershipDemand>>>,
-    signal: Arc<lctx_native::signal::SignalRegistration>,
+    signal: Option<Arc<lctx_native::signal::SignalRegistration>>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
 }
 struct FrozenFactsAvailability {
@@ -117,9 +122,9 @@ pub struct Workspace {
     membership_demand: Arc<Mutex<Option<MembershipDemand>>>,
     admitted_product_reuse: AtomicBool,
     model: Arc<ValidatedModel>,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
-    bridge: Arc<crate::native_bridge::NativeBridge>,
-    native_calls: Arc<crate::native_calls::NativeCalls>,
+    native: Option<Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
+    bridge: Option<Arc<crate::native_bridge::NativeBridge>>,
+    native_calls: Option<Arc<crate::native_calls::NativeCalls>>,
     content_frozen: AtomicBool,
     completed_owners: Mutex<CompletedOwners>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
@@ -141,6 +146,16 @@ pub struct Workspace {
     provider_drains: Arc<Mutex<Vec<OwnedTaskJoin>>>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
     frozen_facts_availability: Mutex<Option<FrozenFactsAvailability>>,
+    operation: ContentHash,
+    private_validation: Arc<lctx_compiler_store::private_validation::PrivateValidation>,
+    private_spill: Option<Arc<private_source::PrivateSpill>>,
+    private_products: Mutex<
+        Vec<(
+            lctx_model::domain::compilation_product::ProductRequest,
+            lctx_model::domain::completed::CompletedContribution,
+            StateCharge,
+        )>,
+    >,
 }
 impl WorkspaceExecutionOwner {
     async fn join_retention(&self) -> Result<(), ModelError> {
@@ -199,6 +214,15 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             for retained in late_retention {
                 completion.step("accepted late product retention", retained.await.map_err(ModelError::SharedCause));
             }
+            // A stage's actual join alone does not retain its body error when result delivery
+            // was abandoned. Observe every accepted preparation result after registration closes.
+            let preparations = match self.preparations.lock() {
+                Ok(preparations) => preparations.iter().map(|(join, _)| join.clone()).collect::<Vec<_>>(),
+                Err(_) => { completion.local = LocalState::Outstanding; completion.step("preparation ownership", Err(poisoned())); Vec::new() }
+            };
+            for preparation in preparations {
+                completion.step("accepted preparation result", preparation.await.map_err(ModelError::SharedCause));
+            }
             let drains = match self.provider_drains.lock() {
                 Ok(drains) => drains.clone(),
                 Err(_) => {
@@ -210,14 +234,13 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             for task in drains {
                 completion.step("provider join", task.await.map_err(ModelError::SharedCause));
             }
-            completion.merge(self.bridge.drain_finality_report().await);
-            completion.merge(self.native_calls.drain_finality_report().await);
+            if let Some(bridge) = &self.bridge { completion.merge(bridge.drain_finality_report().await); }
+            if let Some(calls) = &self.native_calls { completion.merge(calls.drain_finality_report().await); }
             completion.step(
                 "private scoped check release",
                 self.admission_memo.close_scoped(),
             );
-            let native = self.native.drain_finality_report().await;
-            completion.merge(native);
+            if let Some(native) = &self.native { completion.merge(native.drain_finality_report().await); }
             let cache = match self.product_cache.lock() {
                 Ok(mut cache) => cache.take(),
                 Err(_) => {
@@ -251,25 +274,72 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             }
             completion
         }
-        .with_tracing_span(tracing::info_span!(target: "lctx_phase", "compiler_drain", attempt=%self.native.attempt().hex()))
+        .with_tracing_span(tracing::info_span!(target: "lctx_phase", "compiler_drain", native=self.native.is_some()))
         .boxed()
     }
     fn complete_signal<'a>(
         &'a self,
         completion: &'a lctx_model::domain::completion::Completion,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
-        self.signal.complete(completion).boxed()
+        async move {
+            match &self.signal {
+                Some(signal) => signal.complete(completion).await,
+                None => Ok(()),
+            }
+        }
+        .boxed()
     }
     fn append_operation_failures(
         &self,
         completion: &mut lctx_model::domain::completion::Completion,
     ) {
-        self.bridge.append_operation_failures(completion);
-        self.native_calls.append_operation_failures(completion);
-        self.native.append_operation_failures(completion);
+        if let Some(bridge) = &self.bridge {
+            bridge.append_operation_failures(completion);
+        }
+        if let Some(calls) = &self.native_calls {
+            calls.append_operation_failures(completion);
+        }
+        if let Some(native) = &self.native {
+            native.append_operation_failures(completion);
+        }
     }
 }
+pub(crate) type PreparationJoin<T> = Shared<BoxFuture<'static, Result<Arc<T>, Arc<ModelError>>>>;
 impl Workspace {
+    pub(crate) fn spawn_preparation<T: Send + Sync + 'static>(
+        &self,
+        work: impl std::future::Future<Output = Result<T, ModelError>> + Send + 'static,
+    ) -> Result<PreparationJoin<T>, ModelError> {
+        // Reserve and hold the destination before accepting work. After spawn succeeds,
+        // publishing its terminal observer has no remaining fallible allocation step.
+        let mut observers = self.execution.preparations.lock().map_err(|_| poisoned())?;
+        let charge = self.budget.reserve(
+            "accepted preparation observer",
+            size_of::<(RetentionJoin, Box<dyn Reservation>)>() + 256,
+        )?;
+        observers.try_reserve(1).map_err(ModelError::codec)?;
+        let result = self
+            .spawn_stage(work)?
+            .map(|result| result.map(Arc::new).map_err(Arc::new))
+            .boxed()
+            .shared();
+        let observer = result
+            .clone()
+            .map(|result| result.map(drop))
+            .boxed()
+            .shared();
+        observers.push((observer.clone(), charge));
+        // A normally consumed result also completes its terminal observer now. Otherwise
+        // the unpolled observer would keep the full successful value until final drain,
+        // even after its preparation registry and last useful borrower released it.
+        Ok(async move {
+            let value = result.await;
+            let _terminal = observer.await;
+            value
+        }
+        .boxed()
+        .shared())
+    }
     fn retain_child(
         &self,
         work: impl std::future::Future<Output = Result<(), ModelError>> + Send + 'static,
@@ -303,7 +373,7 @@ impl Workspace {
             Some(budget) => budget,
             None => ResourceBudget::fixed(options.memory_bytes)?,
         };
-        Self::construct(model, options, budget, native, None)
+        Self::construct(model, options, budget, Some(native), None)
     }
     /// Reuse the actual native session's pool. A supplied foreign pool is refused before
     /// constructing runtime services or admitting any workspace-owned state.
@@ -313,13 +383,13 @@ impl Workspace {
         budget: ResourceBudget,
         native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     ) -> Result<Arc<Self>, ModelError> {
-        Self::construct(model, options, budget, native, None)
+        Self::construct(model, options, budget, Some(native), None)
     }
     fn construct(
         model: Arc<ValidatedModel>,
         options: WorkspaceOptions,
         budget: ResourceBudget,
-        native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+        native: Option<Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
         programs: Option<Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>>,
     ) -> Result<Arc<Self>, ModelError> {
         if options.memory_bytes == 0 || options.partitions == 0 || options.batch_rows == 0 {
@@ -332,17 +402,27 @@ impl Workspace {
                 "workspace memory differs from supplied pool".into(),
             ));
         }
-        if let Some(attached) = native.recovery_budget()?
+        if let Some(native) = &native
+            && let Some(attached) = native.recovery_budget()?
             && !attached.shares_pool(&budget)
         {
             return Err(ModelError::Conflict(
                 "workspace native resource pool correspondence",
             ));
         }
+        let private_spill = if native.is_none() {
+            Some(private_source::PrivateSpill::new(budget.clone())?)
+        } else {
+            None
+        };
+        let budget = match &private_spill {
+            Some(spill) => budget.with_reclaimer(spill.clone()),
+            None => budget,
+        };
         // Explicitly unbound mechanical sources may construct a compute-only workspace.
         // This does not create native receipt/session authority; native preparation still
         // requires the source's existing recovery-scope admission route.
-        let directory = tempfile::tempdir().map_err(ModelError::codec)?;
+        let directory = Arc::new(tempfile::tempdir().map_err(ModelError::codec)?);
         let pool = Arc::new(BudgetMemoryPool {
             budget: budget.clone(),
             allocated: Mutex::new(budget.reserve("workspace-datafusion", 0)?),
@@ -378,18 +458,24 @@ impl Workspace {
         });
         let cancellation = Cancellation::default();
         let token = cancellation.clone();
-        let signal = Arc::new(lctx_native::signal::SignalRegistration::new(
+        let signal = Some(Arc::new(lctx_native::signal::SignalRegistration::new(
             "compiler workspace",
             move || token.cancel(),
-        )?);
-        let bridge = Arc::new(crate::native_bridge::NativeBridge::new(
-            cancellation.clone(),
-        )?);
-        let native_calls = Arc::new(crate::native_calls::NativeCalls::new(
-            native.clone(),
-            cancellation.clone(),
-            &budget,
-        ));
+        )?));
+        let bridge = if native.is_some() {
+            Some(Arc::new(crate::native_bridge::NativeBridge::new(
+                cancellation.clone(),
+            )?))
+        } else {
+            None
+        };
+        let native_calls = native.as_ref().map(|native| {
+            Arc::new(crate::native_calls::NativeCalls::new(
+                native.clone(),
+                cancellation.clone(),
+                &budget,
+            ))
+        });
         let files = Arc::new(WorkspaceFiles {
             _directory: directory,
         });
@@ -404,6 +490,7 @@ impl Workspace {
             native: native.clone(),
             stages: StageExecution::new(&budget),
             retention: Mutex::new(Vec::new()),
+            preparations: Mutex::new(Vec::new()),
             provider_drains: provider_drains.clone(),
             product_cache: product_cache.clone(),
             membership_demand: membership_demand.clone(),
@@ -424,8 +511,8 @@ impl Workspace {
             product_cache,
             membership_demand,
             admitted_product_reuse: AtomicBool::new(true),
-            budget,
-            model,
+            budget: budget.clone(),
+            model: model.clone(),
             native,
             bridge,
             native_calls,
@@ -434,7 +521,7 @@ impl Workspace {
             completed: Mutex::default(),
             completed_by_producer: Mutex::default(),
             frozen_shared: Mutex::default(),
-            cancellation,
+            cancellation: cancellation.clone(),
             completion_gate: tokio::sync::Mutex::new(()),
             #[cfg(test)]
             composition_control: composition_controls::Control::default(),
@@ -442,6 +529,18 @@ impl Workspace {
             provider_drains,
             admission_memo,
             frozen_facts_availability: Mutex::default(),
+            operation: lctx_native::control::fresh_identity("private-compiler-operation")?,
+            private_products: Mutex::new(Vec::new()),
+            private_spill,
+            private_validation: Arc::new(
+                lctx_compiler_store::private_validation::PrivateValidation::new(
+                    model.clone(),
+                    options,
+                    budget.clone(),
+                    cancellation.clone(),
+                    runtime,
+                )?,
+            ),
         }))
     }
     /// Repeated attempts can reuse one model/runtime program owner while each completed source,
@@ -454,7 +553,7 @@ impl Workspace {
         programs: Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>,
     ) -> Result<Arc<Self>, ModelError> {
         programs.require_model(&model)?;
-        Self::construct(model, options, budget, native, Some(programs))
+        Self::construct(model, options, budget, Some(native), Some(programs))
     }
     /// Restore the exact current and frozen bindings after independent native state import.
     pub async fn restore(&self, profile: Profile) -> Result<(), ModelError> {
@@ -521,6 +620,7 @@ impl Workspace {
                     + lctx_native::installed_view::view_heap(&binding.view),
             )?;
             let source = Arc::new(CompletedRelation {
+                private: None,
                 relation,
                 producer: binding.source.producer().into(),
                 implementation: binding.source.implementation(),
@@ -671,7 +771,7 @@ impl Workspace {
             };
         }
         let runtime = self.admission_runtime(profile)?;
-        self.bridge
+        self.bridge()?
             .call(async move { runtime.facts_availability_async(profile).await })
     }
     pub async fn facts_availability_async(
@@ -760,9 +860,15 @@ impl Workspace {
         &self,
         inputs: &CompletedInputs,
     ) -> Result<CheckedInputs, ModelError> {
-        self.validate_scope(inputs.profile, true, Some(inputs))
-            .await?;
+        let private = if self.is_private() {
+            Some(self.private_checked(inputs).await?)
+        } else {
+            self.validate_scope(inputs.profile, true, Some(inputs))
+                .await?;
+            None
+        };
         Ok(CheckedInputs {
+            _private: private,
             inputs: inputs.clone(),
             attempt: self.files.clone(),
             policy: self.model.digest(),
@@ -779,8 +885,14 @@ impl Workspace {
         // A portable import has only canonical streams and uses the explicitly detached path.
         // Consumer admission remains exact and never substitutes a missing selected epoch.
         self.bind_admission_epochs(&mut inputs)?;
-        self.validate_scope(profile, true, Some(&inputs)).await?;
+        let private = if self.is_private() {
+            Some(self.private_checked(&inputs).await?)
+        } else {
+            self.validate_scope(profile, true, Some(&inputs)).await?;
+            None
+        };
         Ok(CheckedInputs {
+            _private: private,
             inputs,
             attempt: self.files.clone(),
             policy: self.model.digest(),
@@ -860,6 +972,9 @@ impl Workspace {
             };
             &owned
         };
+        if self.is_private() {
+            return Ok(self.private_checked(inputs).await?.identity());
+        }
         let session = inputs.session(self).await?;
         let bytes = inputs
             .relations
@@ -925,7 +1040,7 @@ impl Workspace {
             session
                 .register_table(
                     &table,
-                    self.native
+                    self.native()?
                         .table_provider(
                             &source.view,
                             source.relation.clone(),
@@ -1045,9 +1160,9 @@ impl Workspace {
             self.model.clone(),
             self.options,
             self.budget.clone(),
-            self.native.clone(),
+            self.native()?.clone(),
             self.cancellation.clone(),
-            self.native_calls.clone(),
+            self.native_calls()?.clone(),
             self.admission_memo.clone(),
             self.context.copied_config(),
             self.context.runtime_env(),
@@ -1171,6 +1286,12 @@ impl Workspace {
         &self,
         access: &CompletedInputs,
     ) -> Result<Arc<lctx_compiler_store::admission::AdmittedUniformOwners>, ModelError> {
+        if self.is_private() {
+            return self
+                .private_checked(access)
+                .await?
+                .admitted_uniform_owners(&self.budget);
+        }
         self.selected_admission_runtime(access)?
             .uniform_owners_async(access.profile())
             .await
@@ -1188,8 +1309,14 @@ impl Workspace {
             source::{CoverageScope, SourceArtifact},
             uniform_outcome::UniformNotRequested,
         };
-        let _completion =
-            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
+        let _completion = if self.is_private() {
+            None
+        } else {
+            Some(
+                lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock())
+                    .await,
+            )
+        };
         if let Some(frozen) = &*self
             .frozen_facts_availability
             .lock()
@@ -1231,8 +1358,11 @@ impl Workspace {
                 return Err(ModelError::Conflict("provider facts availability profile"));
             }
             let mut source = (**template).clone();
-            if sources.len() > 1 {
-                let native = self.native.clone();
+            if sources.len() > 1 && self.is_private() {
+                source = (*self.compose_private(&sources)?).clone();
+            }
+            if sources.len() > 1 && !self.is_private() {
+                let native = self.native()?.clone();
                 let relation = source.relation.clone();
                 let views = sources
                     .iter()
@@ -1240,7 +1370,7 @@ impl Workspace {
                     .collect::<Vec<_>>();
                 let budget = self.budget.clone();
                 source.view = self
-                    .native_calls
+                    .native_calls()?
                     .call(async move {
                         native
                             .compose_completed_views(&relation, &views, &budget)
@@ -1283,11 +1413,52 @@ impl Workspace {
             profile,
             relations,
         };
-        let runtime = self.selected_admission_runtime(&inputs)?;
+        let runtime = if self.is_private() {
+            None
+        } else {
+            Some(self.selected_admission_runtime(&inputs)?)
+        };
         // Exact provider descriptors are now privately captured. Unrelated upper handoffs
         // need not wait for the following native coverage proof.
         drop(_completion);
-        let availability = runtime.facts_availability_async(profile).await?;
+        let availability = if let Some(runtime) = runtime {
+            runtime.facts_availability_async(profile).await?
+        } else {
+            let bindings = inputs
+                .ordered_bindings()
+                .into_iter()
+                .map(|(_, b)| Self::private_binding(&b.source, b.role, b.requested, b.resolved))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (owners, exact, _transfer) = {
+                let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
+                let produced = self.completed_by_producer.lock().map_err(|_| poisoned())?;
+                let transfer = self.budget.reserve(
+                    "private facts contributor transfer",
+                    Self::private_snapshot_bytes(&owners, produced.values()),
+                )?;
+                let exact = produced
+                    .iter()
+                    .filter(|((producer, relation), _)| {
+                        provider_names.contains(producer) && *relation == UniformNotRequested::NAME
+                    })
+                    .enumerate()
+                    .map(|(role, (_, source))| Self::private_binding(source, role, None, None))
+                    .collect::<Result<Vec<_>, _>>()?;
+                (
+                    owners
+                        .by_spec
+                        .values()
+                        .filter(|owner| provider_names.contains(owner.spec.producer.as_str()))
+                        .cloned()
+                        .collect(),
+                    exact,
+                    transfer,
+                )
+            };
+            self.private_validation
+                .facts_availability(profile, bindings, exact, owners)
+                .await?
+        };
         let mut charge = StateCharge::new(self.budget(), "provider facts availability owner");
         charge.grow(
             provider_names
@@ -1357,11 +1528,67 @@ impl Workspace {
         &self,
         future: impl Future<Output = Result<T, ModelError>> + Send + 'static,
     ) -> BoxFuture<'_, Result<T, ModelError>> {
-        self.native_calls.call_boxed(future.boxed())
+        match &self.native_calls {
+            Some(calls) => calls.call_boxed(future.boxed()),
+            None => futures::future::ready(Err(ModelError::Conflict(
+                "private operation has no native effect owner",
+            )))
+            .boxed(),
+        }
     }
-    pub fn native(&self) -> &Arc<lctx_compiler_store::compiler::NativeCompilerStore> {
-        &self.native
+    pub fn native(
+        &self,
+    ) -> Result<&Arc<lctx_compiler_store::compiler::NativeCompilerStore>, ModelError> {
+        self.native.as_ref().ok_or(ModelError::Conflict(
+            "private operation has no native target",
+        ))
     }
+    pub fn is_private(&self) -> bool {
+        self.native.is_none()
+    }
+    pub fn operation_identity(&self) -> ContentHash {
+        self.operation
+    }
+    pub fn fail(&self) {
+        if let Some(native) = &self.native {
+            native.fail();
+        }
+        self.cancellation.cancel();
+    }
+    pub fn set_frontier(
+        &self,
+        frontier: lctx_model::domain::admission::Frontier,
+    ) -> Result<(), ModelError> {
+        if let Some(native) = &self.native {
+            native.set_frontier(frontier)?;
+        }
+        Ok(())
+    }
+    fn native_calls(&self) -> Result<&Arc<crate::native_calls::NativeCalls>, ModelError> {
+        self.native_calls.as_ref().ok_or(ModelError::Conflict(
+            "private operation has no native request owner",
+        ))
+    }
+    fn bridge(&self) -> Result<&Arc<crate::native_bridge::NativeBridge>, ModelError> {
+        self.bridge.as_ref().ok_or(ModelError::Conflict(
+            "private operation has no native bridge",
+        ))
+    }
+    pub fn private(
+        model: Arc<ValidatedModel>,
+        options: WorkspaceOptions,
+    ) -> Result<Arc<Self>, ModelError> {
+        let budget = ResourceBudget::fixed(options.memory_bytes)?;
+        Self::private_with_budget(model, options, budget)
+    }
+    pub fn private_with_budget(
+        model: Arc<ValidatedModel>,
+        options: WorkspaceOptions,
+        budget: ResourceBudget,
+    ) -> Result<Arc<Self>, ModelError> {
+        Self::construct(model, options, budget, None, None)
+    }
+
     pub fn budget(&self) -> &ResourceBudget {
         &self.budget
     }
@@ -1528,6 +1755,9 @@ impl Workspace {
         &self,
         selection: &lctx_model::domain::stages::InputSelection,
     ) -> Result<(), ModelError> {
+        if self.is_private() {
+            return self.bind_private_selection(selection).await;
+        }
         let Some(boundary) = selection.resolved else {
             return Ok(());
         };
@@ -1577,11 +1807,11 @@ impl Workspace {
                 ))
             };
         }
-        let native = self.native.clone();
+        let native = self.native()?.clone();
         let relation = template.relation.clone();
         let budget = self.budget.clone();
         let view = self
-            .native_calls
+            .native_calls()?
             .call(async move {
                 native
                     .compose_completed_views(&relation, &views, &budget)
@@ -1612,8 +1842,8 @@ impl Workspace {
             view: source.view.clone(),
             configuration: None,
         };
-        let native = self.native.clone();
-        self.native_calls
+        let native = self.native()?.clone();
+        self.native_calls()?
             .call(async move { native.bind(binding).await })
             .await?;
         self.frozen_shared
@@ -1628,8 +1858,26 @@ impl Workspace {
         schedule: &lctx_model::domain::stages::Schedule,
         declaration: &lctx_model::domain::stages::Stage,
     ) -> Result<lctx_model::domain::stages::Stage, ModelError> {
-        let _completion =
-            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
+        if self.is_private() {
+            let selections = schedule.selections(declaration.name)?;
+            self.bind_private_selections(selections).await?;
+            let mut selected = declaration.clone();
+            for selection in selections {
+                if let Some(boundary) = selection.resolved {
+                    selected.inputs[selection.role] =
+                        selected.inputs[selection.role].at_epoch(boundary);
+                }
+            }
+            return Ok(selected);
+        }
+        let _completion = if self.is_private() {
+            None
+        } else {
+            Some(
+                lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock())
+                    .await,
+            )
+        };
         self.writable()?;
         let mut selected = declaration.clone();
         for selection in schedule.selections(declaration.name)? {
@@ -1646,8 +1894,19 @@ impl Workspace {
         schedule: &lctx_model::domain::stages::Schedule,
         boundary: lctx_model::domain::stages::PublicationBoundary,
     ) -> Result<(), ModelError> {
-        let _completion =
-            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
+        if self.is_private() {
+            self.bind_private_selections(schedule.prefix_selections(boundary)?)
+                .await?;
+            return self.finish_membership_prefix(schedule.digest(), boundary);
+        }
+        let _completion = if self.is_private() {
+            None
+        } else {
+            Some(
+                lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock())
+                    .await,
+            )
+        };
         self.writable()?;
         for selection in schedule.prefix_selections(boundary)? {
             self.bind_exact_selection(selection).await?;
@@ -1684,14 +1943,17 @@ impl Workspace {
             .map(|(name, source)| (*name, source.clone()))
             .collect::<Vec<_>>();
         for (_, source) in &sources {
-            let native = self.native.clone();
+            if self.is_private() {
+                continue;
+            }
+            let native = self.native()?.clone();
             let binding = lctx_model::domain::completed::CompletedBinding {
                 boundary: Some(boundary.name().into()),
                 source: source.snapshot(),
                 view: source.view.clone(),
                 configuration: None,
             };
-            self.native_calls
+            self.native_calls()?
                 .call(async move { native.bind(binding).await })
                 .await?;
         }
@@ -1721,15 +1983,19 @@ impl Workspace {
             .iter()
             .filter(|(name, _)| lctx_model::domain::stages::is_epoch_shared(name))
         {
-            let native = self.native.clone();
+            if self.is_private() {
+                frozen.insert((boundary, *name), source.clone());
+                continue;
+            }
+            let native = self.native()?.clone();
             let binding = lctx_model::domain::completed::CompletedBinding {
                 boundary: Some(boundary.name().into()),
                 source: source.snapshot(),
                 view: source.view.clone(),
                 configuration: None,
             };
-            let calls = self.native_calls.clone();
-            self.bridge
+            let calls = self.native_calls()?.clone();
+            self.bridge()?
                 .call(async move { calls.call(async move { native.bind(binding).await }).await })?;
             frozen.insert((boundary, *name), source.clone());
         }
@@ -1879,6 +2145,7 @@ fn poisoned() -> ModelError {
 /// A stream descriptor, not a resident collection or a database read capability.
 #[derive(Clone)]
 pub struct CompletedRelation {
+    private: Option<Arc<private_source::PrivateRelation>>,
     relation: Relation,
     producer: String,
     implementation: ContentHash,
@@ -1886,8 +2153,8 @@ pub struct CompletedRelation {
     contract: ContentHash,
     rows: u64,
     view: lctx_model::domain::completed::CompletedView,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
-    bridge: Arc<crate::native_bridge::NativeBridge>,
+    native: Option<Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
+    bridge: Option<Arc<crate::native_bridge::NativeBridge>>,
     budget: ResourceBudget,
     batch_rows: usize,
     cancellation: Cancellation,
@@ -1932,6 +2199,16 @@ impl CompletedRelation {
     pub fn snapshot(&self) -> lctx_model::domain::analysis::sources::SourceSnapshot {
         self.snapshot.clone()
     }
+    pub fn private_source(&self) -> Result<&Arc<private_source::PrivateRelation>, ModelError> {
+        self.private
+            .as_ref()
+            .ok_or(ModelError::Conflict("completed source is native-backed"))
+    }
+    pub fn table_provider(
+        &self,
+    ) -> Result<Arc<dyn datafusion::catalog::TableProvider>, ModelError> {
+        input_catalog::private_provider(self)
+    }
     pub fn batches(&self) -> Result<NativeBatches, ModelError> {
         self.batches_scoped(None)
     }
@@ -1939,13 +2216,36 @@ impl CompletedRelation {
         &self,
         scope: Option<lctx_compiler_store::compiler::ProducingScope>,
     ) -> Result<NativeBatches, ModelError> {
+        self.cancellation.check()?;
+        if let Some(source) = &self.private {
+            return NativeBatches::private(
+                source,
+                self.cancellation.clone(),
+                self._execution.clone(),
+            );
+        }
         let (driver, reader) = self.prepare_batches(scope);
-        self.bridge.launch(driver)?;
+        self.bridge
+            .as_ref()
+            .ok_or(ModelError::Conflict("native source bridge absent"))?
+            .launch(driver)?;
         Ok(reader)
     }
     pub async fn batches_async(&self) -> Result<NativeBatches, ModelError> {
+        self.cancellation.check()?;
+        if let Some(source) = &self.private {
+            return NativeBatches::private(
+                source,
+                self.cancellation.clone(),
+                self._execution.clone(),
+            );
+        }
         let (driver, reader) = self.prepare_batches(None);
-        self.bridge.launch_async(driver).await?;
+        self.bridge
+            .as_ref()
+            .ok_or(ModelError::Conflict("native source bridge absent"))?
+            .launch_async(driver)
+            .await?;
         Ok(reader)
     }
     fn prepare_batches(
@@ -1953,7 +2253,10 @@ impl CompletedRelation {
         scope: Option<lctx_compiler_store::compiler::ProducingScope>,
     ) -> (BoxFuture<'static, ()>, NativeBatches) {
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
-        let native = self.native.clone();
+        let native = self
+            .native
+            .clone()
+            .expect("native-backed source has native owner");
         let view = self.view.clone();
         let relation = self.relation.clone();
         let budget = self.budget.clone();
@@ -1996,6 +2299,7 @@ impl CompletedRelation {
             }
         });
         let reader = NativeBatches {
+            private: None,
             receiver,
             cancellation: self.cancellation.clone(),
             charge: None,
@@ -2046,6 +2350,7 @@ impl CompletedRelation {
     }
 }
 pub struct NativeBatches {
+    private: Option<private_source::PrivateBatches>,
     receiver: tokio::sync::mpsc::Receiver<ChargedBatch>,
     cancellation: Cancellation,
     charge: Option<Box<dyn Reservation>>,
@@ -2053,10 +2358,36 @@ pub struct NativeBatches {
     _execution: Option<Arc<WorkspaceExecutionOwner>>,
 }
 impl NativeBatches {
+    fn private(
+        source: &Arc<private_source::PrivateRelation>,
+        cancellation: Cancellation,
+        execution: Arc<WorkspaceExecutionOwner>,
+    ) -> Result<Self, ModelError> {
+        let (_sender, receiver) = tokio::sync::mpsc::channel(1);
+        Ok(Self {
+            private: Some(source.read_batches()?),
+            receiver,
+            cancellation,
+            charge: None,
+            done: false,
+            _execution: Some(execution),
+        })
+    }
     /// Async compiler callers await the same handoff that wakes provider threads.
     pub async fn next_async(&mut self) -> Option<Result<RecordBatch, ModelError>> {
         if self.done {
             return None;
+        }
+        if let Some(private) = &mut self.private {
+            if let Err(error) = self.cancellation.check() {
+                self.done = true;
+                return Some(Err(error));
+            }
+            let item = private.next();
+            if item.is_none() || item.as_ref().is_some_and(Result::is_err) {
+                self.done = true;
+            }
+            return item;
         }
         self.charge = None;
         let item = tokio::select! {
@@ -2121,6 +2452,7 @@ impl<R: Record> Iterator for TypedBatches<R> {
 /// attempt files alive. Consumers compare descriptors and policy, without rehashing input bytes.
 #[derive(Clone)]
 pub struct CheckedInputs {
+    _private: Option<Arc<lctx_compiler_store::private_validation::CheckedPrivateScope>>,
     inputs: CompletedInputs,
     attempt: Arc<WorkspaceFiles>,
     policy: ContentHash,
@@ -2136,6 +2468,7 @@ impl CheckedInputs {
         required: &[lctx_model::domain::ValidationInput],
     ) -> Result<Self, ModelError> {
         Ok(Self {
+            _private: self._private.clone(),
             inputs: self.inputs.select(required)?,
             attempt: self.attempt.clone(),
             policy: self.policy,
@@ -2894,6 +3227,7 @@ impl ProducerIngress {
 }
 
 struct PendingRelation {
+    private: Option<Arc<private_source::PrivateRelation>>,
     relation: Relation,
     contribution: bool,
 }
@@ -2962,11 +3296,12 @@ trait ErasedWriter: Send {
     ) -> futures::future::BoxFuture<'static, Result<PendingRelation, ModelError>>;
 }
 struct Writer<R: Record> {
+    private: Option<private_source::PrivateWriter>,
     ingress: Arc<ProducerIngress>,
     producing_scope: Option<lctx_compiler_store::compiler::ProducingScope>,
-    native_calls: Arc<crate::native_calls::NativeCalls>,
-    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
-    bridge: Arc<crate::native_bridge::NativeBridge>,
+    native_calls: Option<Arc<crate::native_calls::NativeCalls>>,
+    native: Option<Arc<lctx_compiler_store::compiler::NativeCompilerStore>>,
+    bridge: Option<Arc<crate::native_bridge::NativeBridge>>,
     producer: ContentHash,
     pending: Vec<R>,
     bytes: usize,
@@ -2991,6 +3326,7 @@ impl ErasedWriter for EmptyWriter {
     ) -> BoxFuture<'static, Result<PendingRelation, ModelError>> {
         Box::pin(async move {
             Ok(PendingRelation {
+                private: None,
                 relation: self.relation,
                 contribution: self.contribution,
             })
@@ -2998,17 +3334,38 @@ impl ErasedWriter for EmptyWriter {
     }
 }
 impl<R: Record> Writer<R> {
+    fn native(
+        &self,
+    ) -> Result<&Arc<lctx_compiler_store::compiler::NativeCompilerStore>, ModelError> {
+        self.native
+            .as_ref()
+            .ok_or(ModelError::Conflict("private writer has no native store"))
+    }
+    fn native_calls(&self) -> Result<&Arc<crate::native_calls::NativeCalls>, ModelError> {
+        self.native_calls
+            .as_ref()
+            .ok_or(ModelError::Conflict("private writer has no native calls"))
+    }
     fn write_batch(&mut self, batch: Batch<R>, budget: &ResourceBudget) -> Result<(), ModelError> {
+        if let Some(private) = &mut self.private {
+            return private.push(batch.into_checked()?);
+        }
         let write = owned_batch_write(
             self.ingress.clone(),
-            self.native.clone(),
+            self.native()?.clone(),
             self.producer,
             batch,
             self.producing_scope.clone(),
             budget.clone(),
         );
         self.bridge
-            .call_boxed(submit_batch_write(self.native_calls.clone(), write, None))
+            .as_ref()
+            .ok_or(ModelError::Conflict("native writer bridge absent"))?
+            .call_boxed(submit_batch_write(
+                self.native_calls()?.clone(),
+                write,
+                None,
+            ))
     }
     fn prepare_close(
         mut self: Box<Self>,
@@ -3016,6 +3373,7 @@ impl<R: Record> Writer<R> {
         budget: ResourceBudget,
     ) -> Result<PreparedClose, ModelError> {
         let pending = PendingRelation {
+            private: None,
             relation: Relation::of::<R>(),
             contribution: self.contribution,
         };
@@ -3026,7 +3384,7 @@ impl<R: Record> Writer<R> {
             let batch = Batch::with_reservation(&model, std::mem::take(&mut self.pending), charge)?;
             let write = owned_batch_write(
                 self.ingress.clone(),
-                self.native.clone(),
+                self.native()?.clone(),
                 self.producer,
                 batch,
                 self.producing_scope.clone(),
@@ -3044,7 +3402,7 @@ impl<R: Record> Writer<R> {
         Ok(PreparedClose {
             pending,
             write,
-            calls: self.native_calls.clone(),
+            calls: self.native_calls()?.clone(),
             keep_alive: self,
         })
     }
@@ -3069,6 +3427,19 @@ impl<R: Record> ErasedWriter for Writer<R> {
         model: Arc<ValidatedModel>,
         budget: ResourceBudget,
     ) -> BoxFuture<'static, Result<PendingRelation, ModelError>> {
+        if self.private.is_some() {
+            return async move {
+                let mut writer = self;
+                writer.flush(&model, &budget)?;
+                let source = writer.private.take().expect("private writer").finish()?;
+                Ok(PendingRelation {
+                    private: Some(source),
+                    relation: Relation::of::<R>(),
+                    contribution: writer.contribution,
+                })
+            }
+            .boxed();
+        }
         close_writer(Box::new(move || self.prepare_close(model, budget)))
     }
 }
@@ -3113,7 +3484,7 @@ impl ProducerOutput {
         if let Some(scope) = scope.as_ref() {
             return Ok(scope.clone());
         }
-        let created = self.workspace.native.producing_scope(
+        let created = self.workspace.native()?.producing_scope(
             self.contribution_spec().identity()?,
             self.workspace.budget(),
         )?;
@@ -3123,7 +3494,11 @@ impl ProducerOutput {
     /// Bind explicit read descendants to this producer, retaining semantic input identity.
     pub(crate) fn bound_inputs(&self) -> Result<CompletedInputs, ModelError> {
         let mut inputs = self.inputs.clone();
-        inputs.producing_scope = Some(self.producing_scope()?);
+        inputs.producing_scope = if self.workspace.is_private() {
+            None
+        } else {
+            Some(self.producing_scope()?)
+        };
         inputs.prepared_session = Arc::new(tokio::sync::OnceCell::new());
         Ok(inputs)
     }
@@ -3177,6 +3552,9 @@ impl ProducerOutput {
         }
     }
     fn registration_request(&self) -> BoxFuture<'static, Result<ContentHash, ModelError>> {
+        if self.workspace.is_private() {
+            return futures::future::ready(self.contribution_spec().identity()).boxed();
+        }
         match self.contribution.lock() {
             Ok(contribution) => {
                 if let Some(id) = *contribution {
@@ -3187,12 +3565,14 @@ impl ProducerOutput {
         }
         let registration = self.registration.clone();
         let contribution = self.contribution.clone();
-        let native = self.workspace.native.clone();
-        let calls = self.workspace.native_calls.clone();
+        let native = self.workspace.native().cloned();
+        let calls = self.workspace.native_calls().cloned();
         let descriptor = self.contribution_spec();
         let scope = self.producing_scope();
         async move {
             let scope = scope?;
+            let native = native?;
+            let calls = calls?;
             let _registration = registration.lock().await;
             if let Some(id) = *contribution.lock().map_err(|_| poisoned())? {
                 return Ok(id);
@@ -3270,7 +3650,11 @@ impl ProducerOutput {
     fn declare_kind<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
         self.guarded(|| {
             self.check_output::<R>()?;
-            let producer = self.workspace.bridge.call(self.registration_request())?;
+            let producer = if self.workspace.is_private() {
+                self.contribution_spec().identity()?
+            } else {
+                self.workspace.bridge()?.call(self.registration_request())?
+            };
             self.insert_writer::<R>(producer, contribution)
         })
     }
@@ -3290,8 +3674,23 @@ impl ProducerOutput {
         writers.insert(
             R::NAME,
             Box::new(Writer::<R> {
+                private: if self.workspace.is_private() {
+                    Some(private_source::PrivateWriter::new_with_spill(
+                        self.workspace.model.digest(),
+                        Relation::of::<R>(),
+                        self.workspace.budget.clone(),
+                        self.workspace.files._directory.clone(),
+                        self.workspace.private_spill.clone(),
+                    )?)
+                } else {
+                    None
+                },
                 ingress: self.ingress.clone(),
-                producing_scope: Some(self.producing_scope()?),
+                producing_scope: if self.workspace.is_private() {
+                    None
+                } else {
+                    Some(self.producing_scope()?)
+                },
                 native_calls: self.workspace.native_calls.clone(),
                 native: self.workspace.native.clone(),
                 bridge: self.workspace.bridge.clone(),
@@ -3358,6 +3757,9 @@ impl ProducerOutput {
             let limits = self.canonical_limits::<R>()?;
             let batch =
                 canonical.into_batch(&self.workspace.model, self.workspace.budget(), limits)?;
+            if self.workspace.is_private() {
+                return self.write_inner(batch);
+            }
             let (producer, previous) = {
                 let mut writers = self.writers.lock().map_err(|_| poisoned())?;
                 let writer = writers
@@ -3391,13 +3793,13 @@ impl ProducerOutput {
             for batch in previous.into_iter().chain(std::iter::once(batch)) {
                 let write = owned_batch_write(
                     self.ingress.clone(),
-                    self.workspace.native.clone(),
+                    self.workspace.native()?.clone(),
                     producer,
                     batch,
                     Some(self.producing_scope()?),
                     self.workspace.budget().clone(),
                 );
-                submit_batch_write(self.workspace.native_calls.clone(), write, None).await?;
+                submit_batch_write(self.workspace.native_calls()?.clone(), write, None).await?;
             }
             Ok(())
         }
@@ -3426,6 +3828,9 @@ impl ProducerOutput {
         result
     }
     pub async fn push<R: Record>(&self, row: R) -> Result<(), ModelError> {
+        if self.workspace.is_private() {
+            return self.push_sync(row);
+        }
         let result = async {
             self.check()?;
             row.validate()?;
@@ -3470,13 +3875,13 @@ impl ProducerOutput {
             if let Some((producer, batch)) = transfer {
                 let write = owned_batch_write(
                     self.ingress.clone(),
-                    self.workspace.native.clone(),
+                    self.workspace.native()?.clone(),
                     producer,
                     batch,
                     Some(self.producing_scope()?),
                     self.workspace.budget().clone(),
                 );
-                submit_batch_write(self.workspace.native_calls.clone(), write, None).await?;
+                submit_batch_write(self.workspace.native_calls()?.clone(), write, None).await?;
             }
             Ok(())
         }
@@ -3537,7 +3942,7 @@ impl ProducerOutput {
         Box::pin(async move {
             if let Err(error) = self.mark_finished(outcome) {
                 let drained = self.finish_ingress().await;
-                self.workspace.native.fail();
+                self.workspace.fail();
                 self.workspace.cancellation.cancel();
                 return ingress_results(Err(error), drained);
             }
@@ -3556,13 +3961,16 @@ impl ProducerOutput {
             if result.is_err() {
                 // Required completion cannot be caught and relabelled as an optional
                 // capture miss, including local failure after native binding effects.
-                workspace.native.fail();
+                workspace.fail();
                 workspace.cancellation.cancel();
             }
             result
         })
     }
     fn complete_inner(self) -> BoxFuture<'static, Result<(), ModelError>> {
+        if self.workspace.is_private() {
+            return self.complete_private();
+        }
         Box::pin(async move {
             self.workspace.cancellation.check()?;
             self.workspace.writable()?;
@@ -3608,6 +4016,7 @@ impl ProducerOutput {
                             .ok_or(ModelError::Schema("declared native contribution relation"))?
                             .clone();
                         pending.push(PendingRelation {
+                            private: None,
                             relation,
                             contribution: true,
                         });
@@ -3627,11 +4036,11 @@ impl ProducerOutput {
                 .map_err(|_| poisoned())?
                 .expect("checked producer outcome");
             let expected_outcome = outcome as i16;
-            let native = self.workspace.native.clone();
+            let native = self.workspace.native()?.clone();
             let budget = self.workspace.budget.clone();
             let production = self
                 .workspace
-                .native_calls
+                .native_calls()?
                 .call(async move {
                     native
                         .complete_singleton_scoped(&producing_scope, id, outcome, &outputs, &budget)
@@ -3670,6 +4079,7 @@ impl ProducerOutput {
                         + lctx_native::installed_view::view_heap(supplied),
                 )?;
                 Ok(Arc::new(CompletedRelation {
+                    private: None,
                     snapshot: analysis::sources::SourceSnapshot::of_completed_view(
                         &source.relation,
                         self.workspace.model.digest(),
@@ -3734,14 +4144,14 @@ impl ProducerOutput {
                         }),
                     )?;
                     let prior = previous.as_ref().map(|source| source.view.clone());
-                    let native = self.workspace.native.clone();
+                    let native = self.workspace.native()?.clone();
                     let budget = self.workspace.budget.clone();
                     let composed = production.clone();
                     #[cfg(test)]
                     self.workspace.composition_control.attempt(self.name, name);
                     let result = self
                         .workspace
-                        .native_calls
+                        .native_calls()?
                         .call(async move {
                             let result = native
                                 .prepare_production_view(composed, name.to_owned(), prior, &budget)
@@ -3877,10 +4287,10 @@ impl ProducerOutput {
                 .collect::<Vec<_>>();
             let mut completed = Vec::with_capacity(prepared.len());
             for ((composition, source), binding) in prepared.into_values().zip(bindings) {
-                let native = self.workspace.native.clone();
+                let native = self.workspace.native()?.clone();
                 let budget = self.workspace.budget.clone();
                 self.workspace
-                    .native_calls
+                    .native_calls()?
                     .call(async move {
                         native
                             .publish_prepared_production_view(composition, binding, &budget)
@@ -3957,7 +4367,7 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
             );
             result
         });
-        let owner = tracing::info_span!(target: "lctx_phase", "provider_join_owner", producer=self.name, attempt=%self.workspace.native.attempt().hex());
+        let owner = tracing::info_span!(target: "lctx_phase", "provider_join_owner", producer=self.name, operation=%self.workspace.operation_identity().hex());
         let joined = async move {
             lctx_native::phase::wait("provider_join", task)
                 .await
@@ -3980,7 +4390,11 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
         Ok(Box::new(self.inputs.relation::<R>()?.read_scoped::<R>(
             self.workspace.model.clone(),
             self.workspace.budget.clone(),
-            Some(self.producing_scope()?),
+            if self.workspace.is_private() {
+                None
+            } else {
+                Some(self.producing_scope()?)
+            },
         )?))
     }
     fn declare<R: Record>(&self) -> Result<(), ModelError> {
@@ -3993,9 +4407,12 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
         ProducerOutput::contribute(self, batch)
     }
     fn finish(&self, outcome: ProviderOutcome) -> Result<(), ModelError> {
+        if self.workspace.is_private() {
+            return self.mark_finished(outcome);
+        }
         let ingress = self.ingress.clone();
         self.workspace
-            .bridge
+            .bridge()?
             .call(async move { ingress.finish().await })?;
         self.mark_finished(outcome)
     }
@@ -4101,8 +4518,8 @@ mod tests {
         let workspace = Workspace::new(model(), WorkspaceOptions::default(), native).unwrap();
         let producer = Arc::downgrade(&workspace);
         let files = Arc::downgrade(&workspace.files);
-        let bridge = Arc::downgrade(&workspace.bridge);
-        let signal = Arc::downgrade(&workspace.execution.signal);
+        let bridge = Arc::downgrade(workspace.bridge().unwrap());
+        let signal = Arc::downgrade(workspace.execution.signal.as_ref().unwrap());
         let cancellation = workspace.cancellation();
         let borrowed = workspace.admission_engine().unwrap();
         drop(workspace.admission_engine().unwrap());
@@ -4396,7 +4813,7 @@ mod tests {
         assert!(cell.set(prepared).is_ok());
         let access = CompletedInputs {
             attempt: Arc::new(WorkspaceFiles {
-                _directory: tempfile::tempdir().unwrap(),
+                _directory: Arc::new(tempfile::tempdir().unwrap()),
             }),
             model: ContentHash::of(b"model"),
             program: ContentHash::of(b"program"),
@@ -4534,7 +4951,7 @@ mod tests {
         assert!(cell.set(prepared).is_ok());
         let access = CompletedInputs {
             attempt: Arc::new(WorkspaceFiles {
-                _directory: tempfile::tempdir().unwrap(),
+                _directory: Arc::new(tempfile::tempdir().unwrap()),
             }),
             model: ContentHash::of(b"model"),
             program: ContentHash::of(b"program"),
@@ -4708,6 +5125,7 @@ mod tests {
             .await
             .unwrap();
         let mut reader = NativeBatches {
+            private: None,
             receiver,
             cancellation: cancellation.clone(),
             charge: None,
@@ -4752,6 +5170,7 @@ mod tests {
                 }
             });
             let mut reader = NativeBatches {
+                private: None,
                 receiver,
                 cancellation: Cancellation::default(),
                 charge: None,
@@ -4983,11 +5402,11 @@ mod tests {
                 .iter()
                 .all(|failure| failure.error.permits_storage_cleanup())
         {
-            finality.merge(workspace.native.abandon_finality_report().await);
+            finality.merge(workspace.native().unwrap().abandon_finality_report().await);
         } else {
             finality.storage.push(StorageState::Orphan(format!(
                 "native_attempt:{}",
-                workspace.native.attempt().hex()
+                workspace.native().unwrap().attempt().hex()
             )));
         }
         let signal = workspace.complete_signal(&finality).await;
@@ -5022,11 +5441,12 @@ mod tests {
         let bridge = Arc::new(crate::native_bridge::NativeBridge::new(cancellation).unwrap());
         let pending_charge = 64;
         let writer = Box::new(Writer::<Package> {
+            private: None,
             ingress: Arc::default(),
             producing_scope: None,
-            native_calls: calls.clone(),
-            native,
-            bridge: bridge.clone(),
+            native_calls: Some(calls.clone()),
+            native: Some(native),
+            bridge: Some(bridge.clone()),
             producer: ContentHash::of(b"lazy-close"),
             pending: vec![Package {
                 name: "retained".into(),
@@ -5113,6 +5533,7 @@ mod tests {
         .boxed();
         let prepared = PreparedClose {
             pending: PendingRelation {
+                private: None,
                 relation: Relation::of::<Package>(),
                 contribution: true,
             },
@@ -5416,7 +5837,7 @@ mod tests {
                     2 => foreign.budget = ResourceBudget::fixed(workspace.budget.limit()).unwrap(),
                     3 => {
                         foreign.attempt = Arc::new(WorkspaceFiles {
-                            _directory: tempfile::tempdir().unwrap(),
+                            _directory: Arc::new(tempfile::tempdir().unwrap()),
                         })
                     }
                     4 => {
@@ -5541,6 +5962,7 @@ mod tests {
         output.finish(ProviderOutcome::Complete).await.unwrap();
         let contributions = workspace
             .native()
+            .unwrap()
             .contributions(workspace.budget())
             .await
             .unwrap();
@@ -5571,6 +5993,7 @@ mod tests {
         assert!(
             workspace
                 .native()
+                .unwrap()
                 .contributions(workspace.budget())
                 .await
                 .unwrap()
@@ -5600,7 +6023,7 @@ mod tests {
         assert!(duplicate.finish(ProviderOutcome::Complete).await.is_err());
         for attempt in [workspace, duplicate_workspace] {
             let budget = attempt.budget().clone();
-            let native = attempt.native().clone();
+            let native = attempt.native().unwrap().clone();
             let connection = native
                 .recovery_scope()
                 .unwrap()
@@ -5736,7 +6159,7 @@ mod tests {
         drop(constrained);
         for workspace in [ordinary_workspace, constrained_workspace] {
             let budget = workspace.budget().clone();
-            let native = workspace.native().clone();
+            let native = workspace.native().unwrap().clone();
             let connection = native
                 .recovery_scope()
                 .unwrap()
@@ -5795,7 +6218,7 @@ mod tests {
         ));
         lctx_model::domain::completion::complete::<()>(
             Ok(()),
-            workspace.native().abandon_finality_report().await,
+            workspace.native().unwrap().abandon_finality_report().await,
         )
         .unwrap();
     }
@@ -5847,7 +6270,11 @@ mod tests {
         completion::complete(Ok(()), drain.await).unwrap();
         stage.await.unwrap();
         assert!(completed.load(Ordering::Acquire));
-        completion::complete(Ok(()), workspace.native().abandon_finality_report().await).unwrap();
+        completion::complete(
+            Ok(()),
+            workspace.native().unwrap().abandon_finality_report().await,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
@@ -5873,7 +6300,11 @@ mod tests {
             .await
             .unwrap();
         completion::complete(Ok(()), workspace.drain_report().await).unwrap();
-        completion::complete(Ok(()), workspace.native().abandon_finality_report().await).unwrap();
+        completion::complete(
+            Ok(()),
+            workspace.native().unwrap().abandon_finality_report().await,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
@@ -5915,7 +6346,7 @@ mod tests {
         acknowledgement.await.unwrap().unwrap();
         lctx_model::domain::completion::complete::<()>(
             Ok(()),
-            workspace.native().abandon_finality_report().await,
+            workspace.native().unwrap().abandon_finality_report().await,
         )
         .unwrap();
     }
@@ -5946,6 +6377,7 @@ mod tests {
             .expect("metadata-only native registration");
         let contribution = workspace
             .native()
+            .unwrap()
             .completed_contribution(identity)
             .await
             .unwrap();
@@ -5955,6 +6387,7 @@ mod tests {
         assert!(
             workspace
                 .native()
+                .unwrap()
                 .contributions(workspace.budget())
                 .await
                 .unwrap()
@@ -6108,7 +6541,7 @@ mod tests {
         assert!(constrained.completed::<Package>().is_err());
         for workspace in [workspace, constrained] {
             let mut finality = workspace.drain_owned_report().await;
-            finality.merge(workspace.native.abandon_finality_report().await);
+            finality.merge(workspace.native().unwrap().abandon_finality_report().await);
             let signal = workspace.complete_signal(&finality).await;
             finality.step("row refusal control signal", signal);
             lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
@@ -6162,7 +6595,7 @@ mod tests {
         lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
         lctx_model::domain::completion::complete::<()>(
             Ok(()),
-            workspace.native.abandon_finality_report().await,
+            workspace.native().unwrap().abandon_finality_report().await,
         )
         .unwrap();
     }
@@ -6219,7 +6652,7 @@ mod tests {
         lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
         lctx_model::domain::completion::complete::<()>(
             Ok(()),
-            workspace.native.abandon_finality_report().await,
+            workspace.native().unwrap().abandon_finality_report().await,
         )
         .unwrap();
     }
@@ -6322,8 +6755,8 @@ mod tests {
         assert_eq!(workspace.completed::<Package>().unwrap().rows(), 2);
         let weak_workspace = Arc::downgrade(&workspace);
         let weak_execution = Arc::downgrade(&workspace.execution);
-        let weak_signal = Arc::downgrade(&workspace.execution.signal);
-        let native = workspace.native.clone();
+        let weak_signal = Arc::downgrade(workspace.execution.signal.as_ref().unwrap());
+        let native = workspace.native().unwrap().clone();
         drop(bound);
         drop(workspace);
         assert!(
@@ -6400,7 +6833,7 @@ mod tests {
         drop(source);
         lctx_model::domain::completion::complete::<()>(
             Ok(()),
-            workspace.native.abandon_finality_report().await,
+            workspace.native().unwrap().abandon_finality_report().await,
         )
         .unwrap();
     }
@@ -6499,7 +6932,7 @@ impl lctx_compiler_store::admission::NativeRuntime for Workspace {
         &self,
         future: impl Future<Output = Result<T, ModelError>> + Send + 'static,
     ) -> BoxFuture<'_, Result<T, ModelError>> {
-        self.native_calls.call(future)
+        Workspace::native_call(self, future)
     }
 }
 impl lctx_compiler_store::admission::InputTables for CompletedInputs {
@@ -6692,9 +7125,139 @@ mod composition_controls {
             lctx_model::domain::completion::complete::<()>(Ok(()), completion).unwrap();
             lctx_model::domain::completion::complete::<()>(
                 Ok(()),
-                workspace.native.abandon_finality_report().await,
+                workspace.native().unwrap().abandon_finality_report().await,
             )
             .unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn host_private_composition_rebases_only_changed_outputs_and_never_publishes_cancelled_work()
+     {
+        for cancelled in [false, true] {
+            let model = Arc::new(
+                ValidatedModel::declared(vec![
+                    Relation::of::<Package>(),
+                    Relation::of::<Release>(),
+                    Relation::of::<Literal>(),
+                ])
+                .unwrap(),
+            );
+            let workspace = Workspace::private(model, WorkspaceOptions::default()).unwrap();
+            let output = workspace.output(
+                "paused",
+                Profile::Catalog,
+                ContentHash::of(b"private-composition"),
+                workspace.inputs("paused", Profile::Catalog, []).unwrap(),
+                [Package::NAME, Release::NAME],
+            );
+            let package = Package { name: "one".into() };
+            output
+                .contribute(
+                    Batch::new(workspace.model(), vec![package.clone()], workspace.budget())
+                        .unwrap(),
+                )
+                .unwrap();
+            output
+                .contribute(
+                    Batch::new(
+                        workspace.model(),
+                        vec![Release {
+                            package: package.id(),
+                            version: "1".into(),
+                        }],
+                        workspace.budget(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let pause = Arc::new(Pause::default());
+            workspace
+                .composition_control
+                .pauses
+                .lock()
+                .unwrap()
+                .insert("paused", pause.clone());
+            let mut completing = tokio::spawn(output.finish(ProviderOutcome::Complete));
+            tokio::select! {
+                () = pause.ready.notified() => {},
+                result = &mut completing => panic!("output finish returned before private composition pause: {result:?}"),
+            }
+            assert!(
+                workspace.completed::<Package>().is_err(),
+                "private preparations are invisible"
+            );
+            let peer = workspace.output(
+                "peer",
+                Profile::Catalog,
+                ContentHash::of(b"peer"),
+                workspace.inputs("peer", Profile::Catalog, []).unwrap(),
+                [Package::NAME],
+            );
+            peer.contribute(
+                Batch::new(
+                    workspace.model(),
+                    vec![Package { name: "two".into() }],
+                    workspace.budget(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            peer.finish(ProviderOutcome::Complete).await.unwrap();
+            let old = workspace.completed::<Package>().unwrap();
+            let other = workspace.output(
+                "unrelated",
+                Profile::Catalog,
+                ContentHash::of(b"other"),
+                workspace.inputs("unrelated", Profile::Catalog, []).unwrap(),
+                [Literal::NAME],
+            );
+            other
+                .contribute(
+                    Batch::new(workspace.model(), vec![Literal::None], workspace.budget()).unwrap(),
+                )
+                .unwrap();
+            other.finish(ProviderOutcome::Complete).await.unwrap();
+            if cancelled {
+                workspace.cancellation.cancel();
+            }
+            pause.resume.notify_one();
+            let result = completing.await.unwrap();
+            if cancelled {
+                assert!(result.is_err());
+                assert_eq!(
+                    workspace.completed::<Package>().unwrap().view_identity(),
+                    old.view_identity()
+                );
+                assert!(workspace.completed::<Release>().is_err());
+            } else {
+                result.unwrap();
+                assert_eq!(workspace.completed::<Package>().unwrap().rows(), 2);
+                assert_eq!(workspace.completed::<Release>().unwrap().rows(), 1);
+                assert_eq!(workspace.completed::<Literal>().unwrap().rows(), 1);
+                assert_eq!(old.rows(), 1, "old selections remain exact");
+                assert_eq!(
+                    workspace
+                        .composition_control
+                        .attempts
+                        .lock()
+                        .unwrap()
+                        .get(&("paused", Package::NAME)),
+                    Some(&2)
+                );
+                assert_eq!(
+                    workspace
+                        .composition_control
+                        .attempts
+                        .lock()
+                        .unwrap()
+                        .get(&("paused", Release::NAME)),
+                    Some(&1)
+                );
+                workspace.validate().await.unwrap();
+            }
+            let completion = workspace.drain_owned_report().await;
+            workspace.complete_signal(&completion).await.unwrap();
+            lctx_model::domain::completion::complete::<()>(Ok(()), completion).unwrap();
         }
     }
 }

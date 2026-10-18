@@ -210,7 +210,7 @@ impl CompletedContribution {
             ));
         }
         self.assurance.validate_for(self)?;
-        let mut sink = KeySink::new("compiler-completed-contribution/v2");
+        let mut sink = KeySink::new("compiler-completed-contribution/v3");
         self.spec.identity()?.encode(&mut sink);
         self.assurance.identity()?.encode(&mut sink);
         self.outcome.encode(&mut sink);
@@ -231,7 +231,7 @@ pub struct DependencySelection {
     pub keys: Option<BTreeSet<TypedRowKey>>,
 }
 
-pub const STATE_FORMAT_VERSION: u32 = 4;
+pub const STATE_FORMAT_VERSION: u32 = 5;
 
 /// Codec identity shared by payload addresses and physical records that reference them.
 pub const NATIVE_PAYLOAD_CODEC: &[u8] = b"canonical-native-json/v1";

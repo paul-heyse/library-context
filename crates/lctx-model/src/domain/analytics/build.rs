@@ -1406,13 +1406,10 @@ fn vector_inputs() -> Vec<ValidationInput> {
     );
     inputs
 }
-/// Complete acyclic predecessor closure is installed from the actual model, never from a
-/// dormant generic proof sum. Every consumed relation carries its source receipt.
-pub fn stage(
+/// Output and identity contract shared by rich and uniformly unrequested production.
+pub(crate) fn stage_shape(
     profile: stages::Profile,
     settings: &AnalyticsConfiguration,
-    model: &ValidatedModel,
-    order: &stages::PublicationOrder,
 ) -> Result<stages::Stage, ModelError> {
     use stages::*;
     settings.validate()?;
@@ -1431,6 +1428,34 @@ pub fn stage(
         conditions::Condition,
         conditions::ConditionNode
     );
+    let mut key = KeySink::new("analytic-stage");
+    settings.id().encode(&mut key);
+    for method in METHODS {
+        definition(settings, method)?.1.id().encode(&mut key);
+    }
+    Ok(Stage {
+        captured_binding: None,
+        name: "analyze_analytic",
+        inputs: vec![],
+        outputs,
+        contributes: vec![],
+        coverage: vec![],
+        profiles: vec![profile],
+        effect: Effect::Pure,
+        code: ContentHash::of(include_bytes!("build.rs")),
+        configuration: key.finish(),
+    })
+}
+/// Complete acyclic predecessor closure comes from the actual selected kernel inputs.
+pub fn stage(
+    profile: stages::Profile,
+    settings: &AnalyticsConfiguration,
+    model: &ValidatedModel,
+    order: &stages::PublicationOrder,
+) -> Result<stages::Stage, ModelError> {
+    use stages::*;
+    let mut stage = stage_shape(profile, settings)?;
+    let outputs = &stage.outputs;
     let own = outputs
         .iter()
         .filter(|r| !is_vocabulary(r.name()))
@@ -1474,28 +1499,13 @@ pub fn stage(
         model,
         roots,
         inputs,
-        &outputs,
+        outputs,
         PublicationBoundary::Structural,
         dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
         order,
     )?;
-    let mut key = KeySink::new("analytic-stage");
-    settings.id().encode(&mut key);
-    for method in METHODS {
-        definition(settings, method)?.1.id().encode(&mut key);
-    }
-    Ok(Stage {
-        captured_binding: None,
-        name: "analyze_analytic",
-        inputs,
-        outputs,
-        contributes: vec![],
-        coverage: vec![],
-        profiles: vec![profile],
-        effect: Effect::Pure,
-        code: ContentHash::of(include_bytes!("build.rs")),
-        configuration: key.finish(),
-    })
+    stage.inputs = inputs;
+    Ok(stage)
 }
 
 #[cfg(test)]

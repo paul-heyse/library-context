@@ -82,7 +82,7 @@ impl ProductWindow {
         }
         let budget = runtime.budget().clone();
         runtime
-            .native_call(async move {
+            .cache_call(async move {
                 let _holds = self.holds;
                 let _metadata = self.metadata;
                 cache
@@ -154,7 +154,7 @@ pub(super) async fn lookup_one(
     let owned = request.clone();
     let budget = runtime.budget().clone();
     runtime
-        .native_call(async move {
+        .cache_call(async move {
             let _hold = hold;
             cache.lookup(&owned, &budget).await
         })
@@ -298,7 +298,7 @@ pub(super) async fn entity_hit(
             drop(entry);
             let stale = request.clone();
             runtime
-                .native_call(async move { cache.invalidate(&stale).await })
+                .cache_call(async move { cache.invalidate(&stale).await })
                 .await?;
             Ok(None)
         }
@@ -446,7 +446,7 @@ pub(super) async fn callable_hit(
             drop(entry);
             let stale = request.clone();
             runtime
-                .native_call(async move { cache.invalidate(&stale).await })
+                .cache_call(async move { cache.invalidate(&stale).await })
                 .await?;
             Ok(None)
         }
@@ -565,7 +565,7 @@ pub(super) async fn aspect_hit(
             drop(entry);
             let stale = request.clone();
             runtime
-                .native_call(async move { cache.invalidate(&stale).await })
+                .cache_call(async move { cache.invalidate(&stale).await })
                 .await?;
             Ok(None)
         }
@@ -649,7 +649,7 @@ pub(super) async fn lookup_window(
     }
     let budget = runtime.budget().clone();
     let entries = runtime
-        .native_call(async move {
+        .cache_call(async move {
             let _holds = holds;
             let _metadata = metadata;
             cache.lookup_window(&lookups, &budget).await

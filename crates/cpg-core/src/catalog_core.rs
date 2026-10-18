@@ -392,13 +392,23 @@ mod metadata_controls {
                 .iter()
                 .all(|failure| failure.error.permits_storage_cleanup())
         {
-            finality.merge(workspace.native().abandon_finality_report().await);
+            finality.merge(
+                workspace
+                    .native()
+                    .expect("actual native fixture owner")
+                    .abandon_finality_report()
+                    .await,
+            );
         } else {
             finality
                 .storage
                 .push(completion::StorageState::Orphan(format!(
                     "native_attempt:{}",
-                    workspace.native().attempt().hex()
+                    workspace
+                        .native()
+                        .expect("actual native fixture owner")
+                        .attempt()
+                        .hex()
                 )));
         }
         let signal = workspace.complete_signal(&finality).await;

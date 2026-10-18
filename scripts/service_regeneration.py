@@ -540,7 +540,7 @@ def regenerate(
                 "binary": service._generation_binary(server),
                 "installer": candidate["path"],
                 "installer_generation": candidate,
-                "native_schema_version": 10,
+                "native_schema_version": service.NATIVE_SCHEMA_VERSION,
             }
             for key in ("server_handoff", "installer_handoff", "regeneration"):
                 successor.pop(key, None)

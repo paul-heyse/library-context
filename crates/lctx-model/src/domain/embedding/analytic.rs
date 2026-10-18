@@ -666,6 +666,35 @@ pub fn definition() -> (analysis::MethodParameters, analysis::AnalysisDefinition
     };
     (parameters, definition)
 }
+pub(crate) fn stage_shape(profile: stages::Profile, requested: bool) -> stages::Stage {
+    use stages::*;
+    let mut outputs = vec![
+        RelationUse::of::<AnalysisEmbeddingUse>(),
+        RelationUse::of::<value::FullValue>(),
+        RelationUse::of::<ProjectedValue>(),
+    ];
+    outputs.extend(
+        analysis::analytic_embedding::publication_relations()
+            .iter()
+            .map(RelationUse::of_relation),
+    );
+    Stage {
+        captured_binding: None,
+        name: "analytic_embedding",
+        inputs: vec![],
+        outputs,
+        contributes: vec![],
+        coverage: vec![],
+        profiles: vec![profile],
+        effect: if requested {
+            Effect::Embedding
+        } else {
+            Effect::Pure
+        },
+        code: ContentHash::of(include_bytes!("analytic.rs")),
+        configuration: ContentHash::of(if requested { b"requested" } else { b"disabled" }),
+    }
+}
 pub fn stage(
     profile: stages::Profile,
     requested: bool,
@@ -699,32 +728,9 @@ pub fn stage(
     );
     inputs.sort_by_key(|r| r.name());
     inputs.dedup_by_key(|r| r.name());
-    let mut outputs = vec![
-        RelationUse::of::<AnalysisEmbeddingUse>(),
-        RelationUse::of::<value::FullValue>(),
-        RelationUse::of::<ProjectedValue>(),
-    ];
-    outputs.extend(
-        analysis::analytic_embedding::publication_relations()
-            .iter()
-            .map(RelationUse::of_relation),
-    );
-    Ok(Stage {
-        captured_binding: None,
-        name: "analytic_embedding",
-        inputs,
-        outputs,
-        contributes: vec![],
-        coverage: vec![],
-        profiles: vec![profile],
-        effect: if requested {
-            Effect::Embedding
-        } else {
-            Effect::Pure
-        },
-        code: ContentHash::of(include_bytes!("analytic.rs")),
-        configuration: ContentHash::of(if requested { b"requested" } else { b"disabled" }),
-    })
+    let mut stage = stage_shape(profile, requested);
+    stage.inputs = inputs;
+    Ok(stage)
 }
 
 pub(crate) fn invariants_refs() -> Vec<&'static str> {

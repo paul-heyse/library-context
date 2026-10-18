@@ -243,10 +243,15 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
                 .map(|relation| relation.name().into())
                 .collect(),
         };
-        let pending = source.native().begin_contribution(spec).await.unwrap();
+        let pending = source
+            .native()
+            .expect("actual native fixture owner")
+            .begin_contribution(spec)
+            .await
+            .unwrap();
         if contract.name == "acquire" {
             write(
-                source.native(),
+                source.native().expect("actual native fixture owner"),
                 &pending,
                 std::slice::from_ref(&input),
                 &native_operation_budget,
@@ -255,36 +260,42 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         }
         if contract.name == "assemble" {
             write(
-                source.native(),
+                source.native().expect("actual native fixture owner"),
                 &pending,
                 &providers,
                 &native_operation_budget,
             )
             .await;
             write(
-                source.native(),
+                source.native().expect("actual native fixture owner"),
                 &pending,
                 std::slice::from_ref(&context),
                 &native_operation_budget,
             )
             .await;
             write(
-                source.native(),
+                source.native().expect("actual native fixture owner"),
                 &pending,
                 std::slice::from_ref(&scope),
                 &native_operation_budget,
             )
             .await;
-            write(source.native(), &pending, &runs, &native_operation_budget).await;
             write(
-                source.native(),
+                source.native().expect("actual native fixture owner"),
+                &pending,
+                &runs,
+                &native_operation_budget,
+            )
+            .await;
+            write(
+                source.native().expect("actual native fixture owner"),
                 &pending,
                 &families,
                 &native_operation_budget,
             )
             .await;
             write(
-                source.native(),
+                source.native().expect("actual native fixture owner"),
                 &pending,
                 &coverage,
                 &native_operation_budget,
@@ -303,6 +314,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             .collect();
         let completed = source
             .native()
+            .expect("actual native fixture owner")
             .complete_contribution(
                 pending,
                 ProviderOutcome::Complete,
@@ -316,6 +328,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             let view = completed[relation.name()].clone();
             source
                 .native()
+                .expect("actual native fixture owner")
                 .bind(CompletedBinding {
                     boundary: None,
                     source: SourceSnapshot::of_completed_view(
@@ -364,20 +377,28 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     );
     let mut expected_contributions = source
         .native()
+        .expect("actual native fixture owner")
         .contributions(&native_operation_budget)
         .await
         .unwrap();
     expected_contributions.sort_by_key(|row| row.identity().unwrap());
-    let mut expected_bindings = source.native().bindings().await.unwrap();
+    let mut expected_bindings = source
+        .native()
+        .expect("actual native fixture owner")
+        .bindings()
+        .await
+        .unwrap();
     expected_bindings.sort_by_key(CompletedBinding::key);
     let export = tempfile::NamedTempFile::new().unwrap();
     source
         .native()
+        .expect("actual native fixture owner")
         .freeze_content(&native_operation_budget)
         .await
         .unwrap();
     let state = source
         .native()
+        .expect("actual native fixture owner")
         .export_state(export.path(), &native_operation_budget)
         .await
         .unwrap();
@@ -454,13 +475,32 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         !native_operation_budget.shares_pool(restored_budget),
         "independent ingress earns selectors in its own workspace resource pool"
     );
-    assert_eq!(source.native().database(), restored.native().database());
-    assert_ne!(source.native().attempt(), restored.native().attempt());
+    assert_eq!(
+        source
+            .native()
+            .expect("actual native fixture owner")
+            .database(),
+        restored
+            .native()
+            .expect("actual native fixture owner")
+            .database()
+    );
+    assert_ne!(
+        source
+            .native()
+            .expect("actual native fixture owner")
+            .attempt(),
+        restored
+            .native()
+            .expect("actual native fixture owner")
+            .attempt()
+    );
     // Shared immutable canonical payload survives attempt closure. Import independently
     // validates the transported descriptors/membership against those retained actual bytes;
     // it does not replay providers or mutate a separate database.
     restored
         .native()
+        .expect("actual native fixture owner")
         .import_state(export.path(), &state, restored_budget)
         .await
         .unwrap();
@@ -476,24 +516,32 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     // descriptor byte in logical identity order without deduplicating repeated rows.
     let mut actual_contributions = restored
         .native()
+        .expect("actual native fixture owner")
         .contributions(restored_budget)
         .await
         .unwrap();
     actual_contributions.sort_by_key(|row| row.identity().unwrap());
     assert_eq!(actual_contributions, expected_contributions);
-    let mut actual_bindings = restored.native().bindings().await.unwrap();
+    let mut actual_bindings = restored
+        .native()
+        .expect("actual native fixture owner")
+        .bindings()
+        .await
+        .unwrap();
     actual_bindings.sort_by_key(CompletedBinding::key);
     assert_eq!(actual_bindings, expected_bindings);
     // Independent import admits into a mutable destination; explicit finalization
     // earns its physical boundary before requesting the frozen-state identity.
     restored
         .native()
+        .expect("actual native fixture owner")
         .freeze_content(restored_budget)
         .await
         .unwrap();
     assert_eq!(
         restored
             .native()
+            .expect("actual native fixture owner")
             .completed_state(restored_budget)
             .await
             .unwrap(),
@@ -518,6 +566,16 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     }
     source.drain().await.unwrap();
     restored.drain().await.unwrap();
-    source.native().abandon().await.unwrap();
-    restored.native().abandon().await.unwrap();
+    source
+        .native()
+        .expect("actual native fixture owner")
+        .abandon()
+        .await
+        .unwrap();
+    restored
+        .native()
+        .expect("actual native fixture owner")
+        .abandon()
+        .await
+        .unwrap();
 }

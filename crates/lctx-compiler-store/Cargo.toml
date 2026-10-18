@@ -12,6 +12,7 @@ lctx-model = { path = "../lctx-model" }
 lctx-native = { path = "../lctx-native" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
+bytes.workspace = true
 datafusion.workspace = true
 futures.workspace = true
 async-trait = "=0.1.92"

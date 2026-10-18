@@ -172,7 +172,7 @@ impl ProductWindow {
         };
         let budget = runtime.budget().clone();
         let (reserved, entry) = runtime
-            .native_call(async move {
+            .cache_call(async move {
                 let entry = cache.lookup(&reserved.0, &budget).await?;
                 Ok((reserved, entry))
             })
@@ -220,7 +220,7 @@ impl ProductWindow {
                     .take()
                     .ok_or(ModelError::Conflict("catalog request owner disappeared"))?;
                 let reserved = runtime
-                    .native_call(async move {
+                    .cache_call(async move {
                         cache.invalidate(&reserved.0).await?;
                         Ok(reserved)
                     })
@@ -298,7 +298,7 @@ impl ProductWindow {
         // encoded payload and request disappear before either backing reservation.
         let owned = (product, hold, request_hold);
         runtime
-            .native_call(async move {
+            .cache_call(async move {
                 let owned = owned;
                 cache.insert(&owned.0, &budget).await.map(|_| ())
             })

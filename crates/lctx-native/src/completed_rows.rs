@@ -545,6 +545,181 @@ pub fn check_projection(actual: &Object, expected: Object) -> Result<(), ModelEr
     Ok(())
 }
 
+/// Logical contribution digests reconstructed from actual canonical backing rows.
+///
+/// The caller independently authenticates membership, physical locators, canonical
+/// envelopes and complete EOF. This owner only rebuilds the declared typed rows and
+/// computes their model-owned logical content; physical payload hashes stay separate.
+/// One bounded typed builder is reused across rows and pages of the same relation.
+pub struct LogicalOutputDigests {
+    outputs: BTreeMap<String, d::RelationContent>,
+    active: Option<(Relation, crate::projected_arrow::ProjectedBuilder)>,
+    budget: ResourceBudget,
+    _charge: d::charged::StateCharge,
+}
+impl LogicalOutputDigests {
+    pub fn new<'a>(
+        relations: impl IntoIterator<Item = &'a str>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut charge =
+            d::charged::StateCharge::new(budget, "logical contribution output digests");
+        let mut outputs = BTreeMap::new();
+        for name in relations {
+            let relation = &crate::adapter::select(name)?.relation;
+            charge.grow(
+                name.len()
+                    .saturating_add(size_of::<d::RelationContent>())
+                    .saturating_add(256),
+            )?;
+            if outputs
+                .insert(name.to_owned(), relation.content())
+                .is_some()
+            {
+                return Err(ModelError::Conflict("duplicate logical output relation"));
+            }
+        }
+        Ok(Self {
+            outputs,
+            active: None,
+            budget: budget.clone(),
+            _charge: charge,
+        })
+    }
+    fn flush(&mut self) -> Result<(), ModelError> {
+        if let Some((relation, builder)) = self.active.as_mut() {
+            if builder.rows() == 0 {
+                return Ok(());
+            }
+            let batch = builder.finish()?;
+            let _decode = self.budget.reserve(
+                "logical contribution typed digest decode",
+                d::logical_batch_bytes(&batch)?
+                    .saturating_mul(8)
+                    .saturating_add(batch.num_rows().saturating_mul(256))
+                    .saturating_add(4096),
+            )?;
+            let output = self
+                .outputs
+                .get_mut(relation.name())
+                .ok_or(ModelError::Conflict("undeclared logical output relation"))?;
+            relation.hash_rows(&batch, output)?;
+            drop(batch);
+            builder.release()?;
+        }
+        Ok(())
+    }
+    pub async fn push<Context>(
+        &mut self,
+        reader: &crate::NativeReader<Context>,
+        row: &Value,
+    ) -> Result<(), ModelError> {
+        let object = row
+            .as_object()
+            .ok_or(ModelError::Schema("logical output backing object"))?;
+        let Some(Value::String(name)) = object.get("semantic_type") else {
+            return Err(ModelError::Schema("logical output backing relation"));
+        };
+        if !self.outputs.contains_key(name) {
+            return Err(ModelError::Conflict("undeclared logical output membership"));
+        }
+        if self
+            .active
+            .as_ref()
+            .is_none_or(|(relation, _)| relation.name() != name)
+        {
+            self.flush()?;
+            self.active.take();
+            let relation = crate::adapter::select(name)?.relation.clone();
+            let builder = crate::projected_arrow::ProjectedBuilder::new(
+                relation.clone(),
+                relation.schema().clone(),
+                &self.budget,
+            )?;
+            self.active = Some((relation, builder));
+        }
+        let Some(Value::Object(body)) = object.get("body") else {
+            return Err(ModelError::Schema("logical output declared body"));
+        };
+        let _fields = self.budget.reserve(
+            "logical output projected fields",
+            crate::loader::native_bytes(row)
+                .saturating_mul(2)
+                .saturating_add(4096),
+        )?;
+        let mut fields = body.clone();
+        fields.insert(
+            "id",
+            object
+                .get("semantic_key")
+                .ok_or(ModelError::Schema("logical output nominal key"))?
+                .clone(),
+        );
+        let _original;
+        if name == d::artifact::ArtifactChunk::NAME {
+            let backing = validate_state_row("compiler_record", row)?
+                .ok_or(ModelError::Schema("logical output original chunk backing"))?;
+            _original = Some(self.budget.reserve(
+                "logical output original chunk bytes",
+                backing.len.saturating_add(256),
+            )?);
+            let mut bytes = Vec::with_capacity(backing.len);
+            let source = crate::originals::layout_id(d::graph::EntityId::of(backing.artifact))?;
+            // OriginalRanges intentionally bounds each physical union to 256 KiB;
+            // one declared logical ArtifactChunk can be 1 MiB. Reassemble that
+            // actual model unit without widening the shared range-read contract.
+            while bytes.len() < backing.len {
+                let length = (backing.len - bytes.len()).min(256 * 1024);
+                let start = backing
+                    .start
+                    .checked_add(bytes.len() as u64)
+                    .ok_or(ModelError::Schema("logical output original range overflow"))?;
+                let mut ranges = crate::originals::read_ranges(
+                    reader,
+                    &[(source.clone(), start, length)],
+                    &self.budget,
+                )
+                .await?;
+                let value = ranges
+                    .pop()
+                    .ok_or(ModelError::Conflict("logical output original range absent"))?;
+                if value.len() != length || !ranges.is_empty() {
+                    return Err(ModelError::Conflict("logical output exact original range"));
+                }
+                bytes.extend_from_slice(value.as_ref());
+            }
+            if ContentHash::of(&bytes) != backing.digest {
+                return Err(ModelError::Conflict("logical output original chunk digest"));
+            }
+            fields.insert("body", Value::Bytes(surrealdb::types::Bytes::from(bytes)));
+        } else {
+            _original = None;
+        }
+        let (_, builder) = self
+            .active
+            .as_mut()
+            .ok_or(ModelError::Conflict("logical output active builder"))?;
+        builder.push(Value::Object(fields))?;
+        if builder.rows() >= d::resources::TRANSFER_ROWS
+            || builder.bytes() >= d::resources::TRANSFER_BYTES
+        {
+            self.flush()?;
+        }
+        Ok(())
+    }
+    pub fn finish(mut self) -> Result<BTreeMap<String, OutputContent>, ModelError> {
+        self.flush()?;
+        Ok(self
+            .outputs
+            .into_iter()
+            .map(|(name, content)| {
+                let (rows, content) = content.finish();
+                (name, OutputContent { rows, content })
+            })
+            .collect())
+    }
+}
+
 pub fn validate_backing_batch(rows: &[Value], budget: &ResourceBudget) -> Result<(), ModelError> {
     let mut groups = BTreeMap::<&str, Vec<&Object>>::new();
     for row in rows {
@@ -672,4 +847,101 @@ pub fn decode_nominal_key(key: &str) -> Result<[u8; 16], ModelError> {
         .map_err(ModelError::codec)?
         .try_into()
         .map_err(|_| ModelError::Schema("native nominal key width"))
+}
+
+#[cfg(test)]
+mod logical_output_controls {
+    use super::*;
+    use std::sync::Arc;
+
+    fn package_backing(package: &d::input::Package) -> Value {
+        let entity = d::graph::Entity::from(package.clone());
+        let view = crate::codec::entity_views(std::slice::from_ref(&entity))
+            .unwrap()
+            .pop()
+            .unwrap();
+        crate::adapter::physical_row_prepared(
+            crate::loader::entity_payload_id(&entity).unwrap(),
+            entity.content(),
+            serde_json::to_vec(&entity).unwrap(),
+            Some(crate::adapter::GraphEnvelope::entity(&entity)),
+            view,
+        )
+        .unwrap()
+    }
+    #[tokio::test]
+    async fn logical_output_content_matches_typed_rows_across_flush_and_empty_domains() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        // This control exercises effect-free typed reconstruction. The reader is
+        // deliberately disconnected; graph rows require no native lookups here.
+        let reader =
+            crate::NativeReader::private(Arc::new(surrealdb::Surreal::init())).with_budget(&budget);
+        let mut packages = [
+            d::input::Package { name: "one".into() },
+            d::input::Package { name: "two".into() },
+            d::input::Package {
+                name: "three".into(),
+            },
+        ];
+        packages.sort_by_key(Record::id);
+        let relation = Relation::of::<d::input::Package>();
+        let empty = Relation::of::<d::input::Release>();
+        let mut expected = relation.content();
+        relation
+            .hash_rows(
+                &d::input::Package::encode(&packages).unwrap(),
+                &mut expected,
+            )
+            .unwrap();
+        let mut outputs =
+            LogicalOutputDigests::new([relation.name(), empty.name()], &budget).unwrap();
+        for package in &packages {
+            let row = package_backing(package);
+            let _physical = canonical_backing_endpoints(&row, &budget).unwrap();
+            outputs.push(&reader, &row).await.unwrap();
+            outputs.flush().unwrap();
+        }
+        let actual = outputs.finish().unwrap();
+        let (rows, content) = expected.finish();
+        assert_eq!(actual[relation.name()], OutputContent { rows, content });
+        let (rows, content) = empty.content().finish();
+        assert_eq!(actual[empty.name()], OutputContent { rows, content });
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "typed reconstruction has no retained working state after EOF"
+        );
+    }
+    #[tokio::test]
+    async fn logical_output_reconstruction_refuses_duplicate_and_late_invalid_rows() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let reader =
+            crate::NativeReader::private(Arc::new(surrealdb::Surreal::init())).with_budget(&budget);
+        let package = d::input::Package { name: "one".into() };
+        let row = package_backing(&package);
+        let mut duplicate = LogicalOutputDigests::new([d::input::Package::NAME], &budget).unwrap();
+        duplicate.push(&reader, &row).await.unwrap();
+        duplicate.flush().unwrap();
+        duplicate.push(&reader, &row).await.unwrap();
+        assert!(
+            duplicate.finish().is_err(),
+            "a repeated nominal row cannot be hidden by page boundaries"
+        );
+        let mut invalid = LogicalOutputDigests::new([d::input::Package::NAME], &budget).unwrap();
+        invalid.push(&reader, &row).await.unwrap();
+        invalid.flush().unwrap();
+        let Value::Object(mut forged) = row else {
+            unreachable!()
+        };
+        let Some(Value::Object(body)) = forged.get_mut("body") else {
+            unreachable!()
+        };
+        body.insert("name", "invalid--name");
+        invalid.push(&reader, &Value::Object(forged)).await.unwrap();
+        assert!(
+            invalid.finish().is_err(),
+            "an earlier valid prefix does not grant later row validity"
+        );
+        assert_eq!(budget.reserved(), 0);
+    }
 }

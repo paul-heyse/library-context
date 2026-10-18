@@ -150,7 +150,10 @@ fn cli(root: &std::path::Path) -> Command {
                 .trim(),
         )
         .env("LCTX_STORAGE_STATE", root.join("storage-state"))
-        .env("LCTX_STORAGE_CONFIG", root.join("storage-host.toml"));
+        .env("LCTX_STORAGE_CONFIG", root.join("storage-host.toml"))
+        // This test selects its own registry; the parent's capability belongs
+        // to the enclosing managed run and cannot authorize this state root.
+        .env_remove("LCTX_STORAGE_ADMISSION");
     command.args([
         "--libraries",
         "libraries",

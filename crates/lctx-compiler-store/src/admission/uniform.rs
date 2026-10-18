@@ -8,8 +8,30 @@ pub struct AdmittedUniformOwners {
     identity: ContentHash,
     owners: lctx_model::domain::charged::ChargedVec<ValidatedUniformOwner>,
     _charge: StateCharge,
+    _private: Option<Arc<crate::private_validation::CheckedPrivateScope>>,
 }
 impl AdmittedUniformOwners {
+    /// Reuse actually executed private semantic owners while retaining their source backing.
+    /// This wrapper conveys no native read or persistence authority.
+    pub fn from_private(
+        scope: Arc<crate::private_validation::CheckedPrivateScope>,
+        budget: &ResourceBudget,
+    ) -> Result<Arc<Self>, ModelError> {
+        if !scope.shares_budget(budget) {
+            return Err(ModelError::Conflict("private compact owners resource pool"));
+        }
+        let mut charge = StateCharge::new(budget, "private admitted compact owners");
+        let mut owners = lctx_model::domain::charged::ChargedVec::default();
+        for owner in scope.uniform_owners() {
+            owners.push(&mut charge, owner.clone())?;
+        }
+        Ok(Arc::new(Self {
+            identity: scope.identity(),
+            owners,
+            _charge: charge,
+            _private: Some(scope),
+        }))
+    }
     pub fn identity(&self) -> ContentHash {
         self.identity
     }
@@ -246,6 +268,7 @@ impl AdmissionRuntime {
                 identity,
                 owners,
                 _charge: charge,
+                _private: None,
             });
             if let Some(key) = key {
                 *self.memo.uniform.lock().map_err(|_| poisoned())? = Some((key, owners.clone()));

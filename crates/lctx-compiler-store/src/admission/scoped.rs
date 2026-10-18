@@ -3,6 +3,7 @@
 use super::*;
 use lctx_model::domain::{HeapSize, artifact_admission::Execution};
 use std::sync::Weak;
+mod private_transfer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct InputPremise {
@@ -32,6 +33,7 @@ struct ScopedPremise {
     // afresh whenever compact owners exist.
     owners: Vec<CompletedContribution>,
     uniform_independent: bool,
+    uniform: Vec<lctx_model::domain::checked_admission::UniformOwnerPremise>,
 }
 struct Operation {
     // These links compare allocation identity only, never acquire native authority.
@@ -77,6 +79,7 @@ pub(crate) struct ExecutedCheck {
     caps: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
     execution: Execution,
     _whole: Option<Box<lctx_model::domain::checked_admission::CheckedValidationPremise>>,
+    _private: Option<Arc<crate::private_validation::PrivateExecutedCheck>>,
     _charge: StateCharge,
 }
 impl ExecutedCheck {
@@ -109,6 +112,7 @@ impl PreparedScopedCheck {
             caps: self.caps,
             execution,
             _whole: None,
+            _private: None,
             _charge: self.charge,
         }))
     }
@@ -147,6 +151,7 @@ impl PreparedScopedCheck {
             caps: self.caps,
             execution: Execution::WholeInput,
             _whole: Some(proof),
+            _private: None,
             _charge: self.charge,
         }))
     }
@@ -242,6 +247,7 @@ impl Drop for ScopedAttempt<'_> {
 }
 /// One immutable invocation inventory. Identity/correspondence is prepared once,
 /// then each check looks up only its actual declared contributors.
+type PrivateCorrespondenceEntries = Vec<(ContentHash, Arc<crate::private_source::PrivateRelation>)>;
 pub(super) struct ScopedInventory {
     owners: BTreeMap<ContentHash, CompletedContribution>,
     caps: tokio::sync::Mutex<(
@@ -250,6 +256,7 @@ pub(super) struct ScopedInventory {
     )>,
     _transfer: Box<dyn Reservation>,
     _charge: StateCharge,
+    private_matches: tokio::sync::Mutex<(PrivateCorrespondenceEntries, StateCharge)>,
 }
 impl AdmissionRuntime {
     pub(super) fn scoped_inventory(&self) -> Result<ScopedInventory, ModelError> {
@@ -270,6 +277,10 @@ impl AdmissionRuntime {
             )),
             _transfer: inventory.transfer,
             _charge: charge,
+            private_matches: tokio::sync::Mutex::new((
+                Vec::new(),
+                StateCharge::new(self.budget(), "private native correspondence slots"),
+            )),
         })
     }
     #[expect(
@@ -283,7 +294,7 @@ impl AdmissionRuntime {
         unrequested: &BTreeSet<&'static str>,
         profile: Profile,
         uniform_independent: bool,
-        uniform_empty: bool,
+        uniform: &[lctx_model::domain::uniform_outcome::ValidatedUniformOwner],
         inventory: &ScopedInventory,
     ) -> Result<Option<PreparedScopedCheck>, ModelError> {
         // Captured companion rows have no native capability in this route. They
@@ -291,7 +302,12 @@ impl AdmissionRuntime {
         let Some(factory) = self.model.factory_contract(invariant.identity()) else {
             return Ok(None);
         };
-        if (!uniform_independent && !uniform_empty)
+        let private_transfer = self
+            .private_validation
+            .lock()
+            .map_err(|_| poisoned())?
+            .is_some();
+        if (!uniform_independent && !uniform.is_empty() && !private_transfer)
             || !inputs.companions.is_empty()
             || !self.memo.scoped.budget.shares_pool(self.budget())
             || self.memo.scoped.invalidated.load(Ordering::Acquire)
@@ -302,6 +318,26 @@ impl AdmissionRuntime {
         self.native.check()?;
         let mut charge = StateCharge::new(self.budget(), "private executed scoped check");
         charge.grow(size_of::<ExecutedCheck>().saturating_add(1024))?;
+        let effective_uniform = if uniform_independent {
+            &[][..]
+        } else {
+            uniform
+        };
+        charge.grow(effective_uniform.len().saturating_mul(size_of::<
+            lctx_model::domain::checked_admission::UniformOwnerPremise,
+        >()))?;
+        let mut uniform_premise = effective_uniform
+            .iter()
+            .map(
+                |owner| lctx_model::domain::checked_admission::UniformOwnerPremise {
+                    contribution: owner.contribution(),
+                    descriptor: *owner.descriptor().id().bytes(),
+                    content: owner.descriptor().content_digest(),
+                    profile: owner.profile(),
+                },
+            )
+            .collect::<Vec<_>>();
+        uniform_premise.sort_by_key(|owner| (owner.contribution, owner.descriptor));
         let mut roles = Vec::new();
         let mut views = BTreeMap::new();
         for input in &invariant.inputs {
@@ -390,6 +426,7 @@ impl AdmissionRuntime {
                 inputs: roles,
                 owners,
                 uniform_independent,
+                uniform: uniform_premise,
             },
             operation: Operation::of(self),
             caps,
@@ -472,14 +509,18 @@ impl AdmissionRuntime {
         // Fresh final capabilities may be independently frozen replacements of
         // the operation-local selectors. Full exact mappings must agree, and the
         // ORIGINAL actually retained source pin must separately remain current.
-        if known.caps.len() != prepared.caps.len()
-            || known
-                .caps
-                .iter()
-                .zip(&prepared.caps)
-                .any(|(old, actual)| old.selector() != actual.selector())
+        if (known.caps.len() != prepared.caps.len() && known._private.is_none())
+            || prepared.caps.iter().any(|actual| {
+                !known
+                    .caps
+                    .iter()
+                    .any(|old| old.selector() == actual.selector())
+            })
         {
             return Ok(None);
+        }
+        if let Some(private) = &known._private {
+            private.check_current(self.model.digest(), self.budget(), &self.cancellation)?;
         }
         for old in &known.caps {
             let native = self.native.clone();
@@ -567,6 +608,7 @@ mod controls {
             }],
             owners: vec![owner],
             uniform_independent: true,
+            uniform: vec![],
         }
     }
     #[test]
@@ -1000,6 +1042,152 @@ mod controls {
             .validate_compiler_selection(Profile::Catalog, true, bindings, &session, &inputs)
             .await
             .unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn private_transfer_reuses_executed_predicates_only_after_actual_native_correspondence() {
+        use crate::{
+            private_source::PrivateWriter,
+            private_validation::{PrivateBinding, PrivateValidation},
+        };
+        let config = lctx_native::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("explicit validation target"),
+        ))
+        .unwrap();
+        for whole in [false, true] {
+            for bad_native in [false, true] {
+                let budget = ResourceBudget::fixed(256 << 20).unwrap();
+                let native = NativeCompilerStore::begin(
+                    &config,
+                    d::admission::Frontier::Facts,
+                    &crate::compiler::recovery_factory(&config, budget.clone()).unwrap(),
+                )
+                .await
+                .unwrap();
+                let cancellation = Cancellation::default();
+                let calls = Arc::new(crate::native_calls::NativeCalls::new(
+                    native.clone(),
+                    cancellation.clone(),
+                    &budget,
+                ));
+                let finished = Arc::new(AtomicUsize::new(0));
+                let rejected = Arc::new(AtomicUsize::new(0));
+                let mut runtimes = Vec::new();
+                let result = std::panic::AssertUnwindSafe(async {
+                    let model = model_mode(&finished, &rejected, false, whole);
+                    let (owner, bindings) = seed(&native, &model, &budget, bad_native, false).await;
+                    let runtime = runtime(
+                        model.clone(),
+                        &native,
+                        &budget,
+                        &AdmissionMemo::new(&budget),
+                        &cancellation,
+                        &calls,
+                        vec![owner.clone()],
+                        bindings.clone(),
+                        &mut runtimes,
+                    );
+                    for binding in &bindings {
+                        native.bind(binding.clone()).await.unwrap();
+                    }
+                    let relation = Relation::of::<InputRevision>();
+                    let mut writer = PrivateWriter::new(
+                        model.digest(),
+                        relation.clone(),
+                        budget.clone(),
+                        Arc::new(tempfile::tempdir().unwrap()),
+                    )
+                    .unwrap();
+                    writer
+                        .push(
+                            relation
+                                .checked_batch(
+                                    &model,
+                                    InputRevision::encode(&[
+                                        InputRevision::from_entries(vec![]).unwrap()
+                                    ])
+                                    .unwrap(),
+                                    &budget,
+                                )
+                                .unwrap(),
+                        )
+                        .unwrap();
+                    let binding = &bindings[0];
+                    let private = Arc::new(
+                        PrivateValidation::new(
+                            model,
+                            runtime.options,
+                            budget.clone(),
+                            cancellation.clone(),
+                            runtime.context.runtime_env(),
+                        )
+                        .unwrap(),
+                    );
+                    let scope = private
+                        .validate(
+                            Profile::Catalog,
+                            vec![
+                                PrivateBinding::completed(
+                                    0,
+                                    None,
+                                    None,
+                                    binding.source.clone(),
+                                    binding.view.contributions.clone(),
+                                    writer.finish().unwrap(),
+                                )
+                                .unwrap(),
+                            ],
+                            vec![],
+                            vec![owner],
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        finished.load(Ordering::SeqCst),
+                        1,
+                        "actual private kernel completed once"
+                    );
+                    drop(scope); // Materialization consumes the retained operation-local ledger.
+                    runtime.attach_private_validation(private).unwrap();
+                    runtime.freeze_for_admission().await.unwrap();
+                    let admitted = runtime.execute_semantics(Profile::Catalog).await;
+                    if bad_native {
+                        assert!(
+                            admitted.is_err(),
+                            "matching descriptors cannot conceal different native bodies"
+                        );
+                    } else {
+                        admitted.unwrap();
+                        assert_eq!(
+                            finished.load(Ordering::SeqCst),
+                            1,
+                            "native correspondence must not rerun the semantic kernel"
+                        );
+                        assert!(
+                            runtime
+                                .memo
+                                .scoped
+                                .entries
+                                .lock()
+                                .unwrap()
+                                .0
+                                .iter()
+                                .any(|check| check._private.is_some())
+                        );
+                    }
+                })
+                .catch_unwind()
+                .await;
+                let mut terminal = drain_controls(&native, &calls, &runtimes).await;
+                finish_control_signals(&runtimes, &mut terminal).await;
+                if let Err(panic) = result {
+                    if let Err(error) = d::completion::complete(Ok(()), terminal) {
+                        eprintln!("private transfer cleanup: {error:#?}");
+                    }
+                    std::panic::resume_unwind(panic);
+                }
+                d::completion::complete(Ok(()), terminal).unwrap();
+            }
+        }
     }
     /// Requires the explicitly owned native campaign config. It never installs,
     /// repairs, restarts or falls back from the selected target.

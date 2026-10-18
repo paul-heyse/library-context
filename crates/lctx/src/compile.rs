@@ -52,27 +52,14 @@ pub async fn compile(
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
         let model = Arc::new(lctx_model::domain::model()?);
         let factory = lctx_compiler_store::compiler::recovery_factory(&runtime, budget.clone())?;
-        let store =
-            lctx_compiler_store::compiler::NativeCompilerStore::begin(&runtime, frontier, &factory)
-                .await?;
-        let workspace = match cpg_core::workspace::Workspace::with_budget(
+        let workspace = cpg_core::workspace::Workspace::private_with_budget(
             model,
             cpg_core::workspace::WorkspaceOptions {
                 memory_bytes,
                 ..Default::default()
             },
             budget.clone(),
-            store.clone(),
-        ) {
-            Ok(workspace) => workspace,
-            Err(error) => {
-                store.fail();
-                let mut completion = lctx_model::domain::completion::Completion::default();
-                completion.step("compile setup abandon", store.abandon().await);
-                return lctx_model::domain::completion::complete::<_>(Err(error), completion)
-                    .map_err(Into::into);
-            }
-        };
+        )?;
         let cache_setup: Result<(), lctx_model::domain::ModelError> = async {
             let cache = lctx_compiler_store::NativeProductCache::connect(&runtime, &factory)
                 .await?
@@ -94,15 +81,15 @@ pub async fn compile(
         if let Err(error) = cache_setup {
             let result: Result<_, lctx_model::domain::ModelError> = Err(error);
             let completion =
-                crate::newnative::finalize_compilation(&workspace, &store, &result, None).await;
+                crate::newnative::finalize_compilation(&workspace, None, &result, None).await;
             return lctx_model::domain::completion::complete(result, completion)
                 .map_err(Into::into);
         }
-        Ok((runtime, store, workspace))
+        Ok((runtime, factory, workspace))
     }
     .await;
     setup_phase.finish_result(&setup);
-    let (runtime, store, workspace) = match setup {
+    let (runtime, factory, workspace) = match setup {
         Ok(tuple) => tuple,
         Err(error) => {
             operation_phase.finish(Terminal::Failed);
@@ -111,6 +98,7 @@ pub async fn compile(
     };
 
     let mut committed = None;
+    let mut materialized = None;
     let result: anyhow::Result<String>=async {
     let acquisition_phase = Phase::begin("configuration_and_acquisition");
     let acquired: anyhow::Result<_>=async {
@@ -161,8 +149,13 @@ pub async fn compile(
         cache,
     )
     .await?;
-    let artifact =
-        cpg_core::artifact::admit(&workspace, &captured, frontier, profile, configuration).await?;
+    // This is the first compiler-target allocation. Private stages have already completed;
+    // independently configured cache/effect sessions retain their separate real owners.
+    let store = lctx_compiler_store::compiler::NativeCompilerStore::begin(&runtime, frontier, &factory).await?;
+    materialized = Some(store.clone());
+    let artifact = cpg_core::artifact::materialize_and_admit(
+        &workspace, &captured, frontier, profile, configuration, store,
+    ).await?;
     let output=match target {
         Target::Artifact(destination,_)=>{
             let receipt=artifact.export(destination).await?;
@@ -177,8 +170,13 @@ pub async fn compile(
     Ok(output)
     }.await;
     let result = result.map_err(crate::newnative::operation_error);
-    let completion =
-        crate::newnative::finalize_compilation(&workspace, &store, &result, committed).await;
+    let completion = crate::newnative::finalize_compilation(
+        &workspace,
+        materialized.as_deref(),
+        &result,
+        committed,
+    )
+    .await;
     let output = lctx_model::domain::completion::complete(result, completion);
     operation_phase.finish_result(&output);
     let output = output?;

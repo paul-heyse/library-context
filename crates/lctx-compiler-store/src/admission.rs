@@ -296,6 +296,7 @@ pub struct AdmissionRuntime {
     selected_only: bool,
     selection_bound: AtomicBool,
     memo: Arc<AdmissionMemo>,
+    private_validation: Mutex<Option<Arc<crate::private_validation::PrivateValidation>>>,
 }
 impl AdmissionRuntime {
     pub fn with_budget(
@@ -394,6 +395,7 @@ impl AdmissionRuntime {
             selected_only: false,
             selection_bound: AtomicBool::new(false),
             memo,
+            private_validation: Mutex::new(None),
         }))
     }
     /// Borrow runtime services and their checked execution owner. No caller catalog is copied.
@@ -509,6 +511,7 @@ impl AdmissionRuntime {
             selected_only,
             selection_bound: AtomicBool::new(false),
             memo,
+            private_validation: Mutex::new(None),
         }))
     }
     /// Transfer exact admitted metadata without exposing the private read catalog.
@@ -901,16 +904,22 @@ impl AdmissionRuntime {
     }
     /// Drain actual execution ownership without ending a surrounding publication's signal lifetime.
     /// Historical acknowledged operation failures are appended by the aggregate wrapper.
-    pub async fn drain_owned_report(&self) -> lctx_model::domain::completion::Completion {
+    pub fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion> {
+        // Dispatch before constructing the owned-native continuation. A borrowed
+        // execution already owns its drain; composing the inactive native branch
+        // into its future needlessly multiplies native finalization stack state.
         if let Some(execution) = &self.borrowed_execution {
-            return execution.drain_owned_report().await;
+            return execution.drain_owned_report();
         }
-        let mut completion = lctx_model::domain::completion::Completion::default();
-        completion.merge(self.native_calls.drain_finality_report().await);
-        completion.step("private scoped check release", self.memo.close_scoped());
-        let native = self.native.drain_finality_report().await;
-        completion.merge(native);
-        completion
+        async move {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.merge(self.native_calls.drain_finality_report().await);
+            completion.step("private scoped check release", self.memo.close_scoped());
+            let native = self.native.drain_finality_report().await;
+            completion.merge(native);
+            completion
+        }
+        .boxed()
     }
     /// The enclosing lifetime supplies finality after publication reconciliation and cleanup.
     pub async fn complete_signal(
@@ -1609,7 +1618,12 @@ impl AdmissionRuntime {
                         &unrequested,
                         uniform.owners().is_empty(),
                     );
-                let mut scoped = if (is_scoped || private_whole)
+                let private_transfer = self
+                    .private_validation
+                    .lock()
+                    .map_err(|_| poisoned())?
+                    .is_some();
+                let mut scoped = if (is_scoped || private_whole || private_transfer)
                     && let Some(inventory) = &scoped_inventory
                 {
                     self.scoped_premise(
@@ -1617,8 +1631,8 @@ impl AdmissionRuntime {
                         &inputs,
                         &unrequested,
                         profile,
-                        check.scoped_uniform_independent(),
-                        uniform.owners().is_empty(),
+                        is_scoped && check.scoped_uniform_independent(),
+                        uniform.owners(),
                         inventory,
                     )
                     .await?
@@ -1638,6 +1652,28 @@ impl AdmissionRuntime {
                         )?);
                         scoped_borrowers.push(executed);
                     }
+                    continue;
+                }
+                if let (Some(prepared), Some(inventory)) = (&mut scoped, &scoped_inventory)
+                    && let Some(private) = self.reconcile_private_check(prepared, inventory).await?
+                {
+                    let transferred = scoped
+                        .take()
+                        .expect("prepared private transfer")
+                        .finish_transferred(private, &self.cancellation)?;
+                    if earn {
+                        evidence.push(self.execution_evidence(
+                            &invariant,
+                            transferred.execution(),
+                            &inputs,
+                            &unrequested,
+                            &mut evidence_charge,
+                        )?);
+                        scoped_borrowers.push(transferred.clone());
+                    }
+                    tracing::info!(target:"lctx_phase", invariant=invariant.name, "reused private semantic check after actual native correspondence");
+                    scoped_attempt.retain(transferred)?;
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if private_whole && let Some(prepared) = scoped.take() {
@@ -3325,7 +3361,7 @@ impl MemoryPool for BudgetMemoryPool {
     }
 }
 
-fn nominal_payload_conflict_sql(
+pub(crate) fn nominal_payload_conflict_sql(
     schema: &arrow_schema::Schema,
     tables: &[String],
 ) -> Option<String> {

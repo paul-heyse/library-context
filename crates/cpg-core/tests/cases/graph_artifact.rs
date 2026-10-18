@@ -23,51 +23,127 @@ async fn compiled_case(
     batch_rows: usize,
     case: &str,
 ) -> artifact::AdmittedArtifact {
-    let workspace = Workspace::new(
+    use futures::FutureExt;
+    use lctx_model::domain::{ModelError, completion, resources::ResourceBudget};
+    let options = WorkspaceOptions {
+        memory_bytes: memory.unwrap_or_else(|| WorkspaceOptions::default().memory_bytes),
+        batch_rows,
+        ..Default::default()
+    };
+    let budget = ResourceBudget::fixed(options.memory_bytes).unwrap();
+    let workspace = Workspace::private_with_budget(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions {
-            memory_bytes: memory.unwrap_or_else(|| WorkspaceOptions::default().memory_bytes),
-            batch_rows,
-            ..Default::default()
-        },
-        crate::native_fixture::store_with_limit(
-            memory.unwrap_or_else(|| WorkspaceOptions::default().memory_bytes),
-        ),
+        options,
+        budget.clone(),
     )
     .unwrap();
-    let captured = runtime::capture(case, profile, workspace.budget());
-    let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog).then(|| {
-        PreparedCompilation::new(
+    let mut native_owner = None;
+    let mut factory_owner = None;
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let captured = runtime::try_capture(case, profile, workspace.budget())?;
+        let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog)
+            .then(|| {
+                PreparedCompilation::new(
+                    frontier,
+                    runtime::settings("api"),
+                    captured.config().catalog(),
+                    None,
+                    workspace.budget(),
+                )
+                .map(Arc::new)
+            })
+            .transpose()?;
+        compilation::compile(
+            &workspace,
+            captured.clone(),
+            profile,
+            ContentHash::of(b"artifact-fixture"),
             frontier,
-            runtime::settings("api"),
-            captured.config().catalog(),
+            prepared,
             None,
-            workspace.budget(),
+            None,
         )
-        .map(std::sync::Arc::new)
-        .unwrap()
-    });
-    compilation::compile(
-        &workspace,
-        captured.clone(),
-        profile,
-        ContentHash::of(b"artifact-fixture"),
-        frontier,
-        prepared.clone(),
-        None,
-        None,
-    )
-    .await
-    .unwrap();
-    artifact::admit(
-        &workspace,
-        &captured,
-        frontier,
-        profile,
-        ContentHash::of(b"artifact-fixture"),
-    )
-    .await
-    .unwrap()
+        .await?;
+        assert!(
+            workspace.native().is_err(),
+            "ordinary compilation uses private completed sources"
+        );
+        let config = lctx_native::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler runtime"),
+        ))?;
+        let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())?;
+        factory_owner = Some(factory.clone());
+        let native =
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, frontier, &factory)
+                .await?;
+        native_owner = Some(native.clone());
+        artifact::materialize_and_admit(
+            &workspace,
+            &captured,
+            frontier,
+            profile,
+            ContentHash::of(b"artifact-fixture"),
+            native,
+        )
+        .await
+    })
+    .catch_unwind()
+    .await;
+    if matches!(&outcome, Ok(Ok(_))) {
+        // The returned artifact retains the genuine composite private/native
+        // execution owner; its consumer owns finalization after last use.
+        return outcome.unwrap().unwrap();
+    }
+    let mut terminal = workspace.drain_owned_report().await;
+    let operation = match &outcome {
+        Ok(Err(error)) => Some(error),
+        _ => None,
+    };
+    if let Some(native) = native_owner {
+        terminal.merge(native.drain_finality_report().await);
+        native.fail();
+        if operation.is_none_or(ModelError::permits_storage_cleanup)
+            && terminal.local == completion::LocalState::Terminal
+            && terminal.remote == completion::RemoteState::Confirmed
+            && terminal
+                .failures
+                .iter()
+                .all(|failure| failure.error.permits_storage_cleanup())
+        {
+            terminal.merge(native.abandon_finality_report().await);
+        } else {
+            terminal
+                .storage
+                .push(completion::StorageState::Orphan(format!(
+                    "native_attempt:{}",
+                    native.attempt().hex()
+                )));
+            if operation.is_some_and(|error| !error.permits_storage_cleanup()) {
+                terminal.remote = completion::RemoteState::Unknown;
+            }
+        }
+        native.append_operation_failures(&mut terminal);
+    }
+    if let Some(factory) = factory_owner {
+        terminal.step(
+            "artifact fixture native factory drainage",
+            factory
+                .drain(&lctx_native::control::RetryCancellation::default())
+                .await,
+        );
+    }
+    let signal = workspace.complete_signal(&terminal).await;
+    terminal.step("artifact fixture private execution signal", signal);
+    workspace.append_operation_failures(&mut terminal);
+    match outcome {
+        Ok(result) => completion::complete(result, terminal).unwrap(),
+        Err(panic) => {
+            if let Err(error) = completion::complete::<()>(Ok(()), terminal) {
+                eprintln!("artifact fixture cleanup after panic: {error:#?}");
+            }
+            std::panic::resume_unwind(panic)
+        }
+    }
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn focused_facts_export_requires_retained_receipt_and_exact_originals() {
@@ -136,7 +212,13 @@ async fn focused_facts_export_requires_retained_receipt_and_exact_originals() {
         Err(ModelError::Conflict("artifact original bytes"))
     ));
     let mut finality = receiving.drain_owned_report().await;
-    finality.merge(receiving.native().abandon_finality_report().await);
+    finality.merge(
+        receiving
+            .native()
+            .expect("actual native fixture owner")
+            .abandon_finality_report()
+            .await,
+    );
     let signal = receiving.complete_signal(&finality).await;
     finality.step("artifact receiving execution finality", signal);
     receiving.append_operation_failures(&mut finality);
@@ -1095,6 +1177,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     // Completion, rather than authored descriptor edits, computes every exact native hash.
     let id = candidate
         .native()
+        .expect("actual native fixture owner")
         .begin_contribution(ContributionSpec {
             captured_binding: None,
             producer: "unsupported-facts-semantic-import".into(),
@@ -1131,6 +1214,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         while let Some(batch) = batches.try_next().await.unwrap() {
             candidate
                 .native()
+                .expect("actual native fixture owner")
                 .write_batch(&id, relation, &batch, &native_operation_budget)
                 .await
                 .unwrap();
@@ -1139,6 +1223,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     assert!(omitted > 0);
     let views = candidate
         .native()
+        .expect("actual native fixture owner")
         .complete_contribution(
             id,
             ProviderOutcome::Complete,
@@ -1152,6 +1237,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         let view = views[relation.name()].clone();
         candidate
             .native()
+            .expect("actual native fixture owner")
             .bind(CompletedBinding {
                 boundary: None,
                 source: SourceSnapshot::of_completed_view(
@@ -1168,17 +1254,20 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     }
     candidate
         .native()
+        .expect("actual native fixture owner")
         .verify_state(&native_operation_budget)
         .await
         .unwrap();
     let state_path = directory.path().join("coherent-completed-state.jsonl");
     candidate
         .native()
+        .expect("actual native fixture owner")
         .freeze_content(&native_operation_budget)
         .await
         .unwrap();
     let state = candidate
         .native()
+        .expect("actual native fixture owner")
         .export_state(&state_path, &native_operation_budget)
         .await
         .unwrap();
@@ -1213,12 +1302,22 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
                 let rows = (0..batch.num_rows())
                     .map(|row| serde_json::from_slice::<Entity>(payloads.value(row)).unwrap())
                     .collect::<Vec<_>>();
-                importer.native().import_entities(&rows).await.unwrap();
+                importer
+                    .native()
+                    .expect("actual native fixture owner")
+                    .import_entities(&rows)
+                    .await
+                    .unwrap();
             } else {
                 let rows = (0..batch.num_rows())
                     .map(|row| serde_json::from_slice::<Assertion>(payloads.value(row)).unwrap())
                     .collect::<Vec<_>>();
-                importer.native().import_assertions(&rows).await.unwrap();
+                importer
+                    .native()
+                    .expect("actual native fixture owner")
+                    .import_assertions(&rows)
+                    .await
+                    .unwrap();
             }
         }
     }
@@ -1227,6 +1326,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
             File::open(output.join(format!("original-{}.bin", original.source.0.hex()))).unwrap();
         importer
             .native()
+            .expect("actual native fixture owner")
             .import_original_stream(
                 original.source.0,
                 original.content,
@@ -1241,6 +1341,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     // No baseline manifest is relabelled as authority for the neutral owner's new lineage.
     importer
         .native()
+        .expect("actual native fixture owner")
         .import_state(&state_path, &state, &native_operation_budget)
         .await
         .unwrap();
@@ -1248,6 +1349,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     assert_eq!(
         importer
             .native()
+            .expect("actual native fixture owner")
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
@@ -1255,6 +1357,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     );
     let restored = importer
         .native()
+        .expect("actual native fixture owner")
         .contributions(&native_operation_budget)
         .await
         .unwrap();

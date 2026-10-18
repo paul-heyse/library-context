@@ -316,6 +316,17 @@ impl AnalysisUniformInputs {
         ) {
             inputs.push(ValidationInput::of::<models::ModelCatalog>(&["id"]));
         }
+        // Optional owners have their own authored request policy, even when no kernel runs.
+        if owner == AnalysisOwner::Embedding {
+            inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&[
+                "id",
+            ]));
+        }
+        if owner == AnalysisOwner::Analytic {
+            inputs.push(ValidationInput::of::<
+                analysis::settings::AnalyticsConfiguration,
+            >(&["id"]));
+        }
         inputs
     }
     pub fn visit(
@@ -606,6 +617,49 @@ impl ValidatedUniformOwner {
         inputs: &AnalysisUniformInputs,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
+        let mut charge = StateCharge::new(budget, "compact native role projection");
+        charge.grow(
+            bindings
+                .iter()
+                .map(|binding| {
+                    binding.source.heap_bytes()
+                        + size_of::<analysis::owner::AnalysisSelectedBinding>()
+                })
+                .sum(),
+        )?;
+        let selected = bindings
+            .iter()
+            .map(|binding| {
+                binding.validate()?;
+                Ok(analysis::owner::AnalysisSelectedBinding {
+                    boundary: binding
+                        .boundary
+                        .as_deref()
+                        .map(|name| {
+                            stages::PublicationBoundary::from_name(name).ok_or(
+                                ModelError::Conflict("analysis owner unknown selected boundary"),
+                            )
+                        })
+                        .transpose()?,
+                    source: binding.source.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, ModelError>>()?;
+        Self::validate_analysis_sources(
+            owner, descriptor, profile, model, &selected, inputs, budget,
+        )
+    }
+    /// Shared semantic reconstruction after the caller protects and reads actual selected sources.
+    /// Private compilation uses logical source roles; native receiving validates native bindings first.
+    pub fn validate_analysis_sources(
+        owner: &completed::CompletedContribution,
+        descriptor: &UniformNotRequested,
+        profile: stages::Profile,
+        model: &ValidatedModel,
+        bindings: &[analysis::owner::AnalysisSelectedBinding],
+        inputs: &AnalysisUniformInputs,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         if inputs.profile != profile
             || descriptor.kind != UniformKind::AnalysisOwner
             || descriptor.family.is_some()
@@ -625,7 +679,7 @@ impl ValidatedUniformOwner {
             true,
         ))?;
         let stage = kind.declaration(profile, &selected, model, &order)?;
-        analysis::owner::validate_selected_roles(&stage, owner, bindings, model)?;
+        analysis::owner::validate_selected_source_roles(&stage, owner, bindings, model)?;
         let frames = inputs.frames()?;
         if !frames
             .frames

@@ -1,4 +1,4 @@
-//! Independent recomputation versus admitted shared-content attachment with real providers.
+//! Real-provider recomputation versus retained native products copied into private compilation.
 use super::*;
 use crate::{
     artifact,
@@ -28,6 +28,8 @@ impl Write for CapturedLog {
 }
 struct Receipt {
     workspace: Arc<Workspace>,
+    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+    artifact: artifact::AdmittedArtifact,
     checked: CheckedInputs,
     sources: Vec<SourceSnapshot>,
     contracts: Vec<(String, ContentHash, Option<ContentHash>, ContentHash)>,
@@ -54,10 +56,12 @@ fn settings() -> AnalyticsConfiguration {
         knn_layer: false,
     }
 }
-async fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
+async fn rows<R: Record>(
+    workspace: &Workspace,
+    native: &Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+) -> Vec<R> {
     let source = workspace.completed::<R>().unwrap();
-    let mut stream = workspace
-        .native()
+    let mut stream = native
         .scan_batches(
             source.view(),
             &Relation::of::<R>(),
@@ -74,15 +78,20 @@ async fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
     }
     rows
 }
-async fn independent_oracle(workspace: &Workspace, expected: &[u8], names: &[&str]) {
-    let artifacts = rows::<source::SourceArtifact>(workspace).await;
+async fn independent_oracle(
+    workspace: &Workspace,
+    native: &Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+    expected: &[u8],
+    names: &[&str],
+) {
+    let artifacts = rows::<source::SourceArtifact>(workspace, native).await;
     let source = artifacts
         .iter()
         .find(|source| source.path == "api.py")
         .expect("actual acquired Python source");
     assert_eq!(source.content, ContentHash::of(expected));
     assert_eq!(source.byte_len, expected.len() as i64);
-    let mut chunks = rows::<lctx_model::domain::artifact::ArtifactChunk>(workspace)
+    let mut chunks = rows::<lctx_model::domain::artifact::ArtifactChunk>(workspace, native)
         .await
         .into_iter()
         .filter(|chunk| chunk.artifact == source.id())
@@ -95,13 +104,13 @@ async fn independent_oracle(workspace: &Workspace, expected: &[u8], names: &[&st
             .collect::<Vec<_>>(),
         expected
     );
-    let occurrences = rows::<source::Occurrence>(workspace)
+    let occurrences = rows::<source::Occurrence>(workspace, native)
         .await
         .into_iter()
         .filter(|occurrence| occurrence.source == source.id())
         .map(|occurrence| occurrence.id())
         .collect::<BTreeSet<_>>();
-    let declarations = rows::<syntax::DeclarationObservation>(workspace)
+    let declarations = rows::<syntax::DeclarationObservation>(workspace, native)
         .await
         .into_iter()
         .filter(|declaration| {
@@ -110,7 +119,7 @@ async fn independent_oracle(workspace: &Workspace, expected: &[u8], names: &[&st
         })
         .map(|declaration| declaration.name)
         .collect::<BTreeSet<_>>();
-    let observed = rows::<source::SyntaxObservation>(workspace)
+    let observed = rows::<source::SyntaxObservation>(workspace, native)
         .await
         .into_iter()
         .filter(|syntax| declarations.contains(&syntax.occurrence))
@@ -122,7 +131,7 @@ async fn independent_oracle(workspace: &Workspace, expected: &[u8], names: &[&st
         "independent source declarations must survive real extraction and native compilation"
     );
     assert!(
-        !rows::<normalized::entities::CallableEntity>(workspace)
+        !rows::<normalized::entities::CallableEntity>(workspace, native)
             .await
             .is_empty(),
         "this is a populated normalization, not an empty graph parity assertion"
@@ -169,7 +178,9 @@ async fn run_with_analytics(
         tracing_subscriber::fmt()
             .with_ansi(false)
             .without_time()
-            .with_env_filter("cpg_core::workspace::products=debug,lctx_phase=info")
+            .with_env_filter(
+                "cpg_core::workspace::products=debug,cpg_core::compilation=debug,lctx_phase=info",
+            )
             .with_writer(move || writer.clone())
             .finish(),
     );
@@ -183,21 +194,23 @@ async fn run_with_analytics(
             WorkspaceOptions::default().memory_bytes,
         )
         .unwrap();
-        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
-            config,
-            frontier,
-            &lctx_compiler_store::compiler::recovery_factory(config, budget.clone())
-                .expect("owned native control factory"),
-        )
-        .await
-        .unwrap();
-        let workspace = Workspace::with_budget(
+        let factory = lctx_compiler_store::compiler::recovery_factory(config, budget.clone())
+            .expect("owned native control factory");
+        let workspace = Workspace::private_with_budget(
             Arc::new(model().unwrap()),
             WorkspaceOptions::default(),
-            budget,
-            native,
+            budget.clone(),
         )
         .unwrap();
+        let cache = lctx_compiler_store::NativeProductCache::connect(config, &factory)
+            .await
+            .unwrap()
+            .map(Arc::new);
+        assert!(
+            cache.is_some(),
+            "this control requires the real configured retained-product owner"
+        );
+        workspace.set_product_cache(cache).unwrap();
         workspace
             .set_admitted_product_reuse(reuse_admitted)
             .unwrap();
@@ -214,15 +227,19 @@ async fn run_with_analytics(
         ));
         let mut settings = settings();
         settings.pagerank = analytic;
-        let prepared = PreparedCompilation::new(
-            frontier,
-            settings,
-            captured.config().catalog(),
-            None,
-            workspace.budget(),
-        )
-        .map(std::sync::Arc::new)
-        .unwrap();
+        let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog)
+            .then(|| {
+                PreparedCompilation::new(
+                    frontier,
+                    settings,
+                    captured.config().catalog(),
+                    None,
+                    workspace.budget(),
+                )
+                .map(std::sync::Arc::new)
+            })
+            .transpose()
+            .unwrap();
         let configuration = ContentHash::of(b"integrated-compiler-reuse-control/v1");
         setup.finish(lctx_native::phase::Terminal::Passed);
         compile(
@@ -231,16 +248,18 @@ async fn run_with_analytics(
             profile,
             configuration,
             frontier,
-            Some(prepared.clone()),
+            prepared.clone(),
             None,
             None,
         )
         .await
         .unwrap();
         drop(prepared);
-        let oracle = lctx_native::phase::Phase::begin("reuse_control_independent_oracle");
-        independent_oracle(&workspace, expected, names).await;
-        oracle.finish(lctx_native::phase::Terminal::Passed);
+        assert!(workspace.is_private());
+        assert!(
+            workspace.native().is_err(),
+            "private compilation cannot allocate a native target to obtain a cache hit"
+        );
         let admission = lctx_native::phase::Phase::begin("reuse_control_checked_admission");
         let checked = workspace.admit_semantics(profile).await;
         admission.finish_result(&checked);
@@ -248,9 +267,27 @@ async fn run_with_analytics(
         checked
             .require_subset(&workspace, checked.inputs())
             .unwrap();
-        let admitted = artifact::admit(&workspace, &captured, frontier, profile, configuration)
-            .await
-            .unwrap();
+        let native =
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(config, frontier, &factory)
+                .await
+                .unwrap();
+        let admitted = artifact::materialize_and_admit(
+            &workspace,
+            &captured,
+            frontier,
+            profile,
+            configuration,
+            native.clone(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            workspace.native().is_err(),
+            "final native output remains an explicitly separate owner"
+        );
+        let oracle = lctx_native::phase::Phase::begin("reuse_control_independent_oracle");
+        independent_oracle(&workspace, &native, expected, names).await;
+        oracle.finish(lctx_native::phase::Terminal::Passed);
         assert_eq!(admitted.manifest().profile, profile);
         assert_eq!(admitted.manifest().frontier, frontier);
         let manifest = admitted.manifest().clone();
@@ -268,9 +305,10 @@ async fn run_with_analytics(
             })
             .collect();
         let hit_log = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
-        drop(admitted);
         Receipt {
             workspace,
+            native,
+            artifact: admitted,
             checked,
             sources,
             contracts,
@@ -280,6 +318,31 @@ async fn run_with_analytics(
     }
     .with_tracing_dispatch(dispatch)
     .await
+}
+async fn finish(receipt: Receipt) {
+    // The artifact retains the actual composite private/native execution owner.
+    // Close accepted readers/cache work before abandoning the native target;
+    // neither equal values nor a passing body establishes this finality.
+    let mut terminal = receipt.artifact.drain_owned_report().await;
+    if terminal.local == completion::LocalState::Terminal
+        && terminal.remote == completion::RemoteState::Confirmed
+        && terminal
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
+    {
+        terminal.merge(receipt.native.abandon_finality_report().await);
+    } else {
+        terminal
+            .storage
+            .push(completion::StorageState::Orphan(format!(
+                "native_attempt:{}",
+                receipt.native.attempt().hex(),
+            )));
+    }
+    let signal = receipt.artifact.complete_signal(&terminal).await;
+    terminal.step("private cache control composite signal", signal);
+    completion::complete::<()>(Ok(()), terminal).unwrap();
 }
 fn equivalent(expected: &Receipt, actual: &Receipt) {
     assert_eq!(
@@ -318,7 +381,8 @@ fn equivalent(expected: &Receipt, actual: &Receipt) {
 fn reused(receipt: &Receipt) -> bool {
     receipt
         .hit_log
-        .contains("admitted compiled product attached")
+        .lines()
+        .any(|line| line.contains("compiler product disposition") && line.contains("hit=true"))
 }
 /// Observe current compact completions and each operation's absence of attachment,
 /// independently of eligible package or normalization hits in the same compilation.
@@ -334,8 +398,7 @@ async fn compact_completion_identities(
         .map(|owner| owner.name())
         .collect::<BTreeSet<_>>();
     let contributions = receipt
-        .workspace
-        .native()
+        .native
         .contributions(receipt.workspace.budget())
         .await
         .unwrap();
@@ -383,7 +446,8 @@ async fn compact_completion_identities(
         .filter(|owner| owner.can_be_wholly_unrequested())
     {
         let attached = receipt.hit_log.lines().any(|line| {
-            line.contains("admitted compiled product attached")
+            line.contains("compiler product disposition")
+                && line.contains("hit=true")
                 && line.split_whitespace().any(|field| {
                     field
                         .strip_prefix("operation=")
@@ -575,7 +639,76 @@ async fn matrix(profile: Profile, frontier: Frontier) {
         deleted,
         deleted_off,
     ] {
-        receipt.workspace.native().abandon().await.unwrap();
+        finish(receipt).await;
+    }
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn normalized_private_compiler_copies_a_real_retained_native_hit_with_fresh_ownership() {
+    let config = lctx_native::RuntimeConfig::read(Path::new(
+        &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG")
+            .expect("owned current-format validation runtime"),
+    ))
+    .unwrap();
+    let input = tempfile::tempdir().unwrap();
+    std::fs::write(input.path().join("api.py"), ORIGINAL).unwrap();
+    let cold = run(
+        &config,
+        input.path(),
+        Profile::Catalog,
+        Frontier::Normalized,
+        false,
+        ORIGINAL,
+        &["identity"],
+    )
+    .await;
+    assert!(!reused(&cold));
+    let (retained, retained_charge) = cold
+        .native
+        .retained_product_views(cold.workspace.budget())
+        .await
+        .unwrap();
+    assert!(
+        !retained.is_empty(),
+        "actual materialized native products, rather than a retention marker, must be available"
+    );
+    drop((retained, retained_charge));
+    let warm = run(
+        &config,
+        input.path(),
+        Profile::Catalog,
+        Frontier::Normalized,
+        true,
+        ORIGINAL,
+        &["identity"],
+    )
+    .await;
+    assert!(
+        reused(&warm),
+        "genuine native retained lookup did not produce a hit: {}",
+        warm.hit_log
+    );
+    equivalent(&cold, &warm);
+    for receipt in [cold, warm] {
+        assert!(receipt.workspace.is_private());
+        assert!(
+            receipt
+                .workspace
+                .completed_relations()
+                .unwrap()
+                .iter()
+                .all(|source| source.private_source().is_ok()),
+            "every completed reader owns validated private content after the retained source closes"
+        );
+        assert!(
+            receipt
+                .native
+                .recovery_budget()
+                .unwrap()
+                .unwrap()
+                .shares_pool(receipt.workspace.budget()),
+            "actual native output and private computation must share one admitted resource pool"
+        );
+        finish(receipt).await;
     }
 }
 #[tokio::test(flavor = "multi_thread")]
@@ -627,7 +760,7 @@ async fn optional_analytic_preparation_cold_and_warm_preserve_exact_outputs() {
     );
     equivalent(&cold, &warm);
     for receipt in [cold, warm] {
-        receipt.workspace.native().abandon().await.unwrap();
+        finish(receipt).await;
     }
 }
 

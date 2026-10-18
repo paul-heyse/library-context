@@ -47,13 +47,23 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup())
     {
-        terminal.merge(workspace.native().abandon_finality_report().await);
+        terminal.merge(
+            workspace
+                .native()
+                .expect("actual native fixture owner")
+                .abandon_finality_report()
+                .await,
+        );
     } else {
         terminal
             .storage
             .push(completion::StorageState::Orphan(format!(
                 "native_attempt:{}",
-                workspace.native().attempt().hex()
+                workspace
+                    .native()
+                    .expect("actual native fixture owner")
+                    .attempt()
+                    .hex()
             )));
     }
     let settled = workspace.complete_signal(&terminal).await;

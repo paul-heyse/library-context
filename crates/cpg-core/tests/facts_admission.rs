@@ -61,7 +61,11 @@ async fn finish_workspace(workspace: &Workspace) -> Result<(), ModelError> {
     // actual fixture attempt and its session before the test's owner disappears.
     completion.step(
         "facts control native attempt/session finalization",
-        workspace.native().abandon().await,
+        workspace
+            .native()
+            .expect("actual native fixture owner")
+            .abandon()
+            .await,
     );
     completion::complete(Ok(()), completion)
 }
@@ -211,6 +215,7 @@ async fn real_pyrefly_document_predecessor(profiles: impl IntoIterator<Item = Pr
         assert!(!rows::<lctx_model::domain::documents::PassageObservation>(&workspace).is_empty());
         let completed = workspace
             .native()
+            .expect("actual native fixture owner")
             .contributions(&native_operation_budget)
             .await
             .unwrap();
@@ -242,11 +247,13 @@ async fn real_pyrefly_document_predecessor(profiles: impl IntoIterator<Item = Pr
         // needed. Earn the native freeze before requesting whole-state identity.
         workspace
             .native()
+            .expect("actual native fixture owner")
             .freeze_content(&native_operation_budget)
             .await
             .unwrap();
         let native = workspace
             .native()
+            .expect("actual native fixture owner")
             .completed_state(&native_operation_budget)
             .await
             .unwrap();

@@ -90,6 +90,19 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Implemented source / functional acceptance pending,2026-10-18 (ADR-0191).** Ordinary compilation
+owns immutable private typed completed sources, exact producer/role/epoch meaning and one shared
+memory-first resource lifetime. Native target allocation and genuine admission occur at requested
+artifact boundaries or actual retained-product effects. Spill is a contingency under the existing
+64GiB default and available CPU parallelism. Pure semantic evidence never grants native authority;
+independent receiving, actual physical reconciliation, pins and committed-effect finality remain.
+The [execution-speed coordinator §6](../../plans/catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
+owns SC00–SC04 implementation, required native integration slices and current verification limits.
+Native rules below continue for actual persisted and incoming consumers; the coordinator bounds current-source verification.
+
+> Decision: ADR-0191
+
+
 **Accepted target / implementation in progress, 2026-10-17 (ADR-0190).** Publication prepares
 operation-shaped canonical/role/search expectations and demanded definition details once, under
 actual source, pin, executable and resource ownership. Seal freshly reconciles actual content,

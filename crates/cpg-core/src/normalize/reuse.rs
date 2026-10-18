@@ -285,6 +285,11 @@ mod controls {
             0,
             "a rejected candidate must leave no ingress rows before fresh empty production"
         );
-        workspace.native().abandon().await.unwrap();
+        workspace
+            .native()
+            .expect("actual native fixture owner")
+            .abandon()
+            .await
+            .unwrap();
     }
 }

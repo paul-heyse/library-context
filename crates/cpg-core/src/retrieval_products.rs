@@ -90,7 +90,7 @@ pub(super) async fn lookup(
     let owned = request.clone();
     let budget = runtime.budget().clone();
     let entry = runtime
-        .native_call(async move {
+        .cache_call(async move {
             let _hold = hold;
             cache.lookup(&owned, &budget).await
         })
@@ -135,7 +135,7 @@ pub(super) async fn lookup(
                 .ok_or(ModelError::Conflict("catalog cache owner disappeared"))?;
             let request = request.clone();
             runtime
-                .native_call(async move { cache.invalidate(&request).await })
+                .cache_call(async move { cache.invalidate(&request).await })
                 .await?;
             Ok(None)
         }
@@ -203,7 +203,7 @@ pub(super) async fn retain(
     product.validate()?;
     let budget = runtime.budget().clone();
     runtime
-        .native_call(async move {
+        .cache_call(async move {
             let _hold = hold;
             cache.insert(&product, &budget).await.map(|_| ())
         })

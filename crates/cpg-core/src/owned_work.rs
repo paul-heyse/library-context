@@ -46,14 +46,12 @@ pub(crate) struct OrderedResults<T> {
     next: usize,
     finished: bool,
     cancellation: crate::workspace::Cancellation,
-    native: std::sync::Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     _charge: Box<dyn Reservation>,
 }
 impl<T> Drop for OrderedResults<T> {
     fn drop(&mut self) {
         if !self.finished {
             self.cancellation.cancel();
-            self.native.fail();
         }
     }
 }
@@ -93,7 +91,6 @@ impl<T> OrderedResults<T> {
                     if self.failures.is_empty() {
                         return Err(ModelError::Conflict("private work missing ordinal"));
                     }
-                    self.native.fail();
                     let key = self.failures.iter().find(|(_,error)| !matches!(error,ModelError::Invalid(message) if message=="compilation cancelled"))
                         .or_else(|| self.failures.first_key_value()).map(|(key,_)| *key).expect("private work failure");
                     let primary = self.failures.remove(&key).expect("private work primary");
@@ -141,7 +138,6 @@ where
         next: 0,
         finished: false,
         cancellation: workspace.cancellation(),
-        native: workspace.native().clone(),
         _charge: charge,
     };
     for (ordinal, future) in work.enumerate() {
@@ -166,21 +162,15 @@ where
 #[cfg(test)]
 mod controls {
     use super::*;
-    use lctx_model::domain::{resources::ResourceBudget, serving::Name};
+    use lctx_model::domain::resources::ResourceBudget;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
     fn workspace() -> Arc<Workspace> {
-        let native = lctx_compiler_store::compiler::NativeCompilerStore::from_existing(
-            Arc::new(lctx_native::surrealdb::Surreal::init()),
-            Name::new("owned-work-control").unwrap(),
-            Name::new("owned-work-control").unwrap(),
-        );
-        Workspace::new(
+        Workspace::private(
             Arc::new(lctx_model::domain::model().unwrap()),
             Default::default(),
-            native,
         )
         .unwrap()
     }

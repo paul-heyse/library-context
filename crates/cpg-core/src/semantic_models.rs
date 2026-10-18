@@ -885,7 +885,10 @@ mod selected_catalog_controls {
         drop(permit);
         drop(session);
         drop(access);
-        let native = runtime.native().clone();
+        let native = runtime
+            .native()
+            .expect("actual native fixture owner")
+            .clone();
         let connection = native
             .recovery_scope()
             .unwrap()

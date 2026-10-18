@@ -30,7 +30,15 @@ impl Fixture {
     pub async fn complete(self, result: std::thread::Result<()>) {
         let Self { workspace, session } = self;
         drop(session);
-        complete_workspace(Some(workspace.clone()), workspace.native().clone(), result).await;
+        complete_workspace(
+            Some(workspace.clone()),
+            workspace
+                .native()
+                .expect("actual native fixture owner")
+                .clone(),
+            result,
+        )
+        .await;
     }
 }
 async fn completed_rows<R: Record>(fixture: &Fixture) -> normalized::Rows<R> {
@@ -94,7 +102,12 @@ pub async fn assert_compact_owners(fixture: &Fixture, owners: &[analysis::owner:
         }
     )*};}
     lctx_model::expected_domain_inputs!(expected_inputs);
-    let contributions = workspace.native().contributions(budget).await.unwrap();
+    let contributions = workspace
+        .native()
+        .expect("actual native fixture owner")
+        .contributions(budget)
+        .await
+        .unwrap();
     let compact_view = workspace.completed::<UniformNotRequested>().unwrap();
     let foreign_scope: Id<source::CoverageScope> =
         serde_json::from_value(serde_json::to_value(vec![255u8; 16]).unwrap()).unwrap();

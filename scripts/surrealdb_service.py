@@ -77,6 +77,7 @@ DEVELOPMENT_CAPABILITIES = [
     "system,record",
     "--deny-net",
 ]
+NATIVE_SCHEMA_VERSION = 11
 EXIT_BLOCKED = 75
 READY_TIMEOUT = 40.0
 # Best-effort logical cleanup shares the existing host readiness bound. Exact
@@ -3753,11 +3754,14 @@ def _installer_cli(
 
 def _current_schema(value: Mapping[str, Any]) -> None:
     if (
-        value.get("schema_version") != 10
+        value.get("schema_version") != NATIVE_SCHEMA_VERSION
         or not isinstance(value.get("schema"), str)
         or not re.fullmatch(r"[0-9a-f]{64}", value["schema"])
     ):
-        raise FixtureBlocked("schema", "installer must declare the current native format10 schema")
+        raise FixtureBlocked(
+            "schema",
+            f"installer must declare the current native format{NATIVE_SCHEMA_VERSION} schema",
+        )
 
 
 def _owned_daemon_start(installation: Installation) -> None:

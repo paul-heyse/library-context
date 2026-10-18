@@ -29,6 +29,7 @@ pub mod native_bridge;
 pub mod native_calls;
 mod native_canonical;
 pub mod normalize;
+pub mod private_validation;
 pub mod scope_compilation;
 pub mod scoped_admission;
 pub mod scoped_aspects;
@@ -43,3 +44,5 @@ pub mod stage_runtime;
 mod test_native;
 
 pub mod original_demands;
+
+pub mod private_source;

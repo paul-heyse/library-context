@@ -16,6 +16,7 @@ struct NativeInput {
 }
 pub(super) struct InputPort {
     native: Option<NativeInput>,
+    private_cancellation: Option<Cancellation>,
     provider: tokio::sync::OnceCell<Arc<dyn TableProvider>>,
     // Fields and their containers drop before their reservation.
     _charge: Box<dyn Reservation>,
@@ -37,9 +38,18 @@ impl InputPort {
                     .saturating_mul(size_of::<ContentHash>() + 64)
                 + 512,
         )?;
+        if source.private.is_some() {
+            return Ok(Arc::new(Self {
+                native: None,
+                private_cancellation: Some(source.cancellation.clone()),
+                provider: tokio::sync::OnceCell::new_with(Some(private_provider(source)?)),
+                _charge: charge,
+            }));
+        }
         Ok(Arc::new(Self {
+            private_cancellation: None,
             native: Some(NativeInput {
-                native: workspace.native.clone(),
+                native: workspace.native()?.clone(),
                 view: source.view.clone(),
                 relation: source.relation.clone(),
                 producing,
@@ -59,6 +69,7 @@ impl InputPort {
         let charge = budget.reserve("completed-input-control-port", size_of::<Self>() + 512)?;
         Ok(Arc::new(Self {
             native: None,
+            private_cancellation: None,
             provider: tokio::sync::OnceCell::new_with(Some(provider)),
             _charge: charge,
         }))
@@ -69,6 +80,9 @@ impl InputPort {
             .ok_or(ModelError::Conflict("completed input port not resolved"))
     }
     async fn resolve(&self) -> Result<Arc<dyn TableProvider>, ModelError> {
+        if let Some(cancellation) = &self.private_cancellation {
+            cancellation.check()?;
+        }
         self.provider
             .get_or_try_init(|| async {
                     let input = self.native.as_ref().ok_or(ModelError::Conflict(
@@ -98,6 +112,106 @@ impl InputPort {
                     }
             })
             .await.cloned()
+    }
+}
+
+/// Compiler lifecycle stays at the exposure boundary; immutable storage remains reusable.
+struct PrivateInput {
+    source: Arc<private_source::PrivateRelation>,
+    cancellation: Cancellation,
+    execution: Arc<WorkspaceExecutionOwner>,
+}
+impl std::fmt::Debug for PrivateInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrivateInput")
+            .field("relation", &self.source.relation().name())
+            .finish_non_exhaustive()
+    }
+}
+pub(super) fn private_provider(
+    source: &CompletedRelation,
+) -> Result<Arc<dyn TableProvider>, ModelError> {
+    source.cancellation.check()?;
+    Ok(Arc::new(PrivateInput {
+        source: source.private_source()?.clone(),
+        cancellation: source.cancellation.clone(),
+        execution: source._execution.clone(),
+    }))
+}
+#[async_trait::async_trait]
+impl TableProvider for PrivateInput {
+    fn schema(&self) -> arrow_schema::SchemaRef {
+        self.source.relation().schema().clone()
+    }
+    fn table_type(&self) -> datafusion::logical_expr::TableType {
+        datafusion::logical_expr::TableType::Base
+    }
+    fn statistics(&self) -> Option<datafusion::common::Statistics> {
+        self.source.provider().statistics()
+    }
+    async fn scan(
+        &self,
+        _: &dyn datafusion::catalog::Session,
+        projection: Option<&Vec<usize>>,
+        _: &[datafusion::logical_expr::Expr],
+        limit: Option<usize>,
+    ) -> datafusion::error::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        self.cancellation
+            .check()
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        Ok(Arc::new(
+            datafusion::physical_plan::streaming::StreamingTableExec::try_new(
+                self.schema(),
+                vec![Arc::new(Self {
+                    source: self.source.clone(),
+                    cancellation: self.cancellation.clone(),
+                    execution: self.execution.clone(),
+                })],
+                projection,
+                [],
+                false,
+                limit,
+            )?,
+        ))
+    }
+}
+impl datafusion::physical_plan::streaming::PartitionStream for PrivateInput {
+    fn schema(&self) -> &arrow_schema::SchemaRef {
+        self.source.relation().schema()
+    }
+    fn execute(
+        &self,
+        _: Arc<datafusion::execution::TaskContext>,
+    ) -> datafusion::physical_plan::SendableRecordBatchStream {
+        let batches = self
+            .cancellation
+            .check()
+            .and_then(|()| self.source.read_batches());
+        let state = (batches, self.cancellation.clone(), self.execution.clone());
+        let stream =
+            futures::stream::try_unfold(state, |(batches, cancellation, execution)| async move {
+                cancellation
+                    .check()
+                    .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                let mut batches = batches.map_err(|e| DataFusionError::External(Box::new(e)))?;
+                match batches.next() {
+                    Some(batch) => {
+                        let batch = batch.map_err(|e| DataFusionError::External(Box::new(e)))?;
+                        tokio::task::yield_now().await;
+                        cancellation
+                            .check()
+                            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+                        Ok(Some((batch, (Ok(batches), cancellation, execution))))
+                    }
+                    None => Ok(None),
+                }
+            });
+        Box::pin(
+            datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
+                self.source.relation().schema().clone(),
+                stream,
+            ),
+        )
     }
 }
 
@@ -324,6 +438,7 @@ mod controls {
             Name::new("unearned").unwrap(),
         );
         let port = Arc::new(InputPort {
+            private_cancellation: None,
             native: Some(NativeInput {
                 native: native.clone(),
                 view,
@@ -332,7 +447,7 @@ mod controls {
                 budget: budget.clone(),
                 batch_rows: 7,
                 _files: Arc::new(WorkspaceFiles {
-                    _directory: tempfile::tempdir().unwrap(),
+                    _directory: Arc::new(tempfile::tempdir().unwrap()),
                 }),
             }),
             provider: tokio::sync::OnceCell::new(),

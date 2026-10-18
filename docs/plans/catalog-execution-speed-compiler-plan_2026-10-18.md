@@ -1,11 +1,23 @@
 # Catalog execution speed: private compiler execution
 
-**Proposed implementation,2026-10-18.** Companion to the
+**Implemented source / integrated functional acceptance pending,2026-10-18.** Companion to the
 [coordinator](catalog-execution-speed-plan_2026-10-18.md). Its
 [§6](catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
 alone owns current execution disposition. This document owns SC00–SC04 and develops F01/F03/F04/F05/F11,
 with F06/F08/F09 consumers. RC01/02/04/05 directions were explicitly approved2026-10-18;
 actual ADR/design-owner changes precede the dependent implementation. Existing plans are unchanged.
+
+ADR-0191 now governs the selected cutover. Private immutable backing and semantic validation live
+in`lctx-compiler-store::private_source`/`private_validation`; Workspace owns producer completion,
+exact input sets, operation cancellation and the requested native boundary. Native construction is
+fallible/absent for a private operation, rather than represented by a disconnected native facade.
+The existing64GiB shared pool supplies actual grant identity and pressure relief; sealed IPC is a
+contingency. The coordinator records the sole current checkpoint, review and grouped checks.
+The selected SC02 correction additionally retains actual successful per-predicate properties across
+private scope release. Native admission reconciles full stored typed values and EOF under held
+current capabilities before adopting an exact context; whole-input, scoped and empty applicability
+remain distinct. This source implementation is independently accepted; its new native transfer
+control and the failed upper-frontier controls remain acceptance obligations in coordinator §6.
 
 ## 1. Baseline, foundations and target
 

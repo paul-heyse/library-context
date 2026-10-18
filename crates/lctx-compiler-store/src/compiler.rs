@@ -8,6 +8,7 @@ use lctx_native::completed_rows::{
 };
 pub use lctx_native::installation::*;
 pub use lctx_native::recovery::*;
+mod completed_metadata;
 mod ingress;
 mod production;
 use crate::{
@@ -4480,24 +4481,23 @@ impl NativeCompilerStore {
         let result = lease
             .within(async {
                 let mut bindings = Variables::new();
-                bindings.insert("owner", RecordId::new("compiler_contribution", id.hex()));
+                let owner = RecordId::new("compiler_contribution", id.hex());
+                bindings.insert("owner", owner.clone());
+                let budget = self.recovery_scope()?.budget().clone();
+                let mut observation = completed_metadata::ContributionRead::new(owner, &budget);
                 let mut rows = self.track_rows(NativeRows::new(
                     self.client
-                        .query("SELECT * FROM $owner WHERE completed=true")
+                        .query(completed_metadata::CONTRIBUTION_SQL)
                         .bind(bindings)
                         .stream_items()
                         .map_err(ModelError::codec)?,
-                    1,
+                    3,
                 )?)?;
-                let row = rows.next().await?.ok_or(ModelError::Conflict(
-                    "missing completed native contribution",
-                ))?;
-                validate_state_row("compiler_contribution", &row)?;
-                if rows.next().await?.is_some() {
-                    return Err(ModelError::Conflict(
-                        "duplicate completed native contribution",
-                    ));
+                while let Some(row) = rows.next().await? {
+                    observation.push(row)?;
                 }
+                let (row, _observation_charge) = observation.finish()?;
+                validate_state_row("compiler_contribution", &row)?;
                 let Some(Value::Bytes(bytes)) =
                     value_object(&row).and_then(|row| row.get("descriptor"))
                 else {
@@ -6436,7 +6436,7 @@ impl NativeCompilerStore {
     async fn complete_contribution_originals(
         &self,
         id: ContentHash,
-        inventory: &BTreeMap<String, (u64, KeySink)>,
+        inventory: &BTreeMap<String, u64>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         if [
@@ -6444,7 +6444,7 @@ impl NativeCompilerStore {
             d::artifact::ArtifactChunk::NAME,
         ]
         .iter()
-        .all(|relation| inventory.get(*relation).is_none_or(|entry| entry.0 == 0))
+        .all(|relation| inventory.get(*relation).is_none_or(|entry| *entry == 0))
         {
             return Ok(());
         }
@@ -6460,7 +6460,7 @@ impl NativeCompilerStore {
             let _page=budget.reserve("original contribution membership page",32*4096)?;
             let mut operation = lctx_native::originals::OriginalCompletion::new(budget)?;
             for relation in [d::source::SourceArtifact::NAME,d::artifact::ArtifactChunk::NAME]{
-                let expected = inventory.get(relation).map_or(0, |entry| entry.0);
+                let expected = inventory.get(relation).copied().unwrap_or(0);
                 if expected == 0 { continue; }
                 let mut observed = 0u64;
                 let mut vars=Variables::new();vars.insert("owner",owner.clone());vars.insert("relation",relation);vars.insert("after",Value::None);
@@ -6644,58 +6644,70 @@ impl NativeCompilerStore {
                     _charge: retained,
                 });
             }
-            let mut content = BTreeMap::<String, (u64, KeySink)>::new();
-            for output in outputs {
-                content.insert(
-                    output.name().into(),
-                    (0, KeySink::new("native-contribution-output/v1")),
-                );
-            }
-            let mut b = Variables::new();
-            b.insert(
-                "contribution",
-                RecordId::new("compiler_contribution", id.hex()),
-            );
-            // This is a complete row inventory, not a scope-token nomination.
-            // The wildcard member_scope index may repeat one member per token.
-            let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(b).stream_items().map_err(ModelError::codec)?,1)?)?;
-            while let Some(row) = stream.next().await? {
-                let row = SerdeWrapper::<MembershipContent>::from_value(row)
-                    .map_err(ModelError::codec)?
-                    .0;
-                let (count, sink) = content
-                    .get_mut(&row.relation)
-                    .ok_or(ModelError::Conflict("undeclared native output"))?;
-                row.semantic_key.encode(sink);
-                row.content.encode(sink);
-                *count = count
-                    .checked_add(1)
-                    .ok_or(ModelError::Schema("native contribution count overflow"))?;
-            }
-            self.complete_contribution_originals(id, &content, budget)
-                .await?;
-            self.complete_block_original_holds(id, budget).await?;
-            // The accepted ingress driver has drained before producer completion.
+            let physical = RecordId::new("compiler_contribution", id.hex());
+            let has_originals = outputs.iter().any(|relation| {
+                matches!(
+                    relation.name(),
+                    d::source::SourceArtifact::NAME | d::artifact::ArtifactChunk::NAME
+                )
+            });
+            let counts = if has_originals {
+                let mut counts = outputs
+                    .iter()
+                    .map(|output| (output.name().to_owned(), 0_u64))
+                    .collect::<BTreeMap<_, _>>();
+                let mut b = Variables::new();
+                b.insert("contribution", physical.clone());
+                // Only original-producing declarations need this preliminary
+                // membership count: actual chunk reconstruction below requires
+                // completed layouts before publishing any completed descriptor.
+                let mut stream = self.track_rows(NativeRows::new(self.client.query("SELECT relation FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$contribution").bind(b).stream_items().map_err(ModelError::codec)?, 1)?)?;
+                while let Some(row) = stream.next().await? {
+                    let row = SerdeWrapper::<MembershipContent>::from_value(row)
+                        .map_err(ModelError::codec)?
+                        .0;
+                    let count = counts
+                        .get_mut(&row.relation)
+                        .ok_or(ModelError::Conflict("undeclared native output"))?;
+                    *count = count
+                        .checked_add(1)
+                        .ok_or(ModelError::Schema("native contribution count overflow"))?;
+                }
+                self.complete_contribution_originals(id, &counts, budget)
+                    .await?;
+                if counts
+                    .get(d::artifact::ArtifactChunk::NAME)
+                    .is_some_and(|count| *count > 0)
+                {
+                    self.complete_block_original_holds(id, budget).await?;
+                }
+                Some(counts)
+            } else {
+                None
+            };
             self.contribution_operation(id, budget)?
                 .finish(&self.client, budget)
                 .await?;
+            // Earn store-independent typed content from actual stored backing,
+            // never private/submitted claims or physical envelope/JSON hashes.
+            let content = self
+                .logical_contribution_outputs(physical, outputs, budget)
+                .await?;
+            if counts.as_ref().is_some_and(|counts| {
+                content
+                    .iter()
+                    .any(|(name, output)| counts.get(name) != Some(&output.rows))
+            }) {
+                return Err(ModelError::Conflict(
+                    "native contribution logical membership count",
+                ));
+            }
             let descriptor = CompletedContribution {
             assurance:
                 lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,
             spec,
             outcome: outcome.code(),
-            outputs: content
-                .into_iter()
-                .map(|(name, (rows, sink))| {
-                    (
-                        name,
-                        OutputContent {
-                            rows,
-                            content: sink.finish(),
-                        },
-                    )
-                })
-                .collect(),
+            outputs: content,
         };
             let logical = descriptor.identity()?;
             let _encoding = budget.reserve(
@@ -6797,6 +6809,122 @@ impl NativeCompilerStore {
                 _charge: retained,
             })
         })
+    }
+
+    /// Reconstruct typed logical output digests from actual stored membership/backing.
+    /// This works before completion without forging a provisional completed descriptor.
+    async fn logical_contribution_outputs(
+        self: &Arc<Self>,
+        owner: RecordId,
+        outputs: &[Relation],
+        budget: &ResourceBudget,
+    ) -> Result<BTreeMap<String, OutputContent>, ModelError> {
+        let reader = self.installed_member_reader(budget)?;
+        let mut variables = Variables::new();
+        variables.insert("owner", owner.clone());
+        let mut stream = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+            variables,
+            vec![],
+            vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner ORDER BY relation,semantic_key".into()],
+        )?)?;
+        let result = async {
+            let mut digests = lctx_native::completed_rows::LogicalOutputDigests::new(
+                outputs.iter().map(Relation::name),
+                budget,
+            )?;
+            let mut after = None::<(String, String)>;
+            let mut pending = Vec::new();
+            let mut charge =
+                d::charged::StateCharge::new(budget, "logical contribution membership window");
+            while let Some(member) = stream.next().await? {
+                lctx_native::compiler_blocks::validate_locator(&member)?;
+                let object = member
+                    .as_object()
+                    .ok_or(ModelError::Schema("logical contribution membership object"))?;
+                let (Some(Value::String(relation)), Some(Value::String(key))) =
+                    (object.get("relation"), object.get("semantic_key"))
+                else {
+                    return Err(ModelError::Schema(
+                        "logical contribution membership relation/key",
+                    ));
+                };
+                if object.get("contribution") != Some(&Value::RecordId(owner.clone()))
+                    || after
+                        .as_ref()
+                        .is_some_and(|previous| (relation, key) <= (&previous.0, &previous.1))
+                {
+                    return Err(ModelError::Conflict(
+                        "logical contribution membership owner/order",
+                    ));
+                }
+                after = Some((relation.clone(), key.clone()));
+                charge.grow(
+                    crate::loader::native_bytes(&member)
+                        .saturating_mul(4)
+                        .saturating_add(1024),
+                )?;
+                pending.push(member);
+                if pending.len() >= crate::loader::NATIVE_WINDOW_ROWS
+                    || charge.reserved() >= d::resources::TRANSFER_BYTES
+                {
+                    Self::logical_contribution_window(&reader, &pending, &mut digests, budget)
+                        .await?;
+                    pending.clear();
+                    charge = d::charged::StateCharge::new(
+                        budget,
+                        "logical contribution membership window",
+                    );
+                }
+            }
+            if !pending.is_empty() {
+                Self::logical_contribution_window(&reader, &pending, &mut digests, budget).await?;
+            }
+            digests.finish()
+        }
+        .await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step(
+            "logical contribution membership complete stream",
+            stream.drain_transport().await,
+        );
+        terminal.step(
+            "logical contribution backing reader close",
+            reader.close().await,
+        );
+        d::completion::complete(result, terminal)
+    }
+    async fn logical_contribution_window(
+        reader: &crate::NativeReader<()>,
+        members: &[Value],
+        digests: &mut lctx_native::completed_rows::LogicalOutputDigests,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let backing =
+            lctx_native::compiler_blocks::inspect_backing_window_read(reader, members, budget)
+                .await?;
+        for member in members {
+            let member = member
+                .as_object()
+                .ok_or(ModelError::Schema("logical contribution member"))?;
+            let Some(Value::RecordId(node)) = member.get("node") else {
+                return Err(ModelError::Schema("logical contribution backing pointer"));
+            };
+            let row = backing.get(node)?.row();
+            let object = row
+                .as_object()
+                .ok_or(ModelError::Schema("logical contribution backing object"))?;
+            if object.get("semantic_type") != member.get("relation")
+                || object.get("semantic_key") != member.get("semantic_key")
+                || object.get("content") != member.get("content")
+            {
+                return Err(ModelError::Conflict(
+                    "logical contribution actual backing correspondence",
+                ));
+            }
+            let _validated = lctx_native::completed_rows::canonical_backing_endpoints(row, budget)?;
+            digests.push(reader, row).await?;
+        }
+        Ok(())
     }
 
     /// Read the exact declared output of one completed contribution without registering a
@@ -7163,49 +7291,20 @@ impl NativeCompilerStore {
                     serde_json::from_slice(bytes).map_err(ModelError::codec)?;
                 contribution.identity()?;
                 self.validate_inputs(&contribution.spec.inputs).await?;
-                let mut actual = contribution
+                let relations = contribution
                     .outputs
                     .keys()
                     .map(|name| {
-                        (
-                            name.clone(),
-                            (0u64, KeySink::new("native-contribution-output/v1")),
-                        )
+                        crate::adapter::select(name).map(|adapter| adapter.relation.clone())
                     })
-                    .collect::<BTreeMap<_, _>>();
-                let mut variables = Variables::new();
-                variables.insert(
-                    "contribution",
-                    value_object(&row)
-                        .and_then(|row| row.get("id"))
-                        .cloned()
-                        .ok_or(ModelError::Schema("audited contribution identity"))?,
-                );
-                let mut members=self.track_rows(NativeRows::new(self.read_client()?.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(variables).stream_items().map_err(ModelError::codec)?,1)?)?;
-                while let Some(row) = members.next().await? {
-                    validate_state_row("compiler_membership", &row)?;
-                    let member = SerdeWrapper::<MembershipContent>::from_value(row)
-                        .map_err(ModelError::codec)?
-                        .0;
-                    let (count, sink) = actual
-                        .get_mut(&member.relation)
-                        .ok_or(ModelError::Conflict("undeclared restored output"))?;
-                    member.semantic_key.encode(sink);
-                    member.content.encode(sink);
-                    *count += 1;
-                }
-                let actual = actual
-                    .into_iter()
-                    .map(|(name, (rows, sink))| {
-                        (
-                            name,
-                            OutputContent {
-                                rows,
-                                content: sink.finish(),
-                            },
-                        )
-                    })
-                    .collect::<BTreeMap<_, _>>();
+                    .collect::<Result<Vec<_>, _>>()?;
+                let physical = match value_object(&row).and_then(|row| row.get("id")) {
+                    Some(Value::RecordId(id)) => id.clone(),
+                    _ => return Err(ModelError::Schema("audited contribution identity")),
+                };
+                let actual = self
+                    .logical_contribution_outputs(physical, &relations, &selection.budget)
+                    .await?;
                 if actual != contribution.outputs {
                     return Err(ModelError::Conflict(
                         "restored contribution output membership",
@@ -10521,8 +10620,6 @@ fn decode_candidate(row: Value, relation: &str) -> Result<Candidate, ModelError>
 #[derive(Serialize, Deserialize)]
 struct MembershipContent {
     relation: String,
-    semantic_key: String,
-    content: String,
 }
 fn sink_key(row: &Object) -> Result<String, ModelError> {
     Ok(row

@@ -36,7 +36,7 @@ impl SourceSnapshot {
             relation,
             format!("completed-view:{}", relation.name()),
             model,
-            ContentHash::of(b"lctx-native-completed-view-contract/v1"),
+            ContentHash::of(b"lctx-completed-logical-source/v2"),
             view.identity,
             view.rows,
         )

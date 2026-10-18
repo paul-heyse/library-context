@@ -114,7 +114,7 @@ fn keyset_range_source(
     Ok(format!("type::record({})", range.to_sql()))
 }
 
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 mod coordination;
 pub mod operation_pages;
 pub use coordination::{ADMISSION_STRIPES, ExpectedObject};

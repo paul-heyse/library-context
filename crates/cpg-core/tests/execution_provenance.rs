@@ -64,6 +64,7 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 async fn contribution(workspace: &Workspace) -> CompletedContribution {
     let mut inventory = workspace
         .native()
+        .expect("actual native fixture owner")
         .contributions(workspace.budget())
         .await
         .unwrap();
@@ -184,11 +185,13 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     let relations = [Relation::of::<Provider>(), Relation::of::<Package>()];
     let pending = source
         .native()
+        .expect("actual native fixture owner")
         .begin_contribution(captured.clone())
         .await
         .unwrap();
     source
         .native()
+        .expect("actual native fixture owner")
         .write_batch(
             &pending,
             &relations[0],
@@ -199,6 +202,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         .unwrap();
     source
         .native()
+        .expect("actual native fixture owner")
         .write_batch(
             &pending,
             &relations[1],
@@ -209,6 +213,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         .unwrap();
     let views = source
         .native()
+        .expect("actual native fixture owner")
         .complete_contribution(
             pending,
             ProviderOutcome::Complete,
@@ -222,6 +227,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         let view = views[relation.name()].clone();
         source
             .native()
+            .expect("actual native fixture owner")
             .bind(CompletedBinding {
                 boundary: None,
                 source: SourceSnapshot::of_completed_view(relation, source.model().digest(), &view)
@@ -235,10 +241,16 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     source.restore(Profile::Catalog).await.unwrap();
     let expected = contribution(&source).await;
     assert_eq!(expected.spec, captured);
-    let mut bindings = source.native().bindings().await.unwrap();
+    let mut bindings = source
+        .native()
+        .expect("actual native fixture owner")
+        .bindings()
+        .await
+        .unwrap();
     let export = tempfile::NamedTempFile::new().unwrap();
     source
         .native()
+        .expect("actual native fixture owner")
         .freeze_content(source.budget())
         .await
         .unwrap();
@@ -247,11 +259,16 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
         // inventory selectors under this source's actual client, pool and scope.
         let physical = source
             .native()
+            .expect("actual native fixture owner")
             .complete_physical_content(source.budget())
             .await
             .unwrap();
         let parent = physical.completion().record().unwrap();
-        let scope = source.native().recovery_scope().unwrap();
+        let scope = source
+            .native()
+            .expect("actual native fixture owner")
+            .recovery_scope()
+            .unwrap();
         let reader =
             lctx_native::NativeReader::private(scope.client().clone()).with_budget(source.budget());
         let result = lctx_native::control::with_recovery_scope(scope, async {
@@ -280,6 +297,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     }
     let state = source
         .native()
+        .expect("actual native fixture owner")
         .export_state(export.path(), source.budget())
         .await
         .unwrap();
@@ -288,21 +306,33 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     // Completed-state transport carries contribution/membership state. Its canonical graph
     // payload is loaded through the graph loader before cold state admission, using the
     // restored attempt's actual owned session and resource pool.
-    let recovery = restored.native().recovery_scope().unwrap();
+    let recovery = restored
+        .native()
+        .expect("actual native fixture owner")
+        .recovery_scope()
+        .unwrap();
     let client = recovery.client().clone();
     lctx_native::control::with_recovery_scope(recovery, async {
-        lctx_native::Loader::for_attempt_views(client, restored.native().attempt(), vec![])
-            .with_budget(restored.budget())
-            .entities(&[
-                Entity::from(captured_supplier.clone()),
-                Entity::from(package()),
-            ])
-            .await
+        lctx_native::Loader::for_attempt_views(
+            client,
+            restored
+                .native()
+                .expect("actual native fixture owner")
+                .attempt(),
+            vec![],
+        )
+        .with_budget(restored.budget())
+        .entities(&[
+            Entity::from(captured_supplier.clone()),
+            Entity::from(package()),
+        ])
+        .await
     })
     .await
     .unwrap();
     restored
         .native()
+        .expect("actual native fixture owner")
         .import_state(export.path(), &state, restored.budget())
         .await
         .unwrap();
@@ -317,18 +347,25 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     assert_eq!(imported.identity().unwrap(), expected.identity().unwrap());
     restored
         .native()
+        .expect("actual native fixture owner")
         .freeze_content(restored.budget())
         .await
         .unwrap();
     assert_eq!(
         restored
             .native()
+            .expect("actual native fixture owner")
             .completed_state(restored.budget())
             .await
             .unwrap(),
         state.semantic
     );
-    let mut restored_bindings = restored.native().bindings().await.unwrap();
+    let mut restored_bindings = restored
+        .native()
+        .expect("actual native fixture owner")
+        .bindings()
+        .await
+        .unwrap();
     // Native iteration orders physical IDs derived from each attempt. Exact logical
     // inventory comparison uses binding keys while retaining every full descriptor.
     bindings.sort_by_key(CompletedBinding::key);
@@ -344,7 +381,10 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     }
     for attempt in [current, source, restored] {
         let budget = attempt.budget().clone();
-        let native = attempt.native().clone();
+        let native = attempt
+            .native()
+            .expect("actual native fixture owner")
+            .clone();
         let connection = native
             .recovery_scope()
             .unwrap()
