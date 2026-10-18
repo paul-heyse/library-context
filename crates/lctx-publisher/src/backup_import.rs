@@ -15,12 +15,12 @@ pub(crate) const MAX_DUMP_RECORD_BYTES: usize = MAX_ROW_BYTES * 16;
 /// The native adapter owns the entire immutable dump inventory, including inert actual
 /// integrity claims. Runtime controls and regenerated secondary indexes have no dump codec.
 pub(crate) fn dump_tables() -> impl Iterator<Item = lctx_compiler_store::compiler::RecoveryTable> {
-    lctx_compiler_store::compiler::recovery_table_inventory()
+    lctx_compiler_store::compiler::logical_recovery_table_inventory()
 }
 pub(crate) fn table_codec(
     name: &str,
 ) -> Result<lctx_compiler_store::compiler::RecoveryTable, ModelError> {
-    lctx_compiler_store::compiler::classify_recovery_table(name).ok_or(ModelError::Schema(
+    lctx_compiler_store::compiler::classify_logical_recovery_table(name).ok_or(ModelError::Schema(
         "dump table outside immutable content inventory",
     ))
 }
@@ -691,6 +691,7 @@ mod tests {
             );
         }
         for excluded in [
+            "compiler_block",
             "native_pin",
             "compiler_attempt",
             "entity_anchor",

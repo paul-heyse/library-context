@@ -22,6 +22,8 @@ use std::{panic::AssertUnwindSafe, sync::Arc};
 
 #[derive(Clone, Copy)]
 enum Mutation {
+    ReadbackFinalizer,
+    Roles,
     Search,
     Lexical,
     Analyzer,
@@ -37,50 +39,9 @@ async fn observed<T>(
     result
 }
 
-fn require_campaign_maintenance(config: &RuntimeConfig) -> Result<(), ModelError> {
-    // Reuse the service owner's exact descriptor and live host-lock/process checks.
-    // Reimplementing those checks here would create a second maintenance authority.
-    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let proof = std::process::Command::new(repository.join(".venv/bin/python"))
-        .env("PYTHONPATH", repository.join("scripts"))
-        .args(["-c", r#"
-import json
-import os
-from pathlib import Path
-import sys
-import surrealdb_service as service
-
-selected = Path(os.environ["LCTX_SURREAL_SERVICE_CONFIG"]).resolve()
-installation = service.Installation.load(ready=False)
-record = installation.record
-assert selected == (installation.directory / "installation.json").resolve(), "selected campaign descriptor path"
-assert record.get("kind") == "campaign", "CN02 requires an owned campaign"
-assert record.get("purpose") == "surrealdb-lifecycle", "CN02 requires lifecycle campaign purpose"
-assert installation.id == os.environ["LCTX_SURREAL_INSTALLATION_ID"], "campaign attachment installation identity"
-endpoint, namespace, generation, database = sys.argv[1:]
-assert installation.grpc_endpoint == endpoint, "campaign runtime endpoint"
-assert record["namespace"] == namespace, "campaign runtime namespace"
-assert bytes(record["service_generation"]).hex() == generation, "campaign runtime generation"
-assert os.environ["LCTX_SURREAL_GENERATION"] == generation, "campaign attachment generation"
-assert database in record["databases"], "campaign runtime database scope"
-assert Path(os.environ["LCTX_SURREAL_INSTALLER_CONFIG"]).resolve() == installation.runtime_path(database, installer=True).resolve(), "campaign installer path"
-assert service.maintenance_owned(installation), "CN02 requires live matching host maintenance ownership"
-runtime = json.loads(Path(os.environ["LCTX_COMPILER_RUNTIME_CONFIG"]).read_text())
-assert (runtime["endpoint"], runtime["namespace"], bytes(runtime["service_generation"]).hex(), runtime["database"]) == (endpoint, namespace, generation, database), "selected compiler runtime correspondence"
-"#])
-        .arg(&config.endpoint)
-        .arg(config.namespace.as_str())
-        .arg(config.service_generation.hex())
-        .arg(config.database.as_str())
-        .output().map_err(ModelError::codec)?;
-    if !proof.status.success() {
-        return Err(ModelError::Invalid(format!(
-            "CN02 owned campaign maintenance proof refused: {}",
-            String::from_utf8_lossy(&proof.stderr)
-        )));
-    }
-    Ok(())
-}
+#[path = "campaign.rs"]
+mod campaign;
+use campaign::require_campaign_maintenance;
 
 async fn control(mutation: Mutation) -> Result<(), ModelError> {
     let config = RuntimeConfig::read(std::path::Path::new(
@@ -170,11 +131,11 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
                 let staging = publication.loader.staging().ok_or(ModelError::Schema("CN02 actual staging owner"))?.clone();
                 let foreign = Loader::for_attempt_views(publication.loader.shared_client(), native.attempt(), publication.loader.view_ids().ok_or(ModelError::Schema("CN02 exact views"))?.to_vec())
                     .with_budget(workspace.budget()).with_derivation(publication.loader.derivation()?).with_staging(staging.clone())?.prepare_completed_reader().await?;
-                let rejected = staging.publish_prepared(&foreign, &expected, admitted.manifest(), &publication.bindings, workspace.budget(), publication.search.as_ref().ok_or(ModelError::Schema("CN02 retained search"))?).await;
+                let rejected = staging.publish_prepared(&foreign, &expected, admitted.manifest(), &publication.bindings, workspace.budget(), lctx_native::control::staging::PreparedExpectations { search: publication.search.as_ref().ok_or(ModelError::Schema("CN02 retained search"))?, roles: publication.roles.as_ref().ok_or(ModelError::Schema("CN02 retained roles"))? }).await;
                 let foreign_closed = foreign.close_reader().await;
                 let error = match rejected { Ok(_) => return Err(ModelError::Conflict("CN02 foreign Loader borrowed preparation")), Err(error) => error };
                 foreign_closed?;
-                if !error.to_string().contains("prepared search protected owner/context changed") {
+                if !error.to_string().contains("prepared roles protected context changed") {
                     return Err(ModelError::Invalid(format!("CN02 foreign owner refused before expected capability: {error}")));
                 }
                 // A changed pool on the very same nominal Loader also refuses. Restore
@@ -182,7 +143,7 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
                 let foreign_budget = resources::ResourceBudget::fixed(workspace.budget().limit())?;
                 let placeholder = Loader::new(publication.loader.shared_client());
                 publication.loader = std::mem::replace(&mut publication.loader, placeholder).with_budget(&foreign_budget);
-                let rejected = staging.publish_prepared(&publication.loader, &expected, admitted.manifest(), &publication.bindings, workspace.budget(), publication.search.as_ref().ok_or(ModelError::Schema("CN02 retained search"))?).await;
+                let rejected = staging.publish_prepared(&publication.loader, &expected, admitted.manifest(), &publication.bindings, workspace.budget(), lctx_native::control::staging::PreparedExpectations { search: publication.search.as_ref().ok_or(ModelError::Schema("CN02 retained search"))?, roles: publication.roles.as_ref().ok_or(ModelError::Schema("CN02 retained roles"))? }).await;
                 let placeholder = Loader::new(publication.loader.shared_client());
                 publication.loader = std::mem::replace(&mut publication.loader, placeholder).with_budget(workspace.budget());
                 if rejected.is_ok() { return Err(ModelError::Conflict("CN02 changed pool borrowed preparation")); }
@@ -191,13 +152,16 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
             observed("cn02_cold_search_reconcile", lctx_native::derived_search::reconcile_search(publication.loader())).await?;
             observed("cn02_mutate", async {
             let reader = publication.loader().reader();
+            if matches!(mutation, Mutation::ReadbackFinalizer) {
+                return Ok(());
+            }
             if matches!(mutation, Mutation::Analyzer) {
                 client.query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS blank FILTERS lowercase;").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
                 // Bypass Publication::seal's whole definition verification deliberately:
                 // the publicly reachable native retained boundary must independently refuse.
                 let expected = super::publication_handle(admitted.manifest(), &publication.bindings, native.database(), &config, publication.loader.derivation()?, publication.definition_epoch, publication.eligibility)?;
                 let staging = publication.loader.staging().ok_or(ModelError::Schema("CN02 direct retained staging"))?;
-                let result = staging.publish_prepared(publication.loader(), &expected, admitted.manifest(), &publication.bindings, workspace.budget(), publication.search.as_ref().ok_or(ModelError::Schema("CN02 direct retained expectations"))?).await;
+                let result = staging.publish_prepared(publication.loader(), &expected, admitted.manifest(), &publication.bindings, workspace.budget(), lctx_native::control::staging::PreparedExpectations { search: publication.search.as_ref().ok_or(ModelError::Schema("CN02 direct retained expectations"))?, roles: publication.roles.as_ref().ok_or(ModelError::Schema("CN02 retained roles"))? }).await;
                 let error = match result { Ok(_) => return Err(ModelError::Conflict("CN02 direct native retained route accepted changed analyzer")), Err(error) => error };
                 if !error.to_string().contains("prepared lexical actual analyzer changed") || error.has_committed_effect() {
                     return Err(ModelError::Invalid(format!("CN02 direct native analyzer refusal missing: {error}")));
@@ -207,10 +171,14 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
                     let mut vars = Variables::new(); vars.insert("scope", lctx_native::lexical_stats::scope_identity(&reader)?.hex());
                     ("SELECT * FROM lexical_corpus WITH INDEX scoped_corpus WHERE scope=$scope ORDER BY id LIMIT 1", vars)
                 } else {
-                    let mut actual = lctx_native::derived_search::actual_search_rows(&reader, workspace.budget())?;
+                    let mut actual = if matches!(mutation, Mutation::Roles) {
+                        lctx_native::reconciliation::actual_roles(&reader, workspace.budget())?
+                    } else { lctx_native::derived_search::actual_search_rows(&reader, workspace.budget())? };
                     let selected = async {
                         while let Some(value) = actual.next().await? {
-                            if matches!(value.as_object().and_then(|row| row.get("id")), Some(Value::RecordId(id)) if id.table.as_str().starts_with("search_")) {
+                            if matches!(value.as_object().and_then(|row| row.get("id")), Some(Value::RecordId(id)) if
+                                if matches!(mutation, Mutation::Roles) { matches!(id.table.as_str(), "reference" | "participant") }
+                                else { id.table.as_str().starts_with("search_") }) {
                                 return Ok(value);
                             }
                         }
@@ -226,16 +194,36 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
                 let Some(Value::RecordId(id)) = row.get("id") else { return Err(ModelError::Schema("CN02 mutation original id")); };
                 original = Some((id.clone(), Value::Object(row.clone())));
                 let mut vars = Variables::new(); vars.insert("id", id.clone());
-                let sql = if matches!(mutation, Mutation::Lexical) { "UPDATE $id SET total_length+=1 RETURN NONE" } else { "UPDATE $id SET text=string::concat(text,' changed after materialization') RETURN NONE" };
+                let sql = if matches!(mutation, Mutation::Lexical) { "UPDATE $id SET total_length+=1 RETURN NONE" }
+                    else if matches!(mutation, Mutation::Roles) { "UPDATE $id SET field=string::concat(field,' changed after role lowering') RETURN NONE" }
+                    else { "UPDATE $id SET text=string::concat(text,' changed after materialization') RETURN NONE" };
                 client.query(sql).bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
             }
             drop(reader);
             Ok(())
             }).await?;
-            let outcome = observed("cn02_seal", publication.seal(&config, &definitions)).await;
-            let error = match outcome { Ok(_) => return Err(ModelError::Conflict("CN02 mutated state was published")), Err(error) => error };
-            if error.has_committed_effect() { return Err(ModelError::Conflict("CN02 refusal acknowledged a publication")); }
+            let mut seal_config = config.clone();
+            if matches!(mutation, Mutation::ReadbackFinalizer) {
+                // Existing authenticated construction/marker writes succeed. Only the fresh
+                // post-marker reader's actual authentication is deliberately refused.
+                seal_config.password = "deliberately-invalid-readback-credential".into();
+            }
+            let expected_handle = super::publication_handle(admitted.manifest(), &publication.bindings,
+                native.database(), &config, publication.loader.derivation()?,
+                publication.definition_epoch, publication.eligibility)?;
+            let outcome = observed("cn02_seal", publication.seal(&seal_config, &definitions)).await;
+            let error = match outcome { Ok(_) => return Err(ModelError::Conflict("CN02 expected finalization refusal missing")), Err(error) => error };
+            if matches!(mutation, Mutation::ReadbackFinalizer) {
+                if !error.has_committed_effect() { return Err(ModelError::Conflict("publication acknowledgement lost after finalizer failure")); }
+                let mut response = client.query("SELECT id FROM $publication")
+                    .bind(("publication", lctx_native::surrealdb::types::RecordId::new("publication", expected_handle.publication.hex())))
+                    .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let actual: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+                if actual.len() != 1 { return Err(ModelError::Conflict("committed publication vanished after finalizer failure")); }
+            } else if error.has_committed_effect() { return Err(ModelError::Conflict("CN02 refusal acknowledged a publication")); }
             let correct_refusal = match mutation {
+                Mutation::ReadbackFinalizer => error.has_committed_effect(),
+                Mutation::Roles => matches!(error.primary(), Some(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))),
                 Mutation::Search => matches!(error.primary(), Some(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))),
                 Mutation::Lexical => matches!(error.primary(), Some(ModelError::Conflict("frozen lexical statistics differ"))),
                 Mutation::Analyzer => matches!(error.primary(), Some(ModelError::Conflict("pinned executable definition epoch"))),
@@ -354,6 +342,24 @@ async fn materialize_search_then_mutate_lexical_seal_refuses() {
 #[ignore = "requires exclusive coordinator-owned disposable maintenance campaign"]
 async fn materialize_search_then_change_actual_analyzer_seal_refuses() {
     control(Mutation::Analyzer)
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires coordinator-owned disposable maintenance campaign"]
+async fn materialize_roles_then_mutate_actual_role_seal_refuses() {
+    control(Mutation::Roles)
+        .with_tracing_dispatch(cpg_extract::logging::dispatch())
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires coordinator-owned disposable maintenance campaign"]
+async fn publication_acknowledgement_survives_actual_readback_finalizer_failure() {
+    control(Mutation::ReadbackFinalizer)
         .with_tracing_dispatch(cpg_extract::logging::dispatch())
         .await
         .unwrap();

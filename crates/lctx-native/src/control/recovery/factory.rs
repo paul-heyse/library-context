@@ -185,11 +185,14 @@ impl RecoveryFactoryOwner {
         cancellation: RetryCancellation,
         signals: Arc<SignalRegistration>,
     ) -> Result<(Arc<RecoveryScope>, Arc<SignalRegistration>, FactoryLease), ModelError> {
-        if !self.budget.shares_pool(budget) || self.binding.generation != parent.target.generation {
+        if self.binding.generation != parent.target.generation {
             return Err(ModelError::Conflict(
-                "independent session factory budget/target differs",
+                "independent session factory target differs",
             ));
         }
+        // The factory charges its child/index metadata on its retained pool;
+        // this independently owned scope charges the exact caller-supplied pool.
+        // Neither allocation replaces the original parent's live admission owner.
         let prepared = RecoveryScope::prepare_scope(
             budget.clone(),
             cancellation,
@@ -200,6 +203,9 @@ impl RecoveryFactoryOwner {
             .children
             .lock()
             .map_err(|_| ModelError::Conflict("native recovery factory"))?;
+        if !children.entries.iter().any(|child| std::ptr::eq(child.scope.as_ref(), parent)) {
+            return Err(ModelError::Conflict("independent session source is not an actual factory child"));
+        }
         let admitted = self.admit_child(&mut children)?;
         // SDK clone queues session attachment. Everything below is infallible
         // local construction, with actual resources installed before any await.

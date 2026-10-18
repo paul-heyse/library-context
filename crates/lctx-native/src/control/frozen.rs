@@ -3,8 +3,14 @@ use super::*;
 use crate::completed_state::FrozenContentFence;
 use lctx_model::domain::{
     completion::{Completion, complete},
-    resources::{MAX_ROW_BYTES, ResourceBudget},
+    resources::ResourceBudget,
 };
+
+// A freeze observes one fixed control envelope, never arbitrary content payloads.
+// Project only fields consumed below; native ingress independently admits actual
+// response bytes, while this arena retains the small decoded control projections.
+const FENCE_READBACK_BYTES:usize=65536;
+const ATTEMPT_FENCE_READ:&str="SELECT id,generation,state,revision,epoch,completed_revision,validity_epoch,completed_bindings,admitted FROM $attempt";
 
 /// Fence every ordinary attempt mutation before auditing complete content. This does not
 /// establish physical completion or semantic admission. The supplied inventory is checked
@@ -21,9 +27,9 @@ pub async fn freeze_content_native(
     }
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result=async {
-        let _scratch=budget.reserve("native content freeze readback",MAX_ROW_BYTES)?;
+        let _scratch=budget.reserve("native content freeze readback",FENCE_READBACK_BYTES)?;
         let mut variables=Variables::new();variables.insert("attempt",RecordId::new("native_attempt",attempt.hex()));
-        let owner:Vec<Object>=reader.query_native("SELECT * FROM $attempt",variables.clone()).await?;
+        let owner:Vec<Object>=reader.query_native(ATTEMPT_FENCE_READ,variables.clone()).await?;
         let [owner]=owner.as_slice() else{return Err(ModelError::Conflict("native freeze attempt cardinality"));};
         let installation:Vec<Object>=reader.query_native("SELECT generation,validity_epoch FROM native_installation:current",Variables::new()).await?;
         let [installation]=installation.as_slice() else{return Err(ModelError::Conflict("native freeze installation cardinality"));};
@@ -49,7 +55,7 @@ pub async fn freeze_content_native(
             let sql="fn::native_attempt_cut($__attempt,$__generation,$__era,$__epoch,'freeze'); IF $__owner.revision!=$freeze_expected_revision OR $__owner.admitted OR $__installation.generation!=$freeze_generation OR $__installation.validity_epoch!=$freeze_validity_epoch OR $__owner.epoch!=$freeze_attempt_epoch { THROW 'native freeze inventory changed'; }; IF array::len(SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$__attempt AND completed=false LIMIT 1)>0 { THROW 'native freeze unfinished contribution'; }; IF array::len(SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$__attempt AND resolved=false AND id!=$__effect LIMIT 1)>0 { THROW 'native freeze unresolved accepted effect'; }; UPDATE $__attempt SET state='frozen',revision=$freeze_completed_revision,completed_revision=$freeze_completed_revision,validity_epoch=$freeze_validity_epoch,completed_bindings=$freeze_bindings,completed_identity=NONE,completed_state=NONE RETURN NONE";
             effect_for_owner(&client,EffectOwner::OpenAttempt(attempt),sql,variables.clone()).await?;
         }
-        let owners:Vec<Object>=reader.query_native("SELECT * FROM $attempt",variables).await?;
+        let owners:Vec<Object>=reader.query_native(ATTEMPT_FENCE_READ,variables).await?;
         let [owner]=owners.as_slice() else{return Err(ModelError::Conflict("native freeze readback cardinality"));};
         validate_fence(owner,installation,&fence,false)?;
         Ok(fence)
@@ -68,11 +74,11 @@ pub async fn resume_content_fence(
 ) -> Result<FrozenContentFence, ModelError> {
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
-        let _scratch = budget.reserve("native persisted freeze readback", MAX_ROW_BYTES)?;
+        let _scratch = budget.reserve("native persisted freeze readback", FENCE_READBACK_BYTES)?;
         let mut variables = Variables::new();
         variables.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
         let owners: Vec<Object> = reader
-            .query_native("SELECT * FROM $attempt", variables.clone())
+            .query_native(ATTEMPT_FENCE_READ, variables.clone())
             .await?;
         let [owner] = owners.as_slice() else {
             return Err(ModelError::Conflict("native persisted freeze cardinality"));

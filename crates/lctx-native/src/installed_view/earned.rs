@@ -406,13 +406,13 @@ pub(super) async fn selected_members(
             break;
         }
         let ids = expected.keys().cloned().collect::<Vec<_>>();
-        let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+        let mut actual = crate::compiler_blocks::read_locator_window_read(reader, &ids, budget).await?;
         for (id, (physical, key)) in expected {
             let Some(row) = actual.take_optional(&id)? else {
                 continue;
             };
             let member =
-                decode_selected_member(row.row(), physical, &cap.selector.view.relation, key)?;
+                decode_selected_member(&row, physical, &cap.selector.view.relation, key)?;
             if let Some(previous) = members.get(&key) {
                 if previous != &member {
                     return Err(ModelError::Conflict(
@@ -499,7 +499,7 @@ fn decode_prepared_member(
     let Some(Value::String(encoded_content)) = object.get("content") else {
         return Err(ModelError::Schema("prepared selected membership content"));
     };
-    if object.len() != 6
+    if object.len() != 7
         || object.get("id") != Some(&Value::RecordId(super::member_id(selector, relation, &key)))
         || object.get("selector") != Some(&Value::String(selector.hex()))
         || object.get("relation") != Some(&Value::String(relation.into()))
@@ -522,6 +522,13 @@ fn decode_prepared_member(
         key,
         node: node.clone(),
         content,
+        locator: {
+            let locator=object.get("locator").ok_or(ModelError::Schema("prepared selected physical locator"))?;
+            crate::compiler_blocks::validate_locator(locator)?;
+            let actual=locator.as_object().ok_or(ModelError::Schema("prepared selected locator object"))?;
+            if actual.get("node")!=Some(&Value::RecordId(node.clone()))||actual.get("relation")!=Some(&Value::String(relation.into()))||actual.get("semantic_key")!=Some(&Value::String(hex::encode(key)))||actual.get("content")!=Some(&Value::String(content.hex())){return Err(ModelError::Conflict("prepared selected locator correspondence"));}
+            locator.clone()
+        },
     })
 }
 fn decode_selected_member(
@@ -575,7 +582,8 @@ fn decode_selected_member(
     canonical.insert("semantic_key", hex::encode(key));
     canonical.insert("node", node.clone());
     canonical.insert("content", content.hex());
-    if row != Value::Object(canonical) {
+    crate::compiler_blocks::validate_locator(row)?;
+    if crate::compiler_blocks::logical_membership(row)? != Value::Object(canonical) {
         return Err(ModelError::Conflict(
             "canonical selected exact membership envelope",
         ));
@@ -584,6 +592,7 @@ fn decode_selected_member(
         key,
         node: node.clone(),
         content,
+        locator: row.clone(),
     })
 }
 

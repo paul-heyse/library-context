@@ -3,6 +3,7 @@ pub mod adapter;
 pub(crate) mod alias_topology;
 pub mod cache;
 pub mod codec;
+pub mod compiler_blocks;
 pub use cache::NativeEmbeddingCache;
 pub mod config;
 pub mod continuation;

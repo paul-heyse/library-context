@@ -1,4 +1,6 @@
 //! Actual native ownership for attempt-scoped model-declared projection backing.
+#[path = "support/compiler_backing.rs"]
+mod physical_backing;
 use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, EvidenceBytes, Id, ModelError, Record, Relation,
@@ -29,29 +31,6 @@ async fn fixture_client(
     .unwrap()
 }
 
-async fn compiler_backing_nodes(
-    client: &std::sync::Arc<
-        lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
-    >,
-    contribution: ContentHash,
-    budget: &lctx_model::domain::resources::ResourceBudget,
-) -> Vec<lctx_native::surrealdb::types::RecordId> {
-    let mut bindings = lctx_native::surrealdb::types::Variables::new();
-    bindings.insert(
-        "owner",
-        lctx_native::surrealdb::types::RecordId::new("compiler_contribution", contribution.hex()),
-    );
-    let reader = lctx_native::NativeReader::private(client.clone()).with_budget(budget);
-    let result=reader.query_native(
-            "SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND record::table(node)='compiler_record'",
-            bindings,
-        )
-        .await;
-    let mut terminal = lctx_model::domain::completion::Completion::default();
-    terminal.step("backing-node inspection reader close", reader.close().await);
-    lctx_model::domain::completion::complete(result, terminal).unwrap()
-}
-
 async fn abandon_acknowledged_write_failure(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
@@ -67,8 +46,10 @@ async fn abandon_acknowledged_write_failure(
         outcome.primary.is_none(),
         "abandonment does not invent a new primary: {failure:?}"
     );
-    assert_eq!(outcome.completion.local, LocalState::Terminal);
-    assert_eq!(outcome.completion.remote, RemoteState::Confirmed);
+    assert_eq!(outcome.completion.local, LocalState::Terminal,
+        "acknowledged write abandonment must finish local ownership: {failure:?}");
+    assert_eq!(outcome.completion.remote, RemoteState::Confirmed,
+        "acknowledged write abandonment must confirm native finality: {failure:?}");
     assert_eq!(outcome.completion.storage, vec![]);
     assert!(outcome.completion.committed.is_empty());
     assert_eq!(
@@ -217,8 +198,8 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
             .unwrap();
     }
     if maximum_chunk {
-        // Full source assurance owns its existing producer pool. The small scan
-        // borrows that actual capability; it does not establish cold 8MiB capacity.
+        // The warm maximum-sized scan borrows the already-earned producer pool.
+        // It does not establish independent 8MiB receiving capacity.
         store
             .installed_view(
                 &views[ProjectionSnapshotChunk::NAME],
@@ -227,7 +208,9 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
             .await
             .unwrap();
     }
-    let budget = lctx_model::domain::resources::ResourceBudget::fixed(8 << 20).unwrap();
+    let budget = if maximum_chunk { native_operation_budget.clone() } else {
+        lctx_model::domain::resources::ResourceBudget::fixed(8 << 20).unwrap()
+    };
     use futures::TryStreamExt;
     let batches = store
         .scan_batches(
@@ -272,27 +255,23 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         Frontier::Normalized,
         &lctx_compiler_store::compiler::recovery_factory(
             &config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
+            budget.clone(),
         )
         .expect("owned native control factory"),
     )
     .await
     .unwrap();
     restored
-        .import_state(file.path(), &state, &native_operation_budget)
+        .import_state(file.path(), &state, &budget)
         .await
         .unwrap();
     restored
-        .freeze_content(&native_operation_budget)
+        .freeze_content(&budget)
         .await
         .unwrap();
     assert_eq!(
         restored
-            .completed_state(&native_operation_budget)
+            .completed_state(&budget)
             .await
             .unwrap(),
         state.semantic
@@ -319,23 +298,11 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         vec![header]
     );
     restored.abandon().await.unwrap();
-    use lctx_native::surrealdb::types::{Bytes, Number, Value, Variables};
-    let backing_nodes =
-        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
-    let mut response = admin
-        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record' AND semantic_type='projection_snapshot_chunks'")
-        .bind(("nodes", backing_nodes.clone()))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let mut rows: Vec<Value> = response.take(0).unwrap();
-    let original = rows.pop().unwrap();
-    assert!(rows.is_empty());
-    let Value::Object(original) = original else {
-        panic!("native backing row");
-    };
-    let id = original.get("id").unwrap().clone();
+    use lctx_native::surrealdb::types::{Bytes, Number, Value};
+    let backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let mut rows = backing.into_iter().filter(|backing| backing.row.as_object().unwrap().get("semantic_type") == Some(&Value::String("projection_snapshot_chunks".into()))).collect::<Vec<_>>();
+    let backing = rows.pop().unwrap(); assert!(rows.is_empty());
+    let Value::Object(original) = backing.row.clone() else { panic!("native logical backing row"); };
     let mut altered = original.clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("native backing body");
@@ -344,60 +311,39 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     let canonical = serde_json::to_vec(&Value::Object(body.clone())).unwrap();
     altered.insert("canonical", Bytes::from(canonical.clone()));
     altered.insert("content", ContentHash::of(&canonical).hex());
-    let mut bindings = Variables::new();
-    bindings.insert("id", id.clone());
-    bindings.insert("row", Value::Object(altered));
-    admin
-        .query("UPDATE $id CONTENT $row RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    assert!(
-        matches!(
-            store.verify_state(&native_operation_budget).await,
-            Err(ModelError::Conflict("compiler backing typed identity"))
-        ),
-        "coherent canonical/body/content changes cannot bypass full nominal-key validation"
-    );
-    let mut bindings = Variables::new();
-    bindings.insert("id", id.clone());
-    bindings.insert("row", Value::Object(original.clone()));
-    admin
-        .query("UPDATE $id CONTENT $row RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let mut bindings = Variables::new();
-    bindings.insert("id", id.clone());
-    bindings.insert("key", "00".repeat(16));
-    admin
-        .query("UPDATE $id SET semantic_key=$key RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    assert!(
-        matches!(
-            store.verify_state(&native_operation_budget).await,
-            Err(ModelError::Conflict("compiler backing typed identity"))
-        ),
-        "stored nominal keys are independently recomputed"
-    );
-    let mut bindings = Variables::new();
-    bindings.insert("id", id);
-    bindings.insert("row", Value::Object(original));
-    admin
-        .query("UPDATE $id CONTENT $row RETURN NONE")
-        .bind(bindings)
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
+    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
+    let changed = replacement.row.as_object().unwrap();
+    assert_eq!(changed.get("body").unwrap().as_object().unwrap().get("ordinal"), Some(&Value::Number(Number::Int(1))));
+    assert_eq!(changed.get("canonical"), Some(&Value::Bytes(Bytes::from(canonical.clone()))));
+    assert_eq!(changed.get("content"), Some(&Value::String(ContentHash::of(&canonical).hex())));
+    for field in ["id", "semantic_key", "scope_keys"] {
+        assert_eq!(changed.get(field), original.get(field), "coherent body/content mutation preserves {field}");
+    }
+    let cached = store.completed_state(&native_operation_budget).await.unwrap();
+    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    replacement.restore(&admin).await;
+    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(restored.iter().filter(|row| row.locator == backing.locator).map(|row| &row.row).collect::<Vec<_>>(), vec![&backing.row],
+        "restore exact physical locator and logical row before refusal assertions");
+    assert_eq!(cached, state.semantic, "ordinary frozen identity reuses its earned owner before independent refusal");
+    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing typed identity"))),
+        "coherent canonical/body/content changes cannot bypass full nominal-key validation: {verification:?}");
+    let mut altered = original.clone(); altered.insert("semantic_key", "00".repeat(16));
+    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
+    assert_eq!(replacement.row.as_object().unwrap().get("semantic_key"), Some(&Value::String("00".repeat(16))));
+    for field in ["id", "body", "canonical", "content", "scope_keys"] {
+        assert_eq!(replacement.row.as_object().unwrap().get(field), original.get(field), "false-key mutation preserves {field}");
+    }
+    let cached = store.completed_state(&native_operation_budget).await.unwrap();
+    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    replacement.restore(&admin).await;
+    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(restored.iter().filter(|row| row.locator == backing.locator).map(|row| &row.row).collect::<Vec<_>>(), vec![&backing.row],
+        "restore exact physical locator and nominal key before refusal assertions");
+    assert_eq!(cached, state.semantic, "cached identity is not an independent corruption oracle");
+    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing typed identity"))),
+        "stored nominal keys are independently recomputed: {verification:?}");
+    store.verify_state(&native_operation_budget).await.unwrap();
     assert_eq!(
         store
             .completed_state(&native_operation_budget)
@@ -406,7 +352,8 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         state.semantic
     );
     store.abandon().await.unwrap();
-    // Frozen export cannot reopen its source for a later conflicting write.
+    // A distinct open contribution must reject a changed payload for its existing
+    // nominal key, independently of the already-abandoned export source.
     let conflict_store = NativeCompilerStore::begin(
         &config,
         Frontier::Normalized,
@@ -424,6 +371,8 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     .unwrap();
     let mut conflicting = chunk.clone();
     conflicting.payload = EvidenceBytes(vec![1, 2, 3]);
+    assert_eq!(conflicting.id(), chunk.id(), "different payload retains the same nominal chunk key");
+    assert_ne!(conflicting.payload, chunk.payload, "the repeated key changes its opaque payload");
     let mut next = spec;
     next.producer = "conflicting-projection-backing".into();
     let contribution = conflict_store.begin_contribution(next).await.unwrap();
@@ -436,6 +385,14 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         )
         .await
         .unwrap();
+    let mut prior_backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let prior = prior_backing.pop().expect("conflict owner has its exact logical member");
+    assert!(prior_backing.is_empty(), "the conflict owner initially has one exact logical member");
+    assert_eq!(prior.row, backing.row, "the distinct contributor initially shares the exact original logical payload");
+    let prior_locator = prior.locator;
+    // Reuse the original source row already retained by this control. Do not keep
+    // another maximum-sized snapshot across independent physical observations.
+    drop(prior.row);
     let result = conflict_store
         .write_batch(
             &contribution,
@@ -445,8 +402,14 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         )
         .await;
     let failure = result.expect_err("same nominal key with changed opaque payload must refuse");
-    // The shared immutable-address guard refuses the changed membership before the
-    // former caller-specific conflict label; preserve its actual acknowledged cause.
+    let mut after_backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let actual = after_backing.pop().expect("refused write retains the original logical member");
+    assert!(after_backing.is_empty(), "refused write adds no logical members");
+    assert_eq!(actual.locator, prior_locator, "refused write preserves the exact selected placement");
+    assert_eq!(actual.row, backing.row, "refused write preserves the original opaque payload");
+    drop(actual);
+    // The fused locator prelude refuses a changed logical member before installing
+    // its content-addressed container; preserve that exact acknowledged cause.
     let native_collision = failure.primary().and_then(|primary| match primary {
         ModelError::Cause(cause) => cause.downcast_ref::<lctx_native::surrealdb::Error>(),
         _ => None,
@@ -455,9 +418,9 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         native_collision.is_some_and(|error| {
             // SurrealDB 3.3.0 retains the server's THROW prefix in Error::message().
             error.is_thrown()
-                && error.message() == "An error occurred: native immutable address collision"
+                && error.message() == "An error occurred: compiler logical member collision"
         }),
-        "exact physical conflict primary: {failure:?}"
+        "exact logical member conflict primary: {failure:?}"
     );
     assert!(
         failure.permits_storage_cleanup(),
@@ -476,7 +439,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     let native_operation_budget =
         lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{FiniteF64, analytics::QualityStep};
-    use lctx_native::surrealdb::types::{Bytes, Number, ToSql, Value};
+    use lctx_native::surrealdb::types::{Bytes, Number, Value};
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -543,6 +506,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         })
         .await
         .unwrap();
+    store.freeze_content(&native_operation_budget).await.unwrap();
     let state = store
         .completed_state(&native_operation_budget)
         .await
@@ -550,20 +514,9 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     assert_eq!(state.contributions, 1);
     assert_eq!(state.memberships, 1);
     assert_eq!(state.backing_rows, 1);
-    let backing_nodes =
-        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
-    let mut response = admin
-        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
-        .bind(("nodes", backing_nodes.clone()))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let mut rows: Vec<Value> = response.take(0).unwrap();
-    let Value::Object(mut altered) = rows.pop().unwrap() else {
-        panic!("quality backing row");
-    };
-    assert!(rows.is_empty());
+    let mut backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let backing = backing.pop().unwrap();
+    let Value::Object(mut altered) = backing.row.clone() else { panic!("quality logical backing row"); };
     let saved = altered.clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("quality backing body");
@@ -594,143 +547,26 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         "nominal identity is unchanged"
     );
 
-    let mut membership = admin.query("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner")
-        .bind(("owner", lctx_native::surrealdb::types::RecordId::new("compiler_contribution", contribution.hex())))
-        .await.unwrap().check().unwrap();
-    let memberships: Vec<Value> = membership.take(0).unwrap();
-    assert_eq!(memberships.len(), 1, "exact owned contributor membership");
-    let saved_membership = memberships[0].as_object().unwrap().clone();
-    assert_eq!(saved_membership.get("node"), saved.get("id"));
-    let membership_id = saved_membership.get("id").unwrap().clone();
-    // This deliberate corruption remains independently owned while both cold validators run.
-    // The native state reader selects backing through this exact contributor membership;
-    // view descriptors retain the same nominal membership/cardinality.
-    let pin = lctx_native::control::ReaderPin::acquire(admin.clone(), &[])
-        .await
-        .unwrap();
-    let observations = async {
-        lctx_native::control::ensure_rows(
-            &admin,
-            Some(store.attempt()),
-            vec![Value::Object(altered.clone())],
-        )
-        .await?;
-        pin.protect(negative_node.clone()).await?;
-        let mut mutation = admin
-            .query("UPDATE $id SET node=$node,content=$content RETURN AFTER")
-            .bind(("id", membership_id.clone()))
-            .bind(("node", negative_node.clone()))
-            .bind(("content", content.hex()))
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let changed: Vec<Value> = mutation.take(0).map_err(ModelError::codec)?;
-        let verification = store.verify_state(&native_operation_budget).await;
-        let completed = store.completed_state(&native_operation_budget).await;
-        Ok::<_, ModelError>((changed, verification, completed))
-    }
-    .await;
-    let mut finality = lctx_model::domain::completion::Completion::default();
-    let restoration = async {
-        admin
-            .query("UPDATE $id CONTENT $row RETURN NONE")
-            .bind(("id", membership_id.clone()))
-            .bind(("row", Value::Object(saved_membership.clone())))
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        Ok(())
-    }
-    .await;
-    let restored = restoration.is_ok();
-    finality.step("negative-zero exact membership restoration", restoration);
-    // Never retire the replacement while a failed restoration may still refer to it.
-    if !restored {
-        finality.step(
-            "negative-zero failed restoration retention",
-            lctx_native::control::hold(
-                &admin,
-                Some(store.attempt()),
-                lctx_native::surrealdb::types::RecordId::new(
-                    "native_attempt",
-                    store.attempt().hex(),
-                ),
-                vec![negative_node.clone()],
-            )
-            .await,
-        );
-    }
-    finality.step("negative-zero temporary pin release", pin.release().await);
-    if restored {
-        finality.step(
-            "negative-zero exact malformed payload retirement",
-            async {
-                let progress =
-                    lctx_native::control::retire_reachable(&admin, vec![negative_node.clone()], 1)
-                        .await?;
-                if !progress.remaining.is_empty() {
-                    return Err(ModelError::Conflict(
-                        "negative-zero malformed payload retained",
-                    ));
-                }
-                Ok(())
-            }
-            .await,
-        );
-    } else {
-        finality
-            .storage
-            .push(lctx_model::domain::completion::StorageState::Orphan(
-                negative_node.to_sql(),
-            ));
-    }
-    let (changed, verification, completed) =
-        lctx_model::domain::completion::complete(observations, finality).unwrap();
-    let mut readback = admin
-        .query("SELECT * FROM $member; SELECT * FROM $original; SELECT * FROM $negative")
-        .bind(("member", membership_id))
-        .bind(("original", saved.get("id").unwrap().clone()))
-        .bind(("negative", negative_node.clone()))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let restored_memberships: Vec<Value> = readback.take(0).unwrap();
-    let restored_backing: Vec<Value> = readback.take(1).unwrap();
-    let retired_negative: Vec<Value> = readback.take(2).unwrap();
-    assert_eq!(
-        restored_memberships,
-        vec![Value::Object(saved_membership.clone())]
-    );
-    assert_eq!(restored_backing, vec![Value::Object(saved)]);
-    assert!(
-        retired_negative.is_empty(),
-        "temporary malformed payload retired before refusal assertions"
-    );
-    let mut expected_membership = saved_membership;
-    expected_membership.insert("node", negative_node);
-    expected_membership.insert("content", content.hex());
-    assert_eq!(
-        changed,
-        vec![Value::Object(expected_membership)],
-        "one exact membership changes only physical payload and content"
-    );
-    assert!(
-        matches!(
-            &verification,
-            Err(ModelError::Conflict("compiler backing declared body"))
-        ),
-        "coherent negative-zero independent verification before membership checks: {verification:?}"
-    );
-    assert!(
-        matches!(
-            &completed,
-            Err(ModelError::Conflict("compiler backing declared body"))
-        ),
-        "coherent negative-zero completed state before membership checks: {completed:?}"
-    );
+    let saved_membership = backing.locator.clone();
+    assert_eq!(saved_membership.as_object().unwrap().get("node"), saved.get("id"));
+    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
+    let expected_block = replacement.block.clone();
+    let expected_membership = replacement.locator.clone();
+    assert_eq!(expected_membership.as_object().unwrap().get("node"), Some(&Value::RecordId(negative_node)));
+    assert_eq!(expected_membership.as_object().unwrap().get("content"), Some(&Value::String(content.hex())));
+    assert_ne!(saved_membership.as_object().unwrap().get("block"), Some(&Value::RecordId(expected_block)),
+        "the coherently malformed logical row lives in a separately held actual block");
+    // The ordinary earned identity is intentionally reused; the following fresh
+    // physical/typed receiver independently checks the altered canonical bytes.
+    let cached = store.completed_state(&native_operation_budget).await.unwrap();
+    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    replacement.restore(&admin).await;
+    let mut restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(restored.pop().unwrap().row, Value::Object(saved)); assert!(restored.is_empty());
+    assert_eq!(cached, state, "ordinary frozen identity reuses its earned root; this is not a cold audit");
+    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing declared body"))),
+        "coherent negative-zero independent verification before membership checks: {verification:?}");
+
     store.verify_state(&native_operation_budget).await.unwrap();
     store.abandon().await.unwrap();
     admin.invalidate().await.unwrap();
@@ -811,12 +647,10 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
         ),
         "exact acknowledged range primary: {failure:?}"
     );
-    let backing_nodes =
-        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     for (table, predicate) in [
         ("original", "id=$source"),
         ("original_chunk", "blob=$source.blob"),
-        ("compiler_record", "record::table(id)='compiler_record'"),
+        ("native_hold", "owner=$owner AND record::table(object)='compiler_block'"),
         ("compiler_membership", "contribution=$owner"),
     ] {
         let mut bindings = lctx_native::surrealdb::types::Variables::new();
@@ -834,14 +668,8 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
                 contribution.hex(),
             ),
         );
-        let source = if table == "compiler_record" {
-            bindings.insert("nodes", backing_nodes.clone());
-            "$nodes"
-        } else {
-            table
-        };
         let mut response = admin
-            .query(format!("SELECT * FROM {source} WHERE {predicate}"))
+            .query(format!("SELECT * FROM {table} WHERE {predicate}"))
             .bind(bindings)
             .await
             .unwrap()

@@ -1815,7 +1815,8 @@ pub async fn published_completed_state(
     reader: &crate::NativeReader<d::serving::SnapshotHandle>,
     budget: &d::resources::ResourceBudget,
 ) -> Result<PublishedCompletedState, ModelError> {
-    prepare_published_completed_state(reader, budget)?.await
+    let recovery=reader.attached_recovery_scope(reader.handle().service_generation)?;
+    crate::control::with_recovery_scope(recovery,prepare_published_completed_state(reader,budget)?).await
 }
 // Reader/serving callers share one complete protected preparation, without
 // inheriting its inventory/eligibility/query execution future graph.

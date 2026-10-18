@@ -114,8 +114,9 @@ fn keyset_range_source(
     Ok(format!("type::record({})", range.to_sql()))
 }
 
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 mod coordination;
+pub mod operation_pages;
 pub use coordination::{ADMISSION_STRIPES, ExpectedObject};
 pub(crate) use coordination::{
     initial_stripes as initial_admission_stripes, preflight as preflight_control, set_admission,
@@ -236,7 +237,7 @@ pub(crate) use held::{
     hold_frozen_admission_expected, hold_frozen_completed_expected, hold_frozen_physical_expected,
     inspect_expected_read,
 };
-pub use held::{inspect_expected_window_read, inspect_hold_window_read};
+pub use held::{inspect_expected_window_read, inspect_hold_window_read, observe_backing_window_read, BackingMetadata, BackingObservations};
 pub(crate) mod completed;
 pub mod validation_premise;
 async fn run_recovery_transaction(
@@ -250,12 +251,14 @@ async fn run_recovery_transaction(
 /// executor drainage; maintenance callers retain their service-owner barrier.
 pub async fn check_pending_effects(client: &Surreal<Client>) -> Result<(), ModelError> {
     let mut response = client
-        .query("SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1")
+        .query("SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1; SELECT VALUE id FROM native_operation WITH INDEX operation_history WHERE state='open' LIMIT 1; SELECT VALUE id FROM native_operation_page WITH INDEX live_operation_pages WHERE resolved=false LIMIT 1")
         .await
         .map_err(ModelError::codec)?
         .check()
         .map_err(ModelError::codec)?;
-    let pending: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
+    let mut pending: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
+    pending.extend(response.take::<Vec<RecordId>>(1).map_err(ModelError::codec)?);
+    pending.extend(response.take::<Vec<RecordId>>(2).map_err(ModelError::codec)?);
     if pending.is_empty() {
         Ok(())
     } else {
@@ -277,7 +280,8 @@ pub async fn drain_effects(client: &Surreal<Client>) -> Result<(), ModelError> {
             .map_err(ModelError::codec)?;
         let pending: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
         if pending.is_empty() {
-            return Ok(());
+            operation_pages::reconcile_open_operations(client).await?;
+            return check_pending_effects(client).await;
         }
         for id in pending {
             let surrealdb::types::RecordIdKey::String(key) = id.key else {
@@ -448,7 +452,7 @@ fn immutable_row_plan_in(
             .unwrap_or(Value::None),
     );
     let fence = if attempt.is_some() {
-        "IF $__owner.admitted AND array::len($rows.filter(|$row|record::table($row.id) IN ['entity','assertion','compiler_record','compiler_alias','original','original_blob','original_chunk','native_pending_original','native_pending_original_ordinal','native_pending_original_piece']))>0 { THROW 'native canonical content already admitted'; }; IF $contribution != NONE { LET $producer=SELECT * FROM ONLY $contribution FOR UPDATE; IF $producer.completed OR $producer.attempt!=$__attempt { THROW 'native producing contribution fenced'; }; };"
+        "IF $__owner.admitted AND array::len($rows.filter(|$row|record::table($row.id) IN ['entity','assertion','compiler_block','compiler_alias','original','original_blob','original_chunk','native_pending_original','native_pending_original_ordinal','native_pending_original_piece']))>0 { THROW 'native canonical content already admitted'; }; IF $contribution != NONE { LET $producer=SELECT * FROM ONLY $contribution FOR UPDATE; IF $producer.completed OR $producer.attempt!=$__attempt { THROW 'native producing contribution fenced'; }; };"
     } else {
         ""
     };
@@ -562,6 +566,7 @@ fn guard_records<'a>(
         .collect()
 }
 pub(crate) fn guard_id(id: &Value) -> Result<RecordId, ModelError> {
+    if matches!(id,Value::RecordId(record) if matches!(record.table.as_str(),"compiler_record"|"compiler_membership")) {return Err(ModelError::Schema("logical compiler identity is not a physical object"));}
     Ok(RecordId::new(
         "native_guard",
         ContentHash::of(&serde_json::to_vec(id).map_err(ModelError::codec)?).hex(),
@@ -931,19 +936,20 @@ impl ReaderPin {
         self.state.recovery.clone()
     }
     pub async fn protect(&self, object: RecordId) -> Result<(), ModelError> {
+        self.protect_many(vec![object]).await
+    }
+    /// Retain a bounded selected set under this exact pin and recovery owner.
+    /// The native hold writer retains its existing per-target retirement exclusion.
+    pub async fn protect_many(&self, objects: Vec<RecordId>) -> Result<(), ModelError> {
+        self.ensure_live()?;
         let recovery = self
             .recovery_scope()
             .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
         with_recovery_scope(
             recovery,
-            hold(
-                &self.state.client,
-                None,
-                RecordId::new("native_pin", self.identity.hex()),
-                vec![object],
-            ),
-        )
-        .await
+            hold(&self.state.client, None,
+                RecordId::new("native_pin", self.identity.hex()), objects),
+        ).await
     }
     pub fn retain_unknown(&self) {
         self.state.uncertain.store(true, Ordering::Release);

@@ -26,7 +26,7 @@ pub const fn recovery_tables(
         Contributions => &["compiler_contribution"],
         Memberships => &["compiler_membership"],
         Views => &["compiler_view"],
-        TypedBacking => &["compiler_record"],
+        TypedBacking => &["compiler_block"],
         Bindings => &["compiler_binding"],
         Aliases => &["compiler_alias"],
         GraphPayloads => &["entity", "assertion"],
@@ -43,6 +43,13 @@ pub const fn recovery_tables(
         ],
         SearchVectors => &["vector"],
     }
+}
+/// Portable semantic envelopes retain format4 names and do not expose packing.
+pub const fn logical_recovery_tables(family:d::recovery_closure::RecoveryFamily)->&'static [&'static str]{
+    match family{d::recovery_closure::RecoveryFamily::TypedBacking=>&["compiler_record"],_=>recovery_tables(family)}
+}
+pub fn classify_logical_recovery_table(name:&str)->Option<RecoveryTable>{
+    if name=="compiler_record"{Some(RecoveryTable{name:"compiler_record",kind:RecoveryTableKind::Content(d::recovery_closure::RecoveryFamily::TypedBacking),relation:false})}else if name=="compiler_block"{None}else{classify_recovery_table(name)}
 }
 /// Codec behavior is exhaustive too: a new semantic family cannot inherit a default kind.
 pub const fn recovery_relation(family: d::recovery_closure::RecoveryFamily) -> bool {
@@ -82,11 +89,17 @@ pub fn recovery_table_inventory() -> impl Iterator<Item = RecoveryTable> {
             relation: false,
         }))
 }
+/// Portable rows retain the logical codec; installation witnesses remain inert claims.
+pub fn logical_recovery_table_inventory() -> impl Iterator<Item = RecoveryTable> {
+    recovery_table_inventory().map(|table| if table.name == "compiler_block" {
+        RecoveryTable { name: "compiler_record", ..table }
+    } else { table })
+}
 pub fn classify_recovery_table(name: &str) -> Option<RecoveryTable> {
     recovery_table_inventory().find(|table| table.name == name)
 }
 pub const fn completed_table(family: d::recovery_closure::RecoveryFamily) -> &'static str {
-    recovery_tables(family)[0]
+    logical_recovery_tables(family)[0]
 }
 pub const STATE_TABLES: [&str; 6] = {
     let families = d::recovery_closure::COMPLETED_FAMILIES;
@@ -110,11 +123,13 @@ pub const PENDING_ORIGINAL_TABLES: [&str; 3] = [
 /// Exact physical completion/admission and retained canonical binding witnesses are
 /// installation-local. This inventory is deliberately outside COMPLETED_FAMILIES and
 /// STATE_TABLES, whose six logical roots remain the portable semantic authority.
-pub const INSTALLATION_WITNESS_TABLES: [&str; 6] = [
+pub const INSTALLATION_WITNESS_TABLES: [&str; 8] = [
     "native_completed_contributor",
     "native_completed_state",
     "native_completed_view",
     "native_completed_admission",
     "compiler_binding_descriptor",
     "native_validation_premise",
+    "native_operation",
+    "native_operation_page",
 ];

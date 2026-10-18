@@ -105,7 +105,7 @@ impl std::error::Error for NativeRequestError {
     }
 }
 impl NativeRequest {
-    fn validate(self) -> Result<(), ModelError> {
+    pub(super) fn validate(self) -> Result<(), ModelError> {
         if self.issuance.era <= 0 {
             return Err(self.error(ModelError::Conflict(
                 "native request requires a positive issuance era",
@@ -424,7 +424,7 @@ impl EffectOwner {
             },
         }
     }
-    fn record(&self) -> Option<RecordId> {
+    pub(super) fn record(&self) -> Option<RecordId> {
         match self {
             Self::OpenAttempt(id) | Self::FrozenAttempt(id) => {
                 Some(RecordId::new("native_attempt", id.hex()))
@@ -439,7 +439,7 @@ impl EffectOwner {
             Self::Installation => None,
         }
     }
-    fn kind(&self) -> &'static str {
+    pub(super) fn kind(&self) -> &'static str {
         match self {
             Self::Installation => "installation",
             Self::OpenAttempt(_) => "attempt",
@@ -451,7 +451,7 @@ impl EffectOwner {
             Self::Cleanup(_) => "cleanup",
         }
     }
-    fn predicate(&self) -> &'static str {
+    pub(super) fn predicate(&self) -> &'static str {
         match self {
             Self::OpenAttempt(_) => "$__owner.state='open'",
             Self::FrozenAttempt(_) => "$__owner.state='frozen'",
@@ -580,10 +580,17 @@ struct PreparedNativePayload<'a> {
     bindings: Variables,
     digest: ContentHash,
 }
+pub(super) fn payload_digest(sql:&str,bindings:&Variables)->Result<ContentHash,ModelError>{
+    struct Digest(lctx_model::domain::ContentHasher);
+    impl std::io::Write for Digest{
+        fn write(&mut self,bytes:&[u8])->std::io::Result<usize>{self.0.update(bytes);Ok(bytes.len())}
+        fn flush(&mut self)->std::io::Result<()>{Ok(())}
+    }
+    let mut digest=Digest(lctx_model::domain::ContentHasher::default());serde_json::to_writer(&mut digest,&(sql,bindings)).map_err(ModelError::codec)?;Ok(digest.0.finish())
+}
 impl<'a> PreparedNativePayload<'a> {
     fn new(sql: &'a str, bindings: Variables) -> Result<Self, ModelError> {
-        let digest =
-            ContentHash::of(&serde_json::to_vec(&(sql, &bindings)).map_err(ModelError::codec)?);
+        let digest=payload_digest(sql,&bindings)?;
         Ok(Self {
             sql,
             bindings,
@@ -903,7 +910,7 @@ pub(super) fn owner_effect_plan(
         };
         format!(
             "BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch,attempt_slot=$__attempt_slot RETURN NONE; {participation} CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; {finish_owner} }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind OR $__prior.attempt!=$__attempt OR $__prior.attempt_slot!=$__attempt_slot {replay_epoch} {{ THROW 'native operation identity collision'; }}; IF !$__prior.resolved OR !$__prior.committed OR $__prior.epoch<=0 {{ THROW 'native operation fenced uncommitted'; }}; }}; COMMIT;",
-            coordination::EXPECTED_OBJECT_GUARD
+            coordination::expected_object_guard(&bindings)
         )
     };
     coordination::preflight(&query, &bindings)?;
@@ -1048,7 +1055,7 @@ fn recovery_settlement_body<'a>(
         }
         let envelope = pending.inspect(Clone::clone)?;
         let disposition = match envelope.action {
-            RecoveryAction::ReconcileOriginalRequest => {
+            RecoveryAction::ReconcileOriginalRequest | RecoveryAction::ReconcileOperationRoot => {
                 let reconcile = reconcile_pending_envelope(scope.client(), &envelope, admission);
                 let _reconcile_charge = scope.budget().reserve(
                     "native original request reconciliation future",
@@ -1058,7 +1065,7 @@ fn recovery_settlement_body<'a>(
                 pending.observed(disposition)?;
                 disposition
             }
-            RecoveryAction::ReleaseTerminalReference => envelope.observed_disposition,
+            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => envelope.observed_disposition,
         };
         let terminal = pending.inspect(Clone::clone)?;
         let release = settle_reference(scope.client(), &terminal, admission);
@@ -1135,6 +1142,10 @@ pub(super) async fn reconcile_pending_envelope(
     admission: &RetryCancellation,
 ) -> Result<EffectDisposition, ModelError> {
     envelope.validate(&envelope.target)?;
+    if admission.stopped() { return Err(ModelError::Conflict("native recovery issuance stopped")); }
+    if envelope.action == RecoveryAction::ReconcileOperationRoot {
+        return super::operation_pages::reconcile_operation_root(client, envelope.request, &envelope.owner).await;
+    }
     if envelope.action != RecoveryAction::ReconcileOriginalRequest
         || envelope.observed_disposition != EffectDisposition::Pending
     {
@@ -1170,6 +1181,10 @@ pub(super) async fn settle_reference(
     admission: &RetryCancellation,
 ) -> Result<(), ModelError> {
     envelope.validate(&envelope.target)?;
+    if admission.stopped() { return Err(ModelError::Conflict("native recovery reference issuance stopped")); }
+    if envelope.action == RecoveryAction::ReleaseTerminalOperation {
+        return super::operation_pages::release_operation_reference(client, envelope.request, &envelope.owner, &envelope.outcome_reference, envelope.observed_disposition).await;
+    }
     let request = envelope.request;
     if envelope.observed_disposition == EffectDisposition::CompactedTerminal {
         if envelope.action != RecoveryAction::ReleaseTerminalReference {

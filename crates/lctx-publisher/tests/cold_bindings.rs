@@ -91,16 +91,13 @@ async fn write<R: Record>(
 }
 
 async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let native = NativeCompilerStore::begin(
         config,
         Frontier::Facts,
         &lctx_compiler_store::compiler::recovery_factory(
             config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
+            budget.clone(),
         )
         .expect("owned native control factory"),
     )
@@ -108,7 +105,7 @@ async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
     .unwrap();
     Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions::default(),
+        WorkspaceOptions { memory_bytes: budget.limit(), ..WorkspaceOptions::default() },
         native,
     )
     .unwrap()
@@ -116,13 +113,12 @@ async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
 
 #[tokio::test]
 async fn foreign_captured_bindings_admit_before_and_after_independent_native_transport() {
-    let native_operation_budget =
-        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = RuntimeConfig::read(&std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
     ))
     .unwrap();
     let source = workspace(&config).await;
+    let native_operation_budget = source.budget().clone();
     let input = InputRevision::from_entries(vec![]).unwrap();
     let context = AnalysisContext {
         python_version: "3.14.7".into(),
@@ -394,23 +390,20 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     .unwrap();
     // Invalid transport is refused by native ingress before semantic restoration;
     // own that actual component rather than creating an unused workspace owner.
+    let refused_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let refused = NativeCompilerStore::begin(
         &config,
         Frontier::Catalog,
         &lctx_compiler_store::compiler::recovery_factory(
             &config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
+            refused_budget.clone(),
         )
         .expect("owned native control factory"),
     )
     .await
     .unwrap();
     let error = refused
-        .import_state(obsolete.path(), &state, &native_operation_budget)
+        .import_state(obsolete.path(), &state, &refused_budget)
         .await
         .unwrap_err();
     assert!(
@@ -459,6 +452,8 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     }));
 
     let restored = workspace(&config).await;
+    let restored_budget = restored.budget();
+    assert!(!native_operation_budget.shares_pool(restored_budget), "independent ingress earns selectors in its own workspace resource pool");
     assert_eq!(source.native().database(), restored.native().database());
     assert_ne!(source.native().attempt(), restored.native().attempt());
     // Shared immutable canonical payload survives attempt closure. Import independently
@@ -466,7 +461,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     // it does not replay providers or mutate a separate database.
     restored
         .native()
-        .import_state(export.path(), &state, &native_operation_budget)
+        .import_state(export.path(), &state, restored_budget)
         .await
         .unwrap();
     restored.restore(Profile::Catalog).await.unwrap();
@@ -481,7 +476,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     // descriptor byte in logical identity order without deduplicating repeated rows.
     let mut actual_contributions = restored
         .native()
-        .contributions(&native_operation_budget)
+        .contributions(restored_budget)
         .await
         .unwrap();
     actual_contributions.sort_by_key(|row| row.identity().unwrap());
@@ -493,13 +488,13 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     // earns its physical boundary before requesting the frozen-state identity.
     restored
         .native()
-        .freeze_content(&native_operation_budget)
+        .freeze_content(restored_budget)
         .await
         .unwrap();
     assert_eq!(
         restored
             .native()
-            .completed_state(&native_operation_budget)
+            .completed_state(restored_budget)
             .await
             .unwrap(),
         state.semantic

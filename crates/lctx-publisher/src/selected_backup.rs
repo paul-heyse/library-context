@@ -484,7 +484,7 @@ pub(crate) async fn export(
                             cancel.check()?;
                             write_state_row(
                                 &mut writer,
-                                row,
+                                lctx_native::compiler_blocks::logical_membership(&row)?,
                                 encoded.as_mut(),
                                 &mut state,
                                 &owners,
@@ -502,7 +502,7 @@ pub(crate) async fn export(
                 }
             }
             RecoveryFamily::GraphPayloads | RecoveryFamily::TypedBacking => {
-                for table in lctx_compiler_store::compiler::recovery_tables(family) {
+                for table in lctx_compiler_store::compiler::logical_recovery_tables(family) {
                     let mut rows =
                         selected.rows(table, "true", Variables::new(), vec![], "id", None)?;
                     let result = async {
@@ -1005,7 +1005,7 @@ mod tests {
             .copied()
             .filter(|family| family.is_integrity_claim())
         {
-            for table in lctx_compiler_store::compiler::recovery_tables(family) {
+            for table in lctx_compiler_store::compiler::logical_recovery_tables(family) {
                 let mut object = Object::new();
                 object.insert("id", RecordId::new(*table, "unexpected-actual-claim"));
                 object.insert("field", "forged-role");

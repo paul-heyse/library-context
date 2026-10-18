@@ -27,10 +27,20 @@ pub(crate) fn function_name(epoch: ContentHash, name: &str) -> String {
 }
 
 pub(crate) fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), ModelError> {
+    let expected = prepare_expected(blueprint)?;
+    Ok((expected.base, expected.functions))
+}
+struct DefinitionRequirements {
+    base: Vec<String>,
+    functions: Vec<String>,
+    tables: BTreeSet<String>,
+}
+fn prepare_expected(blueprint: &str) -> Result<DefinitionRequirements, ModelError> {
     lctx_native::materialization::validate_native_definitions(blueprint)?;
     let epoch = epoch_identity(blueprint);
     let mut base = Vec::new();
     let mut functions = Vec::new();
+    let mut tables = BTreeSet::new();
     for statement in surrealdb_syn::parse(blueprint)
         .map_err(ModelError::codec)?
         .expressions
@@ -43,7 +53,15 @@ pub(crate) fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), Mo
                     let sql = definition.to_sql();
                     functions.push(normalize(&sql)?);
                 }
-                _ => base.push(normalize(&definition.to_sql())?),
+                _ => {
+                    match definition.as_ref() {
+                        DefineStatement::Table(value) => { tables.insert(value.name.to_sql()); }
+                        DefineStatement::Field(value) => { tables.insert(value.what.to_sql()); }
+                        DefineStatement::Index(value) => { tables.insert(value.what.to_sql()); }
+                        _ => {}
+                    }
+                    base.push(normalize(&definition.to_sql())?);
+                }
             },
             _ => {
                 return Err(ModelError::Schema(
@@ -52,7 +70,7 @@ pub(crate) fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), Mo
             }
         }
     }
-    Ok((base, functions))
+    Ok(DefinitionRequirements { base, functions, tables })
 }
 pub(crate) fn normalize(sql: &str) -> Result<String, ModelError> {
     let parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?;
@@ -92,18 +110,14 @@ fn add_group(
     }
     Ok(())
 }
-async fn inventory(loader: &Loader) -> Result<BTreeSet<String>, ModelError> {
+async fn inventory(loader: &Loader, required_tables: &BTreeSet<String>) -> Result<BTreeSet<String>, ModelError> {
     let db = info(loader, "INFO FOR DB".into()).await?;
     let mut result = BTreeSet::new();
     for group in ["functions", "analyzers", "tables"] {
         add_group(&mut result, &db, group)?;
     }
-    let Some(Value::Object(tables)) = db.get("tables") else {
-        return Err(ModelError::Schema("definition table inventory"));
-    };
-    for name in tables.keys() {
-        let escaped = name.replace('`', "\\`");
-        let table = info(loader, format!("INFO FOR TABLE `{escaped}`")).await?;
+    for table in required_tables {
+        let table = info(loader, format!("INFO FOR TABLE {table}")).await?;
         for group in ["fields", "indexes"] {
             add_group(&mut result, &table, group)?;
         }
@@ -141,19 +155,42 @@ pub(crate) async fn install_epoch(
         &functions,
     )
 }
+/// Operation-owned interpretation only. Actual mutable definitions are observed again at seal;
+/// neither these strings nor a hash confer maintenance exclusion or installed authority.
+pub(crate) struct PreparedDefinitions {
+    blueprint: String,
+    base: Vec<String>,
+    functions: Vec<String>,
+    tables: BTreeSet<String>,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+impl PreparedDefinitions {
+    pub(crate) fn new(loader: &Loader, blueprint: &str) -> Result<Self, ModelError> {
+        let charge = loader.read_budget()?.reserve(
+            "publication required definition preparation",
+            blueprint.len().saturating_mul(24).saturating_add(2048),
+        )?;
+        let DefinitionRequirements { base, functions, tables } = prepare_expected(blueprint)?;
+        Ok(Self { blueprint: blueprint.to_owned(), base, functions, tables, _charge: charge })
+    }
+    pub(crate) fn require_blueprint(&self, blueprint: &str) -> Result<(), ModelError> {
+        if self.blueprint != blueprint {
+            return Err(ModelError::Conflict("publication executable blueprint changed"));
+        }
+        Ok(())
+    }
+    pub(crate) async fn verify(&self, loader: &Loader) -> Result<ContentHash, ModelError> {
+        let actual = inventory(loader, &self.tables).await?;
+        loader.check_read_admission()?;
+        let version = loader.client().version().await.map_err(ModelError::codec)?.to_string();
+        verify_expected(&self.blueprint, &version, &actual, &self.base, &self.functions)
+    }
+}
 pub(crate) async fn verify_epoch(
     loader: &Loader,
     blueprint: &str,
 ) -> Result<ContentHash, ModelError> {
-    let actual = inventory(loader).await?;
-    loader.check_read_admission()?;
-    let version = loader
-        .client()
-        .version()
-        .await
-        .map_err(ModelError::codec)?
-        .to_string();
-    verify_inventory(blueprint, &version, &actual)
+    PreparedDefinitions::new(loader, blueprint)?.verify(loader).await
 }
 pub(crate) fn verify_inventory(
     blueprint: &str,
@@ -202,4 +239,24 @@ fn implementation_identity() -> Result<ContentHash, ModelError> {
             .try_into()
             .map_err(|_| ModelError::Schema("publication implementation digest width"))?,
     ))
+}
+
+#[cfg(test)]
+mod controls {
+    use super::*;
+    #[test]
+    fn required_definition_details_are_scoped_and_required_drift_refuses() {
+        let blueprint = lctx_native::materialization::native_definitions();
+        let DefinitionRequirements { base, functions, tables } = prepare_expected(&blueprint).unwrap();
+        assert!(tables.contains("search_source"));
+        assert!(tables.contains("vector"));
+        assert!(!tables.contains("compiler_record"));
+        assert!(!tables.contains("unrelated"));
+        let mut actual = base.iter().chain(&functions).cloned().collect::<BTreeSet<_>>();
+        let identity = verify_inventory(&blueprint, "3.3.0", &actual).unwrap();
+        actual.insert("DEFINE TABLE unrelated SCHEMAFULL".into());
+        assert_eq!(verify_inventory(&blueprint, "3.3.0", &actual).unwrap(), identity);
+        actual.remove(&base[0]);
+        assert!(verify_inventory(&blueprint, "3.3.0", &actual).is_err());
+    }
 }

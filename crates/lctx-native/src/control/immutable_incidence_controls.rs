@@ -462,3 +462,92 @@ async fn immutable_insert_into_active_absent_guard_advances_its_revision() {
     })
     .await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pin_release_point_set_incidence_handles_257_predicates_and_atomic_overflow() {
+    let config=crate::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("explicit native fixture"))).unwrap();
+    let budget=ResourceBudget::fixed(DEFAULT_MEMORY_BYTES).unwrap();
+    let factory=RecoveryFactoryOwner::new(config.receipt_binding().unwrap(),budget).unwrap();
+    let (client,lease)=crate::reader::connect_owned(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str(),&factory).await.unwrap();
+    let connection=client.connection_completion().unwrap();
+    let scope=lease.recovery_scope().clone();
+    let mut pins=Vec::new();
+    let result=std::panic::AssertUnwindSafe(with_recovery_scope(scope.clone(),async{
+        async fn records(client:&Surreal<Client>,ids:Vec<RecordId>)->Result<Vec<Object>,ModelError>{
+            let mut response=client.query("SELECT * FROM $ids ORDER BY id").bind(("ids",ids)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            response.take(0).map_err(ModelError::codec)
+        }
+        let nonce=fresh_identity("pin point set incidence control")?;
+        let mut targets=Vec::new();let mut values=Vec::new();
+        for ordinal in 0..128{let (id,row)=external(&format!("{}-pin-{ordinal}",nonce.hex()));targets.push(id);values.push(row);}
+        ensure_rows(&client,None,values).await?;
+        let pin=ReaderPin::acquire(client.clone(),&[]).await?;pins.push(pin.clone());
+        let peer=ReaderPin::acquire(client.clone(),&[]).await?;pins.push(peer.clone());
+        pin.protect_many(targets.clone()).await?;
+        peer.protect(targets[0].clone()).await?;
+        let owner=RecordId::new("native_pin",pin.identity.hex());
+        let peer_owner=RecordId::new("native_pin",peer.identity.hex());
+        let holds=targets.iter().map(|target|hold_record_id(&owner,target)).collect::<Result<Vec<_>,_>>()?;
+        let peer_hold=hold_record_id(&peer_owner,&targets[0])?;
+        let predicate_id=|target:&RecordId|RecordId::new("native_predicate",surrealdb::types::RecordIdKey::Array(vec![Value::RecordId(target.clone())].into()));
+        let endpoints=std::iter::once(owner.clone()).chain(holds.iter().cloned()).chain(targets.iter().cloned()).collect::<Vec<_>>();
+        assert_eq!(endpoints.len(),257,"one pin,128 exact hold identities and128 actual objects");
+        let predicates=endpoints.iter().map(&predicate_id).collect::<Vec<_>>();
+        let tail=predicate_id(holds.last().unwrap());
+        let prior=read_row(&client,&tail).await?;
+        client.query("UPDATE $id SET revision=9223372036854775807 RETURN NONE").bind(("id",tail.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let nonpin_predicates=predicates[1..].to_vec();
+        let before=records(&client,nonpin_predicates.clone()).await?;
+        let original_holds=records(&client,holds.clone()).await?;
+        let error=pin.release().await.expect_err("a tail overflow rejects the original pin page");
+        assert!(error.to_string().contains("native predicate revision exhausted"),"{error}");
+        assert!(error.permits_storage_cleanup(),"confirmed rollback retains its actual disposition: {error}");
+        assert_eq!(records(&client,nonpin_predicates).await?,before,"overflow cannot partially advance a preceding predicate");
+        assert_eq!(records(&client,holds.clone()).await?,original_holds,"overflow cannot delete a prefix of holds");
+        assert_eq!(read_row(&client,&owner).await?.as_object().unwrap().get("released"),Some(&Value::Bool(true)),"durable pin fence remains despite refused page");
+        assert!(pin.protect(targets[0].clone()).await.is_err(),"the durable released fence excludes a delayed new hold");
+        let prior_revision=revision(&prior)?;
+        client.query("UPDATE $id SET revision=$revision RETURN NONE").bind(("id",tail)).bind(("revision",prior_revision)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let missing=predicate_id(&holds[0]);
+        client.query("DELETE $id RETURN NONE").bind(("id",missing.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let before=records(&client,predicates.clone()).await?;
+        assert_eq!(before.len(),256,"one missing exact predicate exercises plain INSERT alongside existing UPDATE");
+        let peer_before=read_row(&client,&peer_hold).await?;
+        let mut bindings=Variables::new();bindings.insert("pin",owner.clone());bindings.insert("holds",holds.clone());
+        effect(&client,None,&pin_release_page_sql(),bindings).await?;
+        let after=records(&client,predicates.clone()).await?;assert_eq!(after.len(),257);
+        for row in after{
+            let Some(Value::RecordId(id))=row.get("id") else{return Err(ModelError::Schema("pin predicate control id"));};
+            if *id==missing{assert_eq!(authorization::int_field(&row,"revision")?,1);}else{
+                let prior=before.iter().find(|prior|prior.get("id")==Some(&Value::RecordId(id.clone()))).expect("existing exact predicate");
+                assert_eq!(authorization::int_field(&row,"revision")?,authorization::int_field(prior,"revision")?+1,"every distinct existing predicate is actually written once");
+            }
+        }
+        assert!(records(&client,holds).await?.is_empty());
+        assert_eq!(read_row(&client,&peer_hold).await?,peer_before,"a peer's current hold survives this release");
+        let mut bindings=Variables::new();bindings.insert("pin",owner);bindings.insert("holds",vec![peer_hold.clone()]);
+        effect(&client,None,&pin_release_page_sql(),bindings).await?;
+        assert_eq!(read_row(&client,&peer_hold).await?,peer_before,"an explicitly foreign hold cannot enter the owned deletion set");
+        let retained=retire_reachable(&client,vec![targets[0].clone()],128).await?;
+        assert_eq!(retained.retired,0);assert_eq!(retained.retained.len(),1,"the actual new holder still excludes collection");
+        pin.release().await?;peer.release().await?;
+        // Continue the exact retained invocation after its holder releases, then
+        // collect the other independent targets without renominating that root.
+        let mut collected=resume_retirement(&client,retained.identity,4096).await?;
+        while !collected.remaining.is_empty(){collected=resume_retirement(&client,collected.identity,4096).await?;}
+        assert!(collected.retained.is_empty());
+        let mut collected=retire_reachable(&client,targets.into_iter().skip(1).collect(),4096).await?;
+        while !collected.remaining.is_empty(){collected=resume_retirement(&client,collected.identity,4096).await?;}
+        assert!(collected.retained.is_empty());
+        Ok(())
+    })).catch_unwind().await.unwrap_or_else(|panic|Err(ModelError::Cause(Box::new(ThreadPanic::new("pin point-set incidence native control",panic)))));
+    let mut terminal=Completion::default();
+    if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup){
+        for pin in &pins{terminal.step("pin point-set control exact pin release",pin.release().await);}
+    }else{for pin in &pins{pin.retain_unknown();}terminal.local=LocalState::Outstanding;terminal.remote=RemoteState::Unknown;}
+    drop(pins);drop(scope);
+    let completed=lease.complete_with(&terminal).await;terminal.step("pin point-set control factory completion",completed);
+    let joined=terminal.is_satisfied();drop(client);drop(lease);drop(factory);
+    if joined{terminal.step("pin point-set control actual SDK completion",connection.wait().await.map_err(ModelError::codec));}drop(connection);
+    completion::complete(result,terminal).unwrap();
+}

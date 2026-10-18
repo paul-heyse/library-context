@@ -103,6 +103,10 @@ struct CanonicalSelection {
     alias_membership: BTreeMap<ContentHash, PreparedPointRows>,
     _charge: StateCharge,
 }
+struct ExplicitOwners {
+    rows: Vec<RecordId>,
+    _charge: StateCharge,
+}
 struct OwnedAliases {
     topology: crate::alias_topology::AliasTopology,
     incidence: crate::ordered_rows::PreparedSourceRows,
@@ -134,6 +138,7 @@ pub struct SelectedPayloadRead<'a> {
 #[derive(Clone)]
 pub struct SelectedPayloads {
     exact: Option<Arc<CanonicalSelection>>,
+    explicit_owners: Option<Arc<ExplicitOwners>>,
     derivation: Option<ContentHash>,
     source: SelectionSource,
     nodes: PreparedRows,
@@ -657,7 +662,7 @@ impl SelectedPayloads {
                 let mut vars = Variables::new();
                 vars.insert("contributors", owners.to_vec());
                 consume(&source, budget,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors".into(),vars,|row|{
-                crate::completed_rows::validate_state_row("compiler_membership",&row)?;
+                crate::compiler_blocks::validate_locator(&row)?;
                 let (owner,node,relation,_,_)=membership_fields(&row)?;
                 if !owners.contains(owner){return Err(ModelError::Conflict("canonical selected foreign contributor"));}
                 if let Some(views)=exact.owner_views.get(owner).and_then(|relations|relations.get(relation)) {
@@ -734,6 +739,7 @@ impl SelectedPayloads {
             let membership = nodes.point_index(budget)?;
             Ok(Self {
                 exact: Some(Arc::new(exact)),
+                explicit_owners: None,
                 derivation: None,
                 source,
                 nodes,
@@ -1012,8 +1018,19 @@ impl SelectedPayloads {
                     source.check_live()
                 })?;
         let membership = nodes.point_index(budget)?;
+        let mut charge = StateCharge::new(budget, "selected explicit contributor identities");
+        charge.grow(std::mem::size_of::<ExplicitOwners>() + 2 * std::mem::size_of::<usize>())?;
+        let mut physical = Vec::new();
+        for root in roots {
+            let id = RecordId::new("compiler_contribution", root.hex());
+            charge.grow(node_bytes(&id).saturating_add(std::mem::size_of::<RecordId>()))?;
+            physical.push(id);
+        }
+        physical.sort(); physical.dedup();
+        let explicit_owners = Some(Arc::new(ExplicitOwners { rows: physical, _charge: charge }));
         Ok(Self {
             exact: None,
+            explicit_owners,
             derivation: None,
             source,
             nodes,
@@ -1072,6 +1089,94 @@ impl SelectedPayloads {
         accepted.sort();
         accepted.dedup();
         Ok(accepted)
+    }
+    async fn compiler_rows(
+        &self, nodes: &[RecordId], budget: &ResourceBudget,
+    ) -> Result<(Vec<Value>, StateCharge), ModelError> {
+        if nodes.iter().any(|id| id.table.as_str() != "compiler_record") {
+            return Err(ModelError::Schema("selected compiler logical identity"));
+        }
+        self.source.check_live()?;
+        let (owners, _owners) = if self.exact.is_some() {
+            self.canonical_owners(None, budget)?
+        } else {
+            let actual = self.explicit_owners.as_ref().ok_or(ModelError::Conflict("selected compiler contributor authority absent"))?;
+            let mut charge = StateCharge::new(budget, "selected compiler contributor handles");
+            charge.grow(actual.rows.iter().map(|row| node_bytes(row).saturating_add(std::mem::size_of::<RecordId>())).sum())?;
+            (actual.rows.clone(), charge)
+        };
+        let mut metadata = StateCharge::new(budget, "selected compiler locator correspondence");
+        let mut locators = BTreeMap::<RecordId, Value>::new();
+        for window in owners.chunks(WINDOW) {
+            let mut bindings = Variables::new();
+            bindings.insert("contributors", window.to_vec());
+            bindings.insert("nodes", nodes.to_vec());
+            let mut seen_members = BTreeSet::new();
+            let mut response_charge = StateCharge::new(budget, "selected compiler locator response identities");
+            consume(&self.source, budget,
+                "SELECT * FROM compiler_membership WITH INDEX contribution_nodes WHERE contribution IN $contributors AND node IN $nodes".into(),
+                bindings, |row| {
+                    crate::compiler_blocks::validate_locator(&row)?;
+                    let address = id(&row)?;
+                    response_charge.grow(node_bytes(&address).saturating_add(128))?;
+                    if !seen_members.insert(address) { return Err(ModelError::Conflict("selected compiler duplicate locator")); }
+                    let (owner, node, relation, _, _) = membership_fields(&row)?;
+                    if !window.contains(owner) || !nodes.contains(node) {
+                        return Err(ModelError::Conflict("selected compiler locator foreign correspondence"));
+                    }
+                    if self.exact.is_some() { self.owner_witnesses(owner, relation)?; }
+                    let size = crate::loader::native_bytes(&row).saturating_mul(8).saturating_add(512);
+                    if let Some(previous) = locators.get(node) {
+                        let prior = previous.as_object().ok_or(ModelError::Schema("selected compiler prior locator"))?;
+                        let actual = row.as_object().ok_or(ModelError::Schema("selected compiler locator"))?;
+                        if ["relation", "semantic_key", "content", "scope_keys"].iter().any(|field| prior.get(*field) != actual.get(*field)) {
+                            return Err(ModelError::Conflict("selected compiler nominal variants"));
+                        }
+                        if id(previous)? <= id(&row)? { return Ok(()); }
+                        metadata.grow(size)?;
+                        metadata.release(crate::loader::native_bytes(previous).saturating_mul(8).saturating_add(512));
+                    } else {
+                        metadata.grow(size.saturating_add(node_bytes(node)).saturating_add(128))?;
+                    }
+                    locators.insert(node.clone(), row);
+                    Ok(())
+                }).await?;
+        }
+        if nodes.iter().any(|id| !locators.contains_key(id)) {
+            return Err(ModelError::Conflict("selected compiler logical member missing"));
+        }
+        let mut blocks = BTreeMap::<RecordId, Vec<RecordId>>::new();
+        for (node, locator) in &locators {
+            let location = crate::compiler_blocks::PhysicalLocation::from_locator(locator)?;
+            if location.record().table.as_str() != "compiler_block" {
+                return Err(ModelError::Schema("selected nongraph physical location"));
+            }
+            metadata.grow(node_bytes(location.record()).saturating_add(node_bytes(node)).saturating_add(256))?;
+            blocks.entry(location.record().clone()).or_default().push(node.clone());
+        }
+        let mut output_charge = StateCharge::new(budget, "selected compiler logical row delivery");
+        output_charge.grow(nodes.len().saturating_mul(std::mem::size_of::<Value>()))?;
+        let mut output = Vec::with_capacity(nodes.len());
+        let mut seen = BTreeSet::new();
+        let mut bindings = Variables::new();
+        bindings.insert("blocks", blocks.keys().cloned().collect::<Vec<_>>());
+        consume(&self.source, budget, "SELECT * FROM $blocks".into(), bindings, |block| {
+            let physical = id(&block)?;
+            let selected = blocks.get(&physical).ok_or(ModelError::Conflict("selected compiler foreign block"))?;
+            if !seen.insert(physical) { return Err(ModelError::Conflict("selected compiler duplicate block")); }
+            crate::compiler_blocks::validate_block(&block, budget)?;
+            for node in selected {
+                let row = crate::compiler_blocks::selected_row(&block, &locators[node])?;
+                output_charge.grow(crate::loader::native_bytes(row).saturating_mul(8).saturating_add(512))?;
+                output.push(row.clone());
+            }
+            Ok(())
+        }).await?;
+        if seen.len() != blocks.len() || output.len() != locators.len() {
+            return Err(ModelError::Conflict("selected compiler physical block missing"));
+        }
+        self.source.check_live()?;
+        Ok((output, output_charge))
     }
     /// Point reads are finite; predicates run before any output limit. Complete global ordering
     /// and deduplication happen in the charged spill owner, never in a closure-wide server array.
@@ -1150,7 +1255,11 @@ impl SelectedPayloads {
                     break;
                 }
                 let mut vars = bindings.clone();
-                vars.insert("nodes", batch);
+                let _payload_charge = if table == "compiler_record" {
+                    let (rows, charge) = selected.compiler_rows(&batch, &budget).await?;
+                    vars.insert("nodes", rows);
+                    Some(charge)
+                } else { vars.insert("nodes", batch); None };
                 let query = crate::prepared::PreparedQuery::new(
                     vars,
                     preparation.clone(),
@@ -1268,7 +1377,7 @@ impl SelectedPayloads {
                     let mut seen = BTreeSet::new();
                     consume(source, budget,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation AND semantic_key IN $keys".into(),vars,|row|{
                         let _scratch=budget.reserve("selected nominal membership row",crate::loader::native_bytes(&row).saturating_mul(4))?;
-                        crate::completed_rows::validate_state_row("compiler_membership",&row)?;
+                        crate::compiler_blocks::validate_locator(&row)?;
                         let (owner,node,actual_relation,key,content)=membership_fields(&row)?;
                         window.grow(node_bytes(owner).saturating_add(key.len()).saturating_add(256))?;
                         if !owners.contains(owner) || actual_relation!=*relation || !nominated.contains(&key) || !seen.insert((owner.clone(),key.to_owned())) {
@@ -1425,7 +1534,7 @@ impl SelectedPayloads {
                 let mut seen = BTreeSet::new();
                 consume(source, budget,"SELECT * FROM compiler_membership WITH INDEX contribution_nodes WHERE contribution IN $contributors AND node IN $nodes".into(),vars,|row| {
                     let _scratch=budget.reserve("selected membership row",crate::loader::native_bytes(&row).saturating_mul(4))?;
-                    crate::completed_rows::validate_state_row("compiler_membership",&row)?;
+                    crate::compiler_blocks::validate_locator(&row)?;
                     let (owner,node,relation,key,content)=membership_fields(&row)?;
                     window.grow(node_bytes(&id(&row)?).saturating_add(256))?;
                     if !owners.contains(owner) || !nodes.contains(node) || !seen.insert(id(&row)?) {return Err(ModelError::Conflict("canonical sparse membership foreign or duplicate"));}
@@ -1701,7 +1810,7 @@ impl SelectedPayloads {
                     vars.insert("contributors", owners.to_vec());
                     vars.insert("relation", selected_relation.to_owned());
                     consume(&source, &budget,"SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation".into(),vars,|row|{
-                        crate::completed_rows::validate_state_row("compiler_membership",&row)?;
+                        crate::compiler_blocks::validate_locator(&row)?;
                         let (owner,node,actual_relation,_,_)=membership_fields(&row)?;
                         if !owners.contains(owner) || actual_relation!=selected_relation {return Err(ModelError::Conflict("canonical relation foreign membership"));}
                         if !exact.owner_witnesses(owner,actual_relation)?.iter().any(|view|views.contains(view)){return Ok(());}
@@ -2023,7 +2132,13 @@ impl SelectedPayloads {
                     if nodes.is_empty() {
                         continue;
                     }
-                    let vars = Variables::from_iter([("nodes".into(), nodes.clone().into_value())]);
+                    let mut vars = Variables::new();
+                    let _payload_charge = if table == "compiler_record" {
+                        let authority = selected.as_ref().ok_or(ModelError::Conflict("selected compiler source absent"))?;
+                        let (rows, charge) = authority.compiler_rows(&nodes, &budget).await?;
+                        vars.insert("nodes", rows);
+                        Some(charge)
+                    } else { vars.insert("nodes", nodes.clone()); None };
                     let mut payloads = source
                         .stream(
                             crate::prepared::PreparedQuery::new(
@@ -2829,6 +2944,7 @@ mod tests {
         let membership = nodes.point_index(&budget).unwrap();
         SelectedPayloads {
             exact: None,
+            explicit_owners: None,
             derivation: None,
             source,
             nodes,
@@ -2866,6 +2982,13 @@ mod tests {
             "contribution",
             RecordId::new("compiler_contribution", view.hex()),
         );
+        if node.table.as_str() == "compiler_record" {
+            row.insert("storage", "block");
+            row.insert("block", RecordId::new("compiler_block", ContentHash::of(b"mechanical selected block").hex()));
+            row.insert("slot", 0i64);
+        } else { row.insert("storage", "graph"); }
+        row.insert("scope_keys", Vec::<Value>::new());
+        row.insert("scope_lookup", Vec::<Value>::new());
         row.insert("node", node);
         row.insert("relation", relation.to_owned());
         row.insert("semantic_key", key);
@@ -3758,6 +3881,7 @@ mod tests {
         let membership = nodes.point_index(&budget).unwrap();
         let selected = SelectedPayloads {
             exact: None,
+            explicit_owners: None,
             derivation: None,
             membership,
             source: SelectionSource::Session(Arc::new(Surreal::init())),
@@ -3990,6 +4114,7 @@ mod tests {
         let observed = payload_reads.clone();
         let mut selected = SelectedPayloads {
             exact: None,
+            explicit_owners: None,
             derivation: None,
             nodes,
             membership,
@@ -4262,6 +4387,7 @@ mod tests {
         }));
         let selected = SelectedPayloads {
             exact: None,
+            explicit_owners: None,
             derivation: None,
             source,
             nodes,
@@ -4376,4 +4502,64 @@ mod tests {
             assert_eq!(budget.reserved(), 0);
         }
     }
+    #[tokio::test]
+    async fn selected_compiler_block_hydrates_only_exact_slots_and_refuses_incomplete_or_foreign_sources() {
+        use lctx_model::domain::{self as d, Record};
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let row = |ordinal| {
+            let typed = d::analytics::QualityStep {
+                run: serde_json::from_value(serde_json::to_value([7u8; 16]).unwrap()).unwrap(), ordinal,
+                value: d::FiniteF64::new(0.25).unwrap(),
+            };
+            let view = crate::codec::views(std::slice::from_ref(&typed)).unwrap().remove(0);
+            let canonical = serde_json::to_vec(&view.body).unwrap();
+            let content = ContentHash::of(&canonical);
+            crate::adapter::physical_row(crate::loader::payload_id("compiler_record", d::analytics::QualityStep::NAME,
+                typed.id().bytes(), content).unwrap(), content, canonical, None, view).unwrap()
+        };
+        let first = row(0);
+        let second = row(1);
+        let owner = ContentHash::of(b"selected actual block source");
+        let packet = crate::compiler_blocks::PreparedBlocks::prepare(owner, vec![first.clone(), second], &budget).unwrap();
+        let node = id(&first).unwrap();
+        let locator = packet.locators().iter().find(|row| row.as_object().unwrap().get("node") == Some(&Value::RecordId(node.clone()))).unwrap().clone();
+        for mode in 0..9 {
+            let block = packet.blocks()[0].clone();
+            let locator = locator.clone();
+            let extra = packet.locators().iter().find(|row| row.as_object().unwrap().get("node") != Some(&Value::RecordId(node.clone()))).unwrap().clone();
+            let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let observed = calls.clone();
+            let expected_node = node.clone();
+            let source = SelectionSource::Fixture(Arc::new(move |query, budget| {
+                let (sql, bindings) = query.into_request();
+                observed.lock().unwrap().push(sql.clone());
+                let values = if sql.starts_with("SELECT * FROM compiler_membership WITH INDEX contribution_nodes") {
+                    assert_eq!(Vec::<RecordId>::from_value(bindings.get("nodes").unwrap().clone()).unwrap(), vec![expected_node.clone()]);
+                    match mode { 1 => vec![locator.clone(), extra.clone()], 3 => vec![], 6 => vec![locator.clone(), locator.clone()], _ => vec![locator.clone()] }
+                } else {
+                    assert_eq!(sql, "SELECT * FROM $blocks;", "virtual logical IDs must never be dereferenced");
+                    assert!(Vec::<RecordId>::from_value(bindings.get("blocks").unwrap().clone()).unwrap()
+                        .iter().all(|id| id.table.as_str() == "compiler_block"));
+                    let mut block = block.clone();
+                    if mode == 2 { let Value::Object(ref mut object) = block else { unreachable!() }; object.insert("content", ContentHash::of(b"corrupt").hex()); }
+                    match mode { 4 => vec![block.clone(), block], 5 => vec![], _ => vec![block] }
+                };
+                let terminal_failure = (mode == 7 && sql.starts_with("SELECT * FROM $blocks"))
+                    || (mode == 8 && sql.starts_with("SELECT * FROM compiler_membership"));
+                NativeRows::owned(budget.clone(), move |sender| async move {
+                    for row in values { if !sender.send(row).await? { break; } }
+                    if terminal_failure { return Err(ModelError::Conflict("mechanical selected source late failure")); }
+                    Ok(())
+                })
+            }));
+            let selected = exact_selection(source, &[owner], d::analytics::QualityStep::NAME, &[], &budget);
+            let result = selected.compiler_rows(std::slice::from_ref(&node), &budget).await;
+            if mode == 0 {
+                let (rows, _charge) = result.unwrap();
+                assert_eq!(rows, vec![first.clone()], "unselected container siblings confer no membership");
+            } else { assert!(result.is_err(), "mode {mode} must not publish a successful selected prefix"); }
+            assert_eq!(calls.lock().unwrap().len(), if mode == 1 || mode == 3 || mode == 6 || mode == 8 { 1 } else { 2 });
+        }
+    }
+
 }

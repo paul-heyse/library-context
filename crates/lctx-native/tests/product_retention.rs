@@ -29,6 +29,8 @@ struct Product {
     contribution: RecordId,
     product: RecordId,
     view: CompletedView,
+    observer_factory: Arc<control::RecoveryFactoryOwner>,
+    observer_lease: control::FactoryLease,
 }
 fn config() -> RuntimeConfig {
     RuntimeConfig::read(std::path::Path::new(
@@ -54,10 +56,11 @@ impl Product {
         )
         .await
         .unwrap();
-        let client = lctx_compiler_store::compiler::check_installation(cfg)
-            .await
-            .unwrap();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let observer_factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+        let (client, observer_lease) = lctx_native::reader::connect_owned(
+            &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &observer_factory,
+        ).await.unwrap();
         let request = control::fresh_identity("product-retention-control").unwrap();
         let relation = Relation::of::<Package>();
         let spec = ContributionSpec {
@@ -106,6 +109,8 @@ impl Product {
             budget,
             request,
             view,
+            observer_factory,
+            observer_lease,
         }
     }
     async fn row(&self, id: &RecordId) -> Option<Object> {
@@ -135,12 +140,12 @@ impl Product {
         response.take(0).unwrap()
     }
     async fn release(&self) -> ContentHash {
-        control::release_retained_product(
+        control::with_recovery_scope(self.observer_lease.recovery_scope().clone(), control::release_retained_product(
             self.client.clone(),
             self.request,
             self.source.attempt(),
             &self.budget,
-        )
+        ))
         .await
         .unwrap()
         .unwrap()
@@ -166,23 +171,31 @@ impl Product {
         (binding, slot)
     }
     async fn finish(self, result: Result<(), Box<dyn std::any::Any + Send>>) {
-        let mut terminal = Completion::default();
+        self.finish_with(result, Completion::default()).await;
+    }
+    async fn finish_with(self, result: Result<(), Box<dyn std::any::Any + Send>>, mut terminal: Completion) {
+        let connection = self.client.connection_completion().unwrap();
         terminal.step("product control source close", self.source.abandon().await);
         terminal.step(
             "product control explicit warm release",
-            control::release_retained_product(
+            control::with_recovery_scope(self.observer_lease.recovery_scope().clone(), control::release_retained_product(
                 self.client.clone(),
                 self.request,
                 self.source.attempt(),
                 &self.budget,
-            )
+            ))
             .await
             .map(|_| ()),
         );
-        terminal.step(
-            "product control observer close",
-            self.client.invalidate().await.map_err(ModelError::codec),
-        );
+        let observed = self.observer_lease.complete_with(&terminal).await;
+        terminal.step("product control observer completion", observed);
+        drop(self.observer_lease);
+        terminal.step("product control observer factory drainage", self.observer_factory.drain(&control::RetryCancellation::default()).await);
+        drop(self.observer_factory);
+        drop(self.client);
+        if terminal.is_satisfied() {
+            terminal.step("product control observer SDK completion", connection.wait().await.map_err(ModelError::codec));
+        }
         let cleanup = complete(Ok(()), terminal);
         if let Err(primary) = result {
             if let Err(error) = cleanup {
@@ -213,10 +226,10 @@ async fn repeated_retention_after_unrelated_incidence_reuses_exact_original_boun
 async fn terminal_binding_slot_collection_preserves_canonical_completion_and_live_peer() {
     let product = Product::new(&config()).await;
     let peer = Product::new(&config()).await;
-    let pin = control::ReaderPin::acquire(product.client.clone(), &[])
-        .await
-        .unwrap();
-    let result=std::panic::AssertUnwindSafe(async {
+    let scope = product.observer_lease.recovery_scope().clone();
+    let mut pin = None;
+    let result=control::with_recovery_scope(scope.clone(), std::panic::AssertUnwindSafe(async {
+        pin = Some(control::ReaderPin::acquire(product.client.clone(), &[]).await.unwrap());
         let (binding,slot)=product.bind().await;
         let (_,peer_slot)=peer.bind().await;
         let peer_before=peer.row(&peer_slot).await.unwrap();
@@ -228,7 +241,7 @@ async fn terminal_binding_slot_collection_preserves_canonical_completion_and_liv
         let holds:Vec<Object>=response.take(0).unwrap();assert_eq!(holds.len(),1,"replacement keeps one owned mutable slot");
         product.source.freeze_content(&product.budget).await.unwrap();
         let physical=product.source.complete_physical_content(&product.budget).await.unwrap();
-        pin.protect(physical.completion().record().unwrap()).await.unwrap();
+        pin.as_ref().unwrap().protect(physical.completion().record().unwrap()).await.unwrap();
         let canonical=lctx_native::binding_descriptor::record(&current).unwrap();
         let canonical_before=product.row(&canonical).await.unwrap();
         assert_eq!(lctx_native::binding_descriptor::decode(&Value::Object(canonical_before.clone())).unwrap(),current);
@@ -250,11 +263,17 @@ async fn terminal_binding_slot_collection_preserves_canonical_completion_and_liv
         assert!(product.row(&RecordId::new("compiler_view",current.view.identity.hex())).await.is_some());
         let portable=lctx_native::binding_descriptor::portable_row(&current).unwrap();
         lctx_native::completed_rows::validate_state_row("compiler_binding",&portable).unwrap();
-    }).catch_unwind().await;
-    let released = pin.release().await;
+    }).catch_unwind()).await;
+    let mut terminal = Completion::default();
+    if let Some(pin) = &pin {
+        let released = control::with_recovery_scope(scope.clone(), pin.release()).await;
+        if released.is_err() { pin.retain_unknown(); }
+        terminal.step("product control independent pin release", released);
+    }
+    drop(pin);
+    drop(scope);
     peer.finish(Ok(())).await;
-    product.finish(result).await;
-    released.unwrap();
+    product.finish_with(result, terminal).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

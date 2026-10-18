@@ -172,7 +172,7 @@ impl NativeCompilerStore {
                             &store.client,
                             Some(store.attempt),
                             Some(&budget),
-                        );
+                        ).with_operation(store.contribution_operation(contribution,&budget)?);
                         let mut failure: Option<Arc<ModelError>> = None;
                         while let Some(accepted) = receiver.recv().await {
                             if let Some(error) = &failure {
@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(foreign.reserved(), 0);
     }
     #[tokio::test]
-    async fn native_summary_pair_outcome_batch_has_committed_window_receipts() {
+    async fn native_nongraph_batch_has_committed_window_receipts() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         use tracing_subscriber::{Layer, layer::Context, prelude::*};
 
@@ -451,11 +451,11 @@ mod tests {
                 .with(BatchSpans(batch_spans.clone())),
         );
         async {
-            // This tests actual guarded persistent ingress of the timed-out relation's
+            // This tests actual guarded persistent ingress of the nongraph record's
             // physical shape. Synthetic nominal endpoints establish no Summary semantics.
-            use d::execution::summary_production::{PairDisposition, PairOutcome};
+            use d::execution::summary_proof::SummaryProofCost;
             fn nominal<R>(attempt: ContentHash, role: &str, index: u64) -> d::Id<R> {
-                let mut key = KeySink::new("native-pair-batch-control");
+                let mut key = KeySink::new("native-nongraph-batch-control");
                 attempt.encode(&mut key);
                 key.part(b"role", role.as_bytes());
                 key.part(b"index", &index.to_le_bytes());
@@ -483,35 +483,30 @@ mod tests {
             let reader = crate::NativeReader::private(store.client.clone()).with_budget(&budget);
             let result = std::panic::AssertUnwindSafe(async {
                 let model = d::model()?;
-                let relation = Relation::of::<PairOutcome>();
+                let relation = Relation::of::<SummaryProofCost>();
                 let contribution = store
                     .begin_contribution(ContributionSpec {
                         captured_binding: None,
-                        producer: format!("pair-batch-control-{}", store.attempt.hex()),
+                        producer: format!("nongraph-batch-control-{}", store.attempt.hex()),
                         profile: OutputProfile::Specific(d::stages::Profile::Behavioral),
                         model: model.digest(),
-                        implementation: ContentHash::of(b"pair-batch-physical-control"),
+                        implementation: ContentHash::of(b"nongraph-batch-physical-control"),
                         configuration: None,
                         inputs: vec![],
                         outputs: [relation.name().into()].into(),
                     })
                     .await?;
                 let rows = (0..4096)
-                    .map(|index| PairOutcome {
-                        invocation: nominal(store.attempt, "invocation", 0),
-                        attempt: nominal(store.attempt, "attempt", 0),
-                        caller_origin: nominal(store.attempt, "origin", 0),
-                        callee_origin: nominal(store.attempt, "origin", 1),
-                        caller: nominal(store.attempt, "caller", index),
-                        callee: nominal(store.attempt, "callee", index),
-                        disposition: PairDisposition::Disjoint,
-                        witness: None,
-                        reason: None,
+                    .map(|index| SummaryProofCost {
+                        proof: nominal(store.attempt, "proof", index),
+                        depth: 0,
+                        steps: 1,
+                        rank: 1,
                     })
                     .collect();
                 let batch = Batch::new(&model, rows, &budget)?.into_checked()?;
                 let mut ingress = store.ingress(contribution, &budget)?;
-                let phase = crate::phase::Phase::begin("native_pair_outcome_4096_ingress");
+                let phase = crate::phase::Phase::begin("native_nongraph_4096_ingress");
                 let accepted = ingress.accept(batch).await?;
                 let committed = accepted.await_committed().await;
                 phase.finish_result(&committed);
@@ -523,14 +518,14 @@ mod tests {
                 assert!(committed.effects.entries().iter().all(|effect| {
                     effect.disposition == crate::control::EffectDisposition::Committed
                 }));
-                tracing::info!(target: "lctx_phase", observation = "native_pair_outcome_batch_committed",
+                tracing::info!(target: "lctx_phase", observation = "native_nongraph_batch_committed",
                     logical_rows = 4096, physical_effects = committed.effects.entries().len());
                 let report = ingress.finish_report().await;
                 assert!(report.completion.is_satisfied());
                 report.operation?;
                 let mut variables = Variables::new();
                 variables.insert("owner", RecordId::new("compiler_contribution", contribution.hex()));
-                variables.insert("relation", PairOutcome::NAME);
+                variables.insert("relation", SummaryProofCost::NAME);
                 let persisted = reader.query::<Vec<u64>>(
                     "SELECT VALUE count() FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation GROUP ALL",
                     variables,
@@ -541,7 +536,7 @@ mod tests {
             .catch_unwind()
             .await;
             let mut completion = d::completion::Completion::default();
-            completion.step("pair batch reader close", reader.close().await);
+            completion.step("nongraph batch reader close", reader.close().await);
             completion.merge(store.abandon_finality_report().await);
             let closed = d::completion::complete::<()>(Ok(()), completion);
             drop(reader);

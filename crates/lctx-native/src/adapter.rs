@@ -197,7 +197,25 @@ pub fn original_metadata(row: &d::artifact::ArtifactChunk) -> Result<Value, Mode
     Ok(Value::Object(body))
 }
 
-/// Complete mechanical envelope, shared by every writer and cold reconstruction.
+/// Derived graph properties carried from a typed row through preserving lowering.
+/// This is preparation, not a persisted or semantic-admission capability.
+pub struct GraphEnvelope {
+    anchor: surrealdb::types::RecordId,
+    kind: i64,
+    subtype: Option<i16>,
+}
+impl GraphEnvelope {
+    pub fn entity(row: &Entity) -> Self {
+        Self { anchor: crate::reader::target_id(d::graph::Target::Entity(row.id())),
+            kind: row.kind() as i64, subtype: row.subtype() }
+    }
+    pub fn assertion(row: &Assertion) -> Self {
+        Self { anchor: crate::reader::target_id(d::graph::Target::Assertion(row.id())),
+            kind: row.kind as i64, subtype: None }
+    }
+}
+/// Independent reconstruction derives graph properties from canonical input.
+/// Producers that already own the typed row use physical_row_prepared instead.
 pub fn physical_row(
     id: surrealdb::types::RecordId,
     content: d::ContentHash,
@@ -205,33 +223,42 @@ pub fn physical_row(
     graph: Option<(i64, Option<i16>)>,
     view: RecordView,
 ) -> Result<Value, ModelError> {
+    let prepared = if let Some((kind, subtype)) = graph {
+        let prepared = match id.table.as_str() {
+            "entity" => GraphEnvelope::entity(&serde_json::from_slice::<Entity>(&canonical).map_err(ModelError::codec)?),
+            "assertion" => GraphEnvelope::assertion(&serde_json::from_slice::<Assertion>(&canonical).map_err(ModelError::codec)?),
+            _ => return Err(ModelError::Schema("graph payload family")),
+        };
+        if prepared.kind != kind || prepared.subtype != subtype {
+            return Err(ModelError::Conflict("canonical graph envelope properties"));
+        }
+        Some(prepared)
+    } else { None };
+    physical_row_prepared(id, content, canonical, prepared, view)
+}
+/// Complete mechanical envelope with already-derived typed graph properties.
+pub fn physical_row_prepared(
+    id: surrealdb::types::RecordId,
+    content: d::ContentHash,
+    canonical: Vec<u8>,
+    graph: Option<GraphEnvelope>,
+    view: RecordView,
+) -> Result<Value, ModelError> {
     let mut row = view.scopes;
     row.insert("id", id.clone());
     row.insert("semantic_type", view.semantic_type);
     row.insert("semantic_key", view.semantic_key);
     row.insert("content", content.hex());
-    row.insert(
-        "canonical",
-        surrealdb::types::Bytes::from(canonical.clone()),
-    );
+    row.insert("canonical", surrealdb::types::Bytes::from(canonical));
     row.insert("body", view.body);
-    if let Some((kind, subtype)) = graph {
-        let anchor = match id.table.as_str() {
-            "entity" => {
-                let entity: d::graph::Entity =
-                    serde_json::from_slice(&canonical).map_err(ModelError::codec)?;
-                crate::reader::target_id(d::graph::Target::Entity(entity.id()))
-            }
-            "assertion" => {
-                let assertion: d::graph::Assertion =
-                    serde_json::from_slice(&canonical).map_err(ModelError::codec)?;
-                crate::reader::target_id(d::graph::Target::Assertion(assertion.id()))
-            }
-            _ => return Err(ModelError::Schema("graph payload family")),
-        };
-        row.insert("anchor", anchor);
-        row.insert("kind", kind);
-        row.insert("subtype", subtype.map(Value::from_t).unwrap_or(Value::Null));
+    if let Some(graph) = graph {
+        if !matches!((id.table.as_str(), graph.anchor.table.as_str()),
+            ("entity", "entity_anchor") | ("assertion", "assertion_anchor")) {
+            return Err(ModelError::Schema("prepared graph payload family"));
+        }
+        row.insert("anchor", graph.anchor);
+        row.insert("kind", graph.kind);
+        row.insert("subtype", graph.subtype.map(Value::from_t).unwrap_or(Value::Null));
     }
     let row = Value::Object(row);
     crate::loader::validate_native_row(&row)?;

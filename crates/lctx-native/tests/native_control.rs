@@ -400,12 +400,15 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
     ];
     let roots = vec![parent.clone(), shared.clone()];
     let cfg = config();
-    let client = lctx_compiler_store::compiler::check_installation(&cfg)
-        .await
-        .unwrap();
-    let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
+    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget).unwrap();
+    let (client, lease) = lctx_native::reader::connect_owned(
+        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
+    ).await.unwrap();
+    let connection = client.connection_completion().unwrap();
+    let scope = lease.recovery_scope().clone();
     let mut pin = None;
-    let outcome=std::panic::AssertUnwindSafe(async {
+    let outcome=control::with_recovery_scope(scope.clone(), std::panic::AssertUnwindSafe(async {
         let values=objects.iter().cloned().map(|id|{
             let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)
         }).collect();
@@ -445,8 +448,9 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
         let replay=control::retire_reachable_named(&client,identity,cfg.service_generation,roots.clone(),1).await?;
         require(replay.identity==identity && replay.retired==terminal.retired && replay.examined==terminal.examined && replay.remaining.is_empty() && replay.retained.is_empty(),"terminal named replay must retain the original result")?;
         require(snapshot(&client,&job,&objects).await?==done,"terminal replay must not reset items, rewrite the job or touch unrelated payloads")
-    }).catch_unwind().await;
+    }).catch_unwind()).await;
     let cleanup_allowed = matches!(&outcome,Ok(result) if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup));
+    let mut completion = control::with_recovery_scope(scope, async {
     let mut completion = Completion::default();
     if cleanup_allowed {
         let released = if let Some(pin) = &pin {
@@ -487,12 +491,7 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
                 completion.local = LocalState::Outstanding;
             }
             completion.step("named retirement control exact roots cleanup", cleanup);
-            if safe {
-                completion.step(
-                    "named retirement control session invalidation",
-                    session.close().await,
-                );
-            } else {
+            if !safe {
                 completion.local = LocalState::Outstanding;
                 completion.remote = RemoteState::Unknown;
             }
@@ -509,6 +508,18 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
         }
         completion.local = LocalState::Outstanding;
         completion.remote = RemoteState::Unknown;
+    }
+    completion
+    }).await;
+    let observer_completion = lease.complete_with(&completion).await;
+    completion.step("named retirement control observer completion", observer_completion);
+    drop(lease);
+    completion.step("named retirement control factory drainage", factory.drain(&control::RetryCancellation::default()).await);
+    drop(pin);
+    drop(factory);
+    drop(client);
+    if completion.is_satisfied() {
+        completion.step("named retirement control SDK completion", connection.wait().await.map_err(ModelError::codec));
     }
     match outcome {
         Ok(result) => complete(result, completion).unwrap(),

@@ -131,7 +131,7 @@ pub async fn recover_pending_request_file(
             ));
         }
         let disposition = match original.envelope().action {
-            RecoveryAction::ReconcileOriginalRequest => {
+            RecoveryAction::ReconcileOriginalRequest | RecoveryAction::ReconcileOperationRoot => {
                 let disposition = authorization::reconcile_pending_envelope(
                     &client,
                     original.envelope(),
@@ -141,7 +141,7 @@ pub async fn recover_pending_request_file(
                 original.record_terminal(disposition)?;
                 disposition
             }
-            RecoveryAction::ReleaseTerminalReference => original.envelope().observed_disposition,
+            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => original.envelope().observed_disposition,
         };
         authorization::settle_reference(&client, original.envelope(), owner.scope().cancellation())
             .await?;
@@ -241,7 +241,7 @@ async fn settle_original_requests_locked(
             return Err(ModelError::Conflict("native source request host differs"));
         }
         let disposition = match request.envelope().action {
-            RecoveryAction::ReconcileOriginalRequest => {
+            RecoveryAction::ReconcileOriginalRequest | RecoveryAction::ReconcileOperationRoot => {
                 let disposition = authorization::reconcile_pending_envelope(
                     client,
                     request.envelope(),
@@ -251,7 +251,7 @@ async fn settle_original_requests_locked(
                 request.record_terminal(disposition)?;
                 disposition
             }
-            RecoveryAction::ReleaseTerminalReference => request.envelope().observed_disposition,
+            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => request.envelope().observed_disposition,
         };
         authorization::settle_reference(client, request.envelope(), scope.cancellation()).await?;
         request.settle(disposition)?;

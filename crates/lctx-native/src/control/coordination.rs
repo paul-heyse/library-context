@@ -55,7 +55,7 @@ pub(super) fn attempt_stripe_ids(attempt: &RecordId) -> Vec<RecordId> {
 // after a cut commits, but release-first cannot invalidate the cut's drain proof.
 // Keep one exact check literal for both routes.
 macro_rules! issuance_stripe_checks {
-    () => { "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=9 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; };" };
+    () => { "LET $__installation=SELECT * FROM ONLY native_installation:current; LET $__admission=SELECT * FROM ONLY $__stripe FOR UPDATE; IF $__installation=NONE OR $__installation.schema_version!=10 OR $__installation.generation!=$__generation OR $__admission=NONE OR $__admission.format!=1 OR $__admission.generation!=$__generation OR $__installation.era!=$__admission.era OR $__installation.closed_through!=$__admission.closed_through OR $__installation.admission_open!=$__admission.admission_open OR $__admission.era!=$__era OR $__era<=$__admission.closed_through OR $__admission.revision>=9223372036854775807 { THROW 'native issuance stripe fenced'; };" };
 }
 pub(super) const ERA_GUARD: &str = concat!(
     issuance_stripe_checks!(),
@@ -69,7 +69,7 @@ macro_rules! live_pin_drain_predicate {
     () => { "array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0" };
 }
 pub(super) const DRAINED_PREDICATE: &str = concat!(
-    "IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen','closing'] LIMIT 1)>0 OR ",
+    "IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_operation WITH INDEX operation_history WHERE state='open' LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_operation_page WITH INDEX live_operation_pages WHERE resolved=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen','closing'] LIMIT 1)>0 OR ",
     live_pin_drain_predicate!(),
     " OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='registering' LIMIT 1)>0 { THROW 'native installation borrowers remain'; };"
 );
@@ -81,18 +81,22 @@ pub(super) fn live_pin_drain_predicate_for_control() -> &'static str {
 /// Bounded hold-page lowering, shared by cleanup and pin release. Callers supply
 /// distinct exact `__page_incidence_targets`, excluding only targets already cut
 /// by their checked owner. Attempts keep their complete cut and predicate write;
-/// ordinary predicate records reuse retirement's scalar-lock/bulk-increment form.
+/// ordinary predicate records use an exact point-set read and split bulk mutations.
 /// These arrays are derived inside the same bounded native packet, not a host cache.
 pub(super) const PREPARE_PAGE_INCIDENCE: &str = r#"
 FOR $__page_attempt IN $__page_incidence_targets.filter(|$record| record::table($record)='native_attempt') { fn::native_touch($__page_attempt); };
 LET $__page_predicate_rows=$__page_incidence_targets.filter(|$record| record::table($record)!='native_attempt').map(|$record| {id:type::record('native_predicate',[$record]),revision:1});
 LET $__page_predicate_ids=$__page_predicate_rows.map(|$row| $row.id);
-LET $__page_actual_predicates=$__page_predicate_ids.map(|$id| (SELECT id,revision FROM ONLY $id FOR UPDATE)).filter(|$row| $row!=NONE);
+LET $__page_actual_predicates=SELECT id,revision FROM $__page_predicate_ids;
+LET $__page_existing_predicate_ids=$__page_actual_predicates.map(|$row|$row.id);
+LET $__page_missing_predicate_rows=$__page_predicate_rows.filter(|$row|$row.id NOT IN $__page_existing_predicate_ids);
 IF array::len(SELECT * FROM $__page_actual_predicates WHERE revision>=9223372036854775807)>0 { THROW 'native predicate revision exhausted'; };
 "#;
 /// Execute only after all page-specific checks; every endpoint changes once and
 /// all item creation/hold deletion remains in this same owner effect transaction.
-pub(super) const WRITE_PAGE_INCIDENCE: &str = "IF array::len($__page_predicate_rows)>0 { INSERT INTO native_predicate $__page_predicate_rows ON DUPLICATE KEY UPDATE revision+=1 RETURN NONE; };";
+// Every exact predicate is really written. Backend write conflicts preserve
+// exclusion; duplicate inserts must not create per-row rollback savepoints.
+pub(super) const WRITE_PAGE_INCIDENCE: &str = "IF array::len($__page_existing_predicate_ids)>0 { UPDATE $__page_existing_predicate_ids SET revision+=1 RETURN NONE; }; IF array::len($__page_missing_predicate_rows)>0 { INSERT INTO native_predicate $__page_missing_predicate_rows RETURN NONE; };";
 
 /// Size the complete lowered query with the pinned native protobuf codec. Context
 /// uses the maximum encoded widths of UUID/timeout/batch fields, so this is a wire
@@ -520,7 +524,47 @@ fn creation_indices(bindings: &Variables) -> Result<CreationReferences, ModelErr
     Ok(output)
 }
 
+pub(super) const COMPILER_LOCATOR_PREPARATION:&str=r#"LET $parent=SELECT * FROM ONLY $locator_parent FOR UPDATE;
+IF $parent=NONE OR $parent.completed OR $parent.attempt!=$__attempt OR $__owner.admitted { THROW 'compiler locator parent fenced'; };
+LET $locator_ids=$locator_rows.map(|$row|$row.id);
+LET $old_locators=SELECT * FROM $locator_ids;
+LET $old_by_id=object::from_entries($old_locators.map(|$row|[<string>$row.id,$row]));
+LET $new_blocks_by_id=object::from_entries($rows.map(|$row|[<string>$row.id,$row]));
+FOR $row IN $locator_rows {
+ IF $row.contribution!=$locator_parent OR $row.scope_lookup!=$row.scope_keys.map(|$token|[$row.contribution,$row.relation,$token]) { THROW 'compiler qualified scope lookup correspondence'; };
+ LET $prior=$old_by_id[<string>$row.id] ?? NONE;
+ IF $prior!=NONE {
+  IF $prior.contribution!=$row.contribution OR $prior.relation!=$row.relation OR $prior.semantic_key!=$row.semantic_key OR $prior.node!=$row.node OR $prior.content!=$row.content OR $prior.scope_keys!=$row.scope_keys OR $prior.scope_lookup!=$row.scope_lookup OR $prior.storage!=$row.storage { THROW 'compiler logical member collision'; };
+ };
+};
+// Group only bounded locator metadata. Each loop owns one old container and
+// compares its requested full rows immediately; old containers never accumulate.
+LET $new_locators_by_id=object::from_entries($locator_rows.map(|$row|[<string>$row.id,$row]));
+LET $old_groups=SELECT block,array::group({id:id,slot:slot}) AS members FROM $old_locators WHERE storage='block' GROUP BY block;
+FOR $group IN $old_groups {
+ LET $old_id=$group.block;
+ LET $before=SELECT * FROM ONLY $old_id;
+ IF $before=NONE { THROW 'compiler old block missing'; };
+ FOR $prior IN $group.members {
+  LET $row=$new_locators_by_id[<string>$prior.id] ?? NONE;
+  LET $after=$new_blocks_by_id[<string>$row.block] ?? NONE;
+  IF $row=NONE OR $after=NONE OR $before.rows[$prior.slot]!=$after.rows[$row.slot] { THROW 'compiler logical member full envelope collision'; };
+ };
+};
+LET $new_locators=$locator_rows.filter(|$row|($old_by_id[<string>$row.id] ?? NONE)=NONE);
+LET $new_block_ids=array::distinct($new_locators.filter(|$row|$row.storage='block').map(|$row|$row.block));
+LET $__compiler_original_rows=$rows;
+LET $rows=$rows.filter(|$row|$row.id IN $new_block_ids);
+LET $holds=$holds.filter(|$hold|$hold.object IN $new_block_ids);
+LET $__object_expectations=($__object_expectations ?? []).filter(|$entry| record::table($entry.record)!='compiler_block' OR $entry.record IN $new_block_ids);
+"#;
+pub(super) fn expected_object_guard(bindings:&Variables)->std::borrow::Cow<'static,str>{
+    if bindings.get("__compiler_locator_packet")==Some(&Value::Bool(true)){
+        std::borrow::Cow::Owned(format!("{COMPILER_LOCATOR_PREPARATION} {EXPECTED_OBJECT_GUARD}"))
+    }else{std::borrow::Cow::Borrowed(EXPECTED_OBJECT_GUARD)}
+}
 pub(super) const EXPECTED_OBJECT_GUARD: &str = r#"
+IF array::len(($__object_expectations ?? []).filter(|$entry|record::table($entry.record) IN ['compiler_record','compiler_membership']))>0 { THROW 'logical compiler identity is not physical expectation'; };
 // Immutable creation and hold-only guards are advanced by actual changed
 // incidence inside the installation function. Explicit mutable write guards
 // keep their original exclusion/revision behavior.
@@ -545,7 +589,7 @@ FOR $__expected IN ($__object_expectations ?? []) {
             LET $__creation=$__expected.creation;
             LET $__record=$__expected.record;
             LET $__actual=SELECT * FROM ONLY $__record FOR UPDATE;
-            LET $__wanted=IF $__creation.kind='immutable' { $rows[$__creation.index] } ELSE { $original_blobs[$__creation.index] };
+            LET $__wanted=IF $__creation.kind='immutable' { ($__compiler_original_rows ?? $rows)[$__creation.index] } ELSE { $original_blobs[$__creation.index] };
             IF $__wanted.id!=$__record OR $__actual=NONE { THROW 'native immutable creation identity changed'; };
             IF $__creation.kind='immutable' {
                 IF $__actual!=$__wanted { THROW 'native immutable address collision'; };
@@ -567,7 +611,7 @@ pub(crate) async fn set_admission(client: &Surreal<Client>, open: bool) -> Resul
     bindings.insert("open", open);
     bind_all_stripes(&mut bindings);
     let sql = format!(
-        "{ALL_STRIPES_GUARD} IF $open {{ IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 {{ THROW 'native admission unresolved effects'; }}; }}; FOR $stripe IN $__stripes {{ UPDATE $stripe SET admission_open=$open RETURN NONE; }}; UPDATE native_installation:current SET admission_open=$open,control_revision+=1 RETURN NONE"
+        "{ALL_STRIPES_GUARD} IF $open {{ IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_operation WITH INDEX operation_history WHERE state='open' LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_operation_page WITH INDEX live_operation_pages WHERE resolved=false LIMIT 1)>0 {{ THROW 'native admission unresolved effects'; }}; }}; FOR $stripe IN $__stripes {{ UPDATE $stripe SET admission_open=$open RETURN NONE; }}; UPDATE native_installation:current SET admission_open=$open,control_revision+=1 RETURN NONE"
     );
     effect(client, None, &sql, bindings).await
 }

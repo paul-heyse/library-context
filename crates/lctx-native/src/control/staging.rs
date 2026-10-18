@@ -10,6 +10,7 @@ pub struct DerivedStaging {
     incarnation: i64,
     completed: HeldFrozenCompletedState,
     derivation: ContentHash,
+    operation: Arc<operation_pages::OperationWriter>,
 }
 impl DerivedStaging {
     pub fn root(&self) -> &RecordId {
@@ -28,10 +29,16 @@ impl DerivedStaging {
         &self.completed
     }
 
+    /// Finish the actual producer only after all derived pages and marker are joined.
+    /// A publication caller must retain marker acknowledgement before this fallible step.
+    pub async fn finish_operation(&self, client: &Surreal<Client>, budget: &ResourceBudget) -> Result<(), ModelError> {
+        self.operation.finish(client, budget).await
+    }
+
     /// Creates attempt→root→completed-state atomically before any child is installed.
     /// The caller retains the attempt's existing completion hold throughout construction.
     pub async fn begin(
-        client: &Surreal<Client>,
+        client: &std::sync::Arc<Surreal<Client>>,
         completed: HeldFrozenCompletedState,
         derivation: ContentHash,
         budget: &ResourceBudget,
@@ -98,7 +105,12 @@ impl DerivedStaging {
             ));
         }
         charge.try_resize(bytes)?;
-        effect_for_owner(client, EffectOwner::FrozenAttempt(attempt), &sql, variables).await?;
+        let operation = Arc::new(operation_pages::OperationWriter::new(
+            RecoveryOwner::FrozenAttempt(attempt), Some(root.clone()), budget,
+        )?);
+        let mut writer = immutable_window::WindowWriter::for_owner(client, EffectOwner::FrozenAttempt(attempt), Some(budget))
+            .with_operation(operation.clone());
+        writer.effect(&sql, variables).await?;
         let observed = inspect_expected(client, root.clone(), budget)
             .await?
             .ok_or(ModelError::Conflict("publication staging root readback"))?;
@@ -109,6 +121,7 @@ impl DerivedStaging {
             incarnation,
             completed,
             derivation,
+            operation,
         })
     }
 
@@ -178,6 +191,7 @@ impl DerivedStaging {
             "{FROZEN_COMPLETION_GUARD} fn::native_touch($staging_root); LET $staging=SELECT * FROM ONLY $staging_root FOR UPDATE; LET $staging_object_guard=SELECT * FROM ONLY $staging_guard FOR UPDATE; IF $staging=NONE OR $staging.state!='open' OR $staging.attempt!=$__attempt OR $staging.completion!=$staging_completion OR $staging.admission!=$staging_admission OR $staging.derivation!=$staging_derivation OR $staging.validity_epoch!=$staging_validity_epoch OR $staging_object_guard.phase!='active' OR $staging_object_guard.incarnation!=$staging_incarnation {{ THROW 'publication staging capability fenced'; }}; {sql}"
         );
         charge.try_resize(immutable_window::plan_bytes(&guarded, &bindings)?)?;
+        writer.set_operation(self.operation.clone());
         writer.effect(&guarded, bindings).await
     }
 }
@@ -280,6 +294,11 @@ pub(super) async fn nominate_attempt_roots(
 pub struct PublishedMarker {
     pub handle: lctx_model::domain::serving::SnapshotHandle,
 }
+/// Protected preparation retained by the actual publication operation.
+pub struct PreparedExpectations<'a> {
+    pub search: &'a crate::derived_search::PreparedSearch,
+    pub roles: &'a crate::reconciliation::PreparedRoles,
+}
 impl DerivedStaging {
     /// Independent canonical/derived readback precedes one atomic root/marker publication.
     /// Caller-supplied hashes cannot skip these validators or produce a completed root.
@@ -303,9 +322,9 @@ impl DerivedStaging {
         manifest: &lctx_model::domain::graph::Manifest,
         views: &[lctx_model::domain::completed::CompletedBinding],
         budget: &ResourceBudget,
-        search: &crate::derived_search::PreparedSearch,
+        expectations: PreparedExpectations<'_>,
     ) -> Result<PublishedMarker, ModelError> {
-        self.publish_inner(loader, handle, manifest, views, budget, Some(search))
+        self.publish_inner(loader, handle, manifest, views, budget, Some(expectations))
             .await
     }
     async fn publish_inner(
@@ -315,7 +334,7 @@ impl DerivedStaging {
         manifest: &lctx_model::domain::graph::Manifest,
         views: &[lctx_model::domain::completed::CompletedBinding],
         budget: &ResourceBudget,
-        search: Option<&crate::derived_search::PreparedSearch>,
+        expectations: Option<PreparedExpectations<'_>>,
     ) -> Result<PublishedMarker, ModelError> {
         let data = self.completed();
         handle.validate_identity()?;
@@ -357,10 +376,10 @@ impl DerivedStaging {
         }
         let mut expected = crate::ordered_rows::SortedRows::with_budget(budget)?;
         loader
-            .reconcile_owned(manifest, Some(&mut expected))
+            .reconcile_with_roles(manifest, Some(&mut expected), expectations.as_ref().map(|prepared| prepared.roles))
             .await?;
-        if let Some(search) = search {
-            search.reconcile_owned(loader, Some(&mut expected)).await?;
+        if let Some(prepared) = expectations {
+            prepared.search.reconcile_owned(loader, Some(&mut expected)).await?;
         } else {
             crate::derived_search::reconcile_search_owned(loader, Some(&mut expected)).await?;
         }

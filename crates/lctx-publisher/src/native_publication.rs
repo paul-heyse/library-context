@@ -72,11 +72,13 @@ pub(crate) struct Publication<'a> {
     bindings: Vec<CompletedBinding>,
     unchanged: Option<SnapshotHandle>,
     definition_epoch: ContentHash,
+    definitions: crate::definitions::PreparedDefinitions,
     eligibility: EligibilityIdentity,
     incoming: Option<lctx_native::completed_state::HeldFrozenCompletedState>,
     parent: Arc<lctx_native::control::RecoveryScope>,
     session: lctx_native::control::FactoryLease,
     search: Option<lctx_native::derived_search::PreparedSearch>,
+    roles: Option<lctx_native::reconciliation::PreparedRoles>,
 }
 impl<'a> Publication<'a> {
     pub(crate) async fn new(
@@ -114,7 +116,8 @@ impl<'a> Publication<'a> {
                         .collect(),
                 )
                 .with_budget(budget);
-                let realization = crate::definitions::verify_epoch(&loader, definitions).await?;
+                let prepared_definitions = crate::definitions::PreparedDefinitions::new(&loader, definitions)?;
+                let realization = prepared_definitions.verify(&loader).await?;
                 let loader = loader.with_derivation(realization);
                 let completed =
                     lctx_native::completed_state::hold_admitted_completed_state_for_attempt(
@@ -178,9 +181,11 @@ impl<'a> Publication<'a> {
                     eligibility,
                     incoming,
                     definition_epoch: crate::definitions::epoch_identity(definitions),
+                    definitions: prepared_definitions,
                     parent: parent.clone(),
                     session: session.clone(),
                     search: None,
+                    roles: None,
                 })
             }) {
                 Ok(operation) => operation.await,
@@ -228,71 +233,43 @@ impl<'a> Publication<'a> {
         .map_err(|error| self.session.factory().handback(error))
     }
 
-    pub(crate) async fn entity_references(&self, entities: &[Entity]) -> Result<(), ModelError> {
-        let lease = self
-            .store()
-            .begin_derived_operation("publication entity references")?;
-        let result = match publication_scope(
-            &self.parent,
-            &self.session,
-            self.admission.budget(),
-            self.loader.entity_references(entities),
-        ) {
-            Ok(operation) => operation.await,
-            Err(error) => Err(error),
-        };
-        lease.finish_with(result)
-    }
-
-    pub(crate) async fn assertion_references(
-        &self,
-        assertions: &[Assertion],
-    ) -> Result<(), ModelError> {
-        let lease = self
-            .store()
-            .begin_derived_operation("publication assertion references")?;
-        let result = match publication_scope(
-            &self.parent,
-            &self.session,
-            self.admission.budget(),
-            self.loader.assertion_references(assertions),
-        ) {
-            Ok(operation) => operation.await,
-            Err(error) => Err(error),
-        };
-        lease.finish_with(result)
-    }
-
     /// Every admitted entry point regenerates roles from actual canonical content.
     /// Backup claims are independently compared later, never loaded as authority.
-    pub(crate) async fn materialize_references(&self) -> Result<(), ModelError> {
+    pub(crate) async fn materialize_references(&mut self) -> Result<(), ModelError> {
+        if self.roles.is_some() { return Err(ModelError::Conflict("publication roles already prepared")); }
+        let mut preparation = lctx_native::reconciliation::ReferencePreparation::new(&self.loader)?;
         let phase = Phase::begin("publication_references");
-        let result = async {
+        let lease = self.store().begin_derived_operation("publication reference lowering")?;
+        let result = match publication_scope(&self.parent, &self.session, self.admission.budget(), async {
             let mut entities = Vec::new();
             let mut rows = self.admission.entities().await?;
             while let Some(row) = rows.try_next().await? {
                 entities.push(row);
                 if entities.len() >= 128 {
-                    self.entity_references(&entities).await?;
+                    preparation.entities(&self.loader, &entities).await?;
                     entities.clear();
                 }
             }
-            self.entity_references(&entities).await?;
+            preparation.entities(&self.loader, &entities).await?;
             let mut assertions = Vec::new();
             let mut rows = self.admission.assertions().await?;
             while let Some(row) = rows.try_next().await? {
                 assertions.push(row);
                 if assertions.len() >= 128 {
-                    self.assertion_references(&assertions).await?;
+                    preparation.assertions(&self.loader, &assertions).await?;
                     assertions.clear();
                 }
             }
-            self.assertion_references(&assertions).await?;
-            Ok::<(), ModelError>(())
-        }
-        .await;
+            preparation.assertions(&self.loader, &assertions).await?;
+            preparation.finish(&self.loader, self.admission.manifest()).await
+        }) {
+            Ok(operation) => operation.await,
+            Err(error) => Err(error),
+        };
+        let result = lease.finish_with(result);
         phase.finish_result(&result);
-        result
+        self.roles = Some(result?);
+        Ok(())
     }
 
     pub(crate) async fn materialize_search(&mut self) -> Result<(), ModelError> {
@@ -324,7 +301,7 @@ impl<'a> Publication<'a> {
         config: &RuntimeConfig,
         definitions: &str,
     ) -> Result<SnapshotHandle, ModelError> {
-        lctx_native::materialization::validate_native_definitions(definitions)?;
+        self.definitions.require_blueprint(definitions)?;
         if crate::definitions::epoch_identity(definitions) != self.definition_epoch {
             return Err(ModelError::Conflict("publication executable epoch changed"));
         }
@@ -342,7 +319,7 @@ impl<'a> Publication<'a> {
             async {
                 // Analyzer observations and lowered vectors remain usable only under
                 // the actual immutable executable/physical definitions verified at setup.
-                if crate::definitions::verify_epoch(&self.loader, definitions).await?
+                if self.definitions.verify(&self.loader).await?
                     != self.loader.derivation()?
                 {
                     return Err(ModelError::Conflict(
@@ -405,9 +382,10 @@ impl<'a> Publication<'a> {
                             manifest,
                             &self.bindings,
                             self.admission.budget(),
-                            self.search.as_ref().ok_or(ModelError::Conflict(
+                            lctx_native::control::staging::PreparedExpectations { search: self.search.as_ref().ok_or(ModelError::Conflict(
                                 "publication retained search expectations missing",
                             ))?,
+                            roles: self.roles.as_ref().ok_or(ModelError::Conflict("publication retained role expectations missing"))? },
                         )
                         .await?
                         .handle
@@ -498,6 +476,18 @@ async fn finalize_marker(
     lease.record_committed(committed_identity.clone());
     let mut completion = Completion::default();
     completion.committed("published unselected manifest", committed_identity);
+    let readback_budget = match loader.read_budget() {
+        Ok(budget) => budget,
+        Err(error) => return complete(Err(error), completion),
+    };
+    if let Some(staging) = loader.staging() {
+        let finished = staging.finish_operation(client, &readback_budget).await;
+        let may_finalize = finished.is_ok();
+        completion.step("publication native operation completion", finished);
+        if !may_finalize {
+            return complete(Ok(handle.clone()), completion);
+        }
+    }
     let reader_closed = loader.close_reader().await;
     let may_finalize = reader_closed.is_ok();
     completion.step("publication completed reader close", reader_closed);
@@ -510,7 +500,6 @@ async fn finalize_marker(
     let readback_phase = Phase::begin("publication_readback");
     let closed = session.complete_with(&completion).await;
     completion.step("publication child finality", closed);
-    let readback_budget = loader.read_budget()?;
     let reader_factory = session.factory().clone();
     let readback = NativeReader::connect(
         &config.endpoint,

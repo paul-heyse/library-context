@@ -1152,6 +1152,21 @@ impl<Context> NativeReader<Context> {
             .clone()
             .ok_or(ModelError::Conflict("native reader requires caller budget"))
     }
+    /// Borrow only ownership already attached to this exact reader or its pin.
+    /// Public capability operations never acquire authority from ambient tasks.
+    pub(crate) fn attached_recovery_scope(&self,generation:lctx_model::domain::ContentHash)
+        ->Result<Arc<crate::control::RecoveryScope>,ModelError>{
+        self.ensure_scope_live()?;
+        let recovery=self.operations.lock()
+            .map_err(|_|ModelError::Conflict("native attached query operation owner"))?
+            .recovery.clone()
+            .or_else(||self.scope.as_ref().and_then(|scope|scope._pin.as_ref()).and_then(|pin|pin.recovery_scope()))
+            .ok_or(ModelError::Conflict("native reader attached recovery owner missing"))?;
+        if !Arc::ptr_eq(recovery.client(),&self.client) || recovery.target().generation!=generation {
+            return Err(ModelError::Conflict("native reader attached recovery session/target differs"));
+        }
+        Ok(recovery)
+    }
     pub fn recovery_scope(&self) -> Result<Arc<crate::control::RecoveryScope>, ModelError> {
         let recovery = self
             .operations
@@ -1526,6 +1541,12 @@ impl<Context> NativeReader<Context> {
                 "native selection requires caller budget",
             ))?;
             return_owner.ensure_scope_live()?;
+            // Tokio tasks do not inherit recovery task-locals. Capture the
+            // publication reader's actual attached owner before spawning lazy
+            // preparation; no ambient scope supplies this published authority.
+            let publication_recovery=if let Some(handle)=&scope.publication {
+                Some(return_owner.attached_recovery_scope(handle.service_generation)?)
+            }else{None};
             let pending = {
                 let mut selection = scope
                     .selection
@@ -1542,7 +1563,11 @@ impl<Context> NativeReader<Context> {
                     let retained_scope = scope.clone();
                     let preparation_cancellation = cancellation.clone();
                     let retained_budget = budget.clone();
+                    let retained_operations=return_owner.operations.clone();
                     let task = tokio::spawn(async move {
+                        // Retain the source's real lease through actual worker EOF,
+                        // without sharing its query-close/admission state below.
+                        let _source_operations=retained_operations;
                         let mut lease = SelectionLease {
                             scope: retained_scope,
                             confirmed: false,
@@ -1575,8 +1600,16 @@ impl<Context> NativeReader<Context> {
                                 .await
                             }
                         } else if let Some(handle) = lease.scope.publication.clone() {
+                            let recovery=publication_recovery.ok_or(ModelError::Conflict(
+                                "published selection requires its actual reader recovery owner",
+                            ))?;
                             let published = NativeReader {
-                                operations: Default::default(),
+                                // A borrowed authenticated owner with its own query
+                                // registry cannot close the source reader/session.
+                                operations: Arc::new(std::sync::Mutex::new(QueryOperations {
+                                    recovery:Some(recovery.clone()),
+                                    ..Default::default()
+                                })),
                                 client: client.clone(),
                                 handle,
                                 derivation,
@@ -1599,8 +1632,8 @@ impl<Context> NativeReader<Context> {
                                     &retained_budget,
                                 )
                                 .await
-                            }
-                            .await;
+                            };
+                            let prepared=crate::control::with_recovery_scope(recovery,prepared).await;
                             // Neither the temporary capability nor this reader clone is
                             // retained by the mechanical cached result.
                             drop(published);

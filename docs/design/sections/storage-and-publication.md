@@ -94,8 +94,12 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 operation-shaped canonical/role/search expectations and demanded definition details once, under
 actual source, pin, executable and resource ownership. Seal freshly reconciles actual content,
 roles and roots. Nongraph compiler envelopes use shared immutable blocks and contribution-qualified
-indexed locators; logical IDs remain distinct from physical protection addresses. One operation
-root protects exact native page outcomes and bounded progress, replacing ordinary per-page host
+indexed locators; logical IDs remain distinct from physical protection addresses. Each locator
+retains logical scope tags plus exactly derived `[contribution, relation, scope token]` lookup
+entries. A single native array index nominates those complete tuple keys selectively; the pinned
+planner cannot extend scalar compound prefixes through a trailing containment column. Receiving
+and replay validate the derivation, and multiple matching tokens confer one logical membership.
+One operation root protects exact native page outcomes and bounded progress, replacing ordinary per-page host
 envelopes. Genuine full cuts, independent receiving and Unknown ownership remain. Terminal cleanup
 excludes its exact reference/collector hazards. The [publication coordinator §6](../../plans/catalog-publication-performance-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)
 owns migration, generation10 cutover and focused verification; these are not established by acceptance.
@@ -507,9 +511,14 @@ nomination effect; maintenance successors retain that lineage. No missing-lineag
 fallback or cached effect authority is introduced. Root fencing and all incarnation/hold checks remain.
 
 **Implemented atomic page batching / native acceptance pending,2026-10-14.** A hold page carries one
-canonical bounded row payload. Required current hold, child-guard, existing-item/job and predicate
+canonical bounded row payload. Required current hold, child-guard and existing-item/job
 observations use scalar record-ID locked reads: pinned3.3 does not accept array-valued FOR UPDATE
-targets. Complete page validation precedes mutations; missing guards permit only incarnation1,
+targets. Exact predicate IDs use one bounded point-set read followed by actual bulk updates of
+all existing predicates and plain inserts for missing ones. The pinned snapshot engine checks
+every written key at commit, so these guaranteed writes preserve predicate exclusion and
+overflow refusal without separate scalar read locks or duplicate-create rollback per predicate.
+Set observation alone conveys no such protection; other necessary scalar locks remain.
+Complete page validation precedes mutations; missing guards permit only incarnation1,
 existing items preserve object/incarnation/lineage and their current job/state/successor. Distinct
 predicate writes are changed tokens per transaction, never effect counts; final-CAS own+1 sites and
 all wrapper touches remain. Batch only necessary inserts and exact hold deletion under the existing

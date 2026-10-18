@@ -47,12 +47,12 @@ impl HeldRecord {
 /// Discovery grants no reuse authority. The subsequent hold compares both observed
 /// bytes and incarnation in its write transaction, so intervening recreation refuses.
 pub async fn inspect_expected(
-    client: &Surreal<Client>,
+    client: &std::sync::Arc<Surreal<Client>>,
     record: RecordId,
     budget: &ResourceBudget,
 ) -> Result<Option<ExpectedRecord>, ModelError> {
     let reader =
-        crate::NativeReader::private(std::sync::Arc::new(client.clone())).with_budget(budget);
+        crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = inspect_expected_read(&reader, record, budget).await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
     terminal.step("expected record owned reader close", reader.close().await);
@@ -497,12 +497,12 @@ fn observation_query(
     )
 }
 pub async fn inspect_expected_window(
-    client: &Surreal<Client>,
+    client: &std::sync::Arc<Surreal<Client>>,
     records: &[RecordId],
     budget: &ResourceBudget,
 ) -> Result<ExpectedRecords, ModelError> {
     let reader =
-        crate::NativeReader::private(std::sync::Arc::new(client.clone())).with_budget(budget);
+        crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = inspect_expected_window_read(&reader, records, budget).await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
     terminal.step(
@@ -591,12 +591,12 @@ async fn inspect_expected_page_read_observed<Context>(
     Ok(observed)
 }
 pub async fn inspect_hold_window(
-    client: &Surreal<Client>,
+    client: &std::sync::Arc<Surreal<Client>>,
     pairs: &[(RecordId, RecordId)],
     budget: &ResourceBudget,
 ) -> Result<ExpectedHolds, ModelError> {
     let reader =
-        crate::NativeReader::private(std::sync::Arc::new(client.clone())).with_budget(budget);
+        crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = inspect_hold_window_read(&reader, pairs, budget).await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
     terminal.step("hold window owned reader close", reader.close().await);
@@ -637,6 +637,78 @@ pub(crate) async fn inspect_hold_window_read_observed<Context>(
     terminal.step("hold window stream drain", stream.drain_transport().await);
     lctx_model::domain::completion::complete(result, terminal)?;
     Ok(observed)
+}
+/// Narrow actual backing observations, with no hold/incarnation/admission authority.
+/// The requesting assurance owner supplies its own semantic correspondence predicate.
+pub struct BackingMetadata {
+    relation: String,
+    key: String,
+    content: String,
+    _charge: Box<dyn Reservation>,
+}
+impl BackingMetadata {
+    pub fn agrees(&self, membership: &Value) -> Result<bool, ModelError> {
+        let object = membership.as_object().ok_or(ModelError::Schema("backing membership object"))?;
+        Ok(self.agrees_object(object))
+    }
+    pub fn agrees_object(&self,object:&Object)->bool{
+        matches!(object.get("relation"),Some(Value::String(value)) if value==&self.relation)
+            && matches!(object.get("semantic_key"),Some(Value::String(value)) if value==&self.key)
+            && matches!(object.get("content"),Some(Value::String(value)) if value==&self.content)
+    }
+}
+pub struct BackingObservations {
+    rows: std::collections::BTreeMap<RecordId, BackingMetadata>,
+    _charge: Box<dyn Reservation>,
+}
+impl BackingObservations {
+    pub fn get(&self, id: &RecordId) -> Option<&BackingMetadata> { self.rows.get(id) }
+}
+/// Primary-key set acquisition checks requested identity, duplicates and exact EOF.
+/// It deliberately reads metadata only: a prior independent full backing scan does
+/// not have to fetch each canonical body again just to reconcile membership fields.
+pub async fn observe_backing_window_read<Context>(
+    reader: &crate::NativeReader<Context>,
+    records: &[RecordId],
+    budget: &ResourceBudget,
+) -> Result<BackingObservations, ModelError> {
+    let charge = window_charge(records.iter(), records.len(), budget)?;
+    let expected = records.iter().cloned().collect::<std::collections::BTreeSet<_>>();
+    if expected.len() != records.len() { return Err(ModelError::Conflict("backing duplicate requested identity")); }
+    let mut result = BackingObservations { rows: Default::default(), _charge: charge };
+    if records.is_empty() { return Ok(result); }
+    let mut variables = Variables::new();
+    variables.insert("backing_ids", records.to_vec());
+    let mut stream = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+        variables, vec![], vec!["SELECT id,semantic_type,semantic_key,content FROM $backing_ids".into()],
+    )?)?;
+    let observed = async {
+        while let Some(row) = stream.next().await? {
+            let id = row_id(&row)?;
+            if !expected.contains(id) || result.rows.contains_key(id) {
+                return Err(ModelError::Conflict("backing foreign or duplicate observation"));
+            }
+            let object = row.as_object().ok_or(ModelError::Schema("backing observation object"))?;
+            let string = |name| match object.get(name) {
+                Some(Value::String(value)) => Ok(value.clone()),
+                _ => Err(ModelError::Schema("backing observation field")),
+            };
+            let retained = budget.reserve("backing metadata observation",
+                crate::loader::native_bytes(&row).saturating_mul(8).saturating_add(4096))?;
+            result.rows.insert(id.clone(), BackingMetadata {
+                relation: string("semantic_type")?, key: string("semantic_key")?,
+                content: string("content")?, _charge: retained,
+            });
+        }
+        if result.rows.len() != expected.len() {
+            return Err(ModelError::Conflict("completed membership backing/visibility"));
+        }
+        Ok(())
+    }.await;
+    let mut terminal = lctx_model::domain::completion::Completion::default();
+    terminal.step("backing metadata observation drainage", stream.drain_transport().await);
+    lctx_model::domain::completion::complete(observed, terminal)?;
+    Ok(result)
 }
 /// Private-reader singleton inspection retains the same optional discovery contract.
 pub(crate) async fn inspect_expected_read(
@@ -880,18 +952,7 @@ mod tests {
         Value::Object(row)
     }
     fn native_probe_row(id: &RecordId) -> Value {
-        let mut row = Object::new();
-        row.insert("id", id.clone());
-        row.insert("semantic_type", "observation_probe");
-        row.insert("semantic_key", "00000000000000000000000000000000");
-        row.insert("content", ContentHash::of(b"observation probe").hex());
-        row.insert(
-            "canonical",
-            surrealdb::types::Bytes::from(b"observation probe".to_vec()),
-        );
-        row.insert("body", Object::new());
-        row.insert("scope_keys", Vec::<String>::new());
-        Value::Object(row)
+        let mut row=Object::new();row.insert("id",id.clone());row.insert("format","observation-probe");row.insert("relation","observation_probe");row.insert("content",ContentHash::of(b"observation probe").hex());row.insert("rows",Vec::<Value>::new());Value::Object(row)
     }
     #[test]
     fn observation_window_correlates_shuffled_native_bytes_and_independent_lifetimes() {
@@ -1238,7 +1299,7 @@ mod tests {
         .unwrap();
         let attempt = store.attempt();
         let ids = ["first", "second", "receiver-a", "receiver-b"]
-            .map(|key| RecordId::new("compiler_record", format!("{}-{key}", attempt.hex())));
+            .map(|key| RecordId::new("compiler_block", format!("{}-{key}", attempt.hex())));
         let [a, b, owner_a, owner_b] = &ids;
         let budget = ResourceBudget::fixed(128 << 20).unwrap();
         let pairs = vec![(owner_a.clone(), a.clone()), (owner_b.clone(), b.clone())];
@@ -1253,7 +1314,7 @@ mod tests {
             )
             .await
             .unwrap();
-            let absent = RecordId::new("compiler_record", format!("{}-absent", attempt.hex()));
+            let absent = RecordId::new("compiler_block", format!("{}-absent", attempt.hex()));
             let mut window =
                 inspect_expected_window(&client, &[b.clone(), absent.clone(), a.clone()], &budget)
                     .await
@@ -1405,8 +1466,8 @@ mod tests {
         .await
         .unwrap();
         let attempt = store.attempt();
-        let record = RecordId::new("compiler_record", format!("{}-candidate", attempt.hex()));
-        let owner = RecordId::new("compiler_record", format!("{}-receiver", attempt.hex()));
+        let record = RecordId::new("compiler_block", format!("{}-candidate", attempt.hex()));
+        let owner = RecordId::new("compiler_block", format!("{}-receiver", attempt.hex()));
         let outcome = std::panic::AssertUnwindSafe(async {
             let rows = [record.clone(), owner.clone()]
                 .iter()

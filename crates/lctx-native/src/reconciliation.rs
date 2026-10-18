@@ -1,4 +1,6 @@
 //! Full canonical and physical readback before a database can become a published snapshot.
+mod prepared;
+pub use prepared::{PreparedRoles, ReferencePreparation};
 use crate::{Loader, codec};
 use lctx_model::domain::{
     ModelError,
@@ -45,10 +47,22 @@ impl Loader {
         manifest: &Manifest,
         inventory: Option<&mut crate::ordered_rows::SortedRows>,
     ) -> Result<(), ModelError> {
+        self.reconcile_with_roles(manifest, inventory, None).await
+    }
+    pub(crate) async fn reconcile_with_roles(
+        &self,
+        manifest: &Manifest,
+        inventory: Option<&mut crate::ordered_rows::SortedRows>,
+        prepared: Option<&PreparedRoles>,
+    ) -> Result<(), ModelError> {
         manifest.validate()?;
         let budget = self.read_budget()?;
-        let mut expected = crate::ordered_rows::SortedRows::with_budget(&budget)?;
         let reader = self.reader();
+        let mut expected = if let Some(prepared) = prepared {
+            prepared.reconcile_canonical(self, manifest).await?;
+            prepared.roles.cursor()?
+        } else {
+        let mut expected = crate::ordered_rows::SortedRows::with_budget(&budget)?;
         for (table, family) in [
             ("entity", GraphFamily::Entities),
             ("assertion", GraphFamily::Assertions),
@@ -202,8 +216,9 @@ impl Loader {
                 ));
             }
         }
+        expected.finish()?
+        };
         let mut actual = actual_roles(&reader, &budget)?;
-        let mut expected = expected.finish()?;
         if let Some(inventory) = inventory {
             while let Some(row) = expected.next_row()? {
                 let Value::Object(object) = &row else {

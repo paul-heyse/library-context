@@ -23,6 +23,7 @@ pub struct HeldTerminalProduct {
     validity_epoch: i64,
     views: BTreeMap<ContentHash, Arc<HeldInstalledView>>,
     contributors: BTreeMap<ContentHash, CompletedContribution>,
+    captured_owners: Vec<RecordId>,
     factory_lease: FactoryLease,
     closed: bool,
     cancellation: Arc<std::sync::atomic::AtomicBool>,
@@ -165,11 +166,131 @@ impl HeldTerminalProduct {
     /// this product's explicitly selected physical contributors. A missing row
     /// is not a completed-empty assertion; callers may use only returned matches
     /// as temporary reference targets and must reject missing referenced IDs.
-    pub async fn verify_captured_row<R: lctx_model::domain::Record>(
+    pub async fn verify_captured_rows<R: lctx_model::domain::Record>(
         &self,
-        row: &R,
+        rows: &[R],
         budget: &ResourceBudget,
-    ) -> Result<bool, ModelError> {
+    ) -> Result<Vec<bool>, ModelError> {
+        // Keep the indexed equality expansion within the pinned engine's selective
+        // prefix bound. This bounds one physical request, never caller concurrency.
+        if rows.len() > 32 {
+            return Err(ModelError::Schema("terminal captured bounded comparison"));
+        }
+        let mut charge = StateCharge::new(budget, "terminal captured canonical comparison");
+        let mut expected = BTreeMap::new();
+        let mut keys = Vec::with_capacity(rows.len());
+        for row in rows {
+            charge.grow(std::mem::size_of::<R>()
+                .saturating_add(lctx_model::domain::HeapSize::heap_bytes(row))
+                .saturating_mul(32).saturating_add(65536))?;
+            let key = hex::encode(row.id().bytes());
+            let (id, value) = captured_expectation(row)?;
+            charge.grow(crate::loader::native_bytes(&value).saturating_mul(4))?;
+            if let Some(previous) = expected.get(&key) {
+                if previous != &(id.clone(), value.clone()) {
+                    return Err(ModelError::Conflict("terminal captured conflicting expected key"));
+                }
+            } else {
+                expected.insert(key.clone(), (id, value));
+            }
+            keys.push(key);
+        }
+        if rows.is_empty() { return Ok(Vec::new()); }
+        let mut pin_terminal = RecoveryPinTerminal::new(self.pin().clone());
+        let reader = self.reader(budget);
+        let result = async {
+            self.pin().ensure_live()?;
+            let mut found = BTreeSet::new();
+            for owners in self.captured_owners.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+            let _request = budget.reserve("terminal captured contributor nomination window",
+                owners.iter().map(|id| crate::selection::node_bytes(id).saturating_mul(4)).sum::<usize>()
+                    .saturating_add(8192))?;
+            let mut variables = Variables::new();
+            variables.insert("capture_owners", owners.to_vec());
+            variables.insert("capture_relation", R::NAME);
+            variables.insert("capture_keys", expected.keys().cloned().collect::<Vec<_>>());
+            let mut stream = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+                variables, vec![], vec!["SELECT * FROM compiler_membership WITH INDEX member_keys WHERE relation=$capture_relation AND semantic_key IN $capture_keys AND contribution IN $capture_owners".into()],
+            )?)?;
+            let mut nominated_members=Vec::new();
+            let nominated = async {
+                while let Some(member) = stream.next().await? {
+                    crate::completed_rows::validate_state_row("compiler_membership", &member)?;
+                    let object = member.as_object().ok_or(ModelError::Schema("terminal captured membership object"))?;
+                    let Some(Value::RecordId(owner)) = object.get("contribution") else { return Err(ModelError::Schema("terminal captured membership owner")); };
+                    let Some(Value::String(key)) = object.get("semantic_key") else { return Err(ModelError::Schema("terminal captured membership key")); };
+                    let (id, value) = expected.get(key).ok_or(ModelError::Conflict("terminal captured foreign nominal key"))?;
+                    if self.captured_owners.binary_search(owner).is_err()
+                        || object.get("relation") != Some(&Value::String(R::NAME.into()))
+                        || object.get("node") != Some(&Value::RecordId(id.clone()))
+                        || object.get("content") != value.as_object().and_then(|row| row.get("content")) {
+                        return Err(ModelError::Conflict("terminal captured native payload differs"));
+                    }
+                    found.insert(key.clone());
+                    charge.grow(crate::loader::native_bytes(&member).saturating_mul(8).saturating_add(1024))?;
+                    nominated_members.push(member);
+                }
+                Ok::<_, ModelError>(())
+            }.await;
+            let mut terminal = Completion::default();
+            terminal.step("terminal captured membership set drainage", stream.drain_transport().await);
+            complete(nominated, terminal)?;
+            for members in nominated_members.chunks(crate::loader::NATIVE_WINDOW_ROWS){
+                let ids=members.iter().map(|member|Ok(crate::compiler_blocks::validate_locator(member)?.record().clone())).collect::<Result<BTreeSet<_>,ModelError>>()?.into_iter().collect();
+                with_retry_cancellation(self.retry.clone(),self.pin().protect_many(ids)).await?;
+                let actual=crate::compiler_blocks::inspect_backing_window_read(&reader,members,budget).await?;
+                for member in members{
+                    let object=member.as_object().ok_or(ModelError::Schema("captured locator"))?;
+                    let Some(Value::String(key))=object.get("semantic_key") else{return Err(ModelError::Schema("captured locator key"));};
+                    let (id,expected)=&expected[key];
+                    if actual.get(id)?.row()!=expected{return Err(ModelError::Conflict("terminal captured protected bytes changed"));}
+                }
+            }
+
+            }
+            Ok(keys.iter().map(|key| found.contains(key)).collect())
+        }.await;
+        let mut terminal = Completion::default();
+        terminal.step("terminal captured backing reader close", reader.close().await);
+        let result = complete(result, terminal);
+        pin_terminal.observe(&result);
+        result
+    }
+    /// Repeat actual guard/bytes and installation checks; an old original counter
+    /// or a matching logical contributor in another namespace cannot satisfy them.
+    pub async fn ensure_current(&self, budget: &ResourceBudget) -> Result<(), ModelError> {
+        let mut pin_terminal = RecoveryPinTerminal::new(self.pin().clone());
+        let reader = self.reader(budget);
+        let result = async {
+            self.pin().ensure_live()?;
+            for original in [&self.product, &self.contribution] {
+                let actual =
+                    held::inspect_expected_read(&reader, original.record().clone(), budget)
+                        .await?
+                        .ok_or(ModelError::Conflict(
+                            "terminal product held record disappeared",
+                        ))?;
+                if actual.incarnation() != original.incarnation() || actual.row() != original.row()
+                {
+                    return Err(ModelError::Conflict(
+                        "terminal product held bytes/incarnation changed",
+                    ));
+                }
+            }
+            check_installation(&reader, self.generation, self.validity_epoch).await
+        }
+        .await;
+        let mut terminal = Completion::default();
+        terminal.step(
+            "terminal product current reader close",
+            reader.close().await,
+        );
+        let result = complete(result, terminal);
+        pin_terminal.observe(&result);
+        result
+    }
+}
+fn captured_expectation<R: lctx_model::domain::Record>(row: &R) -> Result<(RecordId, Value), ModelError> {
         use crate::adapter::GraphRow;
         if !matches!(
             R::NAME,
@@ -191,13 +312,6 @@ impl HeldTerminalProduct {
             return Err(ModelError::Conflict("terminal capture companion family"));
         }
         row.validate()?;
-        let mut charge = StateCharge::new(budget, "terminal captured canonical comparison");
-        charge.grow(
-            std::mem::size_of::<R>()
-                .saturating_add(lctx_model::domain::HeapSize::heap_bytes(row))
-                .saturating_mul(32)
-                .saturating_add(65536),
-        )?;
         let adapter = crate::adapter::select(R::NAME)?;
         let batch = R::encode(std::slice::from_ref(row))?;
         let view = crate::codec::views_with_adapter(std::slice::from_ref(row), adapter)?
@@ -237,78 +351,8 @@ impl HeldTerminalProduct {
             }
         };
         let expected = crate::adapter::physical_row(id.clone(), content, canonical, kind, view)?;
-        charge.grow(crate::loader::native_bytes(&expected).saturating_mul(4))?;
-        let mut owners = BTreeSet::new();
-        for view in self.views.values() {
-            for mapping in &view.completion().mappings {
-                charge.grow(512)?;
-                owners.insert(RecordId::new(
-                    "compiler_contribution",
-                    mapping.physical.hex(),
-                ));
-            }
-        }
-        let mut pin_terminal = RecoveryPinTerminal::new(self.pin().clone());
-        let reader = self.reader(budget);
-        let result=async {
-            self.pin().ensure_live()?;
-            let mut after=Value::None;let mut found=false;
-            loop {
-                let mut variables=Variables::new();variables.insert("capture_owners",owners.iter().cloned().collect::<Vec<_>>());
-                variables.insert("capture_relation",R::NAME);variables.insert("capture_key",hex::encode(row.id().bytes()));variables.insert("capture_after",after.clone());
-                let rows:Vec<Object>=reader.query_native("SELECT id,object AS address,object.* AS stored FROM native_hold WITH INDEX owner_holds WHERE owner IN $capture_owners AND object.semantic_type=$capture_relation AND object.semantic_key=$capture_key AND ($capture_after=NONE OR id>$capture_after) ORDER BY id LIMIT 1",variables).await?;
-                let [actual]=rows.as_slice()else{if !rows.is_empty(){return Err(ModelError::Conflict("terminal captured bounded backing page"));}break;};
-                after=actual.get("id").cloned().ok_or(ModelError::Schema("terminal captured backing cursor"))?;
-                if actual.get("address")!=Some(&Value::RecordId(id.clone())) || actual.get("stored")!=Some(&expected){return Err(ModelError::Conflict("terminal captured native payload differs"));}
-                with_retry_cancellation(self.retry.clone(),self.pin().protect(id.clone())).await?;
-                let protected=held::inspect_expected_read(&reader,id.clone(),budget).await?.ok_or(ModelError::Conflict("terminal captured native backing disappeared"))?;
-                if protected.row()!=expected{return Err(ModelError::Conflict("terminal captured protected bytes changed"));}
-                found=true;
-            }
-            Ok(found)
-        }.await;
-        let mut terminal = Completion::default();
-        terminal.step(
-            "terminal captured backing reader close",
-            reader.close().await,
-        );
-        let result = complete(result, terminal);
-        pin_terminal.observe(&result);
-        result
-    }
-    /// Repeat actual guard/bytes and installation checks; an old original counter
-    /// or a matching logical contributor in another namespace cannot satisfy them.
-    pub async fn ensure_current(&self, budget: &ResourceBudget) -> Result<(), ModelError> {
-        let mut pin_terminal = RecoveryPinTerminal::new(self.pin().clone());
-        let reader = self.reader(budget);
-        let result = async {
-            self.pin().ensure_live()?;
-            for original in [&self.product, &self.contribution] {
-                let actual =
-                    held::inspect_expected_read(&reader, original.record().clone(), budget)
-                        .await?
-                        .ok_or(ModelError::Conflict(
-                            "terminal product held record disappeared",
-                        ))?;
-                if actual.incarnation() != original.incarnation() || actual.row() != original.row()
-                {
-                    return Err(ModelError::Conflict(
-                        "terminal product held bytes/incarnation changed",
-                    ));
-                }
-            }
-            check_installation(&reader, self.generation, self.validity_epoch).await
-        }
-        .await;
-        let mut terminal = Completion::default();
-        terminal.step(
-            "terminal product current reader close",
-            reader.close().await,
-        );
-        let result = complete(result, terminal);
-        pin_terminal.observe(&result);
-        result
-    }
+        Ok((id, expected))
+
 }
 fn terminal_source(source: &Object, generation: ContentHash) -> Result<(), ModelError> {
     if authorization::hash_field(source, "generation")? != generation
@@ -495,8 +539,14 @@ pub async fn hold_terminal_product(
             if actual.incarnation()!=expected.incarnation() || actual.row()!=expected.row(){return Err(ModelError::Conflict("terminal acquired record changed"));}
         }
         check_installation(&reader,generation,validity_epoch).await?;
+        let mut captured_owners=BTreeSet::new();
+        for view in views.values() { for mapping in &view.completion().mappings {
+            let owner=RecordId::new("compiler_contribution",mapping.physical.hex());
+            if !captured_owners.contains(&owner) { charge.grow(512)?; captured_owners.insert(owner); }
+        }}
+        let captured_owners=captured_owners.into_iter().collect();
         Ok(HeldTerminalProduct{client:client.clone(),pin:Some(pin.clone()),product,contribution,descriptor,
-            generation,validity_epoch,views,contributors,factory_lease:lease.clone(),cancellation:cancellation.clone(),retry:retry.clone(),closed:false,_charge:charge})
+            generation,validity_epoch,views,contributors,captured_owners,factory_lease:lease.clone(),cancellation:cancellation.clone(),retry:retry.clone(),closed:false,_charge:charge})
     }).await;
     let mut terminal = Completion::default();
     terminal.step(

@@ -58,6 +58,9 @@ pub(crate) trait SearchCanonicalRead: Sync {
     fn charge_record<R: Record>(&self, _row: &R) -> Result<(), ModelError> {
         Ok(())
     }
+    fn preparation_charge(&self, _bytes: usize) -> Result<Option<Box<dyn resources::Reservation>>, ModelError> {
+        Ok(None)
+    }
 }
 fn context_query<R: Record>(
     selection: RecordSelection,
@@ -145,6 +148,9 @@ async fn context_records<R: Record + serde::de::DeserializeOwned>(
     collect_context(source, source.search_candidates(query)?).await
 }
 impl SearchCanonicalRead for NativeReader<()> {
+    fn preparation_charge(&self, bytes: usize) -> Result<Option<Box<dyn resources::Reservation>>, ModelError> {
+        self.resource_budget()?.reserve("search correspondence index", bytes).map(Some)
+    }
     fn search_candidates<R: Record + serde::de::DeserializeOwned>(
         &self,
         query: crate::prepared::PreparedQuery,
@@ -157,6 +163,9 @@ struct ChargedContextRead<'a, S> {
     charge: std::sync::Mutex<charged::StateCharge>,
 }
 impl<S: SearchCanonicalRead> SearchCanonicalRead for ChargedContextRead<'_, S> {
+    fn preparation_charge(&self, bytes: usize) -> Result<Option<Box<dyn resources::Reservation>>, ModelError> {
+        self.source.preparation_charge(bytes)
+    }
     fn search_candidates<R: Record + serde::de::DeserializeOwned>(
         &self,
         query: crate::prepared::PreparedQuery,
@@ -2012,6 +2021,11 @@ async fn option_names(
     .await?;
     let links =
         scoped::<ParameterEntityLink, _>(reader, "entity", entities.keys().copied()).await?;
+    let _links_charge = reader.preparation_charge(links.len().saturating_mul(128))?;
+    let mut links_by_entity: BTreeMap<_, Vec<_>> = BTreeMap::new();
+    for link in links.values() {
+        links_by_entity.entry(link.entity).or_default().push(link);
+    }
     let mut ids = slots.values().map(|s| s.parameter).collect::<BTreeSet<_>>();
     ids.extend(links.values().map(|l| l.parameter));
     ids.extend(entities.values().filter_map(|e| {
@@ -2063,7 +2077,7 @@ async fn option_names(
                 }
                 ParameterEntity::Source { .. } => {
                     let mut names = BTreeSet::new();
-                    for link in links.values().filter(|link| link.entity == *parameter) {
+                    for &link in links_by_entity.get(parameter).into_iter().flatten() {
                         let n = parameter_name(link.parameter)?;
                         // Dependency accumulation happens after the closure borrow ends.
                         if !n.is_empty() {
@@ -2081,7 +2095,7 @@ async fn option_names(
         };
         if let Subject::SourceParameter { parameter } = need(&subjects, option.subject)? {
             dependencies.push(typed_payload(need(&entities, *parameter)?)?);
-            for link in links.values().filter(|link| link.entity == *parameter) {
+            for &link in links_by_entity.get(parameter).into_iter().flatten() {
                 dependencies.push(typed_payload(link)?);
             }
         }
@@ -2097,12 +2111,73 @@ async fn option_names(
     }
     Ok(result)
 }
+/// Preserve the actual bounded Basic batches across document installation. Each typed row
+/// is framed separately under the existing spill owner; no catalog-sized resident cache or
+/// aggregate-row size restriction is introduced.
+fn spool_basic(rows: &mut SortedRows, ordinal: u64, basic: &Basic) -> Result<(), ModelError> {
+    fn append<R: Record + serde::Serialize>(rows: &mut SortedRows, ordinal: u64, kind: u8, values: &Index<R>) -> Result<(), ModelError> {
+        for row in values.values() {
+            let mut object = Object::new();
+            object.insert("id", RecordId::new("search_preparation", format!("{ordinal:020}:{kind}:{}", row.id().hex())));
+            object.insert("ordinal", ordinal);
+            object.insert("kind", kind);
+            object.insert("canonical", crate::surrealdb::types::Bytes::from(serde_json::to_vec(row).map_err(ModelError::codec)?));
+            rows.push(Value::Object(object))?;
+        }
+        Ok(())
+    }
+    append(rows, ordinal, 0, &basic.windows)?;
+    append(rows, ordinal, 1, &basic.units)?;
+    append(rows, ordinal, 2, &basic.links)?;
+    append(rows, ordinal, 3, &basic.parts)
+}
+fn replay_basic(
+    rows: &mut OrderedRows,
+    pending: &mut Option<Value>,
+    budget: &resources::ResourceBudget,
+) -> Result<Option<(Basic, charged::StateCharge)>, ModelError> {
+    let first = match pending.take() { Some(row) => Some(row), None => rows.next_row()? };
+    let Some(first) = first else {
+        return Ok(None);
+    };
+    let mut current = Some(first);
+    let mut ordinal = None;
+    let mut basic = Basic { windows: Index::new(), units: Index::new(), links: Index::new(), parts: Index::new() };
+    let mut charge = charged::StateCharge::new(budget, "retained search Basic replay");
+    fn insert<R: Record + serde::de::DeserializeOwned>(index: &mut Index<R>, bytes: &[u8]) -> Result<(), ModelError> {
+        let row: R = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if index.insert(row.id(), row).is_some() { return Err(ModelError::Conflict("search preparation duplicate")); }
+        Ok(())
+    }
+    while let Some(row) = current.take() {
+        let Value::Object(object) = &row else { return Err(ModelError::Schema("search preparation frame")); };
+        let batch = u64::from_value(object.get("ordinal").cloned().ok_or(ModelError::Schema("search preparation batch"))?).map_err(ModelError::codec)?;
+        if ordinal.is_some_and(|known| known != batch) { *pending = Some(row); break; }
+        ordinal = Some(batch);
+        let kind = u8::from_value(object.get("kind").cloned().ok_or(ModelError::Schema("search preparation kind"))?).map_err(ModelError::codec)?;
+        let Some(Value::Bytes(bytes)) = object.get("canonical") else { return Err(ModelError::Schema("search preparation canonical")); };
+        charge.grow(bytes.len().saturating_mul(8).saturating_add(1024))?;
+        match kind {
+            0 => insert(&mut basic.windows, bytes)?,
+            1 => insert(&mut basic.units, bytes)?,
+            2 => insert(&mut basic.links, bytes)?,
+            3 => insert(&mut basic.parts, bytes)?,
+            _ => return Err(ModelError::Schema("search preparation family")),
+        }
+        current = rows.next_row()?;
+    }
+    Ok(Some((basic, charge)))
+}
 async fn lower(
     reader: &NativeReader<()>,
     expected: &mut Expected,
     loader: Option<&Loader>,
 ) -> Result<(), ModelError> {
     lower_vectors(reader, expected).await?;
+    let mut basic_spool = SortedRows::with_budget_and_row_bytes(
+        &expected.budget, resources::MAX_ROW_BYTES,
+    )?;
+    let mut ordinal = 0u64;
     let mut windows =
         reader.record_stream::<SearchWindow>("true", Variables::new(), "semantic_key")?;
     loop {
@@ -2111,6 +2186,8 @@ async fn lower(
             break;
         }
         let b = Basic::load(reader, batch).await?;
+        spool_basic(&mut basic_spool, ordinal, &b)?;
+        ordinal = ordinal.checked_add(1).ok_or(ModelError::Schema("search preparation ordinal"))?;
         for window in b.windows.values() {
             if b.primary(window.id()).next().is_none() {
                 continue;
@@ -2148,23 +2225,23 @@ async fn lower(
     }
     let mut lexical = Batch::new(loader, "lex_occurs");
     let mut vectors = Batch::new(loader, "vec_occurs");
-    let mut windows =
-        reader.record_stream::<SearchWindow>("true", Variables::new(), "semantic_key")?;
-    loop {
-        let batch = window_batch(&mut windows).await?;
-        if batch.is_empty() {
-            break;
-        }
-        let b = Basic::load(reader, batch).await?;
+    let mut basic_spool = basic_spool.finish()?;
+    let mut pending_basic = None;
+    while let Some((b, _basic_charge)) = replay_basic(&mut basic_spool, &mut pending_basic, &expected.budget)? {
         let c = Companions::load(reader, &b).await?;
+        let _binding_charge = expected.budget.reserve(
+            "search binding correspondence", c.bindings.len().saturating_mul(128),
+        )?;
+        let mut bindings_by_part: BTreeMap<_, Vec<_>> = BTreeMap::new();
+        for binding in c.bindings.values() {
+            bindings_by_part.entry((binding.window, binding.part)).or_default().push(binding);
+        }
+
         for window in b.windows.values() {
             let unit = need(&b.units, window.unit)?;
             for part in b.primary(window.id()) {
-                let bindings = c
-                    .bindings
-                    .values()
-                    .filter(|binding| binding.window == window.id() && binding.part == part.id())
-                    .collect::<Vec<_>>();
+                let bindings = bindings_by_part.get(&(window.id(), part.id()))
+                    .map(Vec::as_slice).unwrap_or_default();
                 if bindings.is_empty() {
                     emit_witness(
                         reader.derivation()?,
@@ -2180,7 +2257,7 @@ async fn lower(
                     )
                     .await?;
                 } else {
-                    for binding in bindings {
+                    for &binding in bindings {
                         emit_witness(
                             reader.derivation()?,
                             expected,
@@ -2601,6 +2678,45 @@ fn crate_json<T: serde::Serialize>(value: T) -> Result<Value, ModelError> {
 #[cfg(test)]
 mod prepared_expectation_tests {
     use super::*;
+    #[test]
+    fn basic_preparation_spills_across_barrier_and_preserves_exact_batches() {
+        fn id<T>() -> Id<T> {
+            serde_json::from_value(serde_json::json!([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1])).unwrap()
+        }
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let mut spool = SortedRows::with_run_bytes(256).unwrap();
+        let mut expected = Vec::new();
+        for ordinal in 0..2 {
+            let unit = Unit { input: id(), context: id(), family: Family::Source,
+                origin: id(), corpus: id(), title: "source unit".into() };
+            let part = ContentPart { unit: unit.id(), ordinal: 0, purpose: PartPurpose::Primary,
+                scope: None, qualification: None, digest: ContentHash::of(b"body"), text: "body".into() };
+            let window = SearchWindow { definition: id(), unit: unit.id(), ordinal,
+                corpus: id(), digest: ContentHash::of(b"body"), text: "body".into(),
+                input_text: "body".into(), tokenizer: None,
+                encoded_digest: embedding::value::input_hash("body"), tokens: None,
+                availability: retrieval::WindowAvailability::TokenizerUnavailable };
+            let link = WindowPart { window: window.id(), ordinal: 0, part: part.id(), start: 0, end: 4 };
+            let basic = Basic { windows: [(window.id(), window.clone())].into(),
+                units: [(unit.id(), unit)].into(), links: [(link.id(), link)].into(),
+                parts: [(part.id(), part)].into() };
+            spool_basic(&mut spool, ordinal as u64, &basic).unwrap();
+            expected.push(window);
+        }
+        // No native reacquisition is possible in this pure test: the actual preparation
+        // must supply both sides of the installation barrier, even after sorting spills.
+        let mut rows = spool.finish().unwrap();
+        let mut pending = None;
+        for window in expected {
+            let (basic, charge) = replay_basic(&mut rows, &mut pending, &budget).unwrap().unwrap();
+            assert_eq!(basic.windows.values().collect::<Vec<_>>(), vec![&window]);
+            assert_eq!(basic.primary(window.id()).next().unwrap().text.as_str(), "body");
+            assert!(charge.reserved() > 0);
+        }
+        assert!(replay_basic(&mut rows, &mut pending, &budget).unwrap().is_none());
+        drop(rows);
+        assert_eq!(budget.reserved(), 0);
+    }
 
     fn row(table: &str, key: &str, text: &str) -> Value {
         let mut row = Object::new();

@@ -578,7 +578,8 @@ pub async fn prepare_published(
         .retained_reader()
         .transport_reader()
         .with_budget(budget);
-    let result: Result<PreparedTransport, ModelError> = async {
+    let recovery=reader.attached_recovery_scope(completed.completion().generation)?;
+    let result: Result<PreparedTransport, ModelError> = crate::control::with_recovery_scope(recovery,async {
         crate::completed_state::verify_installed_refs(
             &reader,
             completed.completion(),
@@ -600,8 +601,7 @@ pub async fn prepare_published(
             copies: prepared.prepared,
             _charge: prepared._charge,
         })
-    }
-    .await;
+    }).await;
     // This is a borrowed transport view of the retained publication's reader/pin,
     // not a separately owned reader. Each operation above drains its own transport;
     // the enclosing publication owner closes the shared reader after all borrowers.
@@ -622,7 +622,8 @@ pub async fn eligibility_published(
         .retained_reader()
         .transport_reader()
         .with_budget(budget);
-    let result: Result<EligibilityIdentity, ModelError> = async {
+    let recovery=reader.attached_recovery_scope(completed.completion().generation)?;
+    let result: Result<EligibilityIdentity, ModelError> = crate::control::with_recovery_scope(recovery,async {
         crate::completed_state::verify_installed_refs(
             &reader,
             completed.completion(),
@@ -632,8 +633,7 @@ pub async fn eligibility_published(
         .await?;
         let prepared = inventory_projection(&reader, completed.inventory(), false, budget).await?;
         eligibility_projection(&prepared.roots, &prepared.copies)
-    }
-    .await;
+    }).await;
     // Closing this shared transport view would attempt to close its live parent.
     if result
         .as_ref()

@@ -12,12 +12,17 @@ use surrealdb::{
     engine::remote::grpc::Client,
     types::{Object, Variables},
 };
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct InstalledMember {
     pub key: [u8; 16],
     pub node: RecordId,
     pub content: ContentHash,
+    pub locator: Value,
 }
+impl PartialEq for InstalledMember {
+    fn eq(&self,other:&Self)->bool{self.key==other.key&&self.node==other.node&&self.content==other.content}
+}
+impl Eq for InstalledMember {}
 pub struct SelectedMembers {
     pub(super) rows: Vec<InstalledMember>,
     pub(super) _charge: StateCharge,
@@ -213,6 +218,7 @@ impl HeldInstalledView {
                     value.insert("semantic_key", hex::encode(member.key));
                     value.insert("node", member.node.clone());
                     value.insert("content", member.content.hex());
+                    value.insert("locator",member.locator.clone());
                     if !sender.send(Value::Object(value)).await? {
                         break;
                     }
@@ -235,6 +241,9 @@ impl HeldInstalledView {
                 let Some(Value::String(content)) = object.get("content") else {
                     return Err(ModelError::Schema("owned compact member content"));
                 };
+                let locator=object.get("locator").ok_or(ModelError::Schema("owned member physical locator"))?;
+                crate::compiler_blocks::validate_locator(locator)?;
+                charge.grow(crate::loader::native_bytes(locator).saturating_mul(8))?;
                 charge.grow(
                     crate::selection::node_bytes(node)
                         .saturating_mul(2)
@@ -244,6 +253,7 @@ impl HeldInstalledView {
                 rows.push(InstalledMember {
                     key: crate::completed_rows::decode_nominal_key(key)?,
                     node: node.clone(),
+                    locator: locator.clone(),
                     content: ContentHash(
                         hex::decode(content)
                             .map_err(ModelError::codec)?

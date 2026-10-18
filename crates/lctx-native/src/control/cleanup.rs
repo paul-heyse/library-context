@@ -46,8 +46,8 @@ impl CleanupHolds {
         bindings.insert("owners", owners);
         bindings.insert("owner_incarnations", expected);
         bindings.insert("unadmitted", unadmitted);
-        // TerminalAttempt participates in one stripe; this payload still needs one
-        // complete attempt cut. Reuse that cut only for the identical owner record.
+        // TerminalAttempt is permanently production-fenced. Exact terminal-row and
+        // incidence locks protect cleanup without repeating its 64-stripe cut.
         effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"IF $unadmitted AND $__owner.admitted { THROW 'native cleanup admitted branch'; }; fn::native_touch($cleanup); fn::native_touch($__attempt); FOR $expected IN $owner_incarnations { IF $expected.record!=$__attempt { fn::native_touch($expected.record); }; LET $physical_id=$expected.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected.incarnation OR ($physical.phase ?? 'vacant')!=$expected.phase { THROW 'native cleanup initial owner identity changed'; }; }; CREATE $cleanup SET attempt=$__attempt,generation=$__generation,era=$__era,epoch=$__epoch,owners=$owners,owner_incarnations=$owner_incarnations,unadmitted=$unadmitted,state='open',lineage=$cleanup RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("cleanup obligation",identity,issuance,error))?;
         Ok(Self { identity })
     }
@@ -186,8 +186,8 @@ fn validate_cleanup_origin(cleanup: &Object, origin: &Object) -> Result<(), Mode
 fn cleanup_step_sql() -> String {
     // EffectOwner::Cleanup touches the checked cleanup row's complete incidence,
     // including its origin and successor/lineage predicates, before this payload.
-    // Reuse that origin cut only for the identical owner; distinct owners still cut.
-    // Cut each remaining attempt target once, scalar-lock ordinary predicates,
+    // Terminal attempts retain their scalar row/incidence exclusion; live producers
+    // still receive a complete cut through native_touch. Scalar-lock other predicates,
     // then check all nomination roots before batched increments/creates/deletes.
     format!(
         "IF $__owner!=$cleanup_observed {{ THROW 'native cleanup original page changed'; }}; LET $origin_id=$__owner.attempt; LET $origin=SELECT * FROM ONLY $origin_id FOR UPDATE; IF $origin=NONE OR $origin!=$cleanup_origin OR $origin.generation!=$__owner.generation OR $origin.epoch<=0 OR $origin.epoch!=$__owner.epoch OR $origin.era<=0 OR $origin.era>$__owner.era OR $origin.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] OR ($__owner.unadmitted AND $origin.admitted) {{ THROW 'native cleanup origin changed'; }}; IF array::len($__owner.owners)=0 {{ UPDATE $cleanup SET state='done',predecessor=NONE RETURN NONE; }} ELSE {{ IF record::table($owner)!='native_attempt' {{ THROW 'retained product cleanup requires retirement owner'; }}; IF $__owner.owners[0]!=$owner OR $__owner.owner_incarnations[0].record!=$owner OR $__owner.owner_incarnations[0].incarnation!=$expected_owner.incarnation {{ THROW 'native cleanup owner raced'; }}; IF $owner!=$origin_id {{ fn::native_touch($owner); }}; LET $physical_id=$expected_owner.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected_owner.incarnation OR ($physical.phase ?? 'vacant')!=$expected_owner.phase {{ THROW 'native cleanup owner incarnation changed'; }}; LET $holds=SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object LIMIT {}; IF $holds!=$n09_holds {{ THROW 'native cleanup prepared hold page changed'; }}; LET $protected_targets=array::distinct(array::concat(fn::native_incidence_targets($__owner),[$owner])); LET $incidence_targets=array::distinct(array::flatten($holds.map(|$hold_row| fn::native_incidence_targets($hold_row)))); LET $__page_incidence_targets=array::distinct(array::concat($incidence_targets.filter(|$target| $target NOT IN $protected_targets),IF array::len($holds)>0 {{ array::concat([$n09_job],$n09_roots.map(|$root| $root.item)) }} ELSE {{ [] }})); {} {} {} {} LET $hold_ids=$holds.map(|$hold_row| $hold_row.id); DELETE $hold_ids RETURN NONE; IF array::len($holds)=0 {{ UPDATE $cleanup SET owners=array::slice(owners,1),owner_incarnations=array::slice(owner_incarnations,1) RETURN NONE; }}; }};",

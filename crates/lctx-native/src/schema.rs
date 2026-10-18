@@ -151,10 +151,8 @@ pub(crate) fn compiler_relations() -> &'static [Relation] {
     })
 }
 /// Original bytes have their own physical owner; all other private families retain declared fields.
-pub fn compiler_record_schema() -> String {
-    let mut sql="DEFINE TABLE compiler_record SCHEMAFULL; DEFINE FIELD semantic_type ON compiler_record TYPE string; DEFINE FIELD semantic_key ON compiler_record TYPE string; DEFINE FIELD content ON compiler_record TYPE string; DEFINE FIELD canonical ON compiler_record TYPE bytes; DEFINE FIELD body ON compiler_record TYPE object FLEXIBLE; DEFINE INDEX compiler_record_key ON compiler_record FIELDS semantic_type,semantic_key;".to_string();
-    sql.push_str(&scope_schema("compiler_record"));
-    sql
+pub fn compiler_block_schema() -> String {
+    "DEFINE TABLE compiler_block SCHEMAFULL; DEFINE FIELD format ON compiler_block TYPE string; DEFINE FIELD relation ON compiler_block TYPE string; DEFINE FIELD content ON compiler_block TYPE string; DEFINE FIELD rows ON compiler_block TYPE array<object> FLEXIBLE;".into()
 }
 fn scope_schema(table: &str) -> String {
     let layout = ScopeTable::from_name(table).expect("generated canonical scope table");
@@ -186,7 +184,7 @@ pub fn canonical_schema() -> String {
 }
 pub fn realization_identity(native_definitions: &str) -> ContentHash {
     let mut bytes = canonical_schema().into_bytes();
-    bytes.extend_from_slice(compiler_record_schema().as_bytes());
+    bytes.extend_from_slice(compiler_block_schema().as_bytes());
     bytes.extend_from_slice(native_definitions.as_bytes());
     ContentHash::of(&bytes)
 }
@@ -256,7 +254,7 @@ mod tests {
             }
         }
         let mut bytes = canonical_schema().into_bytes();
-        bytes.extend_from_slice(compiler_record_schema().as_bytes());
+        bytes.extend_from_slice(compiler_block_schema().as_bytes());
         bytes.extend_from_slice(b"native functions");
         assert_eq!(
             realization_identity("native functions"),
@@ -308,9 +306,11 @@ mod tests {
     #[test]
     fn native_envelopes_are_fixed_and_scopes_are_supplied() {
         let canonical = canonical_schema();
-        let compiler = compiler_record_schema();
+        let compiler = compiler_block_schema();
+        assert!(canonical.contains("TYPE object FLEXIBLE"));
+        assert!(compiler.contains("TYPE array<object> FLEXIBLE"));
+        assert!(!compiler.contains("DEFINE TABLE compiler_record"));
         for sql in [&canonical, &compiler] {
-            assert!(sql.contains("TYPE object FLEXIBLE"));
             assert!(!sql.contains(" VALUE "));
             assert!(!sql.contains("__type"));
         }

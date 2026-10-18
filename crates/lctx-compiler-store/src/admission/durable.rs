@@ -4,7 +4,12 @@ use lctx_model::domain::{self as d, checked_admission::FixedValidationDriver};
 use lctx_native::control::validation_premise::{PendingValidation, SelectedInput};
 pub(super) enum WholeExecution {
     Unsupported,
-    Completed(Option<d::checked_admission::CheckedValidationPremise>),
+    Completed(Option<Box<d::checked_admission::CheckedValidationPremise>>),
+}
+impl WholeExecution {
+    fn completed(proof: Option<d::checked_admission::CheckedValidationPremise>) -> Self {
+        Self::Completed(proof.map(Box::new))
+    }
 }
 impl AdmissionRuntime {
     // Called only after every specialized scope branch has selected its genuine
@@ -160,14 +165,14 @@ impl AdmissionRuntime {
             {
                 // PendingValidation owns the exact reader and physical caps; its drop
                 // preserves them on unknown execution instead of attempting cleanup.
-                return result.map(WholeExecution::Completed);
+                return result.map(WholeExecution::completed);
             }
             let mut terminal = d::completion::Completion::default();
             terminal.step(
                 "durable validation native scope close",
                 pending.close().await,
             );
-            d::completion::complete(result, terminal).map(WholeExecution::Completed)
+            d::completion::complete(result, terminal).map(WholeExecution::completed)
         })
     }
 }
@@ -327,23 +332,22 @@ mod controls {
         let model = model(changed);
         let request = request(seed.spec, &model);
         let cfg = config();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let metadata_budget=ResourceBudget::fixed(budget.limit()).unwrap();
+        assert_eq!(metadata_budget.limit(),budget.limit());
+        assert!(!metadata_budget.shares_pool(&budget),"factory metadata and candidate payload have authentic distinct admission owners");
         let receiver = NativeCompilerStore::begin(
             &cfg,
             Frontier::Facts,
             &crate::compiler::recovery_factory(
                 &cfg,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
+                metadata_budget,
             )
             .expect("owned native control factory"),
         )
         .await
         .unwrap();
         let client = crate::compiler::check_installation(&cfg).await.unwrap();
-        let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let mut executed = None;
         let result = std::panic::AssertUnwindSafe(async {
             FINISHED.store(0, Ordering::SeqCst);
@@ -460,17 +464,17 @@ mod controls {
         }).catch_unwind().await;
         let mut terminal = Completion::default();
         terminal.step("durable control source close", source.abandon().await);
+        // The source is deliberately terminal and its independent observer is
+        // read-only ownership. Release through a fresh actual mutation owner,
+        // whose exact recovery scope/client remains attached until its cleanup.
+        let release_owner=NativeCompilerStore::begin(&cfg,Frontier::Facts,
+            &crate::compiler::recovery_factory(&cfg,budget.clone()).unwrap()).await.unwrap();
         terminal.step(
             "durable control warm product release",
-            lctx_native::control::release_retained_product(
-                client.clone(),
-                request.identity().unwrap(),
-                source.attempt(),
-                &budget,
-            )
-            .await
-            .map(|_| ()),
+            release_owner.release_product_identity(request.identity().unwrap(),source.attempt(),&budget)
+                .await.map(|_| ()),
         );
+        terminal.step("durable control release owner close",release_owner.abandon().await);
         terminal.step(
             "durable control observer close",
             client.invalidate().await.map_err(ModelError::codec),

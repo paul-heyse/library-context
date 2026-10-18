@@ -663,7 +663,7 @@ impl PreparedClosure {
         let mut present = BTreeSet::new();
         for table in [RecoveryFamily::GraphPayloads, RecoveryFamily::TypedBacking]
             .into_iter()
-            .flat_map(lctx_compiler_store::compiler::recovery_tables)
+            .flat_map(lctx_compiler_store::compiler::logical_recovery_tables)
         {
             if *table == "entity" {
                 continue;
@@ -772,7 +772,7 @@ impl PreparedClosure {
             let Some((source_field, endpoint_field, external_only)) = fields else {
                 continue;
             };
-            for table in lctx_compiler_store::compiler::recovery_tables(family) {
+            for table in lctx_compiler_store::compiler::logical_recovery_tables(family) {
                 for row in dump.rows(table)? {
                     let row = row?;
                     let obj = object(&row)?;
@@ -1424,11 +1424,11 @@ async fn compare_derived_claims(
     for family in RECOVERY_FAMILIES.iter().copied() {
         match family {
             RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints => graph_tables
-                .extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
+                .extend_from_slice(lctx_compiler_store::compiler::logical_recovery_tables(family)),
             RecoveryFamily::SearchOccurrences
             | RecoveryFamily::SearchDocuments
             | RecoveryFamily::SearchVectors => search_tables
-                .extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
+                .extend_from_slice(lctx_compiler_store::compiler::logical_recovery_tables(family)),
             RecoveryFamily::Contributions
             | RecoveryFamily::Memberships
             | RecoveryFamily::Views
@@ -1498,7 +1498,7 @@ async fn reconstruct(
     let manifest = &prepared.manifest;
     let nodes = &prepared.nodes;
     let mut batch_charge = budget.reserve("restore-canonical-ingress", 0)?;
-    for &table in lctx_compiler_store::compiler::recovery_tables(RecoveryFamily::GraphPayloads) {
+    for &table in lctx_compiler_store::compiler::logical_recovery_tables(RecoveryFamily::GraphPayloads) {
         let mut entities = Vec::new();
         let mut assertions = Vec::new();
         let mut batch_bytes = 0usize;
@@ -2430,7 +2430,7 @@ mod definition_tests {
         )
         .unwrap();
         for family in RECOVERY_FAMILIES.iter().copied() {
-            for table in lctx_compiler_store::compiler::recovery_tables(family) {
+            for table in lctx_compiler_store::compiler::logical_recovery_tables(family) {
                 let mut selected = row(table, "family-control");
                 match family {
                     RecoveryFamily::Contributions => {

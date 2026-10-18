@@ -4,6 +4,8 @@
 #![recursion_limit = "256"]
 #[path = "../src/backup_import.rs"]
 mod backup_decode;
+#[path = "fixtures/campaign.rs"]
+mod campaign;
 #[path = "../../cpg-core/tests/fixtures/native.rs"]
 mod native_fixture;
 #[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
@@ -2387,12 +2389,8 @@ async fn close_reader_owner(
 ) -> Result<(), ModelError> {
     let reader = owner.as_ref().expect("live reader owner");
     reader.close().await?;
-    reader
-        .client()
-        .invalidate()
-        .await
-        .map_err(ModelError::codec)?;
-    // Retain ownership on either failure so the outer finalizer can report/finish it.
+    // Connected publication readers own their session finality through close.
+    // Retain ownership on failure so the outer finalizer can report/finish it.
     owner.take();
     Ok(())
 }
@@ -2406,18 +2404,9 @@ async fn finalize_reader_owners<const N: usize>(
             let close_phase = lctx_native::phase::Phase::begin("publication_reader_close");
             let close = reader.close().await;
             close_phase.finish_result(&close);
-            let invalidate_phase =
-                lctx_native::phase::Phase::begin("publication_reader_invalidation");
-            let invalidate = reader
-                .client()
-                .invalidate()
-                .await
-                .map_err(ModelError::codec);
-            invalidate_phase.finish_result(&invalidate);
             completion.step("publication reader close", close);
-            completion.step("publication reader session invalidation", invalidate);
             // Keep the object alive through finalization observation. Normal explicit
-            // close points remove their Option only after close/invalidation succeed.
+            // close points remove their Option only after owned close succeeds.
         }
     }
     completion
@@ -2580,4 +2569,109 @@ async fn omitted_backup_payloads_are_refused(
             "{table}: {error}"
         );
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires coordinator-owned disposable maintenance campaign and authenticated whole-target discard"]
+async fn held_reader_preserves_exact_publication_across_distinct_facts_publication() {
+    let campaign_config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable campaign runtime"),
+    )).unwrap();
+    campaign::require_campaign_maintenance(&campaign_config).unwrap();
+    let first = small_publication_from_source(
+        "held_reader_first_facts", Frontier::Facts, Some(b"VALUE = 7\n"),
+    ).await.unwrap();
+    let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory = lctx_native::control::RecoveryFactoryOwner::new(
+        first.config.receipt_binding().unwrap(), budget.clone(),
+    ).unwrap();
+    let definitions = lctx_native::materialization::native_definitions();
+    let mut first_owner = None;
+    let mut second_owner = None;
+    let mut second_fixture = None;
+    let outcome = AssertUnwindSafe(async {
+        first_owner = Some(NativeReader::connect(
+            &first.config.endpoint, &first.config.writer_credentials(), first.handle.clone(),
+            &budget, &factory,
+        ).await.unwrap());
+        let reader = first_owner.as_ref().unwrap();
+        let held_handle = reader.handle().clone();
+        let before = lctx_publisher::inspection::show(reader).await.unwrap();
+        assert_eq!(before.manifest, first.manifest);
+        assert_eq!(before.handle, held_handle);
+        assert_eq!(first.manifest.originals.len(), 1);
+        let original = &first.manifest.originals[0];
+        assert_eq!(reader.original_bytes(original.source, 0, usize::try_from(original.byte_len).unwrap()).await.unwrap().as_ref(), first.source.as_slice());
+        second_fixture = Some(small_publication_from_source(
+            "held_reader_second_facts", Frontier::Facts, Some(b"VALUE = 8\n"),
+        ).await.unwrap());
+        let second = second_fixture.as_ref().unwrap();
+        assert_ne!(first.handle.publication, second.handle.publication);
+        assert_ne!(first.handle.semantic, second.handle.semantic);
+        assert!(first.source.ends_with(b"VALUE = 7\n"));
+        assert!(second.source.ends_with(b"VALUE = 8\n"));
+        assert_eq!(reader.handle(), &held_handle, "publication creates no replacement for the held exact handle");
+        let after = lctx_publisher::inspection::show(reader).await.unwrap();
+        assert_eq!(after.handle, held_handle);
+        assert_eq!(after.manifest, before.manifest, "the first pin retains its exact manifest across independent publication");
+        assert_eq!(reader.original_bytes(original.source, 0, usize::try_from(original.byte_len).unwrap()).await.unwrap().as_ref(), first.source.as_slice());
+        second_owner = Some(NativeReader::connect(
+            &second.config.endpoint, &second.config.writer_credentials(), second.handle.clone(),
+            &budget, &factory,
+        ).await.unwrap());
+        let independent = second_owner.as_ref().unwrap();
+        let details = lctx_publisher::inspection::show(independent).await.unwrap();
+        assert_eq!(details.handle, second.handle);
+        assert_eq!(details.manifest, second.manifest);
+        assert_eq!(details.manifest.originals.len(), 1);
+        let other = &details.manifest.originals[0];
+        assert_ne!(original.source, other.source);
+        assert_eq!(independent.original_bytes(other.source, 0, usize::try_from(other.byte_len).unwrap()).await.unwrap().as_ref(), second.source.as_slice());
+        // These public capability APIs must recover their authentic reader owner
+        // themselves; an ambient test scope would hide lost ownership propagation.
+        assert!(lctx_native::control::capture_recovery_scope().is_none());
+        {
+            let completed = lctx_native::completed_state::published_completed_state(independent, &budget).await.unwrap();
+            assert_eq!(completed.completion().generation, second.handle.service_generation);
+            assert_eq!(completed::CompletedStateIdentity::from_roots(&completed.completion().roots).unwrap(), second.manifest.completed_state);
+            let prepared = lctx_native::completed_transport::prepare_published(&completed, &budget).await.unwrap();
+            prepared.envelope().validate().unwrap();
+            assert_eq!(prepared.envelope().semantic, second.manifest.completed_state);
+            assert_eq!(prepared.envelope().families, completed.completion().roots);
+            assert_eq!(prepared.envelope().eligibility_identity().unwrap(), second.handle.eligibility);
+            let eligibility = lctx_native::completed_transport::eligibility_published(&completed, &budget).await.unwrap();
+            assert_eq!(eligibility, second.handle.eligibility);
+            assert_eq!(eligibility, prepared.envelope().eligibility_identity().unwrap());
+            drop(prepared);
+            drop(completed);
+        }
+        assert!(lctx_native::control::capture_recovery_scope().is_none());
+        lctx_publisher::inspection::audit(&second.config, &second.handle, &definitions).await.unwrap();
+        assert_eq!(reader.handle(), &held_handle);
+        assert!(!first.config.selection.exists() && !second.config.selection.exists(), "neither independent publication is operator-selected");
+    }).catch_unwind().await;
+    // These exact immutable objects remain owned by the enclosing managed run's
+    // disposable campaign. The service owner discards that whole target only
+    // after authenticated host/native drainage; a passing body is not disposal.
+    // Logical retirement has separate native controls and is not this pin test.
+    let mut finality = completion::Completion::default();
+    finality.committed("campaign publication retained for authenticated whole-target discard", serde_json::to_string(&first.handle).unwrap());
+    eprintln!("held-reader campaign publication retained for whole-target discard: {}", serde_json::to_string(&first.handle).unwrap());
+    if let Some(second) = &second_fixture {
+        finality.committed("campaign publication retained for authenticated whole-target discard", serde_json::to_string(&second.handle).unwrap());
+        eprintln!("held-reader campaign publication retained for whole-target discard: {}", serde_json::to_string(&second.handle).unwrap());
+    }
+    finality.merge(finalize_reader_owners([&mut second_owner, &mut first_owner]).await);
+    drop(first_owner);
+    drop(second_owner);
+    let factory_cleanup = factory.drain(&lctx_native::control::RetryCancellation::default()).await;
+    finality.step("held-reader campaign reader factory drainage", factory_cleanup);
+    let cleanup = completion::complete::<()>(Ok(()), finality);
+    if let Err(primary) = outcome {
+        if let Err(error) = cleanup {
+            eprintln!("held publication reader control also encountered owned cleanup failure: {error:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
 }

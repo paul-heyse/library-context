@@ -187,6 +187,8 @@ pub async fn compact_history(
 // behind this invocation's cursor is reconsidered by a fresh invocation, never by rewinding.
 const PHASES: &[(&str, &str)] = &[
     ("effect", "native_effect"),
+    ("operation_page", "native_operation_page"),
+    ("operation", "native_operation"),
     ("cleanup", "native_cleanup"),
     ("retirement_item", "native_retirement_item"),
     ("retirement", "native_retirement"),
@@ -212,6 +214,12 @@ fn eligible(phase: &str) -> Result<String, ModelError> {
         "effect" => {
             "$candidate_state.resolved AND $candidate_state.era<=$closed AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX effect_outcome_refs WHERE effect=$candidate LIMIT 1)=0"
         }
+        "operation_page" => {
+            "$candidate_state.era<=$closed AND $candidate_state.resolved AND $parent!=NONE AND $parent.format=1 AND $parent.generation=$candidate_state.generation AND $parent.era=$candidate_state.era AND $parent.owner=$candidate_state.owner AND $parent.owner_kind=$candidate_state.owner_kind AND $parent.state IN ['completed','fenced'] AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$parent_id LIMIT 1)=0"
+        }
+        "operation" => {
+            "$candidate_state.era<=$closed AND $candidate_state.format=1 AND $candidate_state.state IN ['completed','fenced'] AND array::len(SELECT VALUE id FROM native_operation_page WITH INDEX operation_pages WHERE operation=$candidate LIMIT 1)=0"
+        }
         "cleanup" => {
             "$candidate_state.era<=$closed AND $candidate_state.state IN ['done','superseded'] AND ($candidate_state.state='superseded' OR array::len($candidate_state.owners)=0) AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX cleanup_predecessor WHERE predecessor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX cleanup_successor WHERE successor=$candidate LIMIT 1)=0"
         }
@@ -224,9 +232,9 @@ fn eligible(phase: &str) -> Result<String, ModelError> {
         "pin" => "$candidate_state.era<=$closed AND $candidate_state.released",
         "backup" => "$candidate_state.era<=$closed AND !$candidate_state.active",
         "attempt" => {
-            "$candidate_state.era<=$closed AND $candidate_state.epoch>0 AND $candidate_state.state IN ['closed','abandoned','maintenance_fenced'] AND array::len(SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM compiler_binding WITH INDEX binding_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_publication_staging WITH INDEX attempt_staging WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX attempt_cleanup WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX attempt_effects WHERE attempt=$candidate LIMIT 1)=0"
+            "$candidate_state.era<=$closed AND $candidate_state.epoch>0 AND $candidate_state.state IN ['closed','abandoned','maintenance_fenced'] AND array::len(SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM compiler_binding WITH INDEX binding_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_publication_staging WITH INDEX attempt_staging WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX attempt_cleanup WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX attempt_effects WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_operation WITH INDEX operation_owner WHERE owner=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_operation_page WITH INDEX operation_page_attempts WHERE attempt=$candidate LIMIT 1)=0"
         }
-        "operation_owner" => "$candidate_state.era<=$closed AND $candidate_state.state='done'",
+        "operation_owner" => "$candidate_state.era<=$closed AND $candidate_state.state='done' AND array::len(SELECT VALUE id FROM native_operation WITH INDEX operation_owner WHERE owner=$candidate LIMIT 1)=0",
         "checkpoint" => {
             "$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done'] AND $candidate!=$checkpoint"
         }
@@ -525,29 +533,17 @@ async fn charge_candidates(
     candidates: Vec<Object>,
 ) -> Result<Vec<Value>, ModelError> {
     let mut parents = std::collections::BTreeMap::new();
-    if matches!(phase, "retirement_item" | "attempt_stripe") && !candidates.is_empty() {
-        let ids = candidates
-            .iter()
-            .map(|row| {
-                match row.get(if phase == "attempt_stripe" {
-                    "attempt"
-                } else {
-                    "job"
-                }) {
-                    Some(Value::RecordId(id))
-                        if id.table.as_str()
-                            == if phase == "attempt_stripe" {
-                                "native_attempt"
-                            } else {
-                                "native_retirement"
-                            } =>
-                    {
-                        Ok(id.clone())
-                    }
-                    _ => Err(ModelError::Schema("native history retirement parent")),
-                }
-            })
-            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+    let parent = match phase {
+        "retirement_item" => Some(("job", "native_retirement")),
+        "attempt_stripe" => Some(("attempt", "native_attempt")),
+        "operation_page" => Some(("operation", "native_operation")),
+        _ => None,
+    };
+    if let Some((field, table)) = parent.filter(|_| !candidates.is_empty()) {
+        let ids = candidates.iter().map(|row| match row.get(field) {
+            Some(Value::RecordId(id)) if id.table.as_str() == table => Ok(id.clone()),
+            _ => Err(ModelError::Schema("native history candidate parent")),
+        }).collect::<Result<std::collections::BTreeSet<_>, _>>()?;
         let mut response = client
             .query("SELECT * FROM $parents")
             .bind(("parents", ids.into_iter().collect::<Vec<_>>()))
@@ -584,6 +580,7 @@ fn charged_candidate_rows(
             let parent = match candidate
                 .get("job")
                 .or_else(|| candidate.get("slot").and_then(|_| candidate.get("attempt")))
+                .or_else(|| candidate.get("operation"))
             {
                 Some(Value::RecordId(id)) => parents
                     .get(id)
@@ -617,6 +614,8 @@ fn page_sql(phase: &str, position: usize, count: usize) -> Result<String, ModelE
     for index in 0..count {
         let parent = if phase == "attempt_stripe" {
             "LET $parent_id=$candidate_state.attempt; LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; IF $parent!=$row.parent { THROW 'native history attempt parent changed'; };"
+        } else if phase == "operation_page" {
+            "LET $parent_id=$candidate_state.operation; fn::native_touch($parent_id); LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; IF $parent!=$row.parent { THROW 'native history operation parent changed'; };"
         } else if phase == "retirement_item" {
             "LET $parent_id=$candidate_state.job; fn::native_touch($parent_id); LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; fn::native_touch($parent.lineage); IF $parent!=$row.parent { THROW 'native history parent changed'; };"
         } else {
@@ -729,6 +728,8 @@ pub async fn retain_native_outcome(
                 | "native_retirement"
                 | "native_retirement_item"
                 | "native_history_checkpoint"
+                | "native_operation"
+                | "native_operation_page"
         )
     {
         return Err(ModelError::Invalid("native exact outcome retention".into()));
@@ -772,9 +773,11 @@ mod tests {
     use super::*;
     // One-off actual evidence acquisition, deliberately separate from qualification and
     // collector controls. The host/run owners supply exclusion and artifact retention.
-    const INVENTORY_TABLES: [&str; 23] = [
+    const INVENTORY_TABLES: [&str; 25] = [
         "native_outcome_ref",
         "native_effect",
+        "native_operation",
+        "native_operation_page",
         "native_attempt",
         "native_hold",
         "native_cleanup",
@@ -1285,6 +1288,36 @@ mod tests {
     fn check_preceding_deletion_sql(sql: &str) -> String {
         assert_eq!(sql.matches(" LET $row=$rows[1]").count(), 1);
         sql.replacen(" LET $row=$rows[1]"," IF array::len(SELECT VALUE id FROM $candidate_first)>0 { THROW 'qualification first retirement item was not deleted'; }; LET $row=$rows[1]",1)
+    }
+    #[test]
+    fn operation_pages_retain_exact_parent_inventory_and_use_scalar_collection_locks() {
+        let root = RecordId::new("native_operation", "operation-root-control");
+        let parent = Object::from_iter([
+            ("id".into(), Value::RecordId(root.clone())),
+            ("state".into(), Value::String("fenced".into())),
+            ("committed_prefix".into(), Value::Number(2i64.into())),
+        ]);
+        let candidates = (0..2).map(|ordinal| Object::from_iter([
+            ("id".into(), Value::RecordId(RecordId::new("native_operation_page", format!("page-{ordinal}")))),
+            ("operation".into(), Value::RecordId(root.clone())),
+        ])).collect();
+        let charged = charged_candidate_rows(candidates, &[(root, parent.clone())].into()).unwrap();
+        assert_eq!(charged.len(), 2);
+        for row in charged { assert_eq!(row.as_object().unwrap().get("parent"), Some(&Value::Object(parent.clone()))); }
+        let page_position = PHASES.iter().position(|entry| entry.0 == "operation_page").unwrap();
+        let root_position = PHASES.iter().position(|entry| entry.0 == "operation").unwrap();
+        let attempt_position = PHASES.iter().position(|entry| entry.0 == "attempt").unwrap();
+        assert!(page_position < root_position && root_position < attempt_position);
+        let page_sql = page_sql("operation_page", page_position, 2).unwrap();
+        surrealdb_syn::parse(&page_sql).unwrap();
+        assert!(page_sql.contains("FROM ONLY $parent_id FOR UPDATE"));
+        assert!(page_sql.contains("native history operation parent changed"));
+        assert!(page_sql.contains("WHERE object=$parent_id"));
+        assert!(!page_sql.contains("native_attempt_cut"));
+        let root_sql = super::page_sql("operation", root_position, 1).unwrap();
+        surrealdb_syn::parse(&root_sql).unwrap();
+        assert!(root_sql.contains("native_operation_page WITH INDEX operation_pages WHERE operation=$candidate LIMIT 1)=0"));
+        assert!(root_sql.contains("WHERE object=$candidate"));
     }
     #[test]
     fn history_private_qualification_fault_queries_parse_production_pages() {

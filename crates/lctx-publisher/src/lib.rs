@@ -27,7 +27,10 @@ pub async fn check_definitions(
     let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
     let result = async {
         lctx_native::control::check_installation(&client, config.service_generation).await?;
-        let loader = lctx_native::Loader::new(client.clone());
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )?;
+        let loader = lctx_native::Loader::new(client.clone()).with_budget(&budget);
         crate::definitions::verify_epoch(&loader, blueprint).await
     }
     .await;

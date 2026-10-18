@@ -76,7 +76,7 @@ pub(crate) struct ExecutedCheck {
     operation: Operation,
     caps: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
     execution: Execution,
-    _whole: Option<lctx_model::domain::checked_admission::CheckedValidationPremise>,
+    _whole: Option<Box<lctx_model::domain::checked_admission::CheckedValidationPremise>>,
     _charge: StateCharge,
 }
 impl ExecutedCheck {
@@ -114,7 +114,7 @@ impl PreparedScopedCheck {
     }
     fn finish_whole(
         self,
-        proof: lctx_model::domain::checked_admission::CheckedValidationPremise,
+        proof: Box<lctx_model::domain::checked_admission::CheckedValidationPremise>,
         cancellation: &Cancellation,
     ) -> Result<Arc<ExecutedCheck>, ModelError> {
         cancellation.check()?;
@@ -998,7 +998,8 @@ mod controls {
                     // source is invalid. That successful prefix must never earn private authority.
                     let inputs = runtime.inputs([InputRevision::NAME]).unwrap();
                     let session = SessionContext::new();
-                    session.register_batch(InputRevision::NAME,
+                    let external_table = inputs.validation_table(&ValidationInput::of::<InputRevision>(&["id"])).unwrap();
+                    session.register_batch(external_table.as_str(),
                         InputRevision::encode(&[InputRevision::from_entries(vec![]).unwrap()]).unwrap()).unwrap();
                     let bindings = inputs.relations.values().map(|input| SelectedBinding {
                         role: input.role, requested: input.requested, resolved: input.resolved,

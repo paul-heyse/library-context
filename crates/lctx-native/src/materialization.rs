@@ -141,7 +141,7 @@ mod blueprint_controls {
             "".to_owned(),
             "INSERT INTO entity { body: {} };".to_owned(),
             "DEFINE FIELD body ON entity TYPE object FLEXIBLE;".to_owned(),
-            native_definitions() + "INSERT INTO compiler_record { body: {} };",
+            native_definitions() + "INSERT INTO compiler_block { rows: [] };",
             full.clone() + "INSERT INTO entity { body: {} };",
             full.replace("RETURN '", "INSERT INTO entity { body: {} }; RETURN '"),
             full.replace(

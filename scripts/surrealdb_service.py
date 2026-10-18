@@ -655,7 +655,10 @@ def sql(
         ) from None
 
 
-INSPECT_TABLES = frozenset({"entity", "entity_anchor", "native_hold", "compiler_contribution"})
+INSPECT_TABLES = frozenset({
+    "entity", "entity_anchor", "native_hold", "compiler_contribution",
+    "compiler_block", "compiler_membership", "native_operation", "native_operation_page",
+})
 INSPECT_MAX_RECORDS = 64
 INSPECT_MANIFEST_BYTES = 64 * 1024
 INSPECT_RESPONSE_BYTES = 8 * 1024**2
@@ -3742,11 +3745,11 @@ def _installer_cli(
 
 def _current_schema(value: Mapping[str, Any]) -> None:
     if (
-        value.get("schema_version") != 9
+        value.get("schema_version") != 10
         or not isinstance(value.get("schema"), str)
         or not re.fullmatch(r"[0-9a-f]{64}", value["schema"])
     ):
-        raise FixtureBlocked("schema", "installer must declare the current native format9 schema")
+        raise FixtureBlocked("schema", "installer must declare the current native format10 schema")
 
 
 def _owned_daemon_start(installation: Installation) -> None:
