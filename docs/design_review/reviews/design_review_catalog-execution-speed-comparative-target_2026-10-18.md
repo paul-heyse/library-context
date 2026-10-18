@@ -130,10 +130,12 @@ H5–20 and H21–28 explain the material tradeoffs without creating a checklist
 
 ## 3. Findings and corrective contracts
 
-Current disposition for every F item is **Open / Proposed; not scheduled**, owned by this review
-until transferred to an implementation plan. The trigger is plan creation selecting this target;
-closure requires each item's stated evidence. Existing publication-plan findings retain their
-own current status; this review does not close or supersede them.
+**Disposition transferred2026-10-18:** the new standalone
+[execution-speed coordinator §6](../../plans/catalog-execution-speed-plan_2026-10-18.md#6-sole-disposition-and-current-checkpoint)
+owns current F01–F13/I01–I05 execution status and recommendation routing; its §3 records explicit
+operator acceptance of RC01–RC09. Replacement implementations remain Proposed and closure requires
+the stated evidence. This review retains its dated assessment. Existing publication-plan findings
+retain their own current status; neither this transfer nor the new plans closes or supersedes them.
 
 <a id="F01"></a>
 ### F01 — Private stage handoff purchases remote durability without a necessary consumer
