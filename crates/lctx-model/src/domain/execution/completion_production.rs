@@ -430,22 +430,35 @@ fn complete_with_values(
     // Immutable syntax and authentic evaluation correspondence belong to this admitted
     // window. Only statement/body proof state is rebuilt for each semantic request.
     let prepared = super::evaluation::PreparedExecution::new(
-        facts, invocation.input, invocation.context, budget,
+        facts,
+        invocation.input,
+        invocation.context,
+        budget,
     )?;
-    let mut by_owner = charged::ChargedMap::<Id<normalized::entities::EntityRef>, Vec<&super::evaluation::CheckedEvaluation>>::default();
+    let mut by_owner = charged::ChargedMap::<
+        Id<normalized::entities::EntityRef>,
+        Vec<&super::evaluation::CheckedEvaluation>,
+    >::default();
     for proof in &checked {
         by_owner.push(&mut charge, proof.request().owner, proof.as_ref())?;
     }
     let mut by_expression = charged::ChargedMap::<
-        (Id<normalized::entities::EntityRef>, Id<Occurrence>), Vec<&CompletionEvaluation<'_>>,
+        (Id<normalized::entities::EntityRef>, Id<Occurrence>),
+        Vec<&CompletionEvaluation<'_>>,
     >::default();
     for row in &rows {
-        by_expression.push(&mut charge, (row.evaluation.owner, row.evaluation.expression), row)?;
+        by_expression.push(
+            &mut charge,
+            (row.evaluation.owner, row.evaluation.expression),
+            row,
+        )?;
     }
     for row in facts.occurrences.iter().filter(|row| {
         selected_statement.is_none_or(|selected| row.id() == selected)
             && selected_body.is_none_or(|selected| {
-                prepared.completion_owners(row.id()).any(|owner| owner.entity == selected)
+                prepared
+                    .completion_owners(row.id())
+                    .any(|owner| owner.entity == selected)
             })
             && is_statement(row.syntax_kind)
             && roots.contains(&row.source)
@@ -467,10 +480,15 @@ fn complete_with_values(
             complete_prepared_with_contexts(
                 &prepared,
                 CompletionRequest {
-                    input: invocation.input, context: invocation.context,
-                    owner, statement: row.id(),
+                    input: invocation.input,
+                    context: invocation.context,
+                    owner,
+                    statement: row.id(),
                 },
-                refs, &[], &[], &[],
+                refs,
+                &[],
+                &[],
+                &[],
             )?
         } else {
             Err(obligation::ObligationKind::MissingEvidence)
@@ -489,8 +507,10 @@ fn complete_with_values(
                     .evaluation_facts()
                     .iter()
                     .map(|facts| {
-                        let mut matching = by_expression.get(&facts.lookup_key())
-                            .into_iter().flatten()
+                        let mut matching = by_expression
+                            .get(&facts.lookup_key())
+                            .into_iter()
+                            .flatten()
                             .filter(|row| facts.matches(row.evaluation, row.invocation));
                         let row = matching.next().ok_or_else(|| {
                             invalid("completion entered evaluation mapping absent")

@@ -714,7 +714,11 @@ impl<R: Record> Batch<R> {
         Self::from_canonical(model, rows, reservation)
     }
     /// Only the model's validated canonical carrier bypasses validation and sorting.
-    pub(crate) fn from_canonical(model: &ValidatedModel, rows: Vec<R>, mut reservation: Box<dyn Reservation>) -> Result<Self, ModelError> {
+    pub(crate) fn from_canonical(
+        model: &ValidatedModel,
+        rows: Vec<R>,
+        mut reservation: Box<dyn Reservation>,
+    ) -> Result<Self, ModelError> {
         model.require::<R>()?;
         let held = rows_bytes(&rows, rows.capacity())?;
         let overflow = || ModelError::Invalid(format!("{} encoding size overflow", R::NAME));

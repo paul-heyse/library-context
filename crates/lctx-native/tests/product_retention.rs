@@ -57,10 +57,18 @@ impl Product {
         .await
         .unwrap();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
-        let observer_factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone()).unwrap();
+        let observer_factory =
+            control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget.clone())
+                .unwrap();
         let (client, observer_lease) = lctx_native::reader::connect_owned(
-            &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &observer_factory,
-        ).await.unwrap();
+            &cfg.endpoint,
+            &cfg.writer_credentials(),
+            cfg.namespace.as_str(),
+            cfg.database.as_str(),
+            &observer_factory,
+        )
+        .await
+        .unwrap();
         let request = control::fresh_identity("product-retention-control").unwrap();
         let relation = Relation::of::<Package>();
         let spec = ContributionSpec {
@@ -140,12 +148,15 @@ impl Product {
         response.take(0).unwrap()
     }
     async fn release(&self) -> ContentHash {
-        control::with_recovery_scope(self.observer_lease.recovery_scope().clone(), control::release_retained_product(
-            self.client.clone(),
-            self.request,
-            self.source.attempt(),
-            &self.budget,
-        ))
+        control::with_recovery_scope(
+            self.observer_lease.recovery_scope().clone(),
+            control::release_retained_product(
+                self.client.clone(),
+                self.request,
+                self.source.attempt(),
+                &self.budget,
+            ),
+        )
         .await
         .unwrap()
         .unwrap()
@@ -173,28 +184,43 @@ impl Product {
     async fn finish(self, result: Result<(), Box<dyn std::any::Any + Send>>) {
         self.finish_with(result, Completion::default()).await;
     }
-    async fn finish_with(self, result: Result<(), Box<dyn std::any::Any + Send>>, mut terminal: Completion) {
+    async fn finish_with(
+        self,
+        result: Result<(), Box<dyn std::any::Any + Send>>,
+        mut terminal: Completion,
+    ) {
         let connection = self.client.connection_completion().unwrap();
         terminal.step("product control source close", self.source.abandon().await);
         terminal.step(
             "product control explicit warm release",
-            control::with_recovery_scope(self.observer_lease.recovery_scope().clone(), control::release_retained_product(
-                self.client.clone(),
-                self.request,
-                self.source.attempt(),
-                &self.budget,
-            ))
+            control::with_recovery_scope(
+                self.observer_lease.recovery_scope().clone(),
+                control::release_retained_product(
+                    self.client.clone(),
+                    self.request,
+                    self.source.attempt(),
+                    &self.budget,
+                ),
+            )
             .await
             .map(|_| ()),
         );
         let observed = self.observer_lease.complete_with(&terminal).await;
         terminal.step("product control observer completion", observed);
         drop(self.observer_lease);
-        terminal.step("product control observer factory drainage", self.observer_factory.drain(&control::RetryCancellation::default()).await);
+        terminal.step(
+            "product control observer factory drainage",
+            self.observer_factory
+                .drain(&control::RetryCancellation::default())
+                .await,
+        );
         drop(self.observer_factory);
         drop(self.client);
         if terminal.is_satisfied() {
-            terminal.step("product control observer SDK completion", connection.wait().await.map_err(ModelError::codec));
+            terminal.step(
+                "product control observer SDK completion",
+                connection.wait().await.map_err(ModelError::codec),
+            );
         }
         let cleanup = complete(Ok(()), terminal);
         if let Err(primary) = result {
@@ -267,7 +293,9 @@ async fn terminal_binding_slot_collection_preserves_canonical_completion_and_liv
     let mut terminal = Completion::default();
     if let Some(pin) = &pin {
         let released = control::with_recovery_scope(scope.clone(), pin.release()).await;
-        if released.is_err() { pin.retain_unknown(); }
+        if released.is_err() {
+            pin.retain_unknown();
+        }
         terminal.step("product control independent pin release", released);
     }
     drop(pin);

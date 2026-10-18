@@ -20,7 +20,9 @@ pub struct InstalledMember {
     pub locator: Value,
 }
 impl PartialEq for InstalledMember {
-    fn eq(&self,other:&Self)->bool{self.key==other.key&&self.node==other.node&&self.content==other.content}
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.node == other.node && self.content == other.content
+    }
 }
 impl Eq for InstalledMember {}
 pub struct SelectedMembers {
@@ -218,7 +220,7 @@ impl HeldInstalledView {
                     value.insert("semantic_key", hex::encode(member.key));
                     value.insert("node", member.node.clone());
                     value.insert("content", member.content.hex());
-                    value.insert("locator",member.locator.clone());
+                    value.insert("locator", member.locator.clone());
                     if !sender.send(Value::Object(value)).await? {
                         break;
                     }
@@ -241,7 +243,9 @@ impl HeldInstalledView {
                 let Some(Value::String(content)) = object.get("content") else {
                     return Err(ModelError::Schema("owned compact member content"));
                 };
-                let locator=object.get("locator").ok_or(ModelError::Schema("owned member physical locator"))?;
+                let locator = object
+                    .get("locator")
+                    .ok_or(ModelError::Schema("owned member physical locator"))?;
                 crate::compiler_blocks::validate_locator(locator)?;
                 charge.grow(crate::loader::native_bytes(locator).saturating_mul(8))?;
                 charge.grow(

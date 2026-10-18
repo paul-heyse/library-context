@@ -1065,10 +1065,18 @@ impl AuditRows {
         }
         Ok(())
     }
-    async fn push_owned(&mut self, row: (Value, Box<dyn d::resources::Reservation>)) -> Result<(), ModelError> {
+    async fn push_owned(
+        &mut self,
+        row: (Value, Box<dyn d::resources::Reservation>),
+    ) -> Result<(), ModelError> {
         self.flush().await?;
-        let handles = self.budget.reserve("audit owned logical row handle", std::mem::size_of_val(&row))?;
-        self.sort.push_owned_batch_reserved(vec![row], handles).await
+        let handles = self.budget.reserve(
+            "audit owned logical row handle",
+            std::mem::size_of_val(&row),
+        )?;
+        self.sort
+            .push_owned_batch_reserved(vec![row], handles)
+            .await
     }
     async fn flush(&mut self) -> Result<(), ModelError> {
         if self.rows.is_empty() {
@@ -2932,7 +2940,9 @@ async fn audit_memberships_demand(
         let mut page = Vec::new();
         let mut page_charge = StateCharge::new(budget, "contributor protection page identities");
         while page.len() < crate::loader::NATIVE_WINDOW_ROWS {
-            let Some(expected) = contributors.peek().copied() else { break; };
+            let Some(expected) = contributors.peek().copied() else {
+                break;
+            };
             if let Some(cached) = audit.contributors.get(expected.record()) {
                 if cached.incarnation() != expected.incarnation() || cached.row() != expected.row()
                 {
@@ -3031,7 +3041,8 @@ async fn protect_contributor_page(
     let mut width = crate::loader::NATIVE_WINDOW_ROWS;
     while offset < page.len() {
         let count = width.min(page.len() - offset);
-        let bytes = page[offset..offset + count].iter()
+        let bytes = page[offset..offset + count]
+            .iter()
             .map(|expected| crate::selection::node_bytes(expected.record()).saturating_mul(2))
             .fold(0usize, usize::saturating_add);
         let _request = match budget.reserve("contributor protection request identities", bytes) {
@@ -3041,8 +3052,15 @@ async fn protect_contributor_page(
             }
             result => result?,
         };
-        let result = audit.pin.protect_many(page[offset..offset + count].iter()
-            .map(|expected| expected.record().clone()).collect()).await;
+        let result = audit
+            .pin
+            .protect_many(
+                page[offset..offset + count]
+                    .iter()
+                    .map(|expected| expected.record().clone())
+                    .collect(),
+            )
+            .await;
         match result {
             // protect_many's direct Resource is local hold-plan/continuation
             // admission before issuance. Issued native errors carry their request
@@ -3121,7 +3139,9 @@ async fn audit_one_protected_contributor(
     let mut memberships = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
     let mut logical_memberships = if full {
         Some(AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?)
-    } else { None };
+    } else {
+        None
+    };
     let mut backing = if full {
         Some(AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?)
     } else {
@@ -3193,7 +3213,13 @@ async fn audit_one_protected_contributor(
             after_key = key;
             memberships.push(row.clone()).await?;
             if let Some(logical) = logical_memberships.as_mut() {
-                logical.push(crate::completed_logical_rows::normalize("compiler_membership", row, &owners)?).await?;
+                logical
+                    .push(crate::completed_logical_rows::normalize(
+                        "compiler_membership",
+                        row,
+                        &owners,
+                    )?)
+                    .await?;
             }
             window.push(row.clone());
             if window.len() >= crate::loader::NATIVE_WINDOW_ROWS
@@ -3283,7 +3309,10 @@ async fn audit_one_protected_contributor(
             .await?;
         Some(LogicalContributorRows {
             contribution: contribution.finish().await?,
-            memberships: logical_memberships.expect("full family consumer owns logical memberships").finish().await?,
+            memberships: logical_memberships
+                .expect("full family consumer owns logical memberships")
+                .finish()
+                .await?,
             backing: backing.finish().await?,
         })
     } else {
@@ -3506,12 +3535,15 @@ async fn audit_membership_window(
             ));
         }
     }
-    let mut actual = crate::compiler_blocks::inspect_backing_window_read(reader, members, budget).await?;
+    let mut actual =
+        crate::compiler_blocks::inspect_backing_window_read(reader, members, budget).await?;
     let mut physical = BTreeSet::new();
     for node in metadata.keys() {
         let located = actual.get(node)?;
         if !physical.contains(located.physical_record()) {
-            charge.grow(crate::selection::node_bytes(located.physical_record()).saturating_add(128))?;
+            charge.grow(
+                crate::selection::node_bytes(located.physical_record()).saturating_add(128),
+            )?;
             physical.insert(located.physical_record().clone());
         }
     }
@@ -3523,37 +3555,56 @@ async fn audit_membership_window(
     for (node, member) in metadata {
         let located = actual.take_required(&node)?;
         let row = located.row();
-        let backing = row.as_object().ok_or(ModelError::Schema("installed set backing object"))?;
+        let backing = row
+            .as_object()
+            .ok_or(ModelError::Schema("installed set backing object"))?;
         if backing.get("semantic_type") != member.get("relation")
             || backing.get("semantic_key") != member.get("semantic_key")
             || backing.get("content") != member.get("content")
         {
-            return Err(ModelError::Conflict("installed membership backing metadata"));
+            return Err(ModelError::Conflict(
+                "installed membership backing metadata",
+            ));
         }
         let crate::completed_rows::CanonicalBackingEndpoints {
-            endpoints: expected, original, reservation: _decode,
+            endpoints: expected,
+            original,
+            reservation: _decode,
         } = canonical_backing_endpoints(row, budget)?;
-        if let Some(original) = original { audit_original(reader, &original, budget, audit).await?; }
+        if let Some(original) = original {
+            audit_original(reader, &original, budget, audit).await?;
+        }
         for endpoint in expected {
-            let Some(Value::RecordId(id)) = endpoint.as_object().and_then(|row| row.get("id")) else {
+            let Some(Value::RecordId(id)) = endpoint.as_object().and_then(|row| row.get("id"))
+            else {
                 return Err(ModelError::Schema("installed canonical endpoint id"));
             };
-            let bytes = crate::loader::native_bytes(&endpoint).saturating_mul(8).saturating_add(512);
-            if !endpoints.is_empty() && (endpoints.len() >= crate::loader::NATIVE_WINDOW_ROWS
-                || endpoint_charge.reserved().saturating_add(bytes) > d::resources::TRANSFER_BYTES)
+            let bytes = crate::loader::native_bytes(&endpoint)
+                .saturating_mul(8)
+                .saturating_add(512);
+            if !endpoints.is_empty()
+                && (endpoints.len() >= crate::loader::NATIVE_WINDOW_ROWS
+                    || endpoint_charge.reserved().saturating_add(bytes)
+                        > d::resources::TRANSFER_BYTES)
             {
                 audit_endpoint_window(reader, owner, &endpoints, budget).await?;
                 endpoints.clear();
                 endpoint_charge = StateCharge::new(budget, "installed endpoint set preparation");
             }
             if let Some(previous) = endpoints.get(id) {
-                if previous != endpoint { return Err(ModelError::Conflict("installed endpoint expected collision")); }
+                if previous != endpoint {
+                    return Err(ModelError::Conflict(
+                        "installed endpoint expected collision",
+                    ));
+                }
             } else {
                 endpoint_charge.grow(bytes)?;
                 endpoints.insert(id.clone(), endpoint);
             }
         }
-        if node.table.as_str() == "compiler_record" && let Some(sort) = logical_backing.as_mut() {
+        if node.table.as_str() == "compiler_record"
+            && let Some(sort) = logical_backing.as_mut()
+        {
             sort.push_owned(located.into_owned_row(budget)?).await?;
         }
     }
@@ -5758,41 +5809,67 @@ async fn prepare_logical_contributor(
         )?)
         .await?;
     let mut members = crate::acknowledged_candidates::AsyncOrderedRows::new_registered(
-        compact.memberships.clone(), budget, audit.clone(), audit.blocking_observer()?,
-    ).await?;
+        compact.memberships.clone(),
+        budget,
+        audit.clone(),
+        audit.blocking_observer()?,
+    )
+    .await?;
     let mut memberships = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
     let mut backing = AuditRows::new(audit, budget, d::resources::MAX_ROW_BYTES).await?;
     let result = async {
         loop {
-            let batch = members.next_batch(crate::loader::NATIVE_WINDOW_ROWS).await?;
-            if batch.is_empty() { break; }
+            let batch = members
+                .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
+                .await?;
+            if batch.is_empty() {
+                break;
+            }
             let mut typed = Vec::new();
             let mut charge = StateCharge::new(budget, "logical selected locator batch");
             for row in batch {
                 crate::compiler_blocks::validate_locator(&row)?;
-                memberships.push(crate::completed_logical_rows::normalize("compiler_membership", &row, owners)?).await?;
-                let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node")) else {
+                memberships
+                    .push(crate::completed_logical_rows::normalize(
+                        "compiler_membership",
+                        &row,
+                        owners,
+                    )?)
+                    .await?;
+                let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node"))
+                else {
                     return Err(ModelError::Schema("logical backing member node"));
                 };
                 if node.table.as_str() == "compiler_record" {
-                    charge.grow(crate::loader::native_bytes(&row).saturating_mul(8).saturating_add(512))?;
+                    charge.grow(
+                        crate::loader::native_bytes(&row)
+                            .saturating_mul(8)
+                            .saturating_add(512),
+                    )?;
                     typed.push(row);
                 }
             }
             append_backing_page(reader, &typed, budget, &mut backing).await?;
         }
         #[cfg(test)]
-        if LATE_MEMBERSHIP_FAILURE.try_with(|enabled| *enabled).unwrap_or(false) {
-            return Err(ModelError::Conflict("late logical backing preparation control"));
+        if LATE_MEMBERSHIP_FAILURE
+            .try_with(|enabled| *enabled)
+            .unwrap_or(false)
+        {
+            return Err(ModelError::Conflict(
+                "late logical backing preparation control",
+            ));
         }
         Ok::<_, ModelError>(())
-    }.await;
+    }
+    .await;
     let mut terminal = d::completion::Completion::default();
     terminal.step("logical membership cursor terminal", members.drain().await);
     d::completion::complete(result, terminal)?;
     Ok(LogicalContributorRows {
         contribution: contribution.finish().await?,
-        memberships: memberships.finish().await?, backing: backing.finish().await?,
+        memberships: memberships.finish().await?,
+        backing: backing.finish().await?,
     })
 }
 // Only explicitly typed page-owned refusal can shrink an exact retained slice. No
@@ -5809,24 +5886,47 @@ async fn append_backing_page(
     while let Some((start, end)) = retries.next() {
         let page: Result<(), PageAcquireFailure> = async {
             let selected = &pointers[start..end];
-            let mut actual = crate::compiler_blocks::inspect_backing_page_read(reader, selected, budget).await?;
-            let transfer = budget.reserve("logical backing owned row handles",
-                selected.len().saturating_mul(std::mem::size_of::<(Value, Box<dyn d::resources::Reservation>)>()))
+            let mut actual =
+                crate::compiler_blocks::inspect_backing_page_read(reader, selected, budget).await?;
+            let transfer = budget
+                .reserve(
+                    "logical backing owned row handles",
+                    selected.len().saturating_mul(std::mem::size_of::<(
+                        Value,
+                        Box<dyn d::resources::Reservation>,
+                    )>()),
+                )
                 .map_err(PageAcquireFailure::Terminal)?;
             let mut rows = Vec::with_capacity(selected.len());
             for pointer in selected {
-                let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("node")) else {
-                    return Err(PageAcquireFailure::Terminal(ModelError::Schema("logical backing locator node")));
+                let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("node"))
+                else {
+                    return Err(PageAcquireFailure::Terminal(ModelError::Schema(
+                        "logical backing locator node",
+                    )));
                 };
-                let row = actual.take_required(id).map_err(PageAcquireFailure::Terminal)?;
-                validate_state_row("compiler_record", row.row()).map_err(PageAcquireFailure::Terminal)?;
-                rows.push(row.into_owned_row(budget).map_err(PageAcquireFailure::Terminal)?);
+                let row = actual
+                    .take_required(id)
+                    .map_err(PageAcquireFailure::Terminal)?;
+                validate_state_row("compiler_record", row.row())
+                    .map_err(PageAcquireFailure::Terminal)?;
+                rows.push(
+                    row.into_owned_row(budget)
+                        .map_err(PageAcquireFailure::Terminal)?,
+                );
             }
             drop(actual);
-            backing.sort.push_owned_batch_reserved(rows, transfer).await.map_err(PageAcquireFailure::Terminal)?;
+            backing
+                .sort
+                .push_owned_batch_reserved(rows, transfer)
+                .await
+                .map_err(PageAcquireFailure::Terminal)?;
             Ok(())
-        }.await;
-        if let Err(error) = page { retries.refuse((start, end), error)?; }
+        }
+        .await;
+        if let Err(error) = page {
+            retries.refuse((start, end), error)?;
+        }
     }
     Ok(())
 }
@@ -6367,16 +6467,29 @@ async fn logical_roots_many_inner(
                 let mut charge = StateCharge::new(budget, "logical native locator window");
                 while let Some(row) = rows.next().await? {
                     crate::compiler_blocks::validate_locator(&row)?;
-                    families[1].push(crate::completed_logical_rows::normalize("compiler_membership", &row, &owners)?)?;
-                    let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node")) else {
+                    families[1].push(crate::completed_logical_rows::normalize(
+                        "compiler_membership",
+                        &row,
+                        &owners,
+                    )?)?;
+                    let Some(Value::RecordId(node)) =
+                        row.as_object().and_then(|row| row.get("node"))
+                    else {
                         return Err(ModelError::Schema("logical backing member node"));
                     };
                     if node.table.as_str() == "compiler_record" {
-                        charge.grow(crate::loader::native_bytes(&row).saturating_mul(8).saturating_add(512))?;
+                        charge.grow(
+                            crate::loader::native_bytes(&row)
+                                .saturating_mul(8)
+                                .saturating_add(512),
+                        )?;
                         locators.push(row);
                     }
-                    if locators.len() >= crate::loader::NATIVE_WINDOW_ROWS || charge.reserved() >= d::resources::TRANSFER_BYTES {
-                        append_logical_backing_records(reader, &locators, budget, &mut families[3]).await?;
+                    if locators.len() >= crate::loader::NATIVE_WINDOW_ROWS
+                        || charge.reserved() >= d::resources::TRANSFER_BYTES
+                    {
+                        append_logical_backing_records(reader, &locators, budget, &mut families[3])
+                            .await?;
                         locators.clear();
                         charge = StateCharge::new(budget, "logical native locator window");
                     }
@@ -6448,12 +6561,16 @@ async fn logical_roots_many_inner(
 
 #[cfg(test)]
 async fn append_logical_backing_records(
-    reader: &NativeReader<()>, locators: &[Value], budget: &ResourceBudget,
+    reader: &NativeReader<()>,
+    locators: &[Value],
+    budget: &ResourceBudget,
     sort: &mut crate::ordered_rows::SortedRows,
 ) -> Result<(), ModelError> {
-    let mut actual = crate::compiler_blocks::inspect_backing_window_read(reader, locators, budget).await?;
+    let mut actual =
+        crate::compiler_blocks::inspect_backing_window_read(reader, locators, budget).await?;
     for locator in locators {
-        let Some(Value::RecordId(node)) = locator.as_object().and_then(|row| row.get("node")) else {
+        let Some(Value::RecordId(node)) = locator.as_object().and_then(|row| row.get("node"))
+        else {
             return Err(ModelError::Schema("logical backing locator node"));
         };
         let row = actual.take_required(node)?;
@@ -6979,60 +7096,101 @@ fn compose_selected_member_runs(
     // Physical placements can differ for the same selected logical member. Sort the small
     // projection by nominal member THEN source locator, compare logical metadata only, and
     // retain one deterministic placement. Neither placement nor packing enters content identity.
-    let mut placements = crate::ordered_rows::SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
+    let mut placements = crate::ordered_rows::SortedRows::with_budget_and_row_bytes(
+        budget,
+        d::resources::MAX_ROW_BYTES,
+    )?;
     for run in runs {
         let mut cursor = run.cursor_with_budget(budget)?;
         loop {
             check()?;
-            let Some(row) = cursor.next_row()? else { break; };
+            let Some(row) = cursor.next_row()? else {
+                break;
+            };
             if !matches!(row.as_object().and_then(|row| row.get("relation")),
-                Some(Value::String(actual)) if actual == relation) {
+                Some(Value::String(actual)) if actual == relation)
+            {
                 return Err(ModelError::Conflict("selected prepared relation partition"));
             }
             crate::compiler_blocks::validate_locator(&row)?;
             let member = crate::completed_state::earning::member(selector, &row)?;
-            let member_id = member.as_object().and_then(|row| row.get("id")).cloned()
+            let member_id = member
+                .as_object()
+                .and_then(|row| row.get("id"))
+                .cloned()
                 .ok_or(ModelError::Schema("selected projected member ID"))?;
-            let locator_id = row.as_object().and_then(|row| row.get("id")).cloned()
+            let locator_id = row
+                .as_object()
+                .and_then(|row| row.get("id"))
+                .cloned()
                 .ok_or(ModelError::Schema("selected projected locator ID"))?;
             let mut projection = surrealdb::types::Object::new();
-            projection.insert("id", RecordId::new("prepared_member_placement", surrealdb::types::RecordIdKey::Array(vec![member_id, locator_id].into())));
+            projection.insert(
+                "id",
+                RecordId::new(
+                    "prepared_member_placement",
+                    surrealdb::types::RecordIdKey::Array(vec![member_id, locator_id].into()),
+                ),
+            );
             projection.insert("member", member);
             projection.insert("locator", row);
             placements.push(Value::Object(projection))?;
         }
     }
     let mut placements = placements.finish()?;
-    let mut rows = crate::ordered_rows::SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
+    let mut rows = crate::ordered_rows::SortedRows::with_budget_and_row_bytes(
+        budget,
+        d::resources::MAX_ROW_BYTES,
+    )?;
     let mut pending: Option<(Value, Value)> = None;
     let mut charge = StateCharge::new(budget, "selected nominal placement group");
     loop {
         check()?;
-        let Some(projection) = placements.next_row()? else { break; };
-        let Value::Object(mut projection) = projection else { return Err(ModelError::Schema("selected placement object")); };
-        let member = projection.remove("member").ok_or(ModelError::Schema("selected placement member"))?;
-        let locator = projection.remove("locator").ok_or(ModelError::Schema("selected placement locator"))?;
+        let Some(projection) = placements.next_row()? else {
+            break;
+        };
+        let Value::Object(mut projection) = projection else {
+            return Err(ModelError::Schema("selected placement object"));
+        };
+        let member = projection
+            .remove("member")
+            .ok_or(ModelError::Schema("selected placement member"))?;
+        let locator = projection
+            .remove("locator")
+            .ok_or(ModelError::Schema("selected placement locator"))?;
         if let Some((previous, _)) = pending.as_ref() {
-            if previous.as_object().and_then(|row| row.get("id")) == member.as_object().and_then(|row| row.get("id")) {
-                if previous != member { return Err(ModelError::Conflict("conflicting physical row identity")); }
+            if previous.as_object().and_then(|row| row.get("id"))
+                == member.as_object().and_then(|row| row.get("id"))
+            {
+                if previous != member {
+                    return Err(ModelError::Conflict("conflicting physical row identity"));
+                }
                 continue;
             }
             let (previous, locator) = pending.take().expect("current nominal group");
             rows.push(selected_member_with_locator(previous, locator)?)?;
             charge = StateCharge::new(budget, "selected nominal placement group");
         }
-        charge.grow(crate::loader::native_bytes(&member).saturating_add(crate::loader::native_bytes(&locator))
-            .saturating_mul(8).saturating_add(1024))?;
+        charge.grow(
+            crate::loader::native_bytes(&member)
+                .saturating_add(crate::loader::native_bytes(&locator))
+                .saturating_mul(8)
+                .saturating_add(1024),
+        )?;
         pending = Some((member, locator));
     }
-    if let Some((member, locator)) = pending { rows.push(selected_member_with_locator(member, locator)?)?; }
+    if let Some((member, locator)) = pending {
+        rows.push(selected_member_with_locator(member, locator)?)?;
+    }
     check()?;
     let rows = rows.finish()?.into_prepared();
     check()?;
     Ok(rows)
 }
 fn selected_member_with_locator(member: Value, locator: Value) -> Result<Value, ModelError> {
-    let Value::Object(mut member) = member else { return Err(ModelError::Schema("selected member object")); };
+    let Value::Object(mut member) = member else {
+        return Err(ModelError::Schema("selected member object"));
+    };
     member.insert("locator", locator);
     Ok(Value::Object(member))
 }
@@ -7435,10 +7593,18 @@ mod shared_preparation_controls {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let make = |owner, packing: &[u8], slot| {
             let mut row = relation_member(owner, "packages", 1, "equal");
-            let Value::Object(ref mut object) = row else { unreachable!() };
-            object.insert("node", RecordId::new("compiler_record", ContentHash::of(b"logical row").hex()));
+            let Value::Object(ref mut object) = row else {
+                unreachable!()
+            };
+            object.insert(
+                "node",
+                RecordId::new("compiler_record", ContentHash::of(b"logical row").hex()),
+            );
             object.insert("storage", "block");
-            object.insert("block", RecordId::new("compiler_block", ContentHash::of(packing).hex()));
+            object.insert(
+                "block",
+                RecordId::new("compiler_block", ContentHash::of(packing).hex()),
+            );
             object.insert("slot", slot);
             row
         };
@@ -7447,8 +7613,22 @@ mod shared_preparation_controls {
         let first = membership_run([one.clone()], &budget);
         let second = membership_run([two.clone()], &budget);
         let selector = ContentHash::of(b"different packing selector");
-        let a = compose_selected_member_runs(selector, "packages", &[first.clone(), second.clone()], &budget, || Ok(())).unwrap();
-        let b = compose_selected_member_runs(selector, "packages", &[second, first], &budget, || Ok(())).unwrap();
+        let a = compose_selected_member_runs(
+            selector,
+            "packages",
+            &[first.clone(), second.clone()],
+            &budget,
+            || Ok(()),
+        )
+        .unwrap();
+        let b = compose_selected_member_runs(
+            selector,
+            "packages",
+            &[second, first],
+            &budget,
+            || Ok(()),
+        )
+        .unwrap();
         let mut ac = a.cursor_with_budget(&budget).unwrap();
         let mut bc = b.cursor_with_budget(&budget).unwrap();
         let actual = ac.next_row().unwrap().unwrap();
@@ -7459,13 +7639,22 @@ mod shared_preparation_controls {
         assert_eq!(object.get("node"), one.as_object().unwrap().get("node"));
         let chosen = object.get("locator").unwrap();
         let chosen_id = chosen.as_object().unwrap().get("id").unwrap();
-        assert_eq!(chosen_id, std::cmp::min(one.as_object().unwrap().get("id").unwrap(), two.as_object().unwrap().get("id").unwrap()));
+        assert_eq!(
+            chosen_id,
+            std::cmp::min(
+                one.as_object().unwrap().get("id").unwrap(),
+                two.as_object().unwrap().get("id").unwrap()
+            )
+        );
         let logical = crate::completed_state::earning::member(selector, &one).unwrap();
         let mut expected = d::KeySink::new("native-selected-membership/v3");
         expected.part(b"member", &serde_json::to_vec(&logical).unwrap());
         expected.part(b"rows", &1u64.to_le_bytes());
-        assert_eq!(crate::completed_state::earning::selected_membership_content(&a, 1, &budget).unwrap(),
-            expected.finish(), "selected membership identity excludes physical packing and locator choice");
+        assert_eq!(
+            crate::completed_state::earning::selected_membership_content(&a, 1, &budget).unwrap(),
+            expected.finish(),
+            "selected membership identity excludes physical packing and locator choice"
+        );
     }
     #[test]
     fn relation_preparation_refuses_late_cancellation_and_resource_without_publishing() {

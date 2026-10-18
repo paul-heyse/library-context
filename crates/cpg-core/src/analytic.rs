@@ -409,7 +409,9 @@ pub async fn produce(
                 jobs.push(job);
             }
             let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
-            while let Some((data, mut context, mut results, mut receipts, mut projections)) = ready.next().await? {
+            while let Some((data, mut context, mut results, mut receipts, mut projections)) =
+                ready.next().await?
+            {
                 if !results.qualifications.is_empty() {
                     let (c, nodes) = conditions::Diagram::always().records();
                     output.push(c).await?;
@@ -452,7 +454,8 @@ pub async fn produce(
                     }
                     output.push(outcome).await?;
                 }
-                crate::producer_operations::emit_owned(&mut results.qualifications, &output).await?;
+                crate::producer_operations::emit_owned(&mut results.qualifications, &output)
+                    .await?;
                 emit_results(&mut results, &output).await?;
                 emit_context(&mut context, &output).await?;
                 crate::producer_operations::emit_owned(&mut receipts, &output).await?;

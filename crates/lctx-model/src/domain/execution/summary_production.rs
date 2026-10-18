@@ -155,7 +155,9 @@ pub struct OriginBoundary {
 /// Invocation-local questions discovered from processed live operands. This is preparation,
 /// never a persisted claim or a second pair trace.
 pub(super) type Question = (
-    Id<normalized::events::NormalizedCallEvent>, Id<Place>, Id<Place>,
+    Id<normalized::events::NormalizedCallEvent>,
+    Id<Place>,
+    Id<Place>,
     Id<AssertionQualification>,
 );
 struct QuestionDomain {
@@ -164,24 +166,32 @@ struct QuestionDomain {
 }
 impl QuestionDomain {
     fn new(budget: &ResourceBudget) -> Self {
-        Self { questions: Default::default(), charge: StateCharge::new(budget, "summary-question-domain") }
+        Self {
+            questions: Default::default(),
+            charge: StateCharge::new(budget, "summary-question-domain"),
+        }
     }
     fn discover(&mut self, question: Question) -> Result<(), ModelError> {
         self.questions.insert(&mut self.charge, question)?;
         Ok(())
     }
     fn observe(
-        &mut self, event: Id<normalized::events::NormalizedCallEvent>,
-        caller: &dyn CompositionOperand, callee: &dyn CompositionOperand,
+        &mut self,
+        event: Id<normalized::events::NormalizedCallEvent>,
+        caller: &dyn CompositionOperand,
+        callee: &dyn CompositionOperand,
         results: &[CallComposition],
     ) -> Result<(), ModelError> {
         if !results.is_empty() {
-            self.discover((event, caller.descriptor().input, callee.descriptor().output,
-                caller.qualification().id()))?;
+            self.discover((
+                event,
+                caller.descriptor().input,
+                callee.descriptor().output,
+                caller.qualification().id(),
+            ))?;
         }
         Ok(())
     }
-
 }
 #[macro_export]
 macro_rules! summary_owned_inputs{($apply:ident)=>{$apply!{
@@ -447,7 +457,9 @@ macro_rules! summary_outputs{($apply:ident)=>{$apply!{
 macro_rules! output{($($field:ident:$ty:ty,)*)=>{pub struct SummaryRecords{$(pub $field:Rows<$ty>,)*pub outcome:owner::AnalysisOutcome,pub vocabulary:Vocabulary,questions:QuestionDomain,pending:Option<(Vec<super::summary_consequences::PendingDischarge>,StateCharge)>}impl SummaryRecords{pub(super) fn new(i:Id<owner::AnalysisInvocation>,b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*outcome:owner::AnalysisOutcome{invocation:i,status:analysis::AnalysisStatus::Completed,reason:None},vocabulary:Vocabulary::new(b),questions:QuestionDomain::new(b),pending:None}}}};}
 crate::summary_outputs!(output);
 impl SummaryRecords {
-    pub(super) fn questions(&self) -> impl Iterator<Item = &Question> { self.questions.questions.iter() }
+    pub(super) fn questions(&self) -> impl Iterator<Item = &Question> {
+        self.questions.questions.iter()
+    }
 }
 
 impl SummaryRecords {
@@ -2110,13 +2122,19 @@ fn publish(
     let mut members =
         charged::ChargedMap::<(Id<TransferKey>, ContentHash), BTreeSet<ProofId>>::default();
     let mut charge = StateCharge::new(budget, "summary-publication-members");
-    for branch in component.iter()
+    for branch in component
+        .iter()
         .filter_map(|owner| progress.by_owner.get(owner))
         .flatten()
         .map(|id| &progress.branches[id])
-        .filter(|b| matches!(b.premise,
-            SummaryPremise::Witness { .. } | SummaryPremise::Path { .. } | SummaryPremise::Captured { .. }
-        ))
+        .filter(|b| {
+            matches!(
+                b.premise,
+                SummaryPremise::Witness { .. }
+                    | SummaryPremise::Path { .. }
+                    | SummaryPremise::Captured { .. }
+            )
+        })
     {
         members.insert_set(
             &mut charge,
@@ -2630,9 +2648,14 @@ fn produce_with_application(
                             .map(|index| &calls[*index])
                             .ok_or_else(|| invalid("summary queued call absent"))?;
                         let results = call_preparation.get(call, budget)?.compose(
-                            &caller, &callee, &vocabulary, &guards, budget,
+                            &caller,
+                            &callee,
+                            &vocabulary,
+                            &guards,
+                            budget,
                         )?;
-                        out.questions.observe(call._event, &caller, &callee, results.as_slice())?;
+                        out.questions
+                            .observe(call._event, &caller, &callee, results.as_slice())?;
                         for result in results {
                             match result {
                                 CallComposition::Disjoint | CallComposition::Subsumed => {}
@@ -4694,17 +4717,38 @@ mod question_domain_controls {
     fn id<R>(n: u8) -> Id<R> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
-    fn operand(input: u8, output: u8, scope: u8, budget: &ResourceBudget) -> TransferBranch<transfer::local::TransferKey> {
+    fn operand(
+        input: u8,
+        output: u8,
+        scope: u8,
+        budget: &ResourceBudget,
+    ) -> TransferBranch<transfer::local::TransferKey> {
         let q = AssertionQualification {
-            assumptions: assumptions::AssumptionSet::empty_id(), context: id(20), scope: id(scope),
-            condition: Diagram::always().id(), modality: attribution::Modality::Definite,
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            context: id(20),
+            scope: id(scope),
+            condition: Diagram::always().id(),
+            modality: attribution::Modality::Definite,
             approximation: Approximation::Exact,
         };
-        TransferBranch::new(transfer::local::TransferKey::from_descriptor(TransferDescriptor {
-            owner: id(21), input: id(input), output: id(output), context: q.context, scope: q.scope,
-            modality: q.modality, approximation: q.approximation, kind: TransferKind::Identity,
-            call_site: None, provenance: ProvenanceClass::Composed,
-        }), q, Diagram::always(), budget).unwrap()
+        TransferBranch::new(
+            transfer::local::TransferKey::from_descriptor(TransferDescriptor {
+                owner: id(21),
+                input: id(input),
+                output: id(output),
+                context: q.context,
+                scope: q.scope,
+                modality: q.modality,
+                approximation: q.approximation,
+                kind: TransferKind::Identity,
+                call_site: None,
+                provenance: ProvenanceClass::Composed,
+            }),
+            q,
+            Diagram::always(),
+            budget,
+        )
+        .unwrap()
     }
     #[test]
     fn disjoint_and_subsumed_questions_use_original_operands_and_caller_qualification() {
@@ -4714,12 +4758,17 @@ mod question_domain_controls {
         for result in [CallComposition::Disjoint, CallComposition::Subsumed] {
             let mut domain = QuestionDomain::new(&budget);
             domain.observe(id(1), &caller, &callee, &[result]).unwrap();
-            assert_eq!(domain.questions.iter().copied().collect::<Vec<_>>(),
-                vec![(id(1), id(2), id(6), caller.qualification().id())]);
+            assert_eq!(
+                domain.questions.iter().copied().collect::<Vec<_>>(),
+                vec![(id(1), id(2), id(6), caller.qualification().id())]
+            );
         }
         let mut domain = QuestionDomain::new(&budget);
         domain.observe(id(1), &caller, &callee, &[]).unwrap();
-        assert!(domain.questions.is_empty(), "no result or unprocessed candidate has no question");
+        assert!(
+            domain.questions.is_empty(),
+            "no result or unprocessed candidate has no question"
+        );
     }
     #[test]
     fn question_domain_coalesces_discoveries_without_erasing_caller_qualification() {
@@ -4732,7 +4781,11 @@ mod question_domain_controls {
             domain.discover(question).unwrap();
         }
         assert_eq!(domain.questions.len(), 1);
-        assert_eq!(budget.reserved(), once, "duplicate pairs retain no trace backing");
+        assert_eq!(
+            budget.reserved(),
+            once,
+            "duplicate pairs retain no trace backing"
+        );
         domain.discover((id(1), id(2), id(3), id(5))).unwrap();
         domain.discover((id(6), id(2), id(3), id(4))).unwrap();
         assert_eq!(domain.questions.len(), 3);

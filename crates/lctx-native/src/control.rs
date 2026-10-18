@@ -230,6 +230,10 @@ pub(crate) mod held;
 pub(crate) mod live_view;
 pub use held::completed_admission_plan;
 pub use held::{
+    BackingMetadata, BackingObservations, inspect_expected_window_read, inspect_hold_window_read,
+    observe_backing_window_read,
+};
+pub use held::{
     ExpectedHold, ExpectedHolds, ExpectedRecord, ExpectedRecords, HeldRecord, hold_expected,
     inspect_expected, inspect_expected_window, inspect_hold_window,
 };
@@ -237,7 +241,6 @@ pub(crate) use held::{
     hold_frozen_admission_expected, hold_frozen_completed_expected, hold_frozen_physical_expected,
     inspect_expected_read,
 };
-pub use held::{inspect_expected_window_read, inspect_hold_window_read, observe_backing_window_read, BackingMetadata, BackingObservations};
 pub(crate) mod completed;
 pub mod validation_premise;
 async fn run_recovery_transaction(
@@ -257,8 +260,16 @@ pub async fn check_pending_effects(client: &Surreal<Client>) -> Result<(), Model
         .check()
         .map_err(ModelError::codec)?;
     let mut pending: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
-    pending.extend(response.take::<Vec<RecordId>>(1).map_err(ModelError::codec)?);
-    pending.extend(response.take::<Vec<RecordId>>(2).map_err(ModelError::codec)?);
+    pending.extend(
+        response
+            .take::<Vec<RecordId>>(1)
+            .map_err(ModelError::codec)?,
+    );
+    pending.extend(
+        response
+            .take::<Vec<RecordId>>(2)
+            .map_err(ModelError::codec)?,
+    );
     if pending.is_empty() {
         Ok(())
     } else {
@@ -566,7 +577,12 @@ fn guard_records<'a>(
         .collect()
 }
 pub(crate) fn guard_id(id: &Value) -> Result<RecordId, ModelError> {
-    if matches!(id,Value::RecordId(record) if matches!(record.table.as_str(),"compiler_record"|"compiler_membership")) {return Err(ModelError::Schema("logical compiler identity is not a physical object"));}
+    if matches!(id,Value::RecordId(record) if matches!(record.table.as_str(),"compiler_record"|"compiler_membership"))
+    {
+        return Err(ModelError::Schema(
+            "logical compiler identity is not a physical object",
+        ));
+    }
     Ok(RecordId::new(
         "native_guard",
         ContentHash::of(&serde_json::to_vec(id).map_err(ModelError::codec)?).hex(),
@@ -947,9 +963,14 @@ impl ReaderPin {
             .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
         with_recovery_scope(
             recovery,
-            hold(&self.state.client, None,
-                RecordId::new("native_pin", self.identity.hex()), objects),
-        ).await
+            hold(
+                &self.state.client,
+                None,
+                RecordId::new("native_pin", self.identity.hex()),
+                objects,
+            ),
+        )
+        .await
     }
     pub fn retain_unknown(&self) {
         self.state.uncertain.store(true, Ordering::Release);

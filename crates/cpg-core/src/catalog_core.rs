@@ -244,24 +244,42 @@ pub async fn produce(
             let mut _jobs = None;
             let mut work = Vec::new();
             for (partition, key) in keys.iter().enumerate() {
-                let data = selected_partition(&union, &scopes.inputs, &selected, partition, runtime.budget())?;
+                let data = selected_partition(
+                    &union,
+                    &scopes.inputs,
+                    &selected,
+                    partition,
+                    runtime.budget(),
+                )?;
                 let worker = runtime.clone();
                 let implementation = output.implementation_identity();
                 let key = key.key;
                 let future = async move {
                     let mut domain = KeySink::new("catalog-public-root-domain/v2");
                     domain.part(b"root", &key);
-                    let mut product = crate::catalog_products::ProductWindow::new(&data, implementation, domain.finish(), &worker)?;
+                    let mut product = crate::catalog_products::ProductWindow::new(
+                        &data,
+                        implementation,
+                        domain.finish(),
+                        &worker,
+                    )?;
                     let hit = product.lookup(&worker).await?;
                     let reused = hit.is_some();
                     let rows = match hit {
                         Some(rows) => rows,
-                        None => product.compute(|| crate::stage_runtime::borrowed_cpu("catalog_core", || build::build(&data, worker.budget())))?,
+                        None => product.compute(|| {
+                            crate::stage_runtime::borrowed_cpu("catalog_core", || {
+                                build::build(&data, worker.budget())
+                            })
+                        })?,
                     };
                     Ok((data, rows, product, reused))
                 };
                 if work.is_empty() {
-                    _jobs = Some(runtime.budget().reserve("C0 owned window task list", keys.len() * size_of_val(&future))?);
+                    _jobs = Some(runtime.budget().reserve(
+                        "C0 owned window task list",
+                        keys.len() * size_of_val(&future),
+                    )?);
                     work.reserve_exact(keys.len());
                 }
                 work.push(future);
@@ -270,10 +288,14 @@ pub async fn produce(
             drop(union);
             let mut results = crate::owned_work::ordered(runtime, work).await?;
             while let Some((data, mut rows, mut product, reused)) = results.next().await? {
-                let mut links = product.compute(|| build::invocation_links(&data, &rows, &invocations, runtime.budget()))?;
+                let mut links = product.compute(|| {
+                    build::invocation_links(&data, &rows, &invocations, runtime.budget())
+                })?;
                 drop(data);
                 product.prepare_emission(&rows, &links, runtime.budget())?;
-                if !reused { product.retain(&rows, runtime).await?; }
+                if !reused {
+                    product.retain(&rows, runtime).await?;
+                }
                 emit_rows(&mut rows, &output).await?;
                 producer_operations::emit_owned(&mut links, &output).await?;
             }

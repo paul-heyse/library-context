@@ -899,14 +899,30 @@ async fn finalize_page(
 
 /// Locators are a contribution-owned inventory, removed in bounded pages under
 /// its claimed physical parent. They never acquire independent retirement items.
-async fn retire_locator_page(client:&Surreal<Client>,job:&RecordId,lineage:&RecordId,item:&Object,limit:usize)->Result<usize,ModelError>{
-    let Some(Value::RecordId(object))=item.get("object") else{return Err(ModelError::Schema("locator retirement parent"));};
-    if object.table.as_str()!="compiler_contribution"{return Ok(0);}
+async fn retire_locator_page(
+    client: &Surreal<Client>,
+    job: &RecordId,
+    lineage: &RecordId,
+    item: &Object,
+    limit: usize,
+) -> Result<usize, ModelError> {
+    let Some(Value::RecordId(object)) = item.get("object") else {
+        return Err(ModelError::Schema("locator retirement parent"));
+    };
+    if object.table.as_str() != "compiler_contribution" {
+        return Ok(0);
+    }
     let mut response=client.query("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$parent ORDER BY relation,semantic_key LIMIT $limit").bind(("parent",object.clone())).bind(("limit",limit.min(crate::loader::NATIVE_WINDOW_ROWS))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    let locators:Vec<Value>=response.take(0).map_err(ModelError::codec)?;if locators.is_empty(){return Ok(0);}
-    let count=locators.len();let(mut bindings,_)=candidate_bindings(job,lineage,vec![item.clone()])?;bindings.insert("locator_page",locators);
-    let sql="LET $row=$rows[0]; LET $object=$row.object; LET $guard=$row.guard; LET $item=$row.id; LET $actual=SELECT * FROM ONLY $guard FOR UPDATE; LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $parent=SELECT * FROM ONLY $object FOR UPDATE; IF $actual.phase!='retiring' OR $actual.retiring_item!=$item OR $actual.incarnation!=$row.incarnation OR $queued.job!=$job OR $queued.state!='retiring' OR $queued.object!=$object OR $__owner.lineage!=$lineage { THROW 'native locator retirement parent changed'; }; LET $ids=$locator_page.map(|$entry|$entry.id); LET $current=SELECT * FROM $ids; IF array::len($current)!=array::len($locator_page) OR array::len($current.filter(|$entry|$entry.contribution!=$object OR $entry NOT IN $locator_page))>0 { THROW 'native locator retirement inventory changed'; }; fn::native_touch($object); DELETE $ids RETURN NONE; UPDATE $job SET examined+=array::len($locator_page),revision+=1 RETURN NONE;";
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),sql,bindings).await?;Ok(count)
+    let locators: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+    if locators.is_empty() {
+        return Ok(0);
+    }
+    let count = locators.len();
+    let (mut bindings, _) = candidate_bindings(job, lineage, vec![item.clone()])?;
+    bindings.insert("locator_page", locators);
+    let sql = "LET $row=$rows[0]; LET $object=$row.object; LET $guard=$row.guard; LET $item=$row.id; LET $actual=SELECT * FROM ONLY $guard FOR UPDATE; LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $parent=SELECT * FROM ONLY $object FOR UPDATE; IF $actual.phase!='retiring' OR $actual.retiring_item!=$item OR $actual.incarnation!=$row.incarnation OR $queued.job!=$job OR $queued.state!='retiring' OR $queued.object!=$object OR $__owner.lineage!=$lineage { THROW 'native locator retirement parent changed'; }; LET $ids=$locator_page.map(|$entry|$entry.id); LET $current=SELECT * FROM $ids; IF array::len($current)!=array::len($locator_page) OR array::len($current.filter(|$entry|$entry.contribution!=$object OR $entry NOT IN $locator_page))>0 { THROW 'native locator retirement inventory changed'; }; fn::native_touch($object); DELETE $ids RETURN NONE; UPDATE $job SET examined+=array::len($locator_page),revision+=1 RETURN NONE;";
+    effect_for_owner(client, EffectOwner::Retirement(job.clone()), sql, bindings).await?;
+    Ok(count)
 }
 /// This read classifies useful work only; terminal authorization still checks the
 /// exact item, guard and both hold directions in RETIRE_FINALIZE_PAGE.
@@ -1197,11 +1213,18 @@ pub async fn resume_retirement(
             let Some(Value::RecordId(object)) = item.get("object") else {
                 return Err(ModelError::Schema("retirement object"));
             };
-            if object.table.as_str()=="compiler_contribution"{
-                while spent<limit{
-                    let count=retire_locator_page(client,&job,&lineage,&item,limit-spent).await?;spent+=count;if count==0{break;}
+            if object.table.as_str() == "compiler_contribution" {
+                while spent < limit {
+                    let count =
+                        retire_locator_page(client, &job, &lineage, &item, limit - spent).await?;
+                    spent += count;
+                    if count == 0 {
+                        break;
+                    }
                 }
-                if spent>=limit{break 'resume;}
+                if spent >= limit {
+                    break 'resume;
+                }
             }
             let mut nominated = false;
             loop {

@@ -365,7 +365,9 @@ pub async fn produce(
                     let mut rendered = crate::owned_work::ordered(runtime, work).await?;
                     let mut pending = PendingUses::new(b);
                     for root in &keys {
-                        let rendered = rendered.next().await?.ok_or(ModelError::Conflict("retrieval missing canonical partition"))?;
+                        let rendered = rendered.next().await?.ok_or(ModelError::Conflict(
+                            "retrieval missing canonical partition",
+                        ))?;
                         let (render, mut mandatory) = rendered.retain(runtime, &output).await?;
                         if let Some(service) = service.as_mut() {
                             for semantic in mandatory.windows.iter() {
@@ -510,19 +512,44 @@ mod tests {
     #[test]
     fn retrieval_owner_configuration_and_seed_roles_are_distinct_from_renderer_inputs() {
         let model = lctx_model::domain::model().unwrap();
-        let order = PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true)).unwrap();
-        let configuration = [embedding::EmbeddingSpec::NAME, embedding::configuration::ServiceConfiguration::NAME,
-            embedding::DocumentRecipe::NAME, embedding::projection::ProjectionDefinition::NAME];
+        let order =
+            PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true))
+                .unwrap();
+        let configuration = [
+            embedding::EmbeddingSpec::NAME,
+            embedding::configuration::ServiceConfiguration::NAME,
+            embedding::DocumentRecipe::NAME,
+            embedding::projection::ProjectionDefinition::NAME,
+        ];
         let renderer = retrieval::build::Data::inputs();
         for profile in [Profile::Catalog, Profile::Behavioral] {
             for selected in [false, true] {
-                let stage = build::stage(profile, &retrieval::RetrievalDefinition::builtin(selected), &model, &order).unwrap();
+                let stage = build::stage(
+                    profile,
+                    &retrieval::RetrievalDefinition::builtin(selected),
+                    &model,
+                    &order,
+                )
+                .unwrap();
                 for name in configuration {
-                    assert!(stage.inputs.iter().any(|role| role.name() == name), "actual E0 must capture {name}, even without embedding inference");
-                    assert!(!renderer.iter().any(|input| input.name() == name), "finite configuration is not a renderer grain premise");
+                    assert!(
+                        stage.inputs.iter().any(|role| role.name() == name),
+                        "actual E0 must capture {name}, even without embedding inference"
+                    );
+                    assert!(
+                        !renderer.iter().any(|input| input.name() == name),
+                        "finite configuration is not a renderer grain premise"
+                    );
                 }
-                for name in [embedding::value::FullValue::NAME, embedding::projection::ProjectedValue::NAME] {
-                    assert!(stage.inputs.iter().any(|role| role.name() == name && role.prefix() == Some(PublicationBoundary::AnalyticEmbedding)), "seed vectors require the completed E1 role, never E0 output authority");
+                for name in [
+                    embedding::value::FullValue::NAME,
+                    embedding::projection::ProjectedValue::NAME,
+                ] {
+                    assert!(
+                        stage.inputs.iter().any(|role| role.name() == name
+                            && role.prefix() == Some(PublicationBoundary::AnalyticEmbedding)),
+                        "seed vectors require the completed E1 role, never E0 output authority"
+                    );
                 }
             }
         }

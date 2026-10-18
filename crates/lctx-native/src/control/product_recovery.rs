@@ -180,22 +180,29 @@ impl HeldTerminalProduct {
         let mut expected = BTreeMap::new();
         let mut keys = Vec::with_capacity(rows.len());
         for row in rows {
-            charge.grow(std::mem::size_of::<R>()
-                .saturating_add(lctx_model::domain::HeapSize::heap_bytes(row))
-                .saturating_mul(32).saturating_add(65536))?;
+            charge.grow(
+                std::mem::size_of::<R>()
+                    .saturating_add(lctx_model::domain::HeapSize::heap_bytes(row))
+                    .saturating_mul(32)
+                    .saturating_add(65536),
+            )?;
             let key = hex::encode(row.id().bytes());
             let (id, value) = captured_expectation(row)?;
             charge.grow(crate::loader::native_bytes(&value).saturating_mul(4))?;
             if let Some(previous) = expected.get(&key) {
                 if previous != &(id.clone(), value.clone()) {
-                    return Err(ModelError::Conflict("terminal captured conflicting expected key"));
+                    return Err(ModelError::Conflict(
+                        "terminal captured conflicting expected key",
+                    ));
                 }
             } else {
                 expected.insert(key.clone(), (id, value));
             }
             keys.push(key);
         }
-        if rows.is_empty() { return Ok(Vec::new()); }
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
         let mut pin_terminal = RecoveryPinTerminal::new(self.pin().clone());
         let reader = self.reader(budget);
         let result = async {
@@ -251,7 +258,10 @@ impl HeldTerminalProduct {
             Ok(keys.iter().map(|key| found.contains(key)).collect())
         }.await;
         let mut terminal = Completion::default();
-        terminal.step("terminal captured backing reader close", reader.close().await);
+        terminal.step(
+            "terminal captured backing reader close",
+            reader.close().await,
+        );
         let result = complete(result, terminal);
         pin_terminal.observe(&result);
         result
@@ -290,69 +300,65 @@ impl HeldTerminalProduct {
         result
     }
 }
-fn captured_expectation<R: lctx_model::domain::Record>(row: &R) -> Result<(RecordId, Value), ModelError> {
-        use crate::adapter::GraphRow;
-        if !matches!(
-            R::NAME,
-            "packages"
-                | "releases"
-                | "input_revisions"
-                | "input_origins"
-                | "input_acquisitions"
-                | "corpus_libraries"
-                | "input_distributions"
-                | "distribution_verifications"
-                | "environment_fingerprints"
-                | "source_artifacts"
-                | "artifact_ownership"
-                | "unowned_artifacts"
-                | "derived_artifacts"
-                | "artifact_uses"
-        ) {
-            return Err(ModelError::Conflict("terminal capture companion family"));
+fn captured_expectation<R: lctx_model::domain::Record>(
+    row: &R,
+) -> Result<(RecordId, Value), ModelError> {
+    use crate::adapter::GraphRow;
+    if !matches!(
+        R::NAME,
+        "packages"
+            | "releases"
+            | "input_revisions"
+            | "input_origins"
+            | "input_acquisitions"
+            | "corpus_libraries"
+            | "input_distributions"
+            | "distribution_verifications"
+            | "environment_fingerprints"
+            | "source_artifacts"
+            | "artifact_ownership"
+            | "unowned_artifacts"
+            | "derived_artifacts"
+            | "artifact_uses"
+    ) {
+        return Err(ModelError::Conflict("terminal capture companion family"));
+    }
+    row.validate()?;
+    let adapter = crate::adapter::select(R::NAME)?;
+    let batch = R::encode(std::slice::from_ref(row))?;
+    let view = crate::codec::views_with_adapter(std::slice::from_ref(row), adapter)?
+        .pop()
+        .ok_or(ModelError::Schema("terminal captured body"))?;
+    let graph = adapter
+        .graph(&batch)?
+        .pop()
+        .ok_or(ModelError::Schema("terminal captured graph decode"))?;
+    let (id, content, canonical, kind) = match graph {
+        Some(GraphRow::Entity(entity)) => (
+            crate::loader::entity_payload_id(&entity)?,
+            entity.content(),
+            serde_json::to_vec(&entity).map_err(ModelError::codec)?,
+            Some((entity.kind() as i64, entity.subtype())),
+        ),
+        Some(GraphRow::Assertion(assertion)) => (
+            crate::loader::assertion_payload_id(&assertion)?,
+            assertion.content(),
+            serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
+            Some((assertion.kind as i64, None)),
+        ),
+        None => {
+            let canonical = serde_json::to_vec(&view.body).map_err(ModelError::codec)?;
+            let content = ContentHash::of(&canonical);
+            (
+                crate::loader::payload_id("compiler_record", R::NAME, row.id().bytes(), content)?,
+                content,
+                canonical,
+                None,
+            )
         }
-        row.validate()?;
-        let adapter = crate::adapter::select(R::NAME)?;
-        let batch = R::encode(std::slice::from_ref(row))?;
-        let view = crate::codec::views_with_adapter(std::slice::from_ref(row), adapter)?
-            .pop()
-            .ok_or(ModelError::Schema("terminal captured body"))?;
-        let graph = adapter
-            .graph(&batch)?
-            .pop()
-            .ok_or(ModelError::Schema("terminal captured graph decode"))?;
-        let (id, content, canonical, kind) = match graph {
-            Some(GraphRow::Entity(entity)) => (
-                crate::loader::entity_payload_id(&entity)?,
-                entity.content(),
-                serde_json::to_vec(&entity).map_err(ModelError::codec)?,
-                Some((entity.kind() as i64, entity.subtype())),
-            ),
-            Some(GraphRow::Assertion(assertion)) => (
-                crate::loader::assertion_payload_id(&assertion)?,
-                assertion.content(),
-                serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
-                Some((assertion.kind as i64, None)),
-            ),
-            None => {
-                let canonical = serde_json::to_vec(&view.body).map_err(ModelError::codec)?;
-                let content = ContentHash::of(&canonical);
-                (
-                    crate::loader::payload_id(
-                        "compiler_record",
-                        R::NAME,
-                        row.id().bytes(),
-                        content,
-                    )?,
-                    content,
-                    canonical,
-                    None,
-                )
-            }
-        };
-        let expected = crate::adapter::physical_row(id.clone(), content, canonical, kind, view)?;
-        Ok((id, expected))
-
+    };
+    let expected = crate::adapter::physical_row(id.clone(), content, canonical, kind, view)?;
+    Ok((id, expected))
 }
 fn terminal_source(source: &Object, generation: ContentHash) -> Result<(), ModelError> {
     if authorization::hash_field(source, "generation")? != generation

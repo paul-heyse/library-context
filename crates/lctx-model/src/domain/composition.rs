@@ -448,12 +448,17 @@ fn composition_allowance(
         .ok_or_else(|| invalid("composition allowance overflow"))?;
     // Borrow complete catalogs; admit only selected copied names/projections. Keyword and
     // field names are unbounded text, so a constant per-row allowance alone is insufficient.
-    let root_bytes = [caller.descriptor().input, caller.descriptor().output,
-        callee.descriptor().input, callee.descriptor().output].into_iter()
-        .filter_map(|id| catalog.guards.places.get(&id))
-        .filter_map(|place| catalog.guards.roots.get(&place.root))
-        .try_fold(0usize, |n, root| n.checked_add(root.heap_bytes()))
-        .ok_or_else(|| invalid("composition selected root allowance overflow"))?;
+    let root_bytes = [
+        caller.descriptor().input,
+        caller.descriptor().output,
+        callee.descriptor().input,
+        callee.descriptor().output,
+    ]
+    .into_iter()
+    .filter_map(|id| catalog.guards.places.get(&id))
+    .filter_map(|place| catalog.guards.roots.get(&place.root))
+    .try_fold(0usize, |n, root| n.checked_add(root.heap_bytes()))
+    .ok_or_else(|| invalid("composition selected root allowance overflow"))?;
     rows.checked_mul(4096)
         .and_then(|n| n.checked_add(projection_bytes.checked_add(root_bytes)?.checked_mul(4)?))
         .and_then(|n| n.checked_add(4096))
@@ -787,7 +792,10 @@ struct BoundProperties {
 }
 impl BoundProperties {
     fn of(bound: &BoundCall) -> Self {
-        Self { projection_bytes: bound.heap_bytes(), digest: binding_digest(bound) }
+        Self {
+            projection_bytes: bound.heap_bytes(),
+            digest: binding_digest(bound),
+        }
     }
 }
 #[derive(Default)]
@@ -816,9 +824,14 @@ impl PreparedPorts<'_> {
         }
         Ok(())
     }
-    fn properties(&mut self, binding: &CallBindingFrame<'_>) -> Result<BoundProperties, ModelError> {
+    fn properties(
+        &mut self,
+        binding: &CallBindingFrame<'_>,
+    ) -> Result<BoundProperties, ModelError> {
         self.check_binding(binding)?;
-        Ok(*self.properties.get_or_insert_with(|| BoundProperties::of(binding.checked.bound())))
+        Ok(*self
+            .properties
+            .get_or_insert_with(|| BoundProperties::of(binding.checked.bound())))
     }
     fn get(
         &mut self,
@@ -840,7 +853,8 @@ impl PreparedPorts<'_> {
                 },
                 <[_]>::len,
             );
-            let bytes = properties.projection_bytes
+            let bytes = properties
+                .projection_bytes
                 .checked_mul(2)
                 .and_then(|n| {
                     n.checked_add(
@@ -903,9 +917,18 @@ fn compose_call_impl(
 ) -> Result<CompositionResults, ModelError> {
     let (caller_frame, callee_frame) = frames;
     let (caller_key, callee_key) = (caller.descriptor(), callee.descriptor());
-    let properties = call.binding.as_ref().map(|binding| prepared.properties(binding)).transpose()?;
-    let pair_allowance = composition_allowance(caller, callee, call, catalog,
-        properties.map_or(0, |properties| properties.projection_bytes))?;
+    let properties = call
+        .binding
+        .as_ref()
+        .map(|binding| prepared.properties(binding))
+        .transpose()?;
+    let pair_allowance = composition_allowance(
+        caller,
+        callee,
+        call,
+        catalog,
+        properties.map_or(0, |properties| properties.projection_bytes),
+    )?;
     let _work = budget.reserve("call_composition_work", pair_allowance)?;
     if caller_key.owner != caller_frame.owner {
         return Err(invalid(
@@ -1053,12 +1076,17 @@ fn compose_call_impl(
     let added_segments = composer.records.segments.clone();
     let added_literals = composer.records.literals.clone();
     let segments = place_composition::PathOverlay {
-        base: catalog.segments.segments, added: &added_segments,
+        base: catalog.segments.segments,
+        added: &added_segments,
     };
     let literals = place_composition::PathOverlay {
-        base: catalog.segments.literals, added: &added_literals,
+        base: catalog.segments.literals,
+        added: &added_literals,
     };
-    let paths = PathCatalog { segments: &segments, literals: &literals };
+    let paths = PathCatalog {
+        segments: &segments,
+        literals: &literals,
+    };
     let composed = place_composition::compose(
         path(caller_input.path)?,
         &delivered,
@@ -1817,7 +1845,14 @@ impl CompositionCheck {
             Self::get(&self.paths, &place.path, "composition access path absent")?,
         ))
     }
-    fn step(&self, row: &SummaryWitness, verified: &VerifiedBindings, path_allowance: usize, evidence_bytes: usize, properties: Option<BoundProperties>) -> Result<(), ModelError> {
+    fn step(
+        &self,
+        row: &SummaryWitness,
+        verified: &VerifiedBindings,
+        path_allowance: usize,
+        evidence_bytes: usize,
+        properties: Option<BoundProperties>,
+    ) -> Result<(), ModelError> {
         let (composed, composed_q) = self.witness_frame(row)?;
         let (caller, caller_q) = self.premise(row.caller)?;
         let (callee, callee_q) = self.premise(row.callee)?;
@@ -1840,10 +1875,9 @@ impl CompositionCheck {
         {
             return Err(invalid("summary witness changes its invocation frame"));
         }
-        let _evidence_charge = self.budget.reserve(
-            "summary_witness_evidence",
-            evidence_bytes,
-        )?;
+        let _evidence_charge = self
+            .budget
+            .reserve("summary_witness_evidence", evidence_bytes)?;
         let caller_facts = self.premise_facts(row.caller, invocation)?;
         let callee_facts = self.premise_facts(row.callee, invocation)?;
         if caller_facts
@@ -1967,14 +2001,21 @@ impl CompositionCheck {
         // a forged path must not become evidence for a different transfer proposition.
         let bound = binding.checked.bound();
         let selected_root_bytes = [caller.input, caller.output, callee.input, callee.output]
-            .into_iter().try_fold(0usize, |n, id| {
+            .into_iter()
+            .try_fold(0usize, |n, id| {
                 n.checked_add(self.place(id)?.0.heap_bytes())
                     .ok_or_else(|| invalid("composition selected replay roots allowance overflow"))
             })?;
-        let path_allowance = properties.expect("checked replay binding").projection_bytes.checked_add(selected_root_bytes)
-            .and_then(|n| n.checked_mul(4)).and_then(|n| n.checked_add(path_allowance))
+        let path_allowance = properties
+            .expect("checked replay binding")
+            .projection_bytes
+            .checked_add(selected_root_bytes)
+            .and_then(|n| n.checked_mul(4))
+            .and_then(|n| n.checked_add(path_allowance))
             .ok_or_else(|| invalid("composition selected replay allowance overflow"))?;
-        let _path_charge = self.budget.reserve("composition_path_replay", path_allowance)?;
+        let _path_charge = self
+            .budget
+            .reserve("composition_path_replay", path_allowance)?;
         let declaration = self
             .binding_data
             .entity_declarations
@@ -2047,9 +2088,18 @@ impl CompositionCheck {
         delivered = delivered.append(delivered_path);
         let added_segments = composer.records.segments.clone();
         let added_literals = composer.records.literals.clone();
-        let segments = place_composition::PathOverlay { base: &*self.segments, added: &added_segments };
-        let literals = place_composition::PathOverlay { base: &*self.literals, added: &added_literals };
-        let path_catalog = PathCatalog { segments: &segments, literals: &literals };
+        let segments = place_composition::PathOverlay {
+            base: &*self.segments,
+            added: &added_segments,
+        };
+        let literals = place_composition::PathOverlay {
+            base: &*self.literals,
+            added: &added_literals,
+        };
+        let path_catalog = PathCatalog {
+            segments: &segments,
+            literals: &literals,
+        };
         let (caller_input_root, caller_input_path) = self.place(caller.input)?;
         let (callee_output_root, callee_output_path) = self.place(callee.output)?;
         let ComposedPaths::Flow {
@@ -2392,26 +2442,46 @@ impl InvariantCheck for CompositionCheck {
         )?;
         // Immutable retained sizes are established once for this complete frame. Path
         // catalogs are borrowed; only selected parameter/port/projection rows are copied.
-        let path_allowance = self.binding_data.parameters.iter().try_fold(0usize, |n, row| {
-            n.checked_add(size_of::<SignatureParameter>() + row.heap_bytes() + 128)
-        }).and_then(|n| n.checked_add(self.binding_data.parameter_declarations.len()
-            .checked_mul(size_of::<ParameterDeclaration>() + 128)?))
+        let path_allowance = self
+            .binding_data
+            .parameters
+            .iter()
+            .try_fold(0usize, |n, row| {
+                n.checked_add(size_of::<SignatureParameter>() + row.heap_bytes() + 128)
+            })
+            .and_then(|n| {
+                n.checked_add(
+                    self.binding_data
+                        .parameter_declarations
+                        .len()
+                        .checked_mul(size_of::<ParameterDeclaration>() + 128)?,
+                )
+            })
             .and_then(|n| n.checked_mul(4))
             .and_then(|n| n.checked_add(self.places.len().checked_mul(2048)?))
             .and_then(|n| n.checked_add(8192))
             .ok_or_else(|| invalid("composition path allowance overflow"))?;
         let evidence_bytes = (self.local_supports.values().map(Vec::len).sum::<usize>()
-            + self.model_supports.values().map(Vec::len).sum::<usize>() + 2)
-            .saturating_mul(size_of::<super::analysis::support::SourceFacts>() + 64);
+            + self.model_supports.values().map(Vec::len).sum::<usize>()
+            + 2)
+        .saturating_mul(size_of::<super::analysis::support::SourceFacts>() + 64);
         let mut properties = BTreeMap::new();
-        let mut properties_charge = StateCharge::new(&self.budget, "composition replay binding properties");
+        let mut properties_charge =
+            StateCharge::new(&self.budget, "composition replay binding properties");
         for row in self.witnesses.values() {
             if let std::collections::btree_map::Entry::Vacant(entry) = properties.entry(row.attempt)
-                && let Some(bound) = verified.bound(row.attempt) {
+                && let Some(bound) = verified.bound(row.attempt)
+            {
                 properties_charge.grow(size_of::<BoundProperties>() + 128)?;
                 entry.insert(BoundProperties::of(bound.bound()));
             }
-            self.step(row, &verified, path_allowance, evidence_bytes, properties.get(&row.attempt).copied())?;
+            self.step(
+                row,
+                &verified,
+                path_allowance,
+                evidence_bytes,
+                properties.get(&row.attempt).copied(),
+            )?;
         }
         for row in self.contributions.iter() {
             let witness = Self::get(

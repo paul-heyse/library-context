@@ -804,12 +804,16 @@ impl FrontierIndex {
         definitions: &normalized::Rows<super::AnalysisDefinition>,
         budget: &resources::ResourceBudget,
     ) -> Result<Option<uniform_outcome::ValidatedUniformDomain>, ModelError> {
-        let mut rows = self.uniform.values().chain(self.admitted_analysis.values()).filter(|row| {
-            row.kind == uniform_outcome::UniformKind::AnalysisOwner
-                && row.owner == kind.name()
-                && row.input == input
-                && row.context == context
-        });
+        let mut rows = self
+            .uniform
+            .values()
+            .chain(self.admitted_analysis.values())
+            .filter(|row| {
+                row.kind == uniform_outcome::UniformKind::AnalysisOwner
+                    && row.owner == kind.name()
+                    && row.input == input
+                    && row.context == context
+            });
         let Some(row) = rows.next() else {
             return Ok(None);
         };
@@ -1134,7 +1138,10 @@ pub struct CoverageAdmission<'a> {
     sources: &'a super::sources::CapturedSources,
     index: FrontierIndex,
     uniform_receipts: charged::ChargedSet<(ContentHash, Id<uniform_outcome::UniformNotRequested>)>,
-    observed_uniform: charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>, uniform_outcome::UniformNotRequested>,
+    observed_uniform: charged::ChargedMap<
+        Id<uniform_outcome::UniformNotRequested>,
+        uniform_outcome::UniformNotRequested,
+    >,
     facts_uniform_source: Option<ContentHash>,
 }
 impl<'a> CoverageAdmission<'a> {
@@ -1151,7 +1158,9 @@ impl<'a> CoverageAdmission<'a> {
             return Ok(());
         }
         if self.facts_uniform_source.is_some() || !self.uniform_receipts.is_empty() {
-            return Err(invalid("compact Facts source changed after selection or observation"));
+            return Err(invalid(
+                "compact Facts source changed after selection or observation",
+            ));
         }
         self.facts_uniform_source = Some(source);
         Ok(())
@@ -1189,12 +1198,16 @@ impl<'a> CoverageAdmission<'a> {
             || i64::try_from(view.rows).ok() != Some(permit.source().rows())
             || !view.contributions.contains(&owner.contribution())
         {
-            return Err(invalid("compact analysis owner differs from captured completed view"));
+            return Err(invalid(
+                "compact analysis owner differs from captured completed view",
+            ));
         }
         let descriptor = owner.descriptor();
         self.index.uniform_owners.require(descriptor)?;
         if owner.profile() != self.index.profile || owner.analysis_owner().is_none() {
-            return Err(invalid("compact analysis semantic owner profile/kind differs"));
+            return Err(invalid(
+                "compact analysis semantic owner profile/kind differs",
+            ));
         }
         if let Some(previous) = self.index.admitted_analysis.get(&descriptor.id()) {
             if previous != descriptor {
@@ -1239,15 +1252,23 @@ impl<'a> CoverageAdmission<'a> {
             let source = permit.source().identity();
             for row in uniform_outcome::UniformNotRequested::decode(batch)? {
                 let id = row.id();
-                if !self.uniform_receipts.insert(&mut self.index.charge, (source, id))? {
-                    return Err(ModelError::Conflict(uniform_outcome::UniformNotRequested::NAME));
+                if !self
+                    .uniform_receipts
+                    .insert(&mut self.index.charge, (source, id))?
+                {
+                    return Err(ModelError::Conflict(
+                        uniform_outcome::UniformNotRequested::NAME,
+                    ));
                 }
                 if let Some(previous) = self.observed_uniform.get(&id) {
                     if previous != &row {
-                        return Err(ModelError::Conflict(uniform_outcome::UniformNotRequested::NAME));
+                        return Err(ModelError::Conflict(
+                            uniform_outcome::UniformNotRequested::NAME,
+                        ));
                     }
                 } else {
-                    self.observed_uniform.insert(&mut self.index.charge, id, row.clone())?;
+                    self.observed_uniform
+                        .insert(&mut self.index.charge, id, row.clone())?;
                 }
                 if row.kind == uniform_outcome::UniformKind::NativeFamily
                     && self.facts_uniform_source != Some(source)
@@ -1257,7 +1278,9 @@ impl<'a> CoverageAdmission<'a> {
                 }
                 if let Some(previous) = self.index.uniform.get(&id) {
                     if previous != &row {
-                        return Err(ModelError::Conflict(uniform_outcome::UniformNotRequested::NAME));
+                        return Err(ModelError::Conflict(
+                            uniform_outcome::UniformNotRequested::NAME,
+                        ));
                     }
                 } else {
                     self.index.prepared_uniforms.take();
@@ -1338,46 +1361,119 @@ mod tests {
     };
     #[test]
     fn captured_compact_checkpoint_union_coalesces_only_across_actual_views() {
-        use super::super::{owner::AnalysisOwner, sources::{CapturedSources, CompletedInput}};
+        use super::super::{
+            owner::AnalysisOwner,
+            sources::{CapturedSources, CompletedInput},
+        };
         use uniform_outcome::{UniformNotRequested, test_support};
         let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
         let model = crate::domain::model().unwrap();
         let (input, context) = test_support::input_context();
         let local = test_support::empty_owner(AnalysisOwner::Local, &input, &context, &budget);
-        let calls = test_support::empty_owner(AnalysisOwner::SourceCalls, &input, &context, &budget);
-        let local_view = completed::CompletedView::new(UniformNotRequested::NAME.into(), [local.owner.contribution()].into(), 1).unwrap();
-        let calls_view = completed::CompletedView::new(UniformNotRequested::NAME.into(), [local.owner.contribution(), calls.owner.contribution()].into(), 2).unwrap();
-        let permit = |view: &completed::CompletedView| CompletedInput::<UniformNotRequested>::new(
-            "actual-selected-checkpoint", model.digest(), ContentHash::of(b"typed-view-contract"), view.identity, view.rows,
-        ).unwrap();
+        let calls =
+            test_support::empty_owner(AnalysisOwner::SourceCalls, &input, &context, &budget);
+        let local_view = completed::CompletedView::new(
+            UniformNotRequested::NAME.into(),
+            [local.owner.contribution()].into(),
+            1,
+        )
+        .unwrap();
+        let calls_view = completed::CompletedView::new(
+            UniformNotRequested::NAME.into(),
+            [local.owner.contribution(), calls.owner.contribution()].into(),
+            2,
+        )
+        .unwrap();
+        let permit = |view: &completed::CompletedView| {
+            CompletedInput::<UniformNotRequested>::new(
+                "actual-selected-checkpoint",
+                model.digest(),
+                ContentHash::of(b"typed-view-contract"),
+                view.identity,
+                view.rows,
+            )
+            .unwrap()
+        };
         let local_permit = permit(&local_view);
         let calls_permit = permit(&calls_view);
-        let sources = CapturedSources::capture(Profile::Catalog, [local_permit.snapshot(), calls_permit.snapshot()], &budget).unwrap();
+        let sources = CapturedSources::capture(
+            Profile::Catalog,
+            [local_permit.snapshot(), calls_permit.snapshot()],
+            &budget,
+        )
+        .unwrap();
         let local_batch = UniformNotRequested::encode(&[local.owner.descriptor().clone()]).unwrap();
-        let cumulative_batch = UniformNotRequested::encode(&[local.owner.descriptor().clone(), calls.owner.descriptor().clone()]).unwrap();
+        let cumulative_batch = UniformNotRequested::encode(&[
+            local.owner.descriptor().clone(),
+            calls.owner.descriptor().clone(),
+        ])
+        .unwrap();
         let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
-        admission.visit_if_expected(&local_permit, &local_batch).unwrap();
-        admission.visit_if_expected(&calls_permit, &cumulative_batch).unwrap();
+        admission
+            .visit_if_expected(&local_permit, &local_batch)
+            .unwrap();
+        admission
+            .visit_if_expected(&calls_permit, &cumulative_batch)
+            .unwrap();
         assert_eq!(admission.index.uniform.len(), 2);
         assert_eq!(admission.uniform_receipts.len(), 3);
-        assert!(matches!(admission.visit_if_expected(&local_permit, &local_batch), Err(ModelError::Conflict(UniformNotRequested::NAME))), "one source cannot repeat a row across batches");
+        assert!(
+            matches!(
+                admission.visit_if_expected(&local_permit, &local_batch),
+                Err(ModelError::Conflict(UniformNotRequested::NAME))
+            ),
+            "one source cannot repeat a row across batches"
+        );
 
         let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
-        let repeated = UniformNotRequested::encode(&[local.owner.descriptor().clone(), local.owner.descriptor().clone()]).unwrap();
-        assert!(matches!(admission.visit_if_expected(&local_permit, &repeated), Err(ModelError::Conflict(UniformNotRequested::NAME))), "one batch cannot repeat a row");
+        let repeated = UniformNotRequested::encode(&[
+            local.owner.descriptor().clone(),
+            local.owner.descriptor().clone(),
+        ])
+        .unwrap();
+        assert!(
+            matches!(
+                admission.visit_if_expected(&local_permit, &repeated),
+                Err(ModelError::Conflict(UniformNotRequested::NAME))
+            ),
+            "one batch cannot repeat a row"
+        );
         let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
         let foreign = CompletedInput::<UniformNotRequested>::new(
-            "foreign-source", model.digest(), ContentHash::of(b"typed-view-contract"), local_view.identity, local_view.rows,
-        ).unwrap();
+            "foreign-source",
+            model.digest(),
+            ContentHash::of(b"typed-view-contract"),
+            local_view.identity,
+            local_view.rows,
+        )
+        .unwrap();
         assert!(admission.visit_if_expected(&foreign, &local_batch).is_err());
-        assert!(admission.uniform_receipts.is_empty(), "capture checks precede receipt mutation");
-        admission.visit_if_expected(&local_permit, &local_batch).unwrap();
+        assert!(
+            admission.uniform_receipts.is_empty(),
+            "capture checks precede receipt mutation"
+        );
+        admission
+            .visit_if_expected(&local_permit, &local_batch)
+            .unwrap();
         let mut changed_columns = local_batch.columns().to_vec();
         let members = local_batch.schema().index_of("members").unwrap();
-        changed_columns[members] = std::sync::Arc::new(arrow_array::Int64Array::from(vec![local.owner.descriptor().members + 1]));
-        let changed_body = arrow_array::RecordBatch::try_new(local_batch.schema(), changed_columns).unwrap();
-        assert!(matches!(admission.visit_if_expected(&calls_permit, &changed_body), Err(ModelError::Identity(UniformNotRequested::NAME))), "a cumulative role cannot relabel a changed body with an observed identity");
-        assert_eq!(admission.uniform_receipts.len(), 1, "typed body refusal precedes receipt mutation");
+        changed_columns[members] = std::sync::Arc::new(arrow_array::Int64Array::from(vec![
+            local.owner.descriptor().members + 1,
+        ]));
+        let changed_body =
+            arrow_array::RecordBatch::try_new(local_batch.schema(), changed_columns).unwrap();
+        assert!(
+            matches!(
+                admission.visit_if_expected(&calls_permit, &changed_body),
+                Err(ModelError::Identity(UniformNotRequested::NAME))
+            ),
+            "a cumulative role cannot relabel a changed body with an observed identity"
+        );
+        assert_eq!(
+            admission.uniform_receipts.len(),
+            1,
+            "typed body refusal precedes receipt mutation"
+        );
     }
     #[test]
     fn admitted_compact_analysis_uses_exact_captured_owner_without_stream_replay() {
@@ -1387,18 +1483,32 @@ mod tests {
         let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
         let model = crate::domain::model().unwrap();
         let (input, context) = test_support::input_context();
-        for kind in [AnalysisOwner::Local, AnalysisOwner::SourceCalls, AnalysisOwner::Analytic, AnalysisOwner::Summary] {
+        for kind in [
+            AnalysisOwner::Local,
+            AnalysisOwner::SourceCalls,
+            AnalysisOwner::Analytic,
+            AnalysisOwner::Summary,
+        ] {
             let fixture = test_support::empty_owner(kind, &input, &context, &budget);
             let view = completed::CompletedView::new(
-                UniformNotRequested::NAME.into(), [fixture.owner.contribution()].into(), 1,
-            ).unwrap();
+                UniformNotRequested::NAME.into(),
+                [fixture.owner.contribution()].into(),
+                1,
+            )
+            .unwrap();
             let permit = CompletedInput::<UniformNotRequested>::new(
-                "actual-selected-compact-view", model.digest(), ContentHash::of(b"typed-view-contract"),
-                view.identity, view.rows,
-            ).unwrap();
-            let sources = CapturedSources::capture(Profile::Catalog, [permit.snapshot()], &budget).unwrap();
+                "actual-selected-compact-view",
+                model.digest(),
+                ContentHash::of(b"typed-view-contract"),
+                view.identity,
+                view.rows,
+            )
+            .unwrap();
+            let sources =
+                CapturedSources::capture(Profile::Catalog, [permit.snapshot()], &budget).unwrap();
             let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
-            let mut definitions = normalized::Rows::<super::super::AnalysisDefinition>::new(&budget);
+            let mut definitions =
+                normalized::Rows::<super::super::AnalysisDefinition>::new(&budget);
             for (name, batch) in &fixture.batches {
                 if *name == super::super::AnalysisDefinition::NAME {
                     for row in super::super::AnalysisDefinition::decode(batch).unwrap() {
@@ -1406,40 +1516,100 @@ mod tests {
                     }
                 }
                 if *name != UniformNotRequested::NAME {
-                    admission.index.visit_with_check(name, batch, &mut || Ok(())).unwrap();
+                    admission
+                        .index
+                        .visit_with_check(name, batch, &mut || Ok(()))
+                        .unwrap();
                 }
             }
-            assert!(admission.uniform_analysis(kind, input.id(), context.id(), &definitions, &budget).unwrap().is_none());
-            assert!(admission.admit_uniform_analysis(&fixture.owner, &permit, &view).is_err(), "metadata cannot create a semantic owner");
+            assert!(
+                admission
+                    .uniform_analysis(kind, input.id(), context.id(), &definitions, &budget)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                admission
+                    .admit_uniform_analysis(&fixture.owner, &permit, &view)
+                    .is_err(),
+                "metadata cannot create a semantic owner"
+            );
             admission.admit_uniform_owner(&fixture.owner).unwrap();
-            admission.admit_uniform_analysis(&fixture.owner, &permit, &view).unwrap();
-            admission.admit_uniform_analysis(&fixture.owner, &permit, &view).unwrap();
-            let domain = admission.uniform_analysis(kind, input.id(), context.id(), &definitions, &budget).unwrap().unwrap();
+            admission
+                .admit_uniform_analysis(&fixture.owner, &permit, &view)
+                .unwrap();
+            admission
+                .admit_uniform_analysis(&fixture.owner, &permit, &view)
+                .unwrap();
+            let domain = admission
+                .uniform_analysis(kind, input.id(), context.id(), &definitions, &budget)
+                .unwrap()
+                .unwrap();
             assert_eq!(domain.authority(), fixture.domain.authority());
             // The metadata route neither manufactures a stream observation nor weakens its
             // duplicate-row check. The real selected stream may be visited once afterwards.
             let batch = UniformNotRequested::encode(&[fixture.owner.descriptor().clone()]).unwrap();
             admission.visit_if_expected(&permit, &batch).unwrap();
-            assert!(admission.uniform_analysis(kind, input.id(), context.id(), &definitions, &budget).unwrap().is_some());
-            assert!(matches!(admission.visit_if_expected(&permit, &batch), Err(ModelError::Conflict(UniformNotRequested::NAME))));
+            assert!(
+                admission
+                    .uniform_analysis(kind, input.id(), context.id(), &definitions, &budget)
+                    .unwrap()
+                    .is_some()
+            );
+            assert!(matches!(
+                admission.visit_if_expected(&permit, &batch),
+                Err(ModelError::Conflict(UniformNotRequested::NAME))
+            ));
 
             let foreign = CompletedInput::<UniformNotRequested>::new(
-                "foreign-capture", model.digest(), ContentHash::of(b"typed-view-contract"), view.identity, view.rows,
-            ).unwrap();
-            assert!(admission.admit_uniform_analysis(&fixture.owner, &foreign, &view).is_err());
-            let wrong_profile = CapturedSources::capture(Profile::Behavioral, [permit.snapshot()], &budget).unwrap();
+                "foreign-capture",
+                model.digest(),
+                ContentHash::of(b"typed-view-contract"),
+                view.identity,
+                view.rows,
+            )
+            .unwrap();
+            assert!(
+                admission
+                    .admit_uniform_analysis(&fixture.owner, &foreign, &view)
+                    .is_err()
+            );
+            let wrong_profile =
+                CapturedSources::capture(Profile::Behavioral, [permit.snapshot()], &budget)
+                    .unwrap();
             let mut wrong = CoverageAdmission::new(&wrong_profile, &budget).unwrap();
             wrong.admit_uniform_owner(&fixture.owner).unwrap();
-            assert!(wrong.admit_uniform_analysis(&fixture.owner, &permit, &view).is_err());
+            assert!(
+                wrong
+                    .admit_uniform_analysis(&fixture.owner, &permit, &view)
+                    .is_err()
+            );
 
-            let unselected = completed::CompletedView::new(UniformNotRequested::NAME.into(), [ContentHash::of(b"another-contributor")].into(), 1).unwrap();
+            let unselected = completed::CompletedView::new(
+                UniformNotRequested::NAME.into(),
+                [ContentHash::of(b"another-contributor")].into(),
+                1,
+            )
+            .unwrap();
             let unselected_permit = CompletedInput::<UniformNotRequested>::new(
-                "actual-selected-compact-view", model.digest(), ContentHash::of(b"typed-view-contract"), unselected.identity, unselected.rows,
-            ).unwrap();
-            let unselected_sources = CapturedSources::capture(Profile::Catalog, [unselected_permit.snapshot()], &budget).unwrap();
+                "actual-selected-compact-view",
+                model.digest(),
+                ContentHash::of(b"typed-view-contract"),
+                unselected.identity,
+                unselected.rows,
+            )
+            .unwrap();
+            let unselected_sources =
+                CapturedSources::capture(Profile::Catalog, [unselected_permit.snapshot()], &budget)
+                    .unwrap();
             let mut wrong = CoverageAdmission::new(&unselected_sources, &budget).unwrap();
             wrong.admit_uniform_owner(&fixture.owner).unwrap();
-            assert!(wrong.admit_uniform_analysis(&fixture.owner, &unselected_permit, &unselected).is_err(), "a captured role must actually select the admitted contributor");
+            assert!(
+                wrong
+                    .admit_uniform_analysis(&fixture.owner, &unselected_permit, &unselected)
+                    .is_err(),
+                "a captured role must actually select the admitted contributor"
+            );
         }
     }
     #[test]
@@ -2096,23 +2266,57 @@ mod tests {
         .unwrap();
         {
             use super::super::sources::{CapturedSources, CompletedInput};
-            let facts = completed::CompletedView::new(UniformNotRequested::NAME.into(), [owner.contribution()].into(), 1).unwrap();
-            let higher = completed::CompletedView::new(UniformNotRequested::NAME.into(), [owner.contribution(), ContentHash::of(b"another-completed-checkpoint-contribution")].into(), 1).unwrap();
-            let permit = |view: &completed::CompletedView| CompletedInput::<UniformNotRequested>::new(
-                "selected-compact-checkpoint", completed.spec.model, ContentHash::of(b"typed-view-contract"), view.identity, view.rows,
-            ).unwrap();
+            let facts = completed::CompletedView::new(
+                UniformNotRequested::NAME.into(),
+                [owner.contribution()].into(),
+                1,
+            )
+            .unwrap();
+            let higher = completed::CompletedView::new(
+                UniformNotRequested::NAME.into(),
+                [
+                    owner.contribution(),
+                    ContentHash::of(b"another-completed-checkpoint-contribution"),
+                ]
+                .into(),
+                1,
+            )
+            .unwrap();
+            let permit = |view: &completed::CompletedView| {
+                CompletedInput::<UniformNotRequested>::new(
+                    "selected-compact-checkpoint",
+                    completed.spec.model,
+                    ContentHash::of(b"typed-view-contract"),
+                    view.identity,
+                    view.rows,
+                )
+                .unwrap()
+            };
             let facts_permit = permit(&facts);
             let higher_permit = permit(&higher);
-            let sources = CapturedSources::capture(Profile::Catalog, [facts_permit.snapshot(), higher_permit.snapshot()], &f.budget).unwrap();
+            let sources = CapturedSources::capture(
+                Profile::Catalog,
+                [facts_permit.snapshot(), higher_permit.snapshot()],
+                &f.budget,
+            )
+            .unwrap();
             let mut admission = CoverageAdmission::new(&sources, &f.budget).unwrap();
             std::mem::swap(&mut admission.index, &mut f.index);
-            admission.select_facts_uniform_source(&facts_permit).unwrap();
+            admission
+                .select_facts_uniform_source(&facts_permit)
+                .unwrap();
             let batch = UniformNotRequested::encode(std::slice::from_ref(&descriptor)).unwrap();
             admission.visit_if_expected(&higher_permit, &batch).unwrap();
-            assert!(admission.index.uniform.is_empty(), "a higher-only native descriptor grants no Facts evidence");
+            assert!(
+                admission.index.uniform.is_empty(),
+                "a higher-only native descriptor grants no Facts evidence"
+            );
             assert!(admission.index.domain(f.input, f.context, method).is_err());
             admission.visit_if_expected(&facts_permit, &batch).unwrap();
-            assert!(admission.index.domain(f.input, f.context, method).is_err(), "serialized descriptor alone is insufficient");
+            assert!(
+                admission.index.domain(f.input, f.context, method).is_err(),
+                "serialized descriptor alone is insufficient"
+            );
             admission.admit_uniform_owner(&owner).unwrap();
             assert!(admission.index.domain(f.input, f.context, method).is_ok());
             std::mem::swap(&mut admission.index, &mut f.index);

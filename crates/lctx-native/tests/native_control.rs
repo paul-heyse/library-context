@@ -400,11 +400,19 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
     ];
     let roots = vec![parent.clone(), shared.clone()];
     let cfg = config();
-    let budget = ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
-    let factory = control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget).unwrap();
+    let budget =
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
+    let factory =
+        control::RecoveryFactoryOwner::new(cfg.receipt_binding().unwrap(), budget).unwrap();
     let (client, lease) = lctx_native::reader::connect_owned(
-        &cfg.endpoint, &cfg.writer_credentials(), cfg.namespace.as_str(), cfg.database.as_str(), &factory,
-    ).await.unwrap();
+        &cfg.endpoint,
+        &cfg.writer_credentials(),
+        cfg.namespace.as_str(),
+        cfg.database.as_str(),
+        &factory,
+    )
+    .await
+    .unwrap();
     let connection = client.connection_completion().unwrap();
     let scope = lease.recovery_scope().clone();
     let mut pin = None;
@@ -451,47 +459,54 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
     }).catch_unwind()).await;
     let cleanup_allowed = matches!(&outcome,Ok(result) if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup));
     let mut completion = control::with_recovery_scope(scope, async {
-    let mut completion = Completion::default();
-    if cleanup_allowed {
-        let released = if let Some(pin) = &pin {
-            pin.release().await
-        } else {
-            Ok(())
-        };
-        let release_ok = released.is_ok();
-        completion.step("named retirement control independent pin release", released);
-        if release_ok {
-            let cleanup = async {
-                let mut progress = control::retire_reachable_named(
-                    &client,
-                    identity,
-                    cfg.service_generation,
-                    roots,
-                    16,
-                )
-                .await?;
-                for _ in 0..4 {
-                    if progress.remaining.is_empty() {
-                        break;
+        let mut completion = Completion::default();
+        if cleanup_allowed {
+            let released = if let Some(pin) = &pin {
+                pin.release().await
+            } else {
+                Ok(())
+            };
+            let release_ok = released.is_ok();
+            completion.step("named retirement control independent pin release", released);
+            if release_ok {
+                let cleanup = async {
+                    let mut progress = control::retire_reachable_named(
+                        &client,
+                        identity,
+                        cfg.service_generation,
+                        roots,
+                        16,
+                    )
+                    .await?;
+                    for _ in 0..4 {
+                        if progress.remaining.is_empty() {
+                            break;
+                        }
+                        progress = control::resume_retirement(&client, identity, 16).await?;
                     }
-                    progress = control::resume_retirement(&client, identity, 16).await?;
+                    require(
+                        progress.remaining.is_empty() && progress.retained.is_empty(),
+                        "owned named retirement cleanup must finish",
+                    )?;
+                    control::retire(&client, refused).await
                 }
-                require(
-                    progress.remaining.is_empty() && progress.retained.is_empty(),
-                    "owned named retirement cleanup must finish",
-                )?;
-                control::retire(&client, refused).await
-            }
-            .await;
-            let safe = cleanup
-                .as_ref()
-                .err()
-                .is_none_or(ModelError::permits_storage_cleanup);
-            if cleanup.is_err() {
-                completion.local = LocalState::Outstanding;
-            }
-            completion.step("named retirement control exact roots cleanup", cleanup);
-            if !safe {
+                .await;
+                let safe = cleanup
+                    .as_ref()
+                    .err()
+                    .is_none_or(ModelError::permits_storage_cleanup);
+                if cleanup.is_err() {
+                    completion.local = LocalState::Outstanding;
+                }
+                completion.step("named retirement control exact roots cleanup", cleanup);
+                if !safe {
+                    completion.local = LocalState::Outstanding;
+                    completion.remote = RemoteState::Unknown;
+                }
+            } else {
+                if let Some(pin) = &pin {
+                    pin.retain_unknown();
+                }
                 completion.local = LocalState::Outstanding;
                 completion.remote = RemoteState::Unknown;
             }
@@ -502,24 +517,27 @@ async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_
             completion.local = LocalState::Outstanding;
             completion.remote = RemoteState::Unknown;
         }
-    } else {
-        if let Some(pin) = &pin {
-            pin.retain_unknown();
-        }
-        completion.local = LocalState::Outstanding;
-        completion.remote = RemoteState::Unknown;
-    }
-    completion
-    }).await;
+        completion
+    })
+    .await;
     let observer_completion = lease.complete_with(&completion).await;
-    completion.step("named retirement control observer completion", observer_completion);
+    completion.step(
+        "named retirement control observer completion",
+        observer_completion,
+    );
     drop(lease);
-    completion.step("named retirement control factory drainage", factory.drain(&control::RetryCancellation::default()).await);
+    completion.step(
+        "named retirement control factory drainage",
+        factory.drain(&control::RetryCancellation::default()).await,
+    );
     drop(pin);
     drop(factory);
     drop(client);
     if completion.is_satisfied() {
-        completion.step("named retirement control SDK completion", connection.wait().await.map_err(ModelError::codec));
+        completion.step(
+            "named retirement control SDK completion",
+            connection.wait().await.map_err(ModelError::codec),
+        );
     }
     match outcome {
         Ok(result) => complete(result, completion).unwrap(),

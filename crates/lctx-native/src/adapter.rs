@@ -206,12 +206,18 @@ pub struct GraphEnvelope {
 }
 impl GraphEnvelope {
     pub fn entity(row: &Entity) -> Self {
-        Self { anchor: crate::reader::target_id(d::graph::Target::Entity(row.id())),
-            kind: row.kind() as i64, subtype: row.subtype() }
+        Self {
+            anchor: crate::reader::target_id(d::graph::Target::Entity(row.id())),
+            kind: row.kind() as i64,
+            subtype: row.subtype(),
+        }
     }
     pub fn assertion(row: &Assertion) -> Self {
-        Self { anchor: crate::reader::target_id(d::graph::Target::Assertion(row.id())),
-            kind: row.kind as i64, subtype: None }
+        Self {
+            anchor: crate::reader::target_id(d::graph::Target::Assertion(row.id())),
+            kind: row.kind as i64,
+            subtype: None,
+        }
     }
 }
 /// Independent reconstruction derives graph properties from canonical input.
@@ -225,15 +231,21 @@ pub fn physical_row(
 ) -> Result<Value, ModelError> {
     let prepared = if let Some((kind, subtype)) = graph {
         let prepared = match id.table.as_str() {
-            "entity" => GraphEnvelope::entity(&serde_json::from_slice::<Entity>(&canonical).map_err(ModelError::codec)?),
-            "assertion" => GraphEnvelope::assertion(&serde_json::from_slice::<Assertion>(&canonical).map_err(ModelError::codec)?),
+            "entity" => GraphEnvelope::entity(
+                &serde_json::from_slice::<Entity>(&canonical).map_err(ModelError::codec)?,
+            ),
+            "assertion" => GraphEnvelope::assertion(
+                &serde_json::from_slice::<Assertion>(&canonical).map_err(ModelError::codec)?,
+            ),
             _ => return Err(ModelError::Schema("graph payload family")),
         };
         if prepared.kind != kind || prepared.subtype != subtype {
             return Err(ModelError::Conflict("canonical graph envelope properties"));
         }
         Some(prepared)
-    } else { None };
+    } else {
+        None
+    };
     physical_row_prepared(id, content, canonical, prepared, view)
 }
 /// Complete mechanical envelope with already-derived typed graph properties.
@@ -252,13 +264,18 @@ pub fn physical_row_prepared(
     row.insert("canonical", surrealdb::types::Bytes::from(canonical));
     row.insert("body", view.body);
     if let Some(graph) = graph {
-        if !matches!((id.table.as_str(), graph.anchor.table.as_str()),
-            ("entity", "entity_anchor") | ("assertion", "assertion_anchor")) {
+        if !matches!(
+            (id.table.as_str(), graph.anchor.table.as_str()),
+            ("entity", "entity_anchor") | ("assertion", "assertion_anchor")
+        ) {
             return Err(ModelError::Schema("prepared graph payload family"));
         }
         row.insert("anchor", graph.anchor);
         row.insert("kind", graph.kind);
-        row.insert("subtype", graph.subtype.map(Value::from_t).unwrap_or(Value::Null));
+        row.insert(
+            "subtype",
+            graph.subtype.map(Value::from_t).unwrap_or(Value::Null),
+        );
     }
     let row = Value::Object(row);
     crate::loader::validate_native_row(&row)?;

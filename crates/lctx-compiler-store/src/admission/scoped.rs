@@ -125,15 +125,21 @@ impl PreparedScopedCheck {
             || data.definition != self.premise.definition
             || data.factory != self.premise.factory
             || data.inputs.len() != self.premise.inputs.len()
-            || data.inputs.iter().zip(&self.premise.inputs).any(|(actual, role)| {
-                role.selected.as_ref().is_none_or(|(resolved, _, source)| {
-                    actual.source != *source
-                        || actual.requested != role.requested
-                        || actual.resolved != *resolved
+            || data
+                .inputs
+                .iter()
+                .zip(&self.premise.inputs)
+                .any(|(actual, role)| {
+                    role.selected.as_ref().is_none_or(|(resolved, _, source)| {
+                        actual.source != *source
+                            || actual.requested != role.requested
+                            || actual.resolved != *resolved
+                    })
                 })
-            })
         {
-            return Err(ModelError::Conflict("private whole execution ledger/context"));
+            return Err(ModelError::Conflict(
+                "private whole execution ledger/context",
+            ));
         }
         Ok(Arc::new(ExecutedCheck {
             premise: self.premise,
@@ -238,7 +244,10 @@ impl Drop for ScopedAttempt<'_> {
 /// then each check looks up only its actual declared contributors.
 pub(super) struct ScopedInventory {
     owners: BTreeMap<ContentHash, CompletedContribution>,
-    caps: tokio::sync::Mutex<(BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>, StateCharge)>,
+    caps: tokio::sync::Mutex<(
+        BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>,
+        StateCharge,
+    )>,
     _transfer: Box<dyn Reservation>,
     _charge: StateCharge,
 }
@@ -255,7 +264,10 @@ impl AdmissionRuntime {
         }
         Ok(ScopedInventory {
             owners,
-            caps: tokio::sync::Mutex::new((BTreeMap::new(), StateCharge::new(self.budget(), "shared admission capability slots"))),
+            caps: tokio::sync::Mutex::new((
+                BTreeMap::new(),
+                StateCharge::new(self.budget(), "shared admission capability slots"),
+            )),
             _transfer: inventory.transfer,
             _charge: charge,
         })
@@ -358,9 +370,9 @@ impl AdmissionRuntime {
                 let native = self.native.clone();
                 let budget = self.budget.clone();
                 let identity = view.identity;
-                let cap = self.native_call(async move {
-                    native.installed_view(&view, &budget).await
-                }).await?;
+                let cap = self
+                    .native_call(async move { native.installed_view(&view, &budget).await })
+                    .await?;
                 acquired.0.insert(identity, cap.clone());
                 cap
             };
@@ -394,7 +406,9 @@ impl AdmissionRuntime {
         uniform_empty
             && inputs.companions.is_empty()
             && !invariant.inputs.is_empty()
-            && self.model.factory_contract(invariant.identity())
+            && self
+                .model
+                .factory_contract(invariant.identity())
                 .is_some_and(|factory| factory.definition == invariant.digest())
             && invariant.inputs.iter().all(|input| {
                 !unrequested.contains(input.name())
@@ -412,9 +426,22 @@ impl AdmissionRuntime {
         // Keep the existing durable native comparison/receipt capability. A durable hit
         // remains valid ordinary assurance, but only an actually completed fixed driver
         // creates a new private executed owner in this operation.
-        match self.validate_durable_whole(invariant, inputs, &BTreeSet::new(),
-            prepared.premise.profile, &[], native_session, inputs, Some(&prepared.caps)).await? {
-            super::durable::WholeExecution::Unsupported => Err(ModelError::Conflict("eligible private whole driver unsupported")),
+        match self
+            .validate_durable_whole(
+                invariant,
+                inputs,
+                &BTreeSet::new(),
+                prepared.premise.profile,
+                &[],
+                native_session,
+                inputs,
+                Some(&prepared.caps),
+            )
+            .await?
+        {
+            super::durable::WholeExecution::Unsupported => Err(ModelError::Conflict(
+                "eligible private whole driver unsupported",
+            )),
             super::durable::WholeExecution::Completed(None) => Ok(None),
             super::durable::WholeExecution::Completed(Some(proof)) => {
                 self.native.check()?;
@@ -657,7 +684,9 @@ mod controls {
             true
         }
         fn execution_scope(&self) -> Option<d::execution::fidelity::ExecutionScope> {
-            if self.whole { return None; }
+            if self.whole {
+                return None;
+            }
             Some(d::execution::fidelity::ExecutionScope {
                 root: self.root.clone(),
                 memberships: vec![],
@@ -701,7 +730,10 @@ mod controls {
         model_mode(finished, rejected, changed_factory, false)
     }
     fn model_mode(
-        finished: &Arc<AtomicUsize>, rejected: &Arc<AtomicUsize>, changed_factory: bool, whole: bool,
+        finished: &Arc<AtomicUsize>,
+        rejected: &Arc<AtomicUsize>,
+        changed_factory: bool,
+        whole: bool,
     ) -> Arc<ValidatedModel> {
         let checks = [
             (
@@ -975,15 +1007,23 @@ mod controls {
     async fn whole_native_reuse_requires_actual_input_and_successful_attempt() {
         let config = lctx_native::RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("explicit validation target"),
-        )).unwrap();
+        ))
+        .unwrap();
         for bad_native in [false, true] {
             let budget = ResourceBudget::fixed(256 << 20).unwrap();
             let native = NativeCompilerStore::begin(
-                &config, d::admission::Frontier::Facts,
+                &config,
+                d::admission::Frontier::Facts,
                 &crate::compiler::recovery_factory(&config, budget.clone()).unwrap(),
-            ).await.unwrap();
+            )
+            .await
+            .unwrap();
             let cancellation = Cancellation::default();
-            let calls = Arc::new(crate::native_calls::NativeCalls::new(native.clone(), cancellation.clone(), &budget));
+            let calls = Arc::new(crate::native_calls::NativeCalls::new(
+                native.clone(),
+                cancellation.clone(),
+                &budget,
+            ));
             let memo = AdmissionMemo::new(&budget);
             let finished = Arc::new(AtomicUsize::new(0));
             let rejected = Arc::new(AtomicUsize::new(0));
@@ -991,49 +1031,111 @@ mod controls {
             let result = std::panic::AssertUnwindSafe(async {
                 let model = model_mode(&finished, &rejected, false, true);
                 let (owner, bindings) = seed(&native, &model, &budget, bad_native, true).await;
-                let runtime = runtime(model, &native, &budget, &memo, &cancellation, &calls, vec![owner], bindings, &mut runtimes);
-                for binding in runtime.bindings().unwrap() { native.bind(binding).await.unwrap(); }
+                let runtime = runtime(
+                    model,
+                    &native,
+                    &budget,
+                    &memo,
+                    &cancellation,
+                    &calls,
+                    vec![owner],
+                    bindings,
+                    &mut runtimes,
+                );
+                for binding in runtime.bindings().unwrap() {
+                    native.bind(binding).await.unwrap();
+                }
                 if bad_native {
                     // A finite external planner can report a valid row while the selected native
                     // source is invalid. That successful prefix must never earn private authority.
                     let inputs = runtime.inputs([InputRevision::NAME]).unwrap();
                     let session = SessionContext::new();
-                    let external_table = inputs.validation_table(&ValidationInput::of::<InputRevision>(&["id"])).unwrap();
-                    session.register_batch(external_table.as_str(),
-                        InputRevision::encode(&[InputRevision::from_entries(vec![]).unwrap()]).unwrap()).unwrap();
-                    let bindings = inputs.relations.values().map(|input| SelectedBinding {
-                        role: input.role, requested: input.requested, resolved: input.resolved,
-                        binding: CompletedBinding { boundary: None, configuration: None,
-                            source: input.snapshot.clone(), view: input.view.clone() },
-                    }).collect();
-                    runtime.validate_compiler_selection(Profile::Catalog, true, bindings, &session, &inputs).await.unwrap();
+                    let external_table = inputs
+                        .validation_table(&ValidationInput::of::<InputRevision>(&["id"]))
+                        .unwrap();
+                    session
+                        .register_batch(
+                            external_table.as_str(),
+                            InputRevision::encode(&[InputRevision::from_entries(vec![]).unwrap()])
+                                .unwrap(),
+                        )
+                        .unwrap();
+                    let bindings = inputs
+                        .relations
+                        .values()
+                        .map(|input| SelectedBinding {
+                            role: input.role,
+                            requested: input.requested,
+                            resolved: input.resolved,
+                            binding: CompletedBinding {
+                                boundary: None,
+                                configuration: None,
+                                source: input.snapshot.clone(),
+                                view: input.view.clone(),
+                            },
+                        })
+                        .collect();
+                    runtime
+                        .validate_compiler_selection(
+                            Profile::Catalog,
+                            true,
+                            bindings,
+                            &session,
+                            &inputs,
+                        )
+                        .await
+                        .unwrap();
                     assert!(memo.scoped.entries.lock().unwrap().0.is_empty());
                 } else {
                     early(&runtime).await;
-                    assert!(memo.scoped.entries.lock().unwrap().0.iter().any(|check| check._whole.is_some()));
+                    assert!(
+                        memo.scoped
+                            .entries
+                            .lock()
+                            .unwrap()
+                            .0
+                            .iter()
+                            .any(|check| check._whole.is_some())
+                    );
                 }
                 runtime.freeze_for_admission().await.unwrap();
                 let actual = runtime.execute_semantics(Profile::Catalog).await;
                 if bad_native {
-                    assert!(actual.is_err(), "actual invalid native manifest must refuse");
+                    assert!(
+                        actual.is_err(),
+                        "actual invalid native manifest must refuse"
+                    );
                     assert_eq!(rejected.load(Ordering::SeqCst), 1);
                     assert!(memo.scoped.invalidated.load(Ordering::Acquire));
                     assert!(memo.scoped.entries.lock().unwrap().0.is_empty());
                 } else {
                     let scope = actual.unwrap();
-                    assert!(scope.invariants.iter().all(|check| check.execution == Execution::WholeInput));
-                    assert_eq!(finished.load(Ordering::SeqCst), 2, "one reused original check and one newly applicable empty-input check");
+                    assert!(
+                        scope
+                            .invariants
+                            .iter()
+                            .all(|check| check.execution == Execution::WholeInput)
+                    );
+                    assert_eq!(
+                        finished.load(Ordering::SeqCst),
+                        2,
+                        "one reused original check and one newly applicable empty-input check"
+                    );
                     assert_eq!(memo.scoped.reuses.load(Ordering::SeqCst), 1);
                     assert_eq!(rejected.load(Ordering::SeqCst), 0);
                 }
-            }).catch_unwind().await;
+            })
+            .catch_unwind()
+            .await;
             let mut terminal = drain_controls(&native, &calls, &runtimes).await;
             finish_control_signals(&runtimes, &mut terminal).await;
             calls.append_operation_failures(&mut terminal);
             native.append_operation_failures(&mut terminal);
             let cleanup = d::completion::complete(Ok(()), terminal);
             if let Err(panic) = result {
-                if let Err(error) = cleanup { eprintln!("whole native cleanup: {error:#?}"); }
+                if let Err(error) = cleanup {
+                    eprintln!("whole native cleanup: {error:#?}");
+                }
                 std::panic::resume_unwind(panic);
             }
             cleanup.unwrap();

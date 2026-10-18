@@ -524,7 +524,7 @@ fn creation_indices(bindings: &Variables) -> Result<CreationReferences, ModelErr
     Ok(output)
 }
 
-pub(super) const COMPILER_LOCATOR_PREPARATION:&str=r#"LET $parent=SELECT * FROM ONLY $locator_parent FOR UPDATE;
+pub(super) const COMPILER_LOCATOR_PREPARATION: &str = r#"LET $parent=SELECT * FROM ONLY $locator_parent FOR UPDATE;
 IF $parent=NONE OR $parent.completed OR $parent.attempt!=$__attempt OR $__owner.admitted { THROW 'compiler locator parent fenced'; };
 LET $locator_ids=$locator_rows.map(|$row|$row.id);
 LET $old_locators=SELECT * FROM $locator_ids;
@@ -558,10 +558,14 @@ LET $rows=$rows.filter(|$row|$row.id IN $new_block_ids);
 LET $holds=$holds.filter(|$hold|$hold.object IN $new_block_ids);
 LET $__object_expectations=($__object_expectations ?? []).filter(|$entry| record::table($entry.record)!='compiler_block' OR $entry.record IN $new_block_ids);
 "#;
-pub(super) fn expected_object_guard(bindings:&Variables)->std::borrow::Cow<'static,str>{
-    if bindings.get("__compiler_locator_packet")==Some(&Value::Bool(true)){
-        std::borrow::Cow::Owned(format!("{COMPILER_LOCATOR_PREPARATION} {EXPECTED_OBJECT_GUARD}"))
-    }else{std::borrow::Cow::Borrowed(EXPECTED_OBJECT_GUARD)}
+pub(super) fn expected_object_guard(bindings: &Variables) -> std::borrow::Cow<'static, str> {
+    if bindings.get("__compiler_locator_packet") == Some(&Value::Bool(true)) {
+        std::borrow::Cow::Owned(format!(
+            "{COMPILER_LOCATOR_PREPARATION} {EXPECTED_OBJECT_GUARD}"
+        ))
+    } else {
+        std::borrow::Cow::Borrowed(EXPECTED_OBJECT_GUARD)
+    }
 }
 pub(super) const EXPECTED_OBJECT_GUARD: &str = r#"
 IF array::len(($__object_expectations ?? []).filter(|$entry|record::table($entry.record) IN ['compiler_record','compiler_membership']))>0 { THROW 'logical compiler identity is not physical expectation'; };

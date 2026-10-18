@@ -15,16 +15,26 @@ fn prepare_native_validation<'a>(
     caps: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
     uniform: &'a [d::uniform_outcome::ValidatedUniformOwner],
     budget: &'a ResourceBudget,
-) -> Result<lctx_native::continuation::Continuation<'a, Result<PendingValidation, ModelError>>, ModelError> {
-    lctx_native::continuation::admit(budget, "native validation preparation continuation",
-        PendingValidation::prepare(model, invariant, profile, inputs, caps, uniform, budget))
+) -> Result<
+    lctx_native::continuation::Continuation<'a, Result<PendingValidation, ModelError>>,
+    ModelError,
+> {
+    lctx_native::continuation::admit(
+        budget,
+        "native validation preparation continuation",
+        PendingValidation::prepare(model, invariant, profile, inputs, caps, uniform, budget),
+    )
 }
 #[inline(never)]
 fn lookup_native_validation<'a>(
     pending: &'a PendingValidation,
     budget: &ResourceBudget,
 ) -> Result<lctx_native::continuation::Continuation<'a, Result<bool, ModelError>>, ModelError> {
-    lctx_native::continuation::admit(budget, "native validation lookup continuation", pending.lookup())
+    lctx_native::continuation::admit(
+        budget,
+        "native validation lookup continuation",
+        pending.lookup(),
+    )
 }
 #[inline(never)]
 fn visit_native_validation<'a>(
@@ -33,7 +43,11 @@ fn visit_native_validation<'a>(
     batch: &'a RecordBatch,
     budget: &ResourceBudget,
 ) -> Result<lctx_native::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
-    lctx_native::continuation::admit(budget, "native validation visit continuation", pending.visit(index, batch))
+    lctx_native::continuation::admit(
+        budget,
+        "native validation visit continuation",
+        pending.visit(index, batch),
+    )
 }
 #[inline(never)]
 fn persist_native_validation<'a>(
@@ -41,14 +55,22 @@ fn persist_native_validation<'a>(
     proof: &'a d::checked_admission::CheckedValidationPremise,
     budget: &ResourceBudget,
 ) -> Result<lctx_native::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
-    lctx_native::continuation::admit(budget, "native validation persist continuation", pending.persist(proof))
+    lctx_native::continuation::admit(
+        budget,
+        "native validation persist continuation",
+        pending.persist(proof),
+    )
 }
 #[inline(never)]
 fn close_native_validation<'a>(
     pending: &'a mut PendingValidation,
     budget: &ResourceBudget,
 ) -> Result<lctx_native::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
-    lctx_native::continuation::admit(budget, "native validation close continuation", pending.close())
+    lctx_native::continuation::admit(
+        budget,
+        "native validation close continuation",
+        pending.close(),
+    )
 }
 pub(super) enum WholeExecution {
     Unsupported,
@@ -115,13 +137,19 @@ impl AdmissionRuntime {
                     continue;
                 }
                 let cap = if let Some(prepared) = prepared_caps {
-                    prepared.iter().find(|cap| cap.completion().view == selected.view)
-                        .cloned().ok_or(ModelError::Conflict("prepared whole capability correspondence"))?
+                    prepared
+                        .iter()
+                        .find(|cap| cap.completion().view == selected.view)
+                        .cloned()
+                        .ok_or(ModelError::Conflict(
+                            "prepared whole capability correspondence",
+                        ))?
                 } else {
                     let native = self.native.clone();
                     let view = selected.view.clone();
                     let budget = self.budget.clone();
-                    self.native_call(async move { native.installed_view(&view, &budget).await }).await?
+                    self.native_call(async move { native.installed_view(&view, &budget).await })
+                        .await?
                 };
                 caps.insert(view_identity(&cap), cap);
             }
@@ -158,54 +186,58 @@ impl AdmissionRuntime {
                 )?,
             )
             .await?;
-            let result: Result<Option<d::checked_admission::CheckedValidationPremise>, ModelError> = async {
-                if lookup_native_validation(&pending, self.budget())?.await? {
+            let result: Result<Option<d::checked_admission::CheckedValidationPremise>, ModelError> =
+                async {
+                    if lookup_native_validation(&pending, self.budget())?.await? {
+                        tracing::debug!(
+                            invariant = invariant.name,
+                            "reused exact durable native validation premise"
+                        );
+                        return Ok(None);
+                    }
+                    for (index, input) in invariant.inputs.iter().enumerate() {
+                        let order = input
+                            .order()
+                            .iter()
+                            .map(|name| crate::consumed_rows::identifier(name))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        let table = inputs.validation_table(input)?;
+                        let sql = format!(
+                            "SELECT * FROM {}{}",
+                            crate::consumed_rows::identifier(&table),
+                            if order.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" ORDER BY {order}")
+                            }
+                        );
+                        let mut stream = planner
+                            .query(session, input, &sql)
+                            .await?
+                            .execute_stream()
+                            .await
+                            .map_err(ModelError::codec)?;
+                        while let Some(batch) =
+                            stream.try_next().await.map_err(ModelError::codec)?
+                        {
+                            self.cancellation.check()?;
+                            visit_native_validation(&mut pending, index, &batch, self.budget())?
+                                .await?;
+                            driver.visit(index, &batch)?;
+                        }
+                        pending.end_input(index)?;
+                        driver.end_input(index)?;
+                    }
+                    let proof = driver.finish()?;
+                    persist_native_validation(&mut pending, &proof, self.budget())?.await?;
                     tracing::debug!(
                         invariant = invariant.name,
-                        "reused exact durable native validation premise"
+                        "persisted executed native validation premise"
                     );
-                    return Ok(None);
+                    Ok(Some(proof))
                 }
-                for (index, input) in invariant.inputs.iter().enumerate() {
-                    let order = input
-                        .order()
-                        .iter()
-                        .map(|name| crate::consumed_rows::identifier(name))
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let table = inputs.validation_table(input)?;
-                    let sql = format!(
-                        "SELECT * FROM {}{}",
-                        crate::consumed_rows::identifier(&table),
-                        if order.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" ORDER BY {order}")
-                        }
-                    );
-                    let mut stream = planner
-                        .query(session, input, &sql)
-                        .await?
-                        .execute_stream()
-                        .await
-                        .map_err(ModelError::codec)?;
-                    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
-                        self.cancellation.check()?;
-                        visit_native_validation(&mut pending, index, &batch, self.budget())?.await?;
-                        driver.visit(index, &batch)?;
-                    }
-                    pending.end_input(index)?;
-                    driver.end_input(index)?;
-                }
-                let proof = driver.finish()?;
-                persist_native_validation(&mut pending, &proof, self.budget())?.await?;
-                tracing::debug!(
-                    invariant = invariant.name,
-                    "persisted executed native validation premise"
-                );
-                Ok(Some(proof))
-            }
-            .await;
+                .await;
             if result
                 .as_ref()
                 .err()
@@ -227,10 +259,7 @@ impl AdmissionRuntime {
                     Err(error)
                 }
             };
-            terminal.step(
-                "durable validation native scope close",
-                closed,
-            );
+            terminal.step("durable validation native scope close", closed);
             d::completion::complete(result, terminal).map(WholeExecution::completed)
         })
     }
@@ -259,13 +288,37 @@ mod controls {
         let model = Arc::new(d::model().unwrap());
         let invariant = model.invariant("call_origin_membership").unwrap().clone();
         let budget = ResourceBudget::fixed(64 << 20).unwrap();
-        let prepare = prepare_native_validation(model, &invariant, Profile::Catalog,
-            vec![], vec![], &[], &budget).unwrap();
-        assert!(budget.reserved() > 0, "actual concrete preparation is admitted before polling");
-        let Err(error) = prepare.await else { panic!("missing declared roles cannot acquire a native owner"); };
-        assert!(matches!(error.primary(), Some(ModelError::Conflict("fixed driver ordered input cardinality"))),
-            "the native operation retains its actual declaration refusal: {error:?}");
-        assert_eq!(budget.reserved(), 0, "failed preparation releases its real continuation and model state");
+        let prepare = prepare_native_validation(
+            model,
+            &invariant,
+            Profile::Catalog,
+            vec![],
+            vec![],
+            &[],
+            &budget,
+        )
+        .unwrap();
+        assert!(
+            budget.reserved() > 0,
+            "actual concrete preparation is admitted before polling"
+        );
+        let Err(error) = prepare.await else {
+            panic!("missing declared roles cannot acquire a native owner");
+        };
+        assert!(
+            matches!(
+                error.primary(),
+                Some(ModelError::Conflict(
+                    "fixed driver ordered input cardinality"
+                ))
+            ),
+            "the native operation retains its actual declaration refusal: {error:?}"
+        );
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "failed preparation releases its real continuation and model state"
+        );
     }
     #[test]
     fn scoped_generated_derivation_differs_from_the_registered_whole_factory() {
@@ -405,17 +458,17 @@ mod controls {
         let request = request(seed.spec, &model);
         let cfg = config();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
-        let metadata_budget=ResourceBudget::fixed(budget.limit()).unwrap();
-        assert_eq!(metadata_budget.limit(),budget.limit());
-        assert!(!metadata_budget.shares_pool(&budget),"factory metadata and candidate payload have authentic distinct admission owners");
+        let metadata_budget = ResourceBudget::fixed(budget.limit()).unwrap();
+        assert_eq!(metadata_budget.limit(), budget.limit());
+        assert!(
+            !metadata_budget.shares_pool(&budget),
+            "factory metadata and candidate payload have authentic distinct admission owners"
+        );
         let receiver = NativeCompilerStore::begin(
             &cfg,
             Frontier::Facts,
-            &crate::compiler::recovery_factory(
-                &cfg,
-                metadata_budget,
-            )
-            .expect("owned native control factory"),
+            &crate::compiler::recovery_factory(&cfg, metadata_budget)
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
@@ -539,14 +592,24 @@ mod controls {
         // The source is deliberately terminal and its independent observer is
         // read-only ownership. Release through a fresh actual mutation owner,
         // whose exact recovery scope/client remains attached until its cleanup.
-        let release_owner=NativeCompilerStore::begin(&cfg,Frontier::Facts,
-            &crate::compiler::recovery_factory(&cfg,budget.clone()).unwrap()).await.unwrap();
+        let release_owner = NativeCompilerStore::begin(
+            &cfg,
+            Frontier::Facts,
+            &crate::compiler::recovery_factory(&cfg, budget.clone()).unwrap(),
+        )
+        .await
+        .unwrap();
         terminal.step(
             "durable control warm product release",
-            release_owner.release_product_identity(request.identity().unwrap(),source.attempt(),&budget)
-                .await.map(|_| ()),
+            release_owner
+                .release_product_identity(request.identity().unwrap(), source.attempt(), &budget)
+                .await
+                .map(|_| ()),
         );
-        terminal.step("durable control release owner close",release_owner.abandon().await);
+        terminal.step(
+            "durable control release owner close",
+            release_owner.abandon().await,
+        );
         terminal.step(
             "durable control observer close",
             client.invalidate().await.map_err(ModelError::codec),

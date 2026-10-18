@@ -557,11 +557,14 @@ impl Loader {
     /// Load only after every canonical endpoint is present. Parallel roles keep distinct IDs.
     pub async fn entity_references(&self, rows: &[Entity]) -> Result<(), ModelError> {
         let mut pending = ReferenceWrites::default();
-        self.entity_references_inner(rows, None, &mut pending).await?;
+        self.entity_references_inner(rows, None, &mut pending)
+            .await?;
         self.flush_references("reference", &mut pending).await
     }
     pub(crate) async fn entity_references_inner(
-        &self, rows: &[Entity], mut expected: Option<&mut crate::ordered_rows::SortedRows>,
+        &self,
+        rows: &[Entity],
+        mut expected: Option<&mut crate::ordered_rows::SortedRows>,
         pending: &mut ReferenceWrites,
     ) -> Result<(), ModelError> {
         for row in rows {
@@ -577,19 +580,28 @@ impl Loader {
                     0,
                     Some(u32::try_from(position).map_err(ModelError::codec)?),
                 )?;
-                self.reference_write("reference", pending, value, endpoint, expected.as_deref_mut())
-                    .await?;
+                self.reference_write(
+                    "reference",
+                    pending,
+                    value,
+                    endpoint,
+                    expected.as_deref_mut(),
+                )
+                .await?;
             }
         }
         Ok(())
     }
     pub async fn assertion_references(&self, rows: &[Assertion]) -> Result<(), ModelError> {
         let mut pending = ReferenceWrites::default();
-        self.assertion_references_inner(rows, None, &mut pending).await?;
+        self.assertion_references_inner(rows, None, &mut pending)
+            .await?;
         self.flush_references("participant", &mut pending).await
     }
     pub(crate) async fn assertion_references_inner(
-        &self, rows: &[Assertion], mut expected: Option<&mut crate::ordered_rows::SortedRows>,
+        &self,
+        rows: &[Assertion],
+        mut expected: Option<&mut crate::ordered_rows::SortedRows>,
         pending: &mut ReferenceWrites,
     ) -> Result<(), ModelError> {
         for row in rows {
@@ -604,8 +616,14 @@ impl Loader {
                     participant.role as i64,
                     participant.position,
                 )?;
-                self.reference_write("participant", pending, value, endpoint, expected.as_deref_mut())
-                    .await?;
+                self.reference_write(
+                    "participant",
+                    pending,
+                    value,
+                    endpoint,
+                    expected.as_deref_mut(),
+                )
+                .await?;
             }
             // Qualification/run/evidence/derivation references retain their native adjacency.
             for (position, (target, _)) in row.references()?.into_iter().enumerate() {
@@ -625,8 +643,14 @@ impl Loader {
                     -1,
                     Some(u32::try_from(position).map_err(ModelError::codec)?),
                 )?;
-                self.reference_write("participant", pending, value, endpoint, expected.as_deref_mut())
-                    .await?;
+                self.reference_write(
+                    "participant",
+                    pending,
+                    value,
+                    endpoint,
+                    expected.as_deref_mut(),
+                )
+                .await?;
             }
         }
         Ok(())
@@ -664,7 +688,9 @@ impl Loader {
         if let Some(expected) = expected {
             if let Some(Value::Object(object)) = &endpoint
                 && matches!(object.get("id"), Some(Value::RecordId(id)) if id.table.as_str() == "external")
-            { expected.push(Value::Object(object.clone()))?; }
+            {
+                expected.push(Value::Object(object.clone()))?;
+            }
             expected.push(value.clone())?;
         }
         let bytes = native_bytes(&value).saturating_add(endpoint.as_ref().map_or(0, native_bytes));
@@ -677,13 +703,25 @@ impl Loader {
             self.flush_references(table, pending).await?;
         }
         if pending.charge.is_none() {
-            pending.charge = Some(self.read_budget()?.reserve("publication pending reference packet", 0)?);
+            pending.charge = Some(
+                self.read_budget()?
+                    .reserve("publication pending reference packet", 0)?,
+            );
         }
-        pending.charge.as_mut().expect("reference packet charge").try_resize(
-            pending.bytes.saturating_add(bytes).saturating_mul(2)
-                .saturating_add((pending.edges.len() + 1).saturating_mul(2 * size_of::<Value>()))
-                .saturating_add(1024),
-        )?;
+        pending
+            .charge
+            .as_mut()
+            .expect("reference packet charge")
+            .try_resize(
+                pending
+                    .bytes
+                    .saturating_add(bytes)
+                    .saturating_mul(2)
+                    .saturating_add(
+                        (pending.edges.len() + 1).saturating_mul(2 * size_of::<Value>()),
+                    )
+                    .saturating_add(1024),
+            )?;
         if let Some(endpoint) = endpoint {
             pending.endpoints.push(endpoint);
         }
@@ -702,7 +740,9 @@ impl Loader {
         self.insert(table, std::mem::take(&mut pending.edges), true)
             .await?;
         pending.bytes = 0;
-        if let Some(charge) = &mut pending.charge { charge.try_resize(0)?; }
+        if let Some(charge) = &mut pending.charge {
+            charge.try_resize(0)?;
+        }
         Ok(())
     }
     pub async fn original_stream(
@@ -735,7 +775,9 @@ impl Loader {
         _reuse: bool,
     ) -> Result<(), ModelError> {
         if self.staging.is_some() {
-            return Err(ModelError::Conflict("original import after canonical content freeze"));
+            return Err(ModelError::Conflict(
+                "original import after canonical content freeze",
+            ));
         }
         async fn install_rows(
             writer: &mut crate::control::WindowWriter<'_>,
@@ -744,7 +786,9 @@ impl Loader {
             budget: &lctx_model::domain::resources::ResourceBudget,
         ) -> Result<(), ModelError> {
             let owner = attempt.map(|attempt| RecordId::new("native_attempt", attempt.hex()));
-            for window in crate::control::ImmutableWindows::for_loading(rows, attempt, owner).with_budget(Some(budget)) {
+            for window in crate::control::ImmutableWindows::for_loading(rows, attempt, owner)
+                .with_budget(Some(budget))
+            {
                 writer.install(window?).await?;
             }
             Ok(())
@@ -756,13 +800,18 @@ impl Loader {
         let result = async {
             let layout =
                 crate::originals::resolve_source(&reader, source, content, length, &budget).await?;
-            let owner = self.attempt.map(crate::control::RecoveryOwner::OpenAttempt)
+            let owner = self
+                .attempt
+                .map(crate::control::RecoveryOwner::OpenAttempt)
                 .unwrap_or(crate::control::RecoveryOwner::Installation);
             let operation = Arc::new(crate::control::operation_pages::OperationWriter::new(
-                owner, Some(layout.id.clone()), &budget,
+                owner,
+                Some(layout.id.clone()),
+                &budget,
             )?);
-            let mut writer = crate::control::WindowWriter::new(self.client(), self.attempt, Some(&budget))
-                .with_operation(operation.clone());
+            let mut writer =
+                crate::control::WindowWriter::new(self.client(), self.attempt, Some(&budget))
+                    .with_operation(operation.clone());
             // Include exact replays so this attempt earns its own holds. One actual
             // stream owns every physical page through authenticated EOF and completion.
             install_rows(&mut writer, vec![layout.value()], self.attempt, &budget).await?;
@@ -792,7 +841,13 @@ impl Loader {
                     .checked_add(count as u64)
                     .ok_or(ModelError::Schema("original stream bounds"))?;
                 if pending.len() == 64 {
-                    install_rows(&mut writer, std::mem::take(&mut pending), self.attempt, &budget).await?;
+                    install_rows(
+                        &mut writer,
+                        std::mem::take(&mut pending),
+                        self.attempt,
+                        &budget,
+                    )
+                    .await?;
                 }
             }
             install_rows(&mut writer, pending, self.attempt, &budget).await?;
@@ -1052,9 +1107,20 @@ fn native_key_bytes(key: &surrealdb::types::RecordIdKey) -> usize {
             .fold(0, usize::saturating_add),
     })
 }
-pub(crate) fn validate_native_object(row:&Object)->Result<(),ModelError>{
-    let bytes=size_of::<Value>().saturating_add(row.iter().map(|(key,value)|key.len().saturating_add(32).saturating_add(native_bytes(value))).fold(0usize,usize::saturating_add));
-    require_row(bytes,lctx_model::domain::batching::TransferLimits::default())
+pub(crate) fn validate_native_object(row: &Object) -> Result<(), ModelError> {
+    let bytes = size_of::<Value>().saturating_add(
+        row.iter()
+            .map(|(key, value)| {
+                key.len()
+                    .saturating_add(32)
+                    .saturating_add(native_bytes(value))
+            })
+            .fold(0usize, usize::saturating_add),
+    );
+    require_row(
+        bytes,
+        lctx_model::domain::batching::TransferLimits::default(),
+    )
 }
 pub fn validate_native_row(row: &Value) -> Result<(), ModelError> {
     require_row(

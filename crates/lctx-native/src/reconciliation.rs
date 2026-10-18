@@ -1,11 +1,11 @@
 //! Full canonical and physical readback before a database can become a published snapshot.
 mod prepared;
-pub use prepared::{PreparedRoles, ReferencePreparation};
 use crate::{Loader, codec};
 use lctx_model::domain::{
     ModelError,
     graph::{Assertion, Entity, FamilyHasher, GraphFamily, Manifest, Target},
 };
+pub use prepared::{PreparedRoles, ReferencePreparation};
 use surrealdb::types::{Bytes, RecordId, SurrealValue, Value, Variables};
 fn canonical_size(actual: &Value) -> Result<usize, ModelError> {
     match actual {
@@ -62,161 +62,161 @@ impl Loader {
             prepared.reconcile_canonical(self, manifest).await?;
             prepared.roles.cursor()?
         } else {
-        let mut expected = crate::ordered_rows::SortedRows::with_budget(&budget)?;
-        for (table, family) in [
-            ("entity", GraphFamily::Entities),
-            ("assertion", GraphFamily::Assertions),
-        ] {
-            let mut rows = reader.selected_payload_rows(
-                table,
-                "true",
-                Variables::new(),
-                vec![],
-                "anchor,id",
-                None,
-            )?;
-            let mut hasher = FamilyHasher::new(family);
-            let limits = lctx_model::domain::batching::TransferLimits::default();
-            let mut pending = rows.next().await?;
-            while let Some(first) = pending.take() {
-                let mut window = vec![first];
-                let mut bytes = canonical_size(&window[0])?;
-                while window.len() < limits.rows && bytes < limits.bytes {
-                    let Some(next) = rows.next().await? else {
-                        break;
-                    };
-                    let next_bytes = canonical_size(&next)?;
-                    if bytes.saturating_add(next_bytes) > limits.bytes {
-                        pending = Some(next);
-                        break;
-                    }
-                    bytes += next_bytes;
-                    window.push(next);
-                }
-                let entities = if family == GraphFamily::Entities {
-                    window
-                        .iter()
-                        .map(decode_entity)
-                        .collect::<Result<Vec<_>, _>>()?
-                } else {
-                    vec![]
-                };
-                let assertions = if family == GraphFamily::Assertions {
-                    window
-                        .iter()
-                        .map(decode_assertion)
-                        .collect::<Result<Vec<_>, _>>()?
-                } else {
-                    vec![]
-                };
-                let views = if family == GraphFamily::Entities {
-                    codec::entity_views(&entities)?
-                } else {
-                    codec::assertion_views(&assertions)?
-                };
-                for (index, (actual, view)) in window.into_iter().zip(views).enumerate() {
-                    let row = Node::from_value(actual.clone()).map_err(|_| {
-                        ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
-                    })?;
-                    let (key, content, kind, subtype, view, canonical) = if family
-                        == GraphFamily::Entities
-                    {
-                        let entity = &entities[index];
-                        entity.validate().map_err(crate::reader::canonical_error)?;
-                        for (position, reference) in
-                            codec::entity_references(entity).into_iter().enumerate()
-                        {
-                            let target = lctx_model::domain::graph::reference_target(&reference)?.0;
-                            remember_external(&mut expected, &target)?;
-                            expected.push(self.reference_value(crate::loader::edge(
-                                "reference",
-                                row.id.clone(),
-                                target,
-                                reference.field,
-                                0,
-                                Some(position as u32),
-                            )?)?)?;
+            let mut expected = crate::ordered_rows::SortedRows::with_budget(&budget)?;
+            for (table, family) in [
+                ("entity", GraphFamily::Entities),
+                ("assertion", GraphFamily::Assertions),
+            ] {
+                let mut rows = reader.selected_payload_rows(
+                    table,
+                    "true",
+                    Variables::new(),
+                    vec![],
+                    "anchor,id",
+                    None,
+                )?;
+                let mut hasher = FamilyHasher::new(family);
+                let limits = lctx_model::domain::batching::TransferLimits::default();
+                let mut pending = rows.next().await?;
+                while let Some(first) = pending.take() {
+                    let mut window = vec![first];
+                    let mut bytes = canonical_size(&window[0])?;
+                    while window.len() < limits.rows && bytes < limits.bytes {
+                        let Some(next) = rows.next().await? else {
+                            break;
+                        };
+                        let next_bytes = canonical_size(&next)?;
+                        if bytes.saturating_add(next_bytes) > limits.bytes {
+                            pending = Some(next);
+                            break;
                         }
-                        (
-                            entity.id().0,
-                            entity.content(),
-                            entity.kind() as i64,
-                            entity.subtype(),
-                            view,
-                            serde_json::to_vec(&entity).map_err(ModelError::codec)?,
-                        )
+                        bytes += next_bytes;
+                        window.push(next);
+                    }
+                    let entities = if family == GraphFamily::Entities {
+                        window
+                            .iter()
+                            .map(decode_entity)
+                            .collect::<Result<Vec<_>, _>>()?
                     } else {
-                        let assertion = &assertions[index];
-                        assertion
-                            .validate()
-                            .map_err(crate::reader::canonical_error)?;
-                        for p in &assertion.participants {
-                            remember_external(&mut expected, &p.target)?;
-                            expected.push(self.reference_value(crate::loader::edge(
-                                "participant",
-                                row.id.clone(),
-                                p.target.clone(),
-                                p.field.as_deref().unwrap_or(""),
-                                p.role as i64,
-                                p.position,
-                            )?)?)?;
-                        }
-                        for (position, (target, _)) in
-                            assertion.references()?.into_iter().enumerate()
-                        {
-                            if assertion.participants.iter().any(|p| p.target == target) {
-                                continue;
-                            }
-                            remember_external(&mut expected, &target)?;
-                            expected.push(self.reference_value(crate::loader::edge(
-                                "participant",
-                                row.id.clone(),
-                                target,
-                                "__reference",
-                                -1,
-                                Some(position as u32),
-                            )?)?)?;
-                        }
-                        (
-                            assertion.id().0,
-                            assertion.content(),
-                            assertion.kind as i64,
-                            None,
-                            view,
-                            serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
-                        )
+                        vec![]
                     };
-                    let physical = crate::adapter::physical_row(
-                        crate::loader::payload_id(table, &view.semantic_type, &key.0, content)?,
-                        content,
-                        canonical,
-                        Some((kind, subtype)),
-                        view,
-                    )?;
-                    if serde_json::to_vec(&actual).map_err(ModelError::codec)?
-                        != serde_json::to_vec(&physical).map_err(ModelError::codec)?
-                    {
-                        return Err(ModelError::Serving(
-                            lctx_model::domain::serving::FailureKind::Corrupt,
-                        ));
+                    let assertions = if family == GraphFamily::Assertions {
+                        window
+                            .iter()
+                            .map(decode_assertion)
+                            .collect::<Result<Vec<_>, _>>()?
+                    } else {
+                        vec![]
+                    };
+                    let views = if family == GraphFamily::Entities {
+                        codec::entity_views(&entities)?
+                    } else {
+                        codec::assertion_views(&assertions)?
+                    };
+                    for (index, (actual, view)) in window.into_iter().zip(views).enumerate() {
+                        let row = Node::from_value(actual.clone()).map_err(|_| {
+                            ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)
+                        })?;
+                        let (key, content, kind, subtype, view, canonical) =
+                            if family == GraphFamily::Entities {
+                                let entity = &entities[index];
+                                entity.validate().map_err(crate::reader::canonical_error)?;
+                                for (position, reference) in
+                                    codec::entity_references(entity).into_iter().enumerate()
+                                {
+                                    let target =
+                                        lctx_model::domain::graph::reference_target(&reference)?.0;
+                                    remember_external(&mut expected, &target)?;
+                                    expected.push(self.reference_value(crate::loader::edge(
+                                        "reference",
+                                        row.id.clone(),
+                                        target,
+                                        reference.field,
+                                        0,
+                                        Some(position as u32),
+                                    )?)?)?;
+                                }
+                                (
+                                    entity.id().0,
+                                    entity.content(),
+                                    entity.kind() as i64,
+                                    entity.subtype(),
+                                    view,
+                                    serde_json::to_vec(&entity).map_err(ModelError::codec)?,
+                                )
+                            } else {
+                                let assertion = &assertions[index];
+                                assertion
+                                    .validate()
+                                    .map_err(crate::reader::canonical_error)?;
+                                for p in &assertion.participants {
+                                    remember_external(&mut expected, &p.target)?;
+                                    expected.push(self.reference_value(crate::loader::edge(
+                                        "participant",
+                                        row.id.clone(),
+                                        p.target.clone(),
+                                        p.field.as_deref().unwrap_or(""),
+                                        p.role as i64,
+                                        p.position,
+                                    )?)?)?;
+                                }
+                                for (position, (target, _)) in
+                                    assertion.references()?.into_iter().enumerate()
+                                {
+                                    if assertion.participants.iter().any(|p| p.target == target) {
+                                        continue;
+                                    }
+                                    remember_external(&mut expected, &target)?;
+                                    expected.push(self.reference_value(crate::loader::edge(
+                                        "participant",
+                                        row.id.clone(),
+                                        target,
+                                        "__reference",
+                                        -1,
+                                        Some(position as u32),
+                                    )?)?)?;
+                                }
+                                (
+                                    assertion.id().0,
+                                    assertion.content(),
+                                    assertion.kind as i64,
+                                    None,
+                                    view,
+                                    serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
+                                )
+                            };
+                        let physical = crate::adapter::physical_row(
+                            crate::loader::payload_id(table, &view.semantic_type, &key.0, content)?,
+                            content,
+                            canonical,
+                            Some((kind, subtype)),
+                            view,
+                        )?;
+                        if serde_json::to_vec(&actual).map_err(ModelError::codec)?
+                            != serde_json::to_vec(&physical).map_err(ModelError::codec)?
+                        {
+                            return Err(ModelError::Serving(
+                                lctx_model::domain::serving::FailureKind::Corrupt,
+                            ));
+                        }
+                        if !hasher.push(key, content)? {
+                            return Err(ModelError::Conflict(
+                                "duplicate native canonical graph element",
+                            ));
+                        }
                     }
-                    if !hasher.push(key, content)? {
-                        return Err(ModelError::Conflict(
-                            "duplicate native canonical graph element",
-                        ));
+                    if pending.is_none() {
+                        pending = rows.next().await?;
                     }
                 }
-                if pending.is_none() {
-                    pending = rows.next().await?;
+                if !manifest.families.contains(&hasher.finish()) {
+                    return Err(ModelError::Conflict(
+                        "native canonical family reconciliation",
+                    ));
                 }
             }
-            if !manifest.families.contains(&hasher.finish()) {
-                return Err(ModelError::Conflict(
-                    "native canonical family reconciliation",
-                ));
-            }
-        }
-        expected.finish()?
+            expected.finish()?
         };
         let mut actual = actual_roles(&reader, &budget)?;
         if let Some(inventory) = inventory {

@@ -210,7 +210,9 @@ pub async fn produce(
                 jobs.push(job);
             }
             let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
-            while let Some((mut context, mut results, mut receipts, mut projections)) = ready.next().await? {
+            while let Some((mut context, mut results, mut receipts, mut projections)) =
+                ready.next().await?
+            {
                 emit_coverage(&context, &results, &admission, runtime, &output).await?;
                 emit_results(&mut results, &output).await?;
                 emit_links(&mut context, &mut receipts, &mut projections, &output).await?;
@@ -432,8 +434,10 @@ fn derive_parent(
     Ok((results, receipts, projections))
 }
 
-type ResultEmitter =
-    for<'a> fn(&'a mut semantic::Output, &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>>;
+type ResultEmitter = for<'a> fn(
+    &'a mut semantic::Output,
+    &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>>;
 fn emit_results<'a>(
     results: &'a mut semantic::Output,
     output: &'a ProducerOutput,

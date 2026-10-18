@@ -639,13 +639,23 @@ mod controls {
         assert_ne!(release.view_identity(), old.view_identity());
         // The exact producer is now ready while its optional child is still held
         // behind a distinct request gate. Previously this awaited retention.
-        tokio::time::timeout(std::time::Duration::from_secs(30), finished).await.unwrap().unwrap().unwrap();
-        assert_ne!(workspace.relation(Package::NAME).unwrap().view_identity(), old.view_identity());
+        tokio::time::timeout(std::time::Duration::from_secs(30), finished)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_ne!(
+            workspace.relation(Package::NAME).unwrap().view_identity(),
+            old.view_identity()
+        );
         assert_eq!(workspace.relation(Package::NAME).unwrap().rows(), 1);
         assert_eq!(workspace.execution.retention.lock().unwrap().len(), 1);
         let final_join = workspace.execution.join_retention();
         tokio::pin!(final_join);
-        assert!(futures::poll!(&mut final_join).is_pending(), "required readiness does not claim optional terminality");
+        assert!(
+            futures::poll!(&mut final_join).is_pending(),
+            "required readiness does not claim optional terminality"
+        );
         drop(blocker);
         final_join.await.unwrap();
         assert_eq!(workspace.relation(Package::NAME).unwrap().rows(), 1);
@@ -907,18 +917,28 @@ mod retention_join_controls {
             lctx_model::domain::serving::Name::new("retention-join-control").unwrap(),
             lctx_model::domain::serving::Name::new("retention-join-control").unwrap(),
         );
-        let workspace = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()), Default::default(), native).unwrap();
+        let workspace = Workspace::new(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            Default::default(),
+            native,
+        )
+        .unwrap();
         let (release, held) = tokio::sync::oneshot::channel();
-        workspace.retain_child(async move {
-            held.await.map_err(ModelError::codec)?;
-            Err(ModelError::Conflict("accepted retention failure control"))
-        }).unwrap();
+        workspace
+            .retain_child(async move {
+                held.await.map_err(ModelError::codec)?;
+                Err(ModelError::Conflict("accepted retention failure control"))
+            })
+            .unwrap();
         let joined = workspace.execution.join_retention();
         tokio::pin!(joined);
         assert!(futures::poll!(&mut joined).is_pending());
         release.send(()).unwrap();
         let error = joined.await.unwrap_err();
         assert!(format!("{error:?}").contains("accepted retention failure control"));
-        assert!(workspace.execution.join_retention().await.is_err(), "retrying observation cannot turn accepted failure into a cache miss");
+        assert!(
+            workspace.execution.join_retention().await.is_err(),
+            "retrying observation cannot turn accepted failure into a cache miss"
+        );
     }
 }

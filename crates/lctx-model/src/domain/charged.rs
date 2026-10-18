@@ -243,10 +243,17 @@ impl StateCharge {
     }
 }
 impl Reservation for StateCharge {
-    fn size(&self) -> usize { self.reserved() }
+    fn size(&self) -> usize {
+        self.reserved()
+    }
     fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
         let current = self.reserved();
-        if bytes > current { self.grow(bytes - current) } else { self.release(current - bytes); Ok(()) }
+        if bytes > current {
+            self.grow(bytes - current)
+        } else {
+            self.release(current - bytes);
+            Ok(())
+        }
     }
 }
 fn overflow(owner: &'static str) -> ModelError {

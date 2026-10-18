@@ -116,7 +116,8 @@ impl<'a> Publication<'a> {
                         .collect(),
                 )
                 .with_budget(budget);
-                let prepared_definitions = crate::definitions::PreparedDefinitions::new(&loader, definitions)?;
+                let prepared_definitions =
+                    crate::definitions::PreparedDefinitions::new(&loader, definitions)?;
                 let realization = prepared_definitions.verify(&loader).await?;
                 let loader = loader.with_derivation(realization);
                 let completed =
@@ -236,33 +237,44 @@ impl<'a> Publication<'a> {
     /// Every admitted entry point regenerates roles from actual canonical content.
     /// Backup claims are independently compared later, never loaded as authority.
     pub(crate) async fn materialize_references(&mut self) -> Result<(), ModelError> {
-        if self.roles.is_some() { return Err(ModelError::Conflict("publication roles already prepared")); }
+        if self.roles.is_some() {
+            return Err(ModelError::Conflict("publication roles already prepared"));
+        }
         let mut preparation = lctx_native::reconciliation::ReferencePreparation::new(&self.loader)?;
         let phase = Phase::begin("publication_references");
-        let lease = self.store().begin_derived_operation("publication reference lowering")?;
-        let result = match publication_scope(&self.parent, &self.session, self.admission.budget(), async {
-            let mut entities = Vec::new();
-            let mut rows = self.admission.entities().await?;
-            while let Some(row) = rows.try_next().await? {
-                entities.push(row);
-                if entities.len() >= 128 {
-                    preparation.entities(&self.loader, &entities).await?;
-                    entities.clear();
+        let lease = self
+            .store()
+            .begin_derived_operation("publication reference lowering")?;
+        let result = match publication_scope(
+            &self.parent,
+            &self.session,
+            self.admission.budget(),
+            async {
+                let mut entities = Vec::new();
+                let mut rows = self.admission.entities().await?;
+                while let Some(row) = rows.try_next().await? {
+                    entities.push(row);
+                    if entities.len() >= 128 {
+                        preparation.entities(&self.loader, &entities).await?;
+                        entities.clear();
+                    }
                 }
-            }
-            preparation.entities(&self.loader, &entities).await?;
-            let mut assertions = Vec::new();
-            let mut rows = self.admission.assertions().await?;
-            while let Some(row) = rows.try_next().await? {
-                assertions.push(row);
-                if assertions.len() >= 128 {
-                    preparation.assertions(&self.loader, &assertions).await?;
-                    assertions.clear();
+                preparation.entities(&self.loader, &entities).await?;
+                let mut assertions = Vec::new();
+                let mut rows = self.admission.assertions().await?;
+                while let Some(row) = rows.try_next().await? {
+                    assertions.push(row);
+                    if assertions.len() >= 128 {
+                        preparation.assertions(&self.loader, &assertions).await?;
+                        assertions.clear();
+                    }
                 }
-            }
-            preparation.assertions(&self.loader, &assertions).await?;
-            preparation.finish(&self.loader, self.admission.manifest()).await
-        }) {
+                preparation.assertions(&self.loader, &assertions).await?;
+                preparation
+                    .finish(&self.loader, self.admission.manifest())
+                    .await
+            },
+        ) {
             Ok(operation) => operation.await,
             Err(error) => Err(error),
         };
@@ -319,9 +331,7 @@ impl<'a> Publication<'a> {
             async {
                 // Analyzer observations and lowered vectors remain usable only under
                 // the actual immutable executable/physical definitions verified at setup.
-                if self.definitions.verify(&self.loader).await?
-                    != self.loader.derivation()?
-                {
+                if self.definitions.verify(&self.loader).await? != self.loader.derivation()? {
                     return Err(ModelError::Conflict(
                         "publication actual definition context changed",
                     ));
@@ -382,10 +392,14 @@ impl<'a> Publication<'a> {
                             manifest,
                             &self.bindings,
                             self.admission.budget(),
-                            lctx_native::control::staging::PreparedExpectations { search: self.search.as_ref().ok_or(ModelError::Conflict(
-                                "publication retained search expectations missing",
-                            ))?,
-                            roles: self.roles.as_ref().ok_or(ModelError::Conflict("publication retained role expectations missing"))? },
+                            lctx_native::control::staging::PreparedExpectations {
+                                search: self.search.as_ref().ok_or(ModelError::Conflict(
+                                    "publication retained search expectations missing",
+                                ))?,
+                                roles: self.roles.as_ref().ok_or(ModelError::Conflict(
+                                    "publication retained role expectations missing",
+                                ))?,
+                            },
                         )
                         .await?
                         .handle

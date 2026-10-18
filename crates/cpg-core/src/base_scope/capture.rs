@@ -37,20 +37,40 @@ fn encode_members(partition: usize, rows: &[(usize, [u8; 16])]) -> Result<Record
 /// windows. Only sealed successful EOF enters this cache; keys include context and
 /// the opaque-literal projection policy. The owning scopes retain the actual inputs.
 pub(super) struct CaptureReuse {
-    entries: Vec<(Id<attribution::AnalysisContext>, bool, crate::workspace::Cancellation, Arc<InvocationIpc>)>,
+    entries: Vec<(
+        Id<attribution::AnalysisContext>,
+        bool,
+        crate::workspace::Cancellation,
+        Arc<InvocationIpc>,
+    )>,
     charge: charged::StateCharge,
 }
 impl CaptureReuse {
     pub(super) fn new(budget: &resources::ResourceBudget) -> Self {
-        Self { entries: Vec::new(), charge: charged::StateCharge::new(budget, "Base invocation capture reuse") }
+        Self {
+            entries: Vec::new(),
+            charge: charged::StateCharge::new(budget, "Base invocation capture reuse"),
+        }
     }
-    fn push(&mut self, context: Id<attribution::AnalysisContext>, opaque: bool, cancellation: &crate::workspace::Cancellation, ipc: Arc<InvocationIpc>) -> Result<(), ModelError> {
+    fn push(
+        &mut self,
+        context: Id<attribution::AnalysisContext>,
+        opaque: bool,
+        cancellation: &crate::workspace::Cancellation,
+        ipc: Arc<InvocationIpc>,
+    ) -> Result<(), ModelError> {
         if self.entries.len() == self.entries.capacity() {
             let additional = self.entries.capacity().max(4);
-            self.charge.grow(additional.saturating_mul(size_of::<(Id<attribution::AnalysisContext>, bool, crate::workspace::Cancellation, Arc<InvocationIpc>)>()))?;
+            self.charge.grow(additional.saturating_mul(size_of::<(
+                Id<attribution::AnalysisContext>,
+                bool,
+                crate::workspace::Cancellation,
+                Arc<InvocationIpc>,
+            )>()))?;
             self.entries.reserve_exact(additional);
         }
-        self.entries.push((context, opaque, cancellation.clone(), ipc));
+        self.entries
+            .push((context, opaque, cancellation.clone(), ipc));
         Ok(())
     }
 }
@@ -74,7 +94,11 @@ impl<'a> CapturedBase<'a> {
         cancellation: &crate::workspace::Cancellation,
     ) -> Result<Self, ModelError> {
         cancellation.check()?;
-        if !scopes._charge.budget().is_some_and(|source| source.shares_pool(budget)) {
+        if !scopes
+            ._charge
+            .budget()
+            .is_some_and(|source| source.shares_pool(budget))
+        {
             return Err(ModelError::Conflict("Base capture foreign resource owner"));
         }
         if keys.is_empty() || keys.len() > 32 {
@@ -92,21 +116,75 @@ impl<'a> CapturedBase<'a> {
         let source = scopes.edges.session();
         let membership_phase = lctx_native::phase::Phase::begin("base_cohort_membership_capture");
         let mut ipc = InvocationIpc::new(source, budget, cancellation, None)?;
-        let prior_count = scopes.captures.lock().map_err(|_| ModelError::Conflict("Base capture reuse lock"))?.entries.iter().filter(|(key, opaque, owner, _)| *key == context && *opaque == opaque_literals && owner.shares_owner(cancellation)).count();
-        let _prior_charge = budget.reserve("Base reused capture references", prior_count.saturating_mul(size_of::<Arc<InvocationIpc>>() + 128))?;
-        let prior = scopes.captures.lock().map_err(|_| ModelError::Conflict("Base capture reuse lock"))?.entries.iter().filter(|(key, opaque, owner, _)| *key == context && *opaque == opaque_literals && owner.shares_owner(cancellation)).map(|(_, _, _, ipc)| ipc.clone()).collect::<Vec<_>>();
+        let prior_count = scopes
+            .captures
+            .lock()
+            .map_err(|_| ModelError::Conflict("Base capture reuse lock"))?
+            .entries
+            .iter()
+            .filter(|(key, opaque, owner, _)| {
+                *key == context && *opaque == opaque_literals && owner.shares_owner(cancellation)
+            })
+            .count();
+        let _prior_charge = budget.reserve(
+            "Base reused capture references",
+            prior_count.saturating_mul(size_of::<Arc<InvocationIpc>>() + 128),
+        )?;
+        let prior = scopes
+            .captures
+            .lock()
+            .map_err(|_| ModelError::Conflict("Base capture reuse lock"))?
+            .entries
+            .iter()
+            .filter(|(key, opaque, owner, _)| {
+                *key == context && *opaque == opaque_literals && owner.shares_owner(cancellation)
+            })
+            .map(|(_, _, _, ipc)| ipc.clone())
+            .collect::<Vec<_>>();
         // Each local provider/view and its union-plan references live with the cache.
         // Admit their metadata before registering or constructing growing query plans.
-        let schema_bytes = scopes.tables.iter().map(|table| table.relation.schema().fields().iter().map(|field| field.size()).sum::<usize>()).sum::<usize>();
+        let schema_bytes = scopes
+            .tables
+            .iter()
+            .map(|table| {
+                table
+                    .relation
+                    .schema()
+                    .fields()
+                    .iter()
+                    .map(|field| field.size())
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
         charge.grow(
-            prior.len().saturating_add(1).saturating_mul(scopes.tables.len().saturating_mul(2048).saturating_add(schema_bytes.saturating_mul(4))).saturating_add(16384)
+            prior
+                .len()
+                .saturating_add(1)
+                .saturating_mul(
+                    scopes
+                        .tables
+                        .len()
+                        .saturating_mul(2048)
+                        .saturating_add(schema_bytes.saturating_mul(4)),
+                )
+                .saturating_add(16384),
         )?;
 
         // Register only immutable local backing. Native protection stays with scopes;
         // provider clones cannot turn a failed acquisition into complete evidence.
         let query = ipc.reader()?;
         for (ordinal, previous) in prior.iter().enumerate() {
-            query.session().register_table(format!("base_prior_members_{ordinal}"), previous.session().table_provider(FIRST_MEMBERS).await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+            query
+                .session()
+                .register_table(
+                    format!("base_prior_members_{ordinal}"),
+                    previous
+                        .session()
+                        .table_provider(FIRST_MEMBERS)
+                        .await
+                        .map_err(ModelError::codec)?,
+                )
+                .map_err(ModelError::codec)?;
         }
 
         let mut members = ipc.begin(schema())?;
@@ -165,19 +243,41 @@ impl<'a> CapturedBase<'a> {
         // remain independently available for each root's exact local assembly.
         let mut first = ipc.begin(schema())?;
         let local = ipc.session().clone();
-        let mut first_rows = crate::sql::query(&local, &format!(
-            "SELECT MIN(root_ordinal) AS root_ordinal,kind,id FROM {MEMBERS} GROUP BY kind,id"
-        )).await.map_err(crate::sql::model_error)?.execute_stream().await.map_err(crate::sql::model_error)?;
-        while let Some(batch) = first_rows.try_next().await.map_err(crate::sql::model_error)? {
+        let mut first_rows = crate::sql::query(
+            &local,
+            &format!(
+                "SELECT MIN(root_ordinal) AS root_ordinal,kind,id FROM {MEMBERS} GROUP BY kind,id"
+            ),
+        )
+        .await
+        .map_err(crate::sql::model_error)?
+        .execute_stream()
+        .await
+        .map_err(crate::sql::model_error)?;
+        while let Some(batch) = first_rows
+            .try_next()
+            .await
+            .map_err(crate::sql::model_error)?
+        {
             cancellation.check()?;
             // MIN is nullable in DataFusion's aggregate schema even though each
             // grouped key has a nonempty, nonnull source. Rebind only that derived
             // nullability; Arrow rejects an actual null before sealing the carrier.
-            let canonical = RecordBatch::try_new(schema(), batch.columns().to_vec()).map_err(ModelError::codec)?;
+            let canonical = RecordBatch::try_new(schema(), batch.columns().to_vec())
+                .map_err(ModelError::codec)?;
             first.push(&canonical)?;
         }
         first.finish(&mut ipc, FIRST_MEMBERS).await?;
-        query.session().register_table(FIRST_MEMBERS, ipc.session().table_provider(FIRST_MEMBERS).await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+        query
+            .session()
+            .register_table(
+                FIRST_MEMBERS,
+                ipc.session()
+                    .table_provider(FIRST_MEMBERS)
+                    .await
+                    .map_err(ModelError::codec)?,
+            )
+            .map_err(ModelError::codec)?;
         membership_phase.finish(lctx_native::phase::Terminal::Passed);
         let payload_phase = lctx_native::phase::Phase::begin("base_unique_payload_capture");
         let literals = scopes.index(TypeId::of::<value::Literal>())?;
@@ -228,8 +328,19 @@ impl<'a> CapturedBase<'a> {
             for (partition, _) in active.iter().enumerate().filter(|(_, active)| **active) {
                 // A native read never combines disjoint roots' rich payloads. Repeated supporting
                 // IDs are captured by their first consuming root and reused only from local IPC.
-                let earlier = prior.iter().enumerate().map(|(ordinal, _)| format!("SELECT id FROM base_prior_members_{ordinal} WHERE kind={table}")).collect::<Vec<_>>().join(" UNION ALL ");
-                let excluded = if earlier.is_empty() { String::new() } else { format!(" AND id NOT IN ({earlier})") };
+                let earlier = prior
+                    .iter()
+                    .enumerate()
+                    .map(|(ordinal, _)| {
+                        format!("SELECT id FROM base_prior_members_{ordinal} WHERE kind={table}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" UNION ALL ");
+                let excluded = if earlier.is_empty() {
+                    String::new()
+                } else {
+                    format!(" AND id NOT IN ({earlier})")
+                };
                 let sql = format!(
                     "SELECT id FROM {FIRST_MEMBERS} WHERE kind={table} AND root_ordinal={partition}{excluded} ORDER BY id"
                 );
@@ -316,31 +427,87 @@ impl<'a> CapturedBase<'a> {
         // plans/providers belong to this assembly reader and disappear with its last
         // cohort borrower, rather than accumulating quadratically across windows.
         let read = ipc.reader()?;
-        read.session().register_table(MEMBERS, ipc.session().table_provider(MEMBERS).await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+        read.session()
+            .register_table(
+                MEMBERS,
+                ipc.session()
+                    .table_provider(MEMBERS)
+                    .await
+                    .map_err(ModelError::codec)?,
+            )
+            .map_err(ModelError::codec)?;
         for table in 0..scopes.inputs.len() {
             let delta = format!("base_new_input_{table}");
-            read.session().register_table(&delta, ipc.session().table_provider(&delta).await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+            read.session()
+                .register_table(
+                    &delta,
+                    ipc.session()
+                        .table_provider(&delta)
+                        .await
+                        .map_err(ModelError::codec)?,
+                )
+                .map_err(ModelError::codec)?;
             let mut selected = format!("SELECT * FROM {delta}");
             for (ordinal, previous) in prior.iter().enumerate() {
                 let name = format!("base_prior_input_{ordinal}_{table}");
-                read.session().register_table(&name, previous.session().table_provider(&delta).await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+                read.session()
+                    .register_table(
+                        &name,
+                        previous
+                            .session()
+                            .table_provider(&delta)
+                            .await
+                            .map_err(ModelError::codec)?,
+                    )
+                    .map_err(ModelError::codec)?;
                 selected.push_str(&format!(" UNION ALL SELECT * FROM {name}"));
             }
-            let view = crate::sql::query(read.session(), &selected).await.map_err(crate::sql::model_error)?.into_view();
-            read.session().register_table(input_name(table), view).map_err(ModelError::codec)?;
+            let view = crate::sql::query(read.session(), &selected)
+                .await
+                .map_err(crate::sql::model_error)?
+                .into_view();
+            read.session()
+                .register_table(input_name(table), view)
+                .map_err(ModelError::codec)?;
         }
-        read.session().register_table("base_new_opaque_literals", ipc.session().table_provider("base_new_opaque_literals").await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+        read.session()
+            .register_table(
+                "base_new_opaque_literals",
+                ipc.session()
+                    .table_provider("base_new_opaque_literals")
+                    .await
+                    .map_err(ModelError::codec)?,
+            )
+            .map_err(ModelError::codec)?;
         let mut opaque_selection = "SELECT * FROM base_new_opaque_literals".to_owned();
         for (ordinal, previous) in prior.iter().enumerate() {
             let name = format!("base_prior_opaque_{ordinal}");
-            read.session().register_table(&name, previous.session().table_provider("base_new_opaque_literals").await.map_err(ModelError::codec)?).map_err(ModelError::codec)?;
+            read.session()
+                .register_table(
+                    &name,
+                    previous
+                        .session()
+                        .table_provider("base_new_opaque_literals")
+                        .await
+                        .map_err(ModelError::codec)?,
+                )
+                .map_err(ModelError::codec)?;
             opaque_selection.push_str(&format!(" UNION ALL SELECT * FROM {name}"));
         }
-        let view = crate::sql::query(read.session(), &opaque_selection).await.map_err(crate::sql::model_error)?.into_view();
-        read.session().register_table("base_opaque_literals", view).map_err(ModelError::codec)?;
+        let view = crate::sql::query(read.session(), &opaque_selection)
+            .await
+            .map_err(crate::sql::model_error)?
+            .into_view();
+        read.session()
+            .register_table("base_opaque_literals", view)
+            .map_err(ModelError::codec)?;
         cancellation.check()?;
         let ipc = Arc::new(ipc);
-        scopes.captures.lock().map_err(|_| ModelError::Conflict("Base capture reuse lock"))?.push(context, opaque_literals, cancellation, ipc.clone())?;
+        scopes
+            .captures
+            .lock()
+            .map_err(|_| ModelError::Conflict("Base capture reuse lock"))?
+            .push(context, opaque_literals, cancellation, ipc.clone())?;
         payload_phase.finish(lctx_native::phase::Terminal::Passed);
         Ok(Self {
             scopes,
@@ -373,7 +540,15 @@ impl<'a> CapturedBase<'a> {
     #[cfg(test)]
     pub(super) async fn new_captured_rows<R: Record>(&self) -> Result<usize, ModelError> {
         let table = self.scopes.index(TypeId::of::<R>())?;
-        let batches = crate::sql::query(self.ipc.session(), &format!("SELECT id FROM base_new_input_{table}")).await.map_err(crate::sql::model_error)?.collect().await.map_err(crate::sql::model_error)?;
+        let batches = crate::sql::query(
+            self.ipc.session(),
+            &format!("SELECT id FROM base_new_input_{table}"),
+        )
+        .await
+        .map_err(crate::sql::model_error)?
+        .collect()
+        .await
+        .map_err(crate::sql::model_error)?;
         Ok(batches.iter().map(RecordBatch::num_rows).sum())
     }
     pub(crate) async fn cohort(

@@ -260,7 +260,11 @@ pub async fn validate_layout<Context>(
     };
     validate_layout_payload(layout, value, &reader.resource_budget()?)
 }
-fn validate_layout_payload(layout: &Layout, value: &Value, budget: &ResourceBudget) -> Result<(), ModelError> {
+fn validate_layout_payload(
+    layout: &Layout,
+    value: &Value,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     let Value::Object(row) = value else {
         return Err(ModelError::Schema("original source payload object"));
     };
@@ -731,8 +735,12 @@ async fn observe_completion_layouts<Context>(
     budget: &ResourceBudget,
 ) -> Result<CompletionLayouts, crate::control::held::PageAcquireFailure> {
     use crate::control::held::{PageAcquireFailure, inspect_expected_page_read};
-    let charge = budget.reserve("original completion layout correspondence",
-        ids.len().saturating_mul(4096)).map_err(PageAcquireFailure::reducible_resource)?;
+    let charge = budget
+        .reserve(
+            "original completion layout correspondence",
+            ids.len().saturating_mul(4096),
+        )
+        .map_err(PageAcquireFailure::reducible_resource)?;
     let mut actual = inspect_expected_page_read(reader, ids, budget).await?;
     let mut layouts = Vec::with_capacity(ids.len());
     let mut artifacts = BTreeSet::new();
@@ -740,7 +748,9 @@ async fn observe_completion_layouts<Context>(
     for id in ids {
         let row = actual.take_required(id)?;
         let layout = decode_layout(row.row().clone())?;
-        if layout.id != *id { return Err(ModelError::Conflict("original completion foreign layout").into()); }
+        if layout.id != *id {
+            return Err(ModelError::Conflict("original completion foreign layout").into());
+        }
         artifacts.insert(layout.artifact.clone());
         pairs.push((layout.id.clone(), layout.blob.id()));
         layouts.push(layout);
@@ -748,15 +758,22 @@ async fn observe_completion_layouts<Context>(
     actual.finish()?;
     let artifacts = artifacts.into_iter().collect::<Vec<_>>();
     let sources = inspect_expected_page_read(reader, &artifacts, budget).await?;
-    let mut holds = crate::control::inspect_hold_window_read(reader, &pairs, budget).await
+    let mut holds = crate::control::inspect_hold_window_read(reader, &pairs, budget)
+        .await
         .map_err(PageAcquireFailure::reducible_resource)?;
     for selected in &layouts {
-        let source = sources.get(&selected.artifact)?.ok_or(ModelError::Conflict("original source payload missing"))?;
-        validate_layout_payload(selected, source.row(), budget).map_err(PageAcquireFailure::reducible_resource)?;
+        let source = sources
+            .get(&selected.artifact)?
+            .ok_or(ModelError::Conflict("original source payload missing"))?;
+        validate_layout_payload(selected, source.row(), budget)
+            .map_err(PageAcquireFailure::reducible_resource)?;
         holds.take_required(&selected.id, &selected.blob.id())?;
     }
     holds.finish()?;
-    Ok(CompletionLayouts { layouts, _charge: charge })
+    Ok(CompletionLayouts {
+        layouts,
+        _charge: charge,
+    })
 }
 pub struct OriginalCompletion {
     layouts: crate::ordered_rows::SortedRows,
@@ -786,9 +803,16 @@ impl OriginalCompletion {
         attempt: Option<ContentHash>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        self.finish_with_operation(reader,attempt,budget,None).await
+        self.finish_with_operation(reader, attempt, budget, None)
+            .await
     }
-    pub async fn finish_with_operation<Context>(self,reader:&crate::NativeReader<Context>,attempt:Option<ContentHash>,budget:&ResourceBudget,operation:Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>)->Result<(),ModelError>{
+    pub async fn finish_with_operation<Context>(
+        self,
+        reader: &crate::NativeReader<Context>,
+        attempt: Option<ContentHash>,
+        budget: &ResourceBudget,
+        operation: Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>,
+    ) -> Result<(), ModelError> {
         if !self.budget.shares_pool(budget) || !reader.resource_budget()?.shares_pool(budget) {
             return Err(ModelError::Conflict(
                 "original completion foreign resource owner",
@@ -796,43 +820,71 @@ impl OriginalCompletion {
         }
         let mut layouts = self.layouts.finish()?;
         let mut blobs = crate::ordered_rows::SortedRows::with_budget(budget)?;
-        let owned=operation.is_none();
-        let operation=match operation{Some(operation)=>operation,None=>std::sync::Arc::new(crate::control::operation_pages::OperationWriter::new(attempt.map(crate::control::RecoveryOwner::OpenAttempt).unwrap_or(crate::control::RecoveryOwner::Installation),None,budget)?)};
-        let mut writer=crate::control::WindowWriter::new(reader.client(),attempt,Some(budget)).with_operation(operation.clone());
+        let owned = operation.is_none();
+        let operation = match operation {
+            Some(operation) => operation,
+            None => std::sync::Arc::new(crate::control::operation_pages::OperationWriter::new(
+                attempt
+                    .map(crate::control::RecoveryOwner::OpenAttempt)
+                    .unwrap_or(crate::control::RecoveryOwner::Installation),
+                None,
+                budget,
+            )?),
+        };
+        let mut writer = crate::control::WindowWriter::new(reader.client(), attempt, Some(budget))
+            .with_operation(operation.clone());
         let _page = budget.reserve("original completion layout page", 32 * 4096)?;
         loop {
             let mut ids = Vec::new();
             while ids.len() < 32 {
-                let Some(value) = layouts.next_row()? else { break; };
-                let Some(Value::RecordId(source)) = value.as_object().and_then(|row| row.get("id")) else {
-                    return Err(ModelError::Schema("original completion layout work identity"));
+                let Some(value) = layouts.next_row()? else {
+                    break;
+                };
+                let Some(Value::RecordId(source)) = value.as_object().and_then(|row| row.get("id"))
+                else {
+                    return Err(ModelError::Schema(
+                        "original completion layout work identity",
+                    ));
                 };
                 ids.push(source.clone());
             }
-            if ids.is_empty() { break; }
+            if ids.is_empty() {
+                break;
+            }
             let mut pages = vec![(0, ids.len())];
             while let Some((start, end)) = pages.pop() {
                 use crate::control::held::PageAcquireFailure;
-                let observed = match observe_completion_layouts(reader, &ids[start..end], budget).await {
-                    Ok(observed) => observed,
-                    Err(PageAcquireFailure::Reducible(_)) if end - start > 1 => {
-                        let middle = start + (end - start) / 2;
-                        pages.push((middle, end));
-                        pages.push((start, middle));
-                        continue;
-                    }
-                    Err(error) => return Err(error.into_error()),
-                };
+                let observed =
+                    match observe_completion_layouts(reader, &ids[start..end], budget).await {
+                        Ok(observed) => observed,
+                        Err(PageAcquireFailure::Reducible(_)) if end - start > 1 => {
+                            let middle = start + (end - start) / 2;
+                            pages.push((middle, end));
+                            pages.push((start, middle));
+                            continue;
+                        }
+                        Err(error) => return Err(error.into_error()),
+                    };
                 // Every layout/source/ownership read has reached exact EOF before
                 // any selected layout is drained or any shared blob is completed.
                 for selected in &observed.layouts {
                     if let Some(attempt) = attempt {
-                        drain_pending(reader, &mut writer, attempt, None, selected, budget, true).await?;
+                        drain_pending(reader, &mut writer, attempt, None, selected, budget, true)
+                            .await?;
                     }
                     let mut work = Object::new();
                     use surrealdb::types::ToSql;
-                    work.insert("id", RecordId::new("original_completion", format!(
-                        "{}:{}", selected.blob.id().key.to_sql(), selected.id.key.to_sql())));
+                    work.insert(
+                        "id",
+                        RecordId::new(
+                            "original_completion",
+                            format!(
+                                "{}:{}",
+                                selected.blob.id().key.to_sql(),
+                                selected.id.key.to_sql()
+                            ),
+                        ),
+                    );
                     work.insert("layout", selected.value());
                     blobs.push(Value::Object(work))?;
                 }
@@ -855,7 +907,9 @@ impl OriginalCompletion {
                 previous = Some(blob);
             }
         }
-        if owned{operation.finish(reader.client(),budget).await?;}
+        if owned {
+            operation.finish(reader.client(), budget).await?;
+        }
         Ok(())
     }
 }
@@ -865,10 +919,19 @@ pub async fn complete_selected<Context>(
     sources: &[RecordId],
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    complete_selected_with_operation(reader,attempt,sources,budget,None).await
+    complete_selected_with_operation(reader, attempt, sources, budget, None).await
 }
-pub async fn complete_selected_with_operation<Context>(reader:&crate::NativeReader<Context>,attempt:Option<ContentHash>,sources:&[RecordId],budget:&ResourceBudget,operation:Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>)->Result<(),ModelError>{
-    let mut work=OriginalCompletion::new(budget)?;work.add_sources(sources)?;work.finish_with_operation(reader,attempt,budget,operation).await
+pub async fn complete_selected_with_operation<Context>(
+    reader: &crate::NativeReader<Context>,
+    attempt: Option<ContentHash>,
+    sources: &[RecordId],
+    budget: &ResourceBudget,
+    operation: Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>,
+) -> Result<(), ModelError> {
+    let mut work = OriginalCompletion::new(budget)?;
+    work.add_sources(sources)?;
+    work.finish_with_operation(reader, attempt, budget, operation)
+        .await
 }
 /// Retained raw bytes and their caller-owned allocation authority travel together.
 #[derive(Debug)]
@@ -2539,10 +2602,14 @@ pub async fn complete_pending<Context>(
     attempt: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    let operation=std::sync::Arc::new(crate::control::operation_pages::OperationWriter::new(crate::control::RecoveryOwner::OpenAttempt(attempt),None,budget)?);
-    process_pending(reader, attempt, budget, true,Some(operation.clone())).await?;
-    process_owned_layouts(reader, attempt, budget, true,Some(operation.clone())).await?;
-    operation.finish(reader.client(),budget).await
+    let operation = std::sync::Arc::new(crate::control::operation_pages::OperationWriter::new(
+        crate::control::RecoveryOwner::OpenAttempt(attempt),
+        None,
+        budget,
+    )?);
+    process_pending(reader, attempt, budget, true, Some(operation.clone())).await?;
+    process_owned_layouts(reader, attempt, budget, true, Some(operation.clone())).await?;
+    operation.finish(reader.client(), budget).await
 }
 /// Repeated freeze/final drain earns no new write authority after an acknowledged admission.
 pub async fn validate_pending<Context>(
@@ -2563,8 +2630,8 @@ fn validate_pending_execution<'a, Context>(
 ) -> impl std::future::Future<Output = Result<(), ModelError>> + Send + 'a {
     let reader = reader.transport_reader();
     async move {
-        process_pending(&reader, attempt, budget, false,None).await?;
-        process_owned_layouts(&reader, attempt, budget, false,None).await
+        process_pending(&reader, attempt, budget, false, None).await?;
+        process_owned_layouts(&reader, attempt, budget, false, None).await
     }
 }
 /// Raw typed ingress owns layouts directly through the attempt, even when the source header
@@ -2575,7 +2642,7 @@ async fn process_owned_layouts<Context>(
     attempt: ContentHash,
     budget: &ResourceBudget,
     replay: bool,
-    shared:Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>,
+    shared: Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>,
 ) -> Result<(), ModelError> {
     let mut vars = Variables::new();
     vars.insert("owner", RecordId::new("native_attempt", attempt.hex()));
@@ -2618,7 +2685,9 @@ async fn process_owned_layouts<Context>(
         );
     }
     if let Some(operation) = operation {
-        operation.finish_with_operation(reader, Some(attempt), budget,shared).await?;
+        operation
+            .finish_with_operation(reader, Some(attempt), budget, shared)
+            .await?;
     }
     Ok(())
 }
@@ -2627,7 +2696,7 @@ async fn process_pending<Context>(
     attempt: ContentHash,
     budget: &ResourceBudget,
     replay: bool,
-    shared:Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>,
+    shared: Option<std::sync::Arc<crate::control::operation_pages::OperationWriter>>,
 ) -> Result<(), ModelError> {
     let mut vars = Variables::new();
     vars.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
@@ -2635,7 +2704,9 @@ async fn process_pending<Context>(
     let _charge = budget.reserve("pending original root page", 32 * 4096)?;
     let mut writer =
         crate::control::WindowWriter::new(reader.client(), Some(attempt), Some(budget));
-    if let Some(operation)=shared{writer=writer.with_operation(operation);}
+    if let Some(operation) = shared {
+        writer = writer.with_operation(operation);
+    }
     loop {
         let values=rows(reader,"SELECT * FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$attempt AND ($after=NONE OR id>$after) ORDER BY id LIMIT 32",vars.clone()).await?;
         if values.is_empty() {

@@ -655,10 +655,18 @@ def sql(
         ) from None
 
 
-INSPECT_TABLES = frozenset({
-    "entity", "entity_anchor", "native_hold", "compiler_contribution",
-    "compiler_block", "compiler_membership", "native_operation", "native_operation_page",
-})
+INSPECT_TABLES = frozenset(
+    {
+        "entity",
+        "entity_anchor",
+        "native_hold",
+        "compiler_contribution",
+        "compiler_block",
+        "compiler_membership",
+        "native_operation",
+        "native_operation_page",
+    }
+)
 INSPECT_MAX_RECORDS = 64
 INSPECT_MANIFEST_BYTES = 64 * 1024
 INSPECT_RESPONSE_BYTES = 8 * 1024**2

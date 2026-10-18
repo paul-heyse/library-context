@@ -172,7 +172,8 @@ impl NativeCompilerStore {
                             &store.client,
                             Some(store.attempt),
                             Some(&budget),
-                        ).with_operation(store.contribution_operation(contribution,&budget)?);
+                        )
+                        .with_operation(store.contribution_operation(contribution, &budget)?);
                         let mut failure: Option<Arc<ModelError>> = None;
                         while let Some(accepted) = receiver.recv().await {
                             if let Some(error) = &failure {

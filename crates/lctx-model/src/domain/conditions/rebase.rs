@@ -235,14 +235,23 @@ pub struct RebaseAdmission {
 }
 impl RebasedGuards {
     pub(crate) fn with_qualification(
-        mut self, qualification: &crate::domain::assertion::AssertionQualification,
+        mut self,
+        qualification: &crate::domain::assertion::AssertionQualification,
     ) -> Result<Self, ModelError> {
         qualification.validate()?;
-        if self.qualifications.iter().any(|old| old.context != qualification.context) {
+        if self
+            .qualifications
+            .iter()
+            .any(|old| old.context != qualification.context)
+        {
             return Err(invalid("guard evidence requalification changes context"));
         }
-        for row in &mut self.substitutions { row.qualification = qualification.id(); }
-        for row in &mut self.influences { row.qualification = qualification.id(); }
+        for row in &mut self.substitutions {
+            row.qualification = qualification.id();
+        }
+        for row in &mut self.influences {
+            row.qualification = qualification.id();
+        }
         if !self.qualifications.is_empty() {
             self.qualifications.clear();
             self.qualifications.push(qualification.clone());

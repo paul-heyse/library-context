@@ -9,8 +9,8 @@ use lctx_model::domain::{
 // A freeze observes one fixed control envelope, never arbitrary content payloads.
 // Project only fields consumed below; native ingress independently admits actual
 // response bytes, while this arena retains the small decoded control projections.
-const FENCE_READBACK_BYTES:usize=65536;
-const ATTEMPT_FENCE_READ:&str="SELECT id,generation,state,revision,epoch,completed_revision,validity_epoch,completed_bindings,admitted FROM $attempt";
+const FENCE_READBACK_BYTES: usize = 65536;
+const ATTEMPT_FENCE_READ: &str = "SELECT id,generation,state,revision,epoch,completed_revision,validity_epoch,completed_bindings,admitted FROM $attempt";
 
 /// Fence every ordinary attempt mutation before auditing complete content. This does not
 /// establish physical completion or semantic admission. The supplied inventory is checked

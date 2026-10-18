@@ -51,8 +51,7 @@ pub async fn inspect_expected(
     record: RecordId,
     budget: &ResourceBudget,
 ) -> Result<Option<ExpectedRecord>, ModelError> {
-    let reader =
-        crate::NativeReader::private(client.clone()).with_budget(budget);
+    let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = inspect_expected_read(&reader, record, budget).await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
     terminal.step("expected record owned reader close", reader.close().await);
@@ -501,8 +500,7 @@ pub async fn inspect_expected_window(
     records: &[RecordId],
     budget: &ResourceBudget,
 ) -> Result<ExpectedRecords, ModelError> {
-    let reader =
-        crate::NativeReader::private(client.clone()).with_budget(budget);
+    let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = inspect_expected_window_read(&reader, records, budget).await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
     terminal.step(
@@ -595,8 +593,7 @@ pub async fn inspect_hold_window(
     pairs: &[(RecordId, RecordId)],
     budget: &ResourceBudget,
 ) -> Result<ExpectedHolds, ModelError> {
-    let reader =
-        crate::NativeReader::private(client.clone()).with_budget(budget);
+    let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = inspect_hold_window_read(&reader, pairs, budget).await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
     terminal.step("hold window owned reader close", reader.close().await);
@@ -648,10 +645,12 @@ pub struct BackingMetadata {
 }
 impl BackingMetadata {
     pub fn agrees(&self, membership: &Value) -> Result<bool, ModelError> {
-        let object = membership.as_object().ok_or(ModelError::Schema("backing membership object"))?;
+        let object = membership
+            .as_object()
+            .ok_or(ModelError::Schema("backing membership object"))?;
         Ok(self.agrees_object(object))
     }
-    pub fn agrees_object(&self,object:&Object)->bool{
+    pub fn agrees_object(&self, object: &Object) -> bool {
         matches!(object.get("relation"),Some(Value::String(value)) if value==&self.relation)
             && matches!(object.get("semantic_key"),Some(Value::String(value)) if value==&self.key)
             && matches!(object.get("content"),Some(Value::String(value)) if value==&self.content)
@@ -662,7 +661,9 @@ pub struct BackingObservations {
     _charge: Box<dyn Reservation>,
 }
 impl BackingObservations {
-    pub fn get(&self, id: &RecordId) -> Option<&BackingMetadata> { self.rows.get(id) }
+    pub fn get(&self, id: &RecordId) -> Option<&BackingMetadata> {
+        self.rows.get(id)
+    }
 }
 /// Primary-key set acquisition checks requested identity, duplicates and exact EOF.
 /// It deliberately reads metadata only: a prior independent full backing scan does
@@ -673,40 +674,71 @@ pub async fn observe_backing_window_read<Context>(
     budget: &ResourceBudget,
 ) -> Result<BackingObservations, ModelError> {
     let charge = window_charge(records.iter(), records.len(), budget)?;
-    let expected = records.iter().cloned().collect::<std::collections::BTreeSet<_>>();
-    if expected.len() != records.len() { return Err(ModelError::Conflict("backing duplicate requested identity")); }
-    let mut result = BackingObservations { rows: Default::default(), _charge: charge };
-    if records.is_empty() { return Ok(result); }
+    let expected = records
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if expected.len() != records.len() {
+        return Err(ModelError::Conflict("backing duplicate requested identity"));
+    }
+    let mut result = BackingObservations {
+        rows: Default::default(),
+        _charge: charge,
+    };
+    if records.is_empty() {
+        return Ok(result);
+    }
     let mut variables = Variables::new();
     variables.insert("backing_ids", records.to_vec());
     let mut stream = reader.stream_prepared(crate::prepared::PreparedQuery::new(
-        variables, vec![], vec!["SELECT id,semantic_type,semantic_key,content FROM $backing_ids".into()],
+        variables,
+        vec![],
+        vec!["SELECT id,semantic_type,semantic_key,content FROM $backing_ids".into()],
     )?)?;
     let observed = async {
         while let Some(row) = stream.next().await? {
             let id = row_id(&row)?;
             if !expected.contains(id) || result.rows.contains_key(id) {
-                return Err(ModelError::Conflict("backing foreign or duplicate observation"));
+                return Err(ModelError::Conflict(
+                    "backing foreign or duplicate observation",
+                ));
             }
-            let object = row.as_object().ok_or(ModelError::Schema("backing observation object"))?;
+            let object = row
+                .as_object()
+                .ok_or(ModelError::Schema("backing observation object"))?;
             let string = |name| match object.get(name) {
                 Some(Value::String(value)) => Ok(value.clone()),
                 _ => Err(ModelError::Schema("backing observation field")),
             };
-            let retained = budget.reserve("backing metadata observation",
-                crate::loader::native_bytes(&row).saturating_mul(8).saturating_add(4096))?;
-            result.rows.insert(id.clone(), BackingMetadata {
-                relation: string("semantic_type")?, key: string("semantic_key")?,
-                content: string("content")?, _charge: retained,
-            });
+            let retained = budget.reserve(
+                "backing metadata observation",
+                crate::loader::native_bytes(&row)
+                    .saturating_mul(8)
+                    .saturating_add(4096),
+            )?;
+            result.rows.insert(
+                id.clone(),
+                BackingMetadata {
+                    relation: string("semantic_type")?,
+                    key: string("semantic_key")?,
+                    content: string("content")?,
+                    _charge: retained,
+                },
+            );
         }
         if result.rows.len() != expected.len() {
-            return Err(ModelError::Conflict("completed membership backing/visibility"));
+            return Err(ModelError::Conflict(
+                "completed membership backing/visibility",
+            ));
         }
         Ok(())
-    }.await;
+    }
+    .await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
-    terminal.step("backing metadata observation drainage", stream.drain_transport().await);
+    terminal.step(
+        "backing metadata observation drainage",
+        stream.drain_transport().await,
+    );
     lctx_model::domain::completion::complete(observed, terminal)?;
     Ok(result)
 }
@@ -952,7 +984,13 @@ mod tests {
         Value::Object(row)
     }
     fn native_probe_row(id: &RecordId) -> Value {
-        let mut row=Object::new();row.insert("id",id.clone());row.insert("format","observation-probe");row.insert("relation","observation_probe");row.insert("content",ContentHash::of(b"observation probe").hex());row.insert("rows",Vec::<Value>::new());Value::Object(row)
+        let mut row = Object::new();
+        row.insert("id", id.clone());
+        row.insert("format", "observation-probe");
+        row.insert("relation", "observation_probe");
+        row.insert("content", ContentHash::of(b"observation probe").hex());
+        row.insert("rows", Vec::<Value>::new());
+        Value::Object(row)
     }
     #[test]
     fn observation_window_correlates_shuffled_native_bytes_and_independent_lifetimes() {

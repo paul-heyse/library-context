@@ -1364,7 +1364,8 @@ pub async fn aspects(
                             runtime,
                         )?;
                     }
-                    emit_aspects(&mut rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
+                    emit_aspects(&mut rows, &output, matches!(kernel, AspectKernel::Class(_)))
+                        .await?;
                 }
                 product_window.finish(runtime).await?;
             }
@@ -1490,13 +1491,14 @@ pub(crate) async fn receivers_produced(
                     runtime.budget(),
                 )?;
                 let view = selection.view()?;
-                let (mut rows, authority) = crate::stage_runtime::borrowed_cpu(access.name(), || {
-                    receiver::normalize_target_produced_view(
-                        &view,
-                        callable_scope::nominal(keys.value(index))?,
-                        runtime.budget(),
-                    )
-                })?;
+                let (mut rows, authority) =
+                    crate::stage_runtime::borrowed_cpu(access.name(), || {
+                        receiver::normalize_target_produced_view(
+                            &view,
+                            callable_scope::nominal(keys.value(index))?,
+                            runtime.budget(),
+                        )
+                    })?;
                 verified.append(authority)?;
                 emit_receivers(&mut rows, &output).await?;
                 tokio::task::yield_now().await;
@@ -2061,15 +2063,16 @@ pub(crate) async fn bindings_prepared(
                     runtime.budget(),
                 )?;
                 let view = selection.view()?;
-                let (mut rows, verified) = crate::stage_runtime::borrowed_cpu(access.name(), || {
-                    binding_normalization::normalize_event_produced_view(
-                        &view,
-                        callable_scope::nominal(keys.value(index))?,
-                        receivers,
-                        events,
-                        runtime.budget(),
-                    )
-                })?;
+                let (mut rows, verified) =
+                    crate::stage_runtime::borrowed_cpu(access.name(), || {
+                        binding_normalization::normalize_event_produced_view(
+                            &view,
+                            callable_scope::nominal(keys.value(index))?,
+                            receivers,
+                            events,
+                            runtime.budget(),
+                        )
+                    })?;
                 application.append(verified)?;
                 emit_bindings(&mut rows, &output).await?;
                 tokio::task::yield_now().await;

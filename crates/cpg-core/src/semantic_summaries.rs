@@ -312,7 +312,8 @@ pub async fn produce(
                 receipts,
                 projections,
                 _frame,
-            )) = ready.next().await? {
+            )) = ready.next().await?
+            {
                 let mut actual_coverage = normalized::Rows::new(budget);
                 let mut actual_premises = normalized::Rows::new(budget);
                 for scope in coverage.scopes() {
@@ -411,7 +412,10 @@ fn emit_results<'a>(
         Ok(())
     })
 }
-fn emit_vocabulary<'a>(vocabulary: &'a mut Vocabulary, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> {
+fn emit_vocabulary<'a>(
+    vocabulary: &'a mut Vocabulary,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         macro_rules! write {($($field:ident:$ty:ty,)*)=>{$(
             let limits = output.canonical_limits::<$ty>()?;

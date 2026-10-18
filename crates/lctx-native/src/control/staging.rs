@@ -31,7 +31,11 @@ impl DerivedStaging {
 
     /// Finish the actual producer only after all derived pages and marker are joined.
     /// A publication caller must retain marker acknowledgement before this fallible step.
-    pub async fn finish_operation(&self, client: &Surreal<Client>, budget: &ResourceBudget) -> Result<(), ModelError> {
+    pub async fn finish_operation(
+        &self,
+        client: &Surreal<Client>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
         self.operation.finish(client, budget).await
     }
 
@@ -106,10 +110,16 @@ impl DerivedStaging {
         }
         charge.try_resize(bytes)?;
         let operation = Arc::new(operation_pages::OperationWriter::new(
-            RecoveryOwner::FrozenAttempt(attempt), Some(root.clone()), budget,
+            RecoveryOwner::FrozenAttempt(attempt),
+            Some(root.clone()),
+            budget,
         )?);
-        let mut writer = immutable_window::WindowWriter::for_owner(client, EffectOwner::FrozenAttempt(attempt), Some(budget))
-            .with_operation(operation.clone());
+        let mut writer = immutable_window::WindowWriter::for_owner(
+            client,
+            EffectOwner::FrozenAttempt(attempt),
+            Some(budget),
+        )
+        .with_operation(operation.clone());
         writer.effect(&sql, variables).await?;
         let observed = inspect_expected(client, root.clone(), budget)
             .await?
@@ -376,10 +386,17 @@ impl DerivedStaging {
         }
         let mut expected = crate::ordered_rows::SortedRows::with_budget(budget)?;
         loader
-            .reconcile_with_roles(manifest, Some(&mut expected), expectations.as_ref().map(|prepared| prepared.roles))
+            .reconcile_with_roles(
+                manifest,
+                Some(&mut expected),
+                expectations.as_ref().map(|prepared| prepared.roles),
+            )
             .await?;
         if let Some(prepared) = expectations {
-            prepared.search.reconcile_owned(loader, Some(&mut expected)).await?;
+            prepared
+                .search
+                .reconcile_owned(loader, Some(&mut expected))
+                .await?;
         } else {
             crate::derived_search::reconcile_search_owned(loader, Some(&mut expected)).await?;
         }

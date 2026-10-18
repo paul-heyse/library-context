@@ -36,7 +36,11 @@ pub fn canonical_backing_endpoints(
     // Nongraph framing borrows retained canonical bytes and parses one current
     // body; its typed Arrow builder separately admits its own arenas. Graph
     // reconstruction still owns complete typed entity/role representations.
-    let expansion=if node.table.as_str()=="compiler_record"{2}else{32};
+    let expansion = if node.table.as_str() == "compiler_record" {
+        2
+    } else {
+        32
+    };
     let decode = budget.reserve(
         "installed backing canonical decode",
         crate::loader::native_bytes(row)
@@ -291,8 +295,12 @@ pub fn validate_compiler_backing(
     id: &RecordId,
 ) -> Result<Option<OriginalBacking>, ModelError> {
     crate::loader::validate_native_object(row)?;
-    let body_value=row.get("body").ok_or(ModelError::Schema("compiler backing body"))?;
-    let Value::Object(body)=body_value else{return Err(ModelError::Schema("compiler backing body"));};
+    let body_value = row
+        .get("body")
+        .ok_or(ModelError::Schema("compiler backing body"))?;
+    let Value::Object(body) = body_value else {
+        return Err(ModelError::Schema("compiler backing body"));
+    };
     let Some(Value::String(name)) = body.get("__type") else {
         return Err(ModelError::Schema("compiler backing type"));
     };
@@ -373,44 +381,74 @@ pub fn validate_compiler_backing(
     // serde encodes nonfinite floats as null, which must not become a valid forged
     // canonical body (including inside sets, ranges, record keys or geometry).
     // This single row-local decode replaces the former multiple full-body copies.
-    let canonical_body:Value=serde_json::from_slice(canonical).map_err(ModelError::codec)?;
-    if canonical_body!=body_value{return Err(ModelError::Conflict("compiler backing canonical body"));}
+    let canonical_body: Value = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
+    if canonical_body != body_value {
+        return Err(ModelError::Conflict("compiler backing canonical body"));
+    }
     // Compare the exact canonical encoding against the borrowed native body.
     // The one row-local parser above preserves generic native grammar. Streaming
     // the byte comparison avoids a second canonical buffer and full-row cloning.
-    if !canonical_matches(body_value,canonical)?{return Err(ModelError::Conflict("compiler backing canonical body"));}
-    let content=ContentHash::of(canonical);
+    if !canonical_matches(body_value, canonical)? {
+        return Err(ModelError::Conflict("compiler backing canonical body"));
+    }
+    let content = ContentHash::of(canonical);
     if row.get("semantic_type") != Some(&Value::String(name.clone()))
         || row.get("semantic_key") != Some(&Value::String(hex::encode(key)))
-        || *id != crate::loader::payload_id("compiler_record",name,&key,content)?
-    {return Err(ModelError::Conflict("compiler backing typed identity"));}
-    if row.get("content") != Some(&Value::String(content.hex())){return Err(ModelError::Conflict("compiler backing content"));}
-    let adapter=crate::adapter::select(name)?;
-    if adapter.table!=crate::schema::ScopeTable::CompilerRecord{return Err(ModelError::Schema("undeclared compiler backing type"));}
-    let mut expected=adapter.scopes(body_value)?;
-    expected.insert("id",id.clone());expected.insert("semantic_type",name.clone());
-    expected.insert("semantic_key",hex::encode(key));expected.insert("content",content.hex());
+        || *id != crate::loader::payload_id("compiler_record", name, &key, content)?
+    {
+        return Err(ModelError::Conflict("compiler backing typed identity"));
+    }
+    if row.get("content") != Some(&Value::String(content.hex())) {
+        return Err(ModelError::Conflict("compiler backing content"));
+    }
+    let adapter = crate::adapter::select(name)?;
+    if adapter.table != crate::schema::ScopeTable::CompilerRecord {
+        return Err(ModelError::Schema("undeclared compiler backing type"));
+    }
+    let mut expected = adapter.scopes(body_value)?;
+    expected.insert("id", id.clone());
+    expected.insert("semantic_type", name.clone());
+    expected.insert("semantic_key", hex::encode(key));
+    expected.insert("content", content.hex());
     // Body/canonical have already been compared exactly. Every other field is
     // independently re-derived, and the count rejects extra physical columns.
-    if row.len()!=expected.len()+2 || expected.iter().any(|(field,value)|row.get(field)!=Some(value)){
+    if row.len() != expected.len() + 2
+        || expected
+            .iter()
+            .any(|(field, value)| row.get(field) != Some(value))
+    {
         return Err(ModelError::Conflict("compiler backing complete envelope"));
     }
     Ok(original)
 }
 
-fn canonical_matches(value:&Value,canonical:&[u8])->Result<bool,ModelError>{
-    struct CanonicalComparison<'a>{expected:&'a [u8],position:usize,equal:bool}
-    impl std::io::Write for CanonicalComparison<'_>{
-        fn write(&mut self,bytes:&[u8])->std::io::Result<usize>{
-            let end=self.position.checked_add(bytes.len()).ok_or_else(||std::io::Error::other("compiler canonical comparison overflow"))?;
-            self.equal &= self.expected.get(self.position..end)==Some(bytes);
-            self.position=end;Ok(bytes.len())
-        }
-        fn flush(&mut self)->std::io::Result<()>{Ok(())}
+fn canonical_matches(value: &Value, canonical: &[u8]) -> Result<bool, ModelError> {
+    struct CanonicalComparison<'a> {
+        expected: &'a [u8],
+        position: usize,
+        equal: bool,
     }
-    let mut compare=CanonicalComparison{expected:canonical,position:0,equal:true};
-    serde_json::to_writer(&mut compare,value).map_err(ModelError::codec)?;
-    Ok(compare.equal && compare.position==canonical.len())
+    impl std::io::Write for CanonicalComparison<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let end = self
+                .position
+                .checked_add(bytes.len())
+                .ok_or_else(|| std::io::Error::other("compiler canonical comparison overflow"))?;
+            self.equal &= self.expected.get(self.position..end) == Some(bytes);
+            self.position = end;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut compare = CanonicalComparison {
+        expected: canonical,
+        position: 0,
+        equal: true,
+    };
+    serde_json::to_writer(&mut compare, value).map_err(ModelError::codec)?;
+    Ok(compare.equal && compare.position == canonical.len())
 }
 pub fn require_backing_fields(body: &Object, fields: &[&str]) -> Result<(), ModelError> {
     if body.len() != fields.len() || fields.iter().any(|field| !body.contains_key(*field)) {
@@ -563,21 +601,34 @@ pub fn validate_backing_batch(rows: &[Value], budget: &ResourceBudget) -> Result
             if row.get("semantic_key") != Some(&Value::String(key.clone())) {
                 return Err(ModelError::Conflict("compiler backing typed identity"));
             }
-            let Some(Value::Bytes(canonical))=row.get("canonical") else{return Err(ModelError::Schema("compiler backing canonical bytes"));};
-            let actual_body=row.get("body").ok_or(ModelError::Schema("compiler backing body"))?;
+            let Some(Value::Bytes(canonical)) = row.get("canonical") else {
+                return Err(ModelError::Schema("compiler backing canonical bytes"));
+            };
+            let actual_body = row
+                .get("body")
+                .ok_or(ModelError::Schema("compiler backing body"))?;
             // Both actual and independently reconstructed typed bodies must emit
             // these exact bytes. Numeric canonicalization (including negative
             // zero) stays an independent model check, without full-row clones.
-            if !canonical_matches(actual_body,canonical)? || !canonical_matches(&body,canonical)?{
+            if !canonical_matches(actual_body, canonical)? || !canonical_matches(&body, canonical)?
+            {
                 return Err(ModelError::Conflict("compiler backing declared body"));
             }
             crate::loader::validate_native_object(row)?;
-            let content=ContentHash::of(canonical);
-            let mut expected=adapter.scopes(&body)?;
-            expected.insert("id",crate::loader::payload_id("compiler_record",name,ids.value(index),content)?);
-            expected.insert("semantic_type",name.to_owned());expected.insert("semantic_key",key);
-            expected.insert("content",content.hex());
-            if row.len()!=expected.len()+2 || expected.iter().any(|(field,value)|row.get(field)!=Some(value)){
+            let content = ContentHash::of(canonical);
+            let mut expected = adapter.scopes(&body)?;
+            expected.insert(
+                "id",
+                crate::loader::payload_id("compiler_record", name, ids.value(index), content)?,
+            );
+            expected.insert("semantic_type", name.to_owned());
+            expected.insert("semantic_key", key);
+            expected.insert("content", content.hex());
+            if row.len() != expected.len() + 2
+                || expected
+                    .iter()
+                    .any(|(field, value)| row.get(field) != Some(value))
+            {
                 return Err(ModelError::Conflict("compiler backing declared body"));
             }
         }

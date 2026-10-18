@@ -141,7 +141,9 @@ pub async fn recover_pending_request_file(
                 original.record_terminal(disposition)?;
                 disposition
             }
-            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => original.envelope().observed_disposition,
+            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => {
+                original.envelope().observed_disposition
+            }
         };
         authorization::settle_reference(&client, original.envelope(), owner.scope().cancellation())
             .await?;
@@ -251,7 +253,9 @@ async fn settle_original_requests_locked(
                 request.record_terminal(disposition)?;
                 disposition
             }
-            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => request.envelope().observed_disposition,
+            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => {
+                request.envelope().observed_disposition
+            }
         };
         authorization::settle_reference(client, request.envelope(), scope.cancellation()).await?;
         request.settle(disposition)?;

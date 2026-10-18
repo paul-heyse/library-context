@@ -2283,22 +2283,39 @@ impl PreparedClosure {
         &self,
         table: usize,
     ) -> Result<datafusion::dataframe::DataFrame, ModelError> {
-        use datafusion::{common::TableReference, logical_expr::JoinType, prelude::{col, lit}};
-        let binding = self.edges.tables.get(table)
+        use datafusion::{
+            common::TableReference,
+            logical_expr::JoinType,
+            prelude::{col, lit},
+        };
+        let binding = self
+            .edges
+            .tables
+            .get(table)
             .ok_or(ModelError::Schema("selected input namespace"))?;
         if let Some(alias) = self.selected_alias(table)? {
-            return self.session().table(TableReference::bare(alias)).await
+            return self
+                .session()
+                .table(TableReference::bare(alias))
+                .await
                 .map_err(crate::sql::model_error);
         }
-        let source = self.session().table(TableReference::bare(binding.alias.clone())).await
+        let source = self
+            .session()
+            .table(TableReference::bare(binding.alias.clone()))
+            .await
             .map_err(crate::sql::model_error)?;
-        let keys = self.session().table(TableReference::bare(self.alias.clone())).await
+        let keys = self
+            .session()
+            .table(TableReference::bare(self.alias.clone()))
+            .await
             .map_err(crate::sql::model_error)?
             .filter(col("kind").eq(lit(table as i64)))
             .map_err(crate::sql::model_error)?
             .select(vec![col("id")])
             .map_err(crate::sql::model_error)?;
-        source.join(keys, JoinType::LeftSemi, &["id"], &["id"], None)
+        source
+            .join(keys, JoinType::LeftSemi, &["id"], &["id"], None)
             .map_err(crate::sql::model_error)
     }
     /// Append the same ascending/default-null order as the SQL input contract,
@@ -2308,14 +2325,27 @@ impl PreparedClosure {
         frame: datafusion::dataframe::DataFrame,
         input: &ValidationInput,
     ) -> Result<datafusion::dataframe::DataFrame, ModelError> {
-        if input.order().is_empty() { return Ok(frame); }
+        if input.order().is_empty() {
+            return Ok(frame);
+        }
         let config = self.session().copied_config();
-        let nulls = config.options().sql_parser.default_null_ordering
+        let nulls = config
+            .options()
+            .sql_parser
+            .default_null_ordering
             .parse::<datafusion::sql::planner::NullOrdering>()
             .map_err(crate::sql::model_error)?;
-        frame.sort(input.order().iter()
-            .map(|field| datafusion::prelude::col(*field).sort(true, nulls.nulls_first(true)))
-            .collect()).map_err(crate::sql::model_error)
+        frame
+            .sort(
+                input
+                    .order()
+                    .iter()
+                    .map(|field| {
+                        datafusion::prelude::col(*field).sort(true, nulls.nulls_first(true))
+                    })
+                    .collect(),
+            )
+            .map_err(crate::sql::model_error)
     }
     /// The input shape stays typed while its selected provider port is rebound.
     pub async fn ordered_input(

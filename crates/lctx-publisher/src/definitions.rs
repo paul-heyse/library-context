@@ -55,9 +55,15 @@ fn prepare_expected(blueprint: &str) -> Result<DefinitionRequirements, ModelErro
                 }
                 _ => {
                     match definition.as_ref() {
-                        DefineStatement::Table(value) => { tables.insert(value.name.to_sql()); }
-                        DefineStatement::Field(value) => { tables.insert(value.what.to_sql()); }
-                        DefineStatement::Index(value) => { tables.insert(value.what.to_sql()); }
+                        DefineStatement::Table(value) => {
+                            tables.insert(value.name.to_sql());
+                        }
+                        DefineStatement::Field(value) => {
+                            tables.insert(value.what.to_sql());
+                        }
+                        DefineStatement::Index(value) => {
+                            tables.insert(value.what.to_sql());
+                        }
                         _ => {}
                     }
                     base.push(normalize(&definition.to_sql())?);
@@ -70,7 +76,11 @@ fn prepare_expected(blueprint: &str) -> Result<DefinitionRequirements, ModelErro
             }
         }
     }
-    Ok(DefinitionRequirements { base, functions, tables })
+    Ok(DefinitionRequirements {
+        base,
+        functions,
+        tables,
+    })
 }
 pub(crate) fn normalize(sql: &str) -> Result<String, ModelError> {
     let parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?;
@@ -110,7 +120,10 @@ fn add_group(
     }
     Ok(())
 }
-async fn inventory(loader: &Loader, required_tables: &BTreeSet<String>) -> Result<BTreeSet<String>, ModelError> {
+async fn inventory(
+    loader: &Loader,
+    required_tables: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, ModelError> {
     let db = info(loader, "INFO FOR DB".into()).await?;
     let mut result = BTreeSet::new();
     for group in ["functions", "analyzers", "tables"] {
@@ -170,27 +183,52 @@ impl PreparedDefinitions {
             "publication required definition preparation",
             blueprint.len().saturating_mul(24).saturating_add(2048),
         )?;
-        let DefinitionRequirements { base, functions, tables } = prepare_expected(blueprint)?;
-        Ok(Self { blueprint: blueprint.to_owned(), base, functions, tables, _charge: charge })
+        let DefinitionRequirements {
+            base,
+            functions,
+            tables,
+        } = prepare_expected(blueprint)?;
+        Ok(Self {
+            blueprint: blueprint.to_owned(),
+            base,
+            functions,
+            tables,
+            _charge: charge,
+        })
     }
     pub(crate) fn require_blueprint(&self, blueprint: &str) -> Result<(), ModelError> {
         if self.blueprint != blueprint {
-            return Err(ModelError::Conflict("publication executable blueprint changed"));
+            return Err(ModelError::Conflict(
+                "publication executable blueprint changed",
+            ));
         }
         Ok(())
     }
     pub(crate) async fn verify(&self, loader: &Loader) -> Result<ContentHash, ModelError> {
         let actual = inventory(loader, &self.tables).await?;
         loader.check_read_admission()?;
-        let version = loader.client().version().await.map_err(ModelError::codec)?.to_string();
-        verify_expected(&self.blueprint, &version, &actual, &self.base, &self.functions)
+        let version = loader
+            .client()
+            .version()
+            .await
+            .map_err(ModelError::codec)?
+            .to_string();
+        verify_expected(
+            &self.blueprint,
+            &version,
+            &actual,
+            &self.base,
+            &self.functions,
+        )
     }
 }
 pub(crate) async fn verify_epoch(
     loader: &Loader,
     blueprint: &str,
 ) -> Result<ContentHash, ModelError> {
-    PreparedDefinitions::new(loader, blueprint)?.verify(loader).await
+    PreparedDefinitions::new(loader, blueprint)?
+        .verify(loader)
+        .await
 }
 pub(crate) fn verify_inventory(
     blueprint: &str,
@@ -247,15 +285,26 @@ mod controls {
     #[test]
     fn required_definition_details_are_scoped_and_required_drift_refuses() {
         let blueprint = lctx_native::materialization::native_definitions();
-        let DefinitionRequirements { base, functions, tables } = prepare_expected(&blueprint).unwrap();
+        let DefinitionRequirements {
+            base,
+            functions,
+            tables,
+        } = prepare_expected(&blueprint).unwrap();
         assert!(tables.contains("search_source"));
         assert!(tables.contains("vector"));
         assert!(!tables.contains("compiler_record"));
         assert!(!tables.contains("unrelated"));
-        let mut actual = base.iter().chain(&functions).cloned().collect::<BTreeSet<_>>();
+        let mut actual = base
+            .iter()
+            .chain(&functions)
+            .cloned()
+            .collect::<BTreeSet<_>>();
         let identity = verify_inventory(&blueprint, "3.3.0", &actual).unwrap();
         actual.insert("DEFINE TABLE unrelated SCHEMAFULL".into());
-        assert_eq!(verify_inventory(&blueprint, "3.3.0", &actual).unwrap(), identity);
+        assert_eq!(
+            verify_inventory(&blueprint, "3.3.0", &actual).unwrap(),
+            identity
+        );
         actual.remove(&base[0]);
         assert!(verify_inventory(&blueprint, "3.3.0", &actual).is_err());
     }

@@ -15,7 +15,9 @@ pub trait PathRows<R: Record>: Send + Sync {
     fn get(&self, id: &Id<R>) -> Option<&R>;
 }
 impl<R: Record> PathRows<R> for BTreeMap<Id<R>, R> {
-    fn get(&self, id: &Id<R>) -> Option<&R> { BTreeMap::get(self, id) }
+    fn get(&self, id: &Id<R>) -> Option<&R> {
+        BTreeMap::get(self, id)
+    }
 }
 /// Small newly derived rows borrow immutable admitted backing instead of cloning it.
 pub(crate) struct PathOverlay<'a, R: Record> {
@@ -24,7 +26,10 @@ pub(crate) struct PathOverlay<'a, R: Record> {
 }
 impl<R: Record> PathRows<R> for PathOverlay<'_, R> {
     fn get(&self, id: &Id<R>) -> Option<&R> {
-        self.added.iter().find(|row| row.id() == *id).or_else(|| self.base.get(id))
+        self.added
+            .iter()
+            .find(|row| row.id() == *id)
+            .or_else(|| self.base.get(id))
     }
 }
 pub struct PathCatalog<'a> {

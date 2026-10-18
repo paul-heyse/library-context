@@ -46,10 +46,16 @@ async fn abandon_acknowledged_write_failure(
         outcome.primary.is_none(),
         "abandonment does not invent a new primary: {failure:?}"
     );
-    assert_eq!(outcome.completion.local, LocalState::Terminal,
-        "acknowledged write abandonment must finish local ownership: {failure:?}");
-    assert_eq!(outcome.completion.remote, RemoteState::Confirmed,
-        "acknowledged write abandonment must confirm native finality: {failure:?}");
+    assert_eq!(
+        outcome.completion.local,
+        LocalState::Terminal,
+        "acknowledged write abandonment must finish local ownership: {failure:?}"
+    );
+    assert_eq!(
+        outcome.completion.remote,
+        RemoteState::Confirmed,
+        "acknowledged write abandonment must confirm native finality: {failure:?}"
+    );
     assert_eq!(outcome.completion.storage, vec![]);
     assert!(outcome.completion.committed.is_empty());
     assert_eq!(
@@ -208,7 +214,9 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
             .await
             .unwrap();
     }
-    let budget = if maximum_chunk { native_operation_budget.clone() } else {
+    let budget = if maximum_chunk {
+        native_operation_budget.clone()
+    } else {
         lctx_model::domain::resources::ResourceBudget::fixed(8 << 20).unwrap()
     };
     use futures::TryStreamExt;
@@ -253,11 +261,8 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     let restored = NativeCompilerStore::begin(
         &config,
         Frontier::Normalized,
-        &lctx_compiler_store::compiler::recovery_factory(
-            &config,
-            budget.clone(),
-        )
-        .expect("owned native control factory"),
+        &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+            .expect("owned native control factory"),
     )
     .await
     .unwrap();
@@ -265,15 +270,9 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         .import_state(file.path(), &state, &budget)
         .await
         .unwrap();
-    restored
-        .freeze_content(&budget)
-        .await
-        .unwrap();
+    restored.freeze_content(&budget).await.unwrap();
     assert_eq!(
-        restored
-            .completed_state(&budget)
-            .await
-            .unwrap(),
+        restored.completed_state(&budget).await.unwrap(),
         state.semantic
     );
     let batches = restored
@@ -299,10 +298,20 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     );
     restored.abandon().await.unwrap();
     use lctx_native::surrealdb::types::{Bytes, Number, Value};
-    let backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    let mut rows = backing.into_iter().filter(|backing| backing.row.as_object().unwrap().get("semantic_type") == Some(&Value::String("projection_snapshot_chunks".into()))).collect::<Vec<_>>();
-    let backing = rows.pop().unwrap(); assert!(rows.is_empty());
-    let Value::Object(original) = backing.row.clone() else { panic!("native logical backing row"); };
+    let backing =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let mut rows = backing
+        .into_iter()
+        .filter(|backing| {
+            backing.row.as_object().unwrap().get("semantic_type")
+                == Some(&Value::String("projection_snapshot_chunks".into()))
+        })
+        .collect::<Vec<_>>();
+    let backing = rows.pop().unwrap();
+    assert!(rows.is_empty());
+    let Value::Object(original) = backing.row.clone() else {
+        panic!("native logical backing row");
+    };
     let mut altered = original.clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("native backing body");
@@ -311,38 +320,124 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     let canonical = serde_json::to_vec(&Value::Object(body.clone())).unwrap();
     altered.insert("canonical", Bytes::from(canonical.clone()));
     altered.insert("content", ContentHash::of(&canonical).hex());
-    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
     let changed = replacement.row.as_object().unwrap();
-    assert_eq!(changed.get("body").unwrap().as_object().unwrap().get("ordinal"), Some(&Value::Number(Number::Int(1))));
-    assert_eq!(changed.get("canonical"), Some(&Value::Bytes(Bytes::from(canonical.clone()))));
-    assert_eq!(changed.get("content"), Some(&Value::String(ContentHash::of(&canonical).hex())));
+    assert_eq!(
+        changed
+            .get("body")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("ordinal"),
+        Some(&Value::Number(Number::Int(1)))
+    );
+    assert_eq!(
+        changed.get("canonical"),
+        Some(&Value::Bytes(Bytes::from(canonical.clone())))
+    );
+    assert_eq!(
+        changed.get("content"),
+        Some(&Value::String(ContentHash::of(&canonical).hex()))
+    );
     for field in ["id", "semantic_key", "scope_keys"] {
-        assert_eq!(changed.get(field), original.get(field), "coherent body/content mutation preserves {field}");
+        assert_eq!(
+            changed.get(field),
+            original.get(field),
+            "coherent body/content mutation preserves {field}"
+        );
     }
-    let cached = store.completed_state(&native_operation_budget).await.unwrap();
-    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    let cached = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
+    let verification =
+        physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget)
+            .await
+            .map(|_| ());
     replacement.restore(&admin).await;
-    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    assert_eq!(restored.iter().filter(|row| row.locator == backing.locator).map(|row| &row.row).collect::<Vec<_>>(), vec![&backing.row],
-        "restore exact physical locator and logical row before refusal assertions");
-    assert_eq!(cached, state.semantic, "ordinary frozen identity reuses its earned owner before independent refusal");
-    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing typed identity"))),
-        "coherent canonical/body/content changes cannot bypass full nominal-key validation: {verification:?}");
-    let mut altered = original.clone(); altered.insert("semantic_key", "00".repeat(16));
-    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
-    assert_eq!(replacement.row.as_object().unwrap().get("semantic_key"), Some(&Value::String("00".repeat(16))));
+    let restored =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(
+        restored
+            .iter()
+            .filter(|row| row.locator == backing.locator)
+            .map(|row| &row.row)
+            .collect::<Vec<_>>(),
+        vec![&backing.row],
+        "restore exact physical locator and logical row before refusal assertions"
+    );
+    assert_eq!(
+        cached, state.semantic,
+        "ordinary frozen identity reuses its earned owner before independent refusal"
+    );
+    assert!(
+        matches!(
+            verification.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "coherent canonical/body/content changes cannot bypass full nominal-key validation: {verification:?}"
+    );
+    let mut altered = original.clone();
+    altered.insert("semantic_key", "00".repeat(16));
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
+    assert_eq!(
+        replacement.row.as_object().unwrap().get("semantic_key"),
+        Some(&Value::String("00".repeat(16)))
+    );
     for field in ["id", "body", "canonical", "content", "scope_keys"] {
-        assert_eq!(replacement.row.as_object().unwrap().get(field), original.get(field), "false-key mutation preserves {field}");
+        assert_eq!(
+            replacement.row.as_object().unwrap().get(field),
+            original.get(field),
+            "false-key mutation preserves {field}"
+        );
     }
-    let cached = store.completed_state(&native_operation_budget).await.unwrap();
-    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    let cached = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
+    let verification =
+        physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget)
+            .await
+            .map(|_| ());
     replacement.restore(&admin).await;
-    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    assert_eq!(restored.iter().filter(|row| row.locator == backing.locator).map(|row| &row.row).collect::<Vec<_>>(), vec![&backing.row],
-        "restore exact physical locator and nominal key before refusal assertions");
-    assert_eq!(cached, state.semantic, "cached identity is not an independent corruption oracle");
-    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing typed identity"))),
-        "stored nominal keys are independently recomputed: {verification:?}");
+    let restored =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(
+        restored
+            .iter()
+            .filter(|row| row.locator == backing.locator)
+            .map(|row| &row.row)
+            .collect::<Vec<_>>(),
+        vec![&backing.row],
+        "restore exact physical locator and nominal key before refusal assertions"
+    );
+    assert_eq!(
+        cached, state.semantic,
+        "cached identity is not an independent corruption oracle"
+    );
+    assert!(
+        matches!(
+            verification.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "stored nominal keys are independently recomputed: {verification:?}"
+    );
     store.verify_state(&native_operation_budget).await.unwrap();
     assert_eq!(
         store
@@ -371,8 +466,15 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
     .unwrap();
     let mut conflicting = chunk.clone();
     conflicting.payload = EvidenceBytes(vec![1, 2, 3]);
-    assert_eq!(conflicting.id(), chunk.id(), "different payload retains the same nominal chunk key");
-    assert_ne!(conflicting.payload, chunk.payload, "the repeated key changes its opaque payload");
+    assert_eq!(
+        conflicting.id(),
+        chunk.id(),
+        "different payload retains the same nominal chunk key"
+    );
+    assert_ne!(
+        conflicting.payload, chunk.payload,
+        "the repeated key changes its opaque payload"
+    );
     let mut next = spec;
     next.producer = "conflicting-projection-backing".into();
     let contribution = conflict_store.begin_contribution(next).await.unwrap();
@@ -385,10 +487,19 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         )
         .await
         .unwrap();
-    let mut prior_backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    let prior = prior_backing.pop().expect("conflict owner has its exact logical member");
-    assert!(prior_backing.is_empty(), "the conflict owner initially has one exact logical member");
-    assert_eq!(prior.row, backing.row, "the distinct contributor initially shares the exact original logical payload");
+    let mut prior_backing =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let prior = prior_backing
+        .pop()
+        .expect("conflict owner has its exact logical member");
+    assert!(
+        prior_backing.is_empty(),
+        "the conflict owner initially has one exact logical member"
+    );
+    assert_eq!(
+        prior.row, backing.row,
+        "the distinct contributor initially shares the exact original logical payload"
+    );
     let prior_locator = prior.locator;
     // Reuse the original source row already retained by this control. Do not keep
     // another maximum-sized snapshot across independent physical observations.
@@ -402,11 +513,23 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         )
         .await;
     let failure = result.expect_err("same nominal key with changed opaque payload must refuse");
-    let mut after_backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    let actual = after_backing.pop().expect("refused write retains the original logical member");
-    assert!(after_backing.is_empty(), "refused write adds no logical members");
-    assert_eq!(actual.locator, prior_locator, "refused write preserves the exact selected placement");
-    assert_eq!(actual.row, backing.row, "refused write preserves the original opaque payload");
+    let mut after_backing =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let actual = after_backing
+        .pop()
+        .expect("refused write retains the original logical member");
+    assert!(
+        after_backing.is_empty(),
+        "refused write adds no logical members"
+    );
+    assert_eq!(
+        actual.locator, prior_locator,
+        "refused write preserves the exact selected placement"
+    );
+    assert_eq!(
+        actual.row, backing.row,
+        "refused write preserves the original opaque payload"
+    );
     drop(actual);
     // The fused locator prelude refuses a changed logical member before installing
     // its content-addressed container; preserve that exact acknowledged cause.
@@ -506,7 +629,10 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         })
         .await
         .unwrap();
-    store.freeze_content(&native_operation_budget).await.unwrap();
+    store
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
     let state = store
         .completed_state(&native_operation_budget)
         .await
@@ -514,9 +640,12 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     assert_eq!(state.contributions, 1);
     assert_eq!(state.memberships, 1);
     assert_eq!(state.backing_rows, 1);
-    let mut backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let mut backing =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
     let backing = backing.pop().unwrap();
-    let Value::Object(mut altered) = backing.row.clone() else { panic!("quality logical backing row"); };
+    let Value::Object(mut altered) = backing.row.clone() else {
+        panic!("quality logical backing row");
+    };
     let saved = altered.clone();
     let Some(Value::Object(body)) = altered.get_mut("body") else {
         panic!("quality backing body");
@@ -548,24 +677,60 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     );
 
     let saved_membership = backing.locator.clone();
-    assert_eq!(saved_membership.as_object().unwrap().get("node"), saved.get("id"));
-    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
+    assert_eq!(
+        saved_membership.as_object().unwrap().get("node"),
+        saved.get("id")
+    );
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
     let expected_block = replacement.block.clone();
     let expected_membership = replacement.locator.clone();
-    assert_eq!(expected_membership.as_object().unwrap().get("node"), Some(&Value::RecordId(negative_node)));
-    assert_eq!(expected_membership.as_object().unwrap().get("content"), Some(&Value::String(content.hex())));
-    assert_ne!(saved_membership.as_object().unwrap().get("block"), Some(&Value::RecordId(expected_block)),
-        "the coherently malformed logical row lives in a separately held actual block");
+    assert_eq!(
+        expected_membership.as_object().unwrap().get("node"),
+        Some(&Value::RecordId(negative_node))
+    );
+    assert_eq!(
+        expected_membership.as_object().unwrap().get("content"),
+        Some(&Value::String(content.hex()))
+    );
+    assert_ne!(
+        saved_membership.as_object().unwrap().get("block"),
+        Some(&Value::RecordId(expected_block)),
+        "the coherently malformed logical row lives in a separately held actual block"
+    );
     // The ordinary earned identity is intentionally reused; the following fresh
     // physical/typed receiver independently checks the altered canonical bytes.
-    let cached = store.completed_state(&native_operation_budget).await.unwrap();
-    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    let cached = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
+    let verification =
+        physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget)
+            .await
+            .map(|_| ());
     replacement.restore(&admin).await;
-    let mut restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    assert_eq!(restored.pop().unwrap().row, Value::Object(saved)); assert!(restored.is_empty());
-    assert_eq!(cached, state, "ordinary frozen identity reuses its earned root; this is not a cold audit");
-    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing declared body"))),
-        "coherent negative-zero independent verification before membership checks: {verification:?}");
+    let mut restored =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(restored.pop().unwrap().row, Value::Object(saved));
+    assert!(restored.is_empty());
+    assert_eq!(
+        cached, state,
+        "ordinary frozen identity reuses its earned root; this is not a cold audit"
+    );
+    assert!(
+        matches!(
+            verification.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict("compiler backing declared body"))
+        ),
+        "coherent negative-zero independent verification before membership checks: {verification:?}"
+    );
 
     store.verify_state(&native_operation_budget).await.unwrap();
     store.abandon().await.unwrap();
@@ -650,7 +815,10 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
     for (table, predicate) in [
         ("original", "id=$source"),
         ("original_chunk", "blob=$source.blob"),
-        ("native_hold", "owner=$owner AND record::table(object)='compiler_block'"),
+        (
+            "native_hold",
+            "owner=$owner AND record::table(object)='compiler_block'",
+        ),
         ("compiler_membership", "contribution=$owner"),
     ] {
         let mut bindings = lctx_native::surrealdb::types::Variables::new();

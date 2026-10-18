@@ -540,10 +540,13 @@ async fn charge_candidates(
         _ => None,
     };
     if let Some((field, table)) = parent.filter(|_| !candidates.is_empty()) {
-        let ids = candidates.iter().map(|row| match row.get(field) {
-            Some(Value::RecordId(id)) if id.table.as_str() == table => Ok(id.clone()),
-            _ => Err(ModelError::Schema("native history candidate parent")),
-        }).collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        let ids = candidates
+            .iter()
+            .map(|row| match row.get(field) {
+                Some(Value::RecordId(id)) if id.table.as_str() == table => Ok(id.clone()),
+                _ => Err(ModelError::Schema("native history candidate parent")),
+            })
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
         let mut response = client
             .query("SELECT * FROM $parents")
             .bind(("parents", ids.into_iter().collect::<Vec<_>>()))
@@ -1297,16 +1300,40 @@ mod tests {
             ("state".into(), Value::String("fenced".into())),
             ("committed_prefix".into(), Value::Number(2i64.into())),
         ]);
-        let candidates = (0..2).map(|ordinal| Object::from_iter([
-            ("id".into(), Value::RecordId(RecordId::new("native_operation_page", format!("page-{ordinal}")))),
-            ("operation".into(), Value::RecordId(root.clone())),
-        ])).collect();
+        let candidates = (0..2)
+            .map(|ordinal| {
+                Object::from_iter([
+                    (
+                        "id".into(),
+                        Value::RecordId(RecordId::new(
+                            "native_operation_page",
+                            format!("page-{ordinal}"),
+                        )),
+                    ),
+                    ("operation".into(), Value::RecordId(root.clone())),
+                ])
+            })
+            .collect();
         let charged = charged_candidate_rows(candidates, &[(root, parent.clone())].into()).unwrap();
         assert_eq!(charged.len(), 2);
-        for row in charged { assert_eq!(row.as_object().unwrap().get("parent"), Some(&Value::Object(parent.clone()))); }
-        let page_position = PHASES.iter().position(|entry| entry.0 == "operation_page").unwrap();
-        let root_position = PHASES.iter().position(|entry| entry.0 == "operation").unwrap();
-        let attempt_position = PHASES.iter().position(|entry| entry.0 == "attempt").unwrap();
+        for row in charged {
+            assert_eq!(
+                row.as_object().unwrap().get("parent"),
+                Some(&Value::Object(parent.clone()))
+            );
+        }
+        let page_position = PHASES
+            .iter()
+            .position(|entry| entry.0 == "operation_page")
+            .unwrap();
+        let root_position = PHASES
+            .iter()
+            .position(|entry| entry.0 == "operation")
+            .unwrap();
+        let attempt_position = PHASES
+            .iter()
+            .position(|entry| entry.0 == "attempt")
+            .unwrap();
         assert!(page_position < root_position && root_position < attempt_position);
         let page_sql = page_sql("operation_page", page_position, 2).unwrap();
         surrealdb_syn::parse(&page_sql).unwrap();
@@ -1316,7 +1343,9 @@ mod tests {
         assert!(!page_sql.contains("native_attempt_cut"));
         let root_sql = super::page_sql("operation", root_position, 1).unwrap();
         surrealdb_syn::parse(&root_sql).unwrap();
-        assert!(root_sql.contains("native_operation_page WITH INDEX operation_pages WHERE operation=$candidate LIMIT 1)=0"));
+        assert!(root_sql.contains(
+            "native_operation_page WITH INDEX operation_pages WHERE operation=$candidate LIMIT 1)=0"
+        ));
         assert!(root_sql.contains("WHERE object=$candidate"));
     }
     #[test]

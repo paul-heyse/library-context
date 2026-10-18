@@ -24,6 +24,9 @@ pub(crate) fn declare_ordered<'a>(
 }
 
 /// Consume canonical results at their final semantic use without rich row clones.
-pub(crate) fn emit_owned<'a, R: Record>(rows: &'a mut Rows<R>, output: &'a ProducerOutput) -> BoxFuture<'a, Result<(), ModelError>> {
+pub(crate) fn emit_owned<'a, R: Record>(
+    rows: &'a mut Rows<R>,
+    output: &'a ProducerOutput,
+) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move { output.push_rows(rows).await })
 }

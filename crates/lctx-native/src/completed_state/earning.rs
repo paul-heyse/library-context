@@ -70,11 +70,23 @@ pub(crate) fn selected_membership_content(
         budget,
         || Ok(()),
         |_, payload| {
-            let _decode=budget.reserve("selected membership logical hash projection",payload.len().saturating_mul(8).saturating_add(1024))?;
-            let mut row:Value=serde_json::from_slice(payload).map_err(ModelError::codec)?;
-            let Value::Object(object)=&mut row else{return Err(ModelError::Schema("selected membership hash object"));};
-            if object.remove("locator").is_none(){return Err(ModelError::Schema("selected membership physical preparation absent"));}
-            sink.part(b"member",&serde_json::to_vec(&row).map_err(ModelError::codec)?);
+            let _decode = budget.reserve(
+                "selected membership logical hash projection",
+                payload.len().saturating_mul(8).saturating_add(1024),
+            )?;
+            let mut row: Value = serde_json::from_slice(payload).map_err(ModelError::codec)?;
+            let Value::Object(object) = &mut row else {
+                return Err(ModelError::Schema("selected membership hash object"));
+            };
+            if object.remove("locator").is_none() {
+                return Err(ModelError::Schema(
+                    "selected membership physical preparation absent",
+                ));
+            }
+            sink.part(
+                b"member",
+                &serde_json::to_vec(&row).map_err(ModelError::codec)?,
+            );
             Ok(())
         },
     )?;

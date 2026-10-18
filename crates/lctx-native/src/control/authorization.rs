@@ -580,17 +580,24 @@ struct PreparedNativePayload<'a> {
     bindings: Variables,
     digest: ContentHash,
 }
-pub(super) fn payload_digest(sql:&str,bindings:&Variables)->Result<ContentHash,ModelError>{
+pub(super) fn payload_digest(sql: &str, bindings: &Variables) -> Result<ContentHash, ModelError> {
     struct Digest(lctx_model::domain::ContentHasher);
-    impl std::io::Write for Digest{
-        fn write(&mut self,bytes:&[u8])->std::io::Result<usize>{self.0.update(bytes);Ok(bytes.len())}
-        fn flush(&mut self)->std::io::Result<()>{Ok(())}
+    impl std::io::Write for Digest {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
-    let mut digest=Digest(lctx_model::domain::ContentHasher::default());serde_json::to_writer(&mut digest,&(sql,bindings)).map_err(ModelError::codec)?;Ok(digest.0.finish())
+    let mut digest = Digest(lctx_model::domain::ContentHasher::default());
+    serde_json::to_writer(&mut digest, &(sql, bindings)).map_err(ModelError::codec)?;
+    Ok(digest.0.finish())
 }
 impl<'a> PreparedNativePayload<'a> {
     fn new(sql: &'a str, bindings: Variables) -> Result<Self, ModelError> {
-        let digest=payload_digest(sql,&bindings)?;
+        let digest = payload_digest(sql, &bindings)?;
         Ok(Self {
             sql,
             bindings,
@@ -1065,7 +1072,9 @@ fn recovery_settlement_body<'a>(
                 pending.observed(disposition)?;
                 disposition
             }
-            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => envelope.observed_disposition,
+            RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation => {
+                envelope.observed_disposition
+            }
         };
         let terminal = pending.inspect(Clone::clone)?;
         let release = settle_reference(scope.client(), &terminal, admission);
@@ -1142,9 +1151,16 @@ pub(super) async fn reconcile_pending_envelope(
     admission: &RetryCancellation,
 ) -> Result<EffectDisposition, ModelError> {
     envelope.validate(&envelope.target)?;
-    if admission.stopped() { return Err(ModelError::Conflict("native recovery issuance stopped")); }
+    if admission.stopped() {
+        return Err(ModelError::Conflict("native recovery issuance stopped"));
+    }
     if envelope.action == RecoveryAction::ReconcileOperationRoot {
-        return super::operation_pages::reconcile_operation_root(client, envelope.request, &envelope.owner).await;
+        return super::operation_pages::reconcile_operation_root(
+            client,
+            envelope.request,
+            &envelope.owner,
+        )
+        .await;
     }
     if envelope.action != RecoveryAction::ReconcileOriginalRequest
         || envelope.observed_disposition != EffectDisposition::Pending
@@ -1181,9 +1197,20 @@ pub(super) async fn settle_reference(
     admission: &RetryCancellation,
 ) -> Result<(), ModelError> {
     envelope.validate(&envelope.target)?;
-    if admission.stopped() { return Err(ModelError::Conflict("native recovery reference issuance stopped")); }
+    if admission.stopped() {
+        return Err(ModelError::Conflict(
+            "native recovery reference issuance stopped",
+        ));
+    }
     if envelope.action == RecoveryAction::ReleaseTerminalOperation {
-        return super::operation_pages::release_operation_reference(client, envelope.request, &envelope.owner, &envelope.outcome_reference, envelope.observed_disposition).await;
+        return super::operation_pages::release_operation_reference(
+            client,
+            envelope.request,
+            &envelope.owner,
+            &envelope.outcome_reference,
+            envelope.observed_disposition,
+        )
+        .await;
     }
     let request = envelope.request;
     if envelope.observed_disposition == EffectDisposition::CompactedTerminal {

@@ -2224,7 +2224,10 @@ mod controls {
         drop(one);
         drop(window);
         drop(captured);
-        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
+        assert!(
+            budget.reserved() > retained,
+            "completed capture backing remains with the invocation until its last consumer"
+        );
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -2235,20 +2238,57 @@ mod controls {
         let (prepared, expression, inv) = fixture(&session, &budget, false, true).await;
         let cancellation = crate::workspace::Cancellation::default();
         let (_, charge) = prepared.admit_expression_window(1, &budget).unwrap();
-        let first = prepared.capture_expressions(vec![*expression.id().bytes()], charge, inv.context, &budget, &cancellation).await.unwrap();
+        let first = prepared
+            .capture_expressions(
+                vec![*expression.id().bytes()],
+                charge,
+                inv.context,
+                &budget,
+                &cancellation,
+            )
+            .await
+            .unwrap();
         let before = first.captured_rows::<Occurrence>().await.unwrap();
         assert!(before > 0);
         drop(first);
         let (_, charge) = prepared.admit_expression_window(2, &budget).unwrap();
-        let second = prepared.capture_expressions(vec![*expression.id().bytes(), [254; 16]], charge, inv.context, &budget, &cancellation).await.unwrap();
+        let second = prepared
+            .capture_expressions(
+                vec![*expression.id().bytes(), [254; 16]],
+                charge,
+                inv.context,
+                &budget,
+                &cancellation,
+            )
+            .await
+            .unwrap();
         // The complete rich relation is reconstructed from earlier immutable local
         // backing. Only the newly missing nominal root is acquired in this window.
         assert_eq!(second.captured_rows::<Occurrence>().await.unwrap(), before);
         assert_eq!(second.new_captured_rows::<Occurrence>().await.unwrap(), 0);
         let window = second.cohort(0, 2, &budget, &cancellation).await.unwrap();
-        assert!(window.partition(0, &budget).unwrap().evaluation().unwrap().occurrences.get(expression.id()).is_some());
-        assert!(window.partition(1, &budget).unwrap().evaluation().unwrap().occurrences.is_empty());
-        drop(window); drop(second); drop(prepared);
+        assert!(
+            window
+                .partition(0, &budget)
+                .unwrap()
+                .evaluation()
+                .unwrap()
+                .occurrences
+                .get(expression.id())
+                .is_some()
+        );
+        assert!(
+            window
+                .partition(1, &budget)
+                .unwrap()
+                .evaluation()
+                .unwrap()
+                .occurrences
+                .is_empty()
+        );
+        drop(window);
+        drop(second);
+        drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
@@ -2497,7 +2537,10 @@ mod controls {
         drop(metadata);
         drop(captured);
         drop(pressure);
-        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
+        assert!(
+            budget.reserved() > retained,
+            "completed capture backing remains with the invocation until its last consumer"
+        );
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -2980,7 +3023,10 @@ mod controls {
         drop(oracle_metadata);
         drop(actual);
         drop(captured);
-        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
+        assert!(
+            budget.reserved() > retained,
+            "completed capture backing remains with the invocation until its last consumer"
+        );
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -3165,7 +3211,10 @@ mod controls {
         drop(metadata);
         drop(actual);
         drop(captured);
-        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
+        assert!(
+            budget.reserved() > retained,
+            "completed capture backing remains with the invocation until its last consumer"
+        );
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
@@ -3240,7 +3289,10 @@ mod controls {
         assert_eq!(budget.reserved(), budget.limit());
         drop(pressure);
         drop(captured);
-        assert!(budget.reserved() > retained, "completed capture backing remains with the invocation until its last consumer");
+        assert!(
+            budget.reserved() > retained,
+            "completed capture backing remains with the invocation until its last consumer"
+        );
         drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }

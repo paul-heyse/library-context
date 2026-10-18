@@ -26,51 +26,94 @@ fn assert_atomic_nomination_plan(
     fn outer_scans(node: &Value, prefixes: &mut Vec<String>, maximum_branches: usize) {
         match node {
             Value::Array(nodes) => {
-                for node in nodes.iter() { outer_scans(node, prefixes, maximum_branches); }
+                for node in nodes.iter() {
+                    outer_scans(node, prefixes, maximum_branches);
+                }
             }
             Value::Object(node) => {
                 if let Some(Value::String(operator)) = node.get("operator") {
-                    assert!(!operator.ends_with("Scan")
-                        || matches!(operator.as_str(), "IndexScan" | "UnionIndexScan"),
-                        "unbounded or foreign nomination scan: {node:?}");
+                    assert!(
+                        !operator.ends_with("Scan")
+                            || matches!(operator.as_str(), "IndexScan" | "UnionIndexScan"),
+                        "unbounded or foreign nomination scan: {node:?}"
+                    );
                     if operator == "IndexScan" {
                         let attributes = node.get("attributes").unwrap().as_object().unwrap();
-                        assert_eq!(attributes.get("index"), Some(&Value::String("member_scope".into())),
-                            "nomination must start at exact contributor-qualified fused locators: {node:?}");
-                        assert!(!attributes.contains_key("limit") && !attributes.contains_key("offset"),
-                            "nomination cannot truncate before exact membership and residual filtering: {node:?}");
+                        assert_eq!(
+                            attributes.get("index"),
+                            Some(&Value::String("member_scope".into())),
+                            "nomination must start at exact contributor-qualified fused locators: {node:?}"
+                        );
+                        assert!(
+                            !attributes.contains_key("limit") && !attributes.contains_key("offset"),
+                            "nomination cannot truncate before exact membership and residual filtering: {node:?}"
+                        );
                         let Some(Value::String(access)) = attributes.get("access") else {
                             panic!("bounded contributor/relation/token index prefix: {node:?}");
                         };
                         prefixes.push(access.clone());
                     } else if operator == "UnionIndexScan" {
                         let attributes = node.get("attributes").unwrap().as_object().unwrap();
-                        assert_eq!(attributes.get("table"), Some(&Value::String("compiler_membership".into())));
+                        assert_eq!(
+                            attributes.get("table"),
+                            Some(&Value::String("compiler_membership".into()))
+                        );
                         let Some(Value::String(branches)) = attributes.get("branches") else {
                             panic!("finite locator nomination union: {node:?}");
                         };
-                        assert!(branches.parse::<usize>().is_ok_and(|branches| branches > 0 && branches <= maximum_branches),
-                            "each union remains within the requested atomic scope window: {node:?}");
+                        assert!(
+                            branches
+                                .parse::<usize>()
+                                .is_ok_and(|branches| branches > 0 && branches <= maximum_branches),
+                            "each union remains within the requested atomic scope window: {node:?}"
+                        );
                     }
                 }
                 // The single array-element index stores the complete owner/relation/
                 // token tuple as one value. EXPLAIN3.3 renders its exact Equality seek.
                 // Only outer children belong to this nomination, not nested expressions.
-                if let Some(children) = node.get("children") { outer_scans(children, prefixes, maximum_branches); }
+                if let Some(children) = node.get("children") {
+                    outer_scans(children, prefixes, maximum_branches);
+                }
             }
             _ => panic!("native outer nomination plan node: {node:?}"),
         }
     }
-    assert!(!values.is_empty() && values.len() <= 32, "production atomic nomination window");
+    assert!(
+        !values.is_empty() && values.len() <= 32,
+        "production atomic nomination window"
+    );
     let mut actual = Vec::new();
-    for node in plan { outer_scans(node, &mut actual, values.len()); }
+    for node in plan {
+        outer_scans(node, &mut actual, values.len());
+    }
     let owner = Value::RecordId(RecordId::new("compiler_contribution", owner.hex()));
-    let mut expected = values.iter().map(|value| {
-        format!("= {}", Value::Array(vec![owner.clone(), Value::String(relation.into()), Value::String(format!(
-            "{relation}|{field}|{}", lctx_native::prepared::scope_string(value)))].into()).to_sql())
-    }).collect::<Vec<_>>();
-    actual.sort(); expected.sort();
-    assert_eq!(actual, expected, "exact contributor/relation/one-token member_scope equality keys: {plan:?}");
+    let mut expected = values
+        .iter()
+        .map(|value| {
+            format!(
+                "= {}",
+                Value::Array(
+                    vec![
+                        owner.clone(),
+                        Value::String(relation.into()),
+                        Value::String(format!(
+                            "{relation}|{field}|{}",
+                            lctx_native::prepared::scope_string(value)
+                        ))
+                    ]
+                    .into()
+                )
+                .to_sql()
+            )
+        })
+        .collect::<Vec<_>>();
+    actual.sort();
+    expected.sort();
+    assert_eq!(
+        actual, expected,
+        "exact contributor/relation/one-token member_scope equality keys: {plan:?}"
+    );
 }
 
 async fn fixture_client(
@@ -349,78 +392,204 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .await
         .unwrap();
     restored.abandon().await.unwrap();
-    let mut backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let mut backing =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
     assert_eq!(backing.len(), 1);
     let backing = backing.pop().unwrap();
     let saved = vec![backing.row.clone()];
     let mut altered = backing.row.as_object().unwrap().clone();
-    let Some(Value::Object(body)) = altered.get_mut("body") else { panic!("quality body"); };
+    let Some(Value::Object(body)) = altered.get_mut("body") else {
+        panic!("quality body");
+    };
     body.insert("value", Value::Number(Number::Float(2.0)));
-    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
     assert_ne!(replacement.row, saved[0], "body mutation is substantive");
     let changed = replacement.row.as_object().unwrap();
-    assert_eq!(changed.get("body").unwrap().as_object().unwrap().get("value"), Some(&Value::Number(Number::Float(2.0))));
+    assert_eq!(
+        changed
+            .get("body")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("value"),
+        Some(&Value::Number(Number::Float(2.0)))
+    );
     for field in ["id", "canonical", "content", "semantic_key", "scope_keys"] {
-        assert_eq!(changed.get(field), saved[0].as_object().unwrap().get(field), "body-only mutation preserves {field}");
+        assert_eq!(
+            changed.get(field),
+            saved[0].as_object().unwrap().get(field),
+            "body-only mutation preserves {field}"
+        );
     }
     // Ordinary identity reuse precedes the deliberately refused independent read.
-    let cached = store.completed_state(&native_operation_budget).await.unwrap();
-    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    let cached = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
+    let verification =
+        physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget)
+            .await
+            .map(|_| ());
     replacement.restore(&admin).await;
-    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    assert_eq!(restored.into_iter().map(|row| row.row).collect::<Vec<_>>(), saved,
-        "restore exact logical row and actual locator before refusal assertions");
-    assert_eq!(cached, state.semantic, "ordinary frozen identity deliberately reuses its earned owner");
-    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary),
-        Some(ModelError::Conflict("compiler backing typed identity" | "compiler backing canonical body"))),
-        "body-only corruption independent verification: {verification:?}");
+    let restored =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(
+        restored.into_iter().map(|row| row.row).collect::<Vec<_>>(),
+        saved,
+        "restore exact logical row and actual locator before refusal assertions"
+    );
+    assert_eq!(
+        cached, state.semantic,
+        "ordinary frozen identity deliberately reuses its earned owner"
+    );
+    assert!(
+        matches!(
+            verification.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict(
+                "compiler backing typed identity" | "compiler backing canonical body"
+            ))
+        ),
+        "body-only corruption independent verification: {verification:?}"
+    );
 
     // Keep body and logical id intact; encode a different valid body in canonical.
-    let mut mismatched_body = saved[0].as_object().unwrap().get("body").unwrap().as_object().unwrap().clone();
+    let mut mismatched_body = saved[0]
+        .as_object()
+        .unwrap()
+        .get("body")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .clone();
     mismatched_body.insert("value", Value::Number(Number::Float(2.0)));
     let mismatched_canonical = lctx_native::surrealdb::types::Bytes::from(
-        serde_json::to_vec(&Value::Object(mismatched_body)).unwrap());
+        serde_json::to_vec(&Value::Object(mismatched_body)).unwrap(),
+    );
     let mut altered = backing.row.as_object().unwrap().clone();
     altered.insert("canonical", mismatched_canonical.clone());
-    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
-    assert_ne!(replacement.row, saved[0], "canonical mutation is substantive");
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
+    assert_ne!(
+        replacement.row, saved[0],
+        "canonical mutation is substantive"
+    );
     let changed = replacement.row.as_object().unwrap();
-    assert_eq!(changed.get("body"), saved[0].as_object().unwrap().get("body"));
+    assert_eq!(
+        changed.get("body"),
+        saved[0].as_object().unwrap().get("body")
+    );
     assert_eq!(changed.get("id"), saved[0].as_object().unwrap().get("id"));
-    assert_eq!(changed.get("canonical"), Some(&Value::Bytes(mismatched_canonical)));
+    assert_eq!(
+        changed.get("canonical"),
+        Some(&Value::Bytes(mismatched_canonical))
+    );
     // Ordinary identity reuse precedes the deliberately refused independent read.
-    let cached = store.completed_state(&native_operation_budget).await.unwrap();
-    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    let cached = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
+    let verification =
+        physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget)
+            .await
+            .map(|_| ());
     replacement.restore(&admin).await;
-    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    assert_eq!(restored.into_iter().map(|row| row.row).collect::<Vec<_>>(), saved,
-        "restore canonical bytes before refusal assertions");
-    assert_eq!(cached, state.semantic, "cached frozen identity is not independent corruption assurance");
-    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing canonical body"))),
-        "canonical-only corruption independent verification: {verification:?}");
+    let restored =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(
+        restored.into_iter().map(|row| row.row).collect::<Vec<_>>(),
+        saved,
+        "restore canonical bytes before refusal assertions"
+    );
+    assert_eq!(
+        cached, state.semantic,
+        "cached frozen identity is not independent corruption assurance"
+    );
+    assert!(
+        matches!(
+            verification.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict("compiler backing canonical body"))
+        ),
+        "canonical-only corruption independent verification: {verification:?}"
+    );
 
     let mut altered = backing.row.as_object().unwrap().clone();
     altered.insert("semantic_key", "00".repeat(16));
-    let replacement = backing.replace(&admin, store.attempt(), contribution, Value::Object(altered), &native_operation_budget).await;
-    assert_eq!(replacement.row.as_object().unwrap().get("semantic_key"), Some(&Value::String("00".repeat(16))));
-    assert_ne!(replacement.row, saved[0], "false typed key mutation is substantive");
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
+    assert_eq!(
+        replacement.row.as_object().unwrap().get("semantic_key"),
+        Some(&Value::String("00".repeat(16)))
+    );
+    assert_ne!(
+        replacement.row, saved[0],
+        "false typed key mutation is substantive"
+    );
     for field in ["id", "canonical", "content", "body", "scope_keys"] {
-        assert_eq!(replacement.row.as_object().unwrap().get(field), saved[0].as_object().unwrap().get(field),
-            "false-key mutation preserves {field}");
+        assert_eq!(
+            replacement.row.as_object().unwrap().get(field),
+            saved[0].as_object().unwrap().get(field),
+            "false-key mutation preserves {field}"
+        );
     }
     // Ordinary identity reuse precedes the deliberately refused independent read.
-    let cached = store.completed_state(&native_operation_budget).await.unwrap();
-    let verification = physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget).await.map(|_| ());
+    let cached = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
+    let verification =
+        physical_backing::Backing::try_read(&admin, contribution, &native_operation_budget)
+            .await
+            .map(|_| ());
     replacement.restore(&admin).await;
-    let restored = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
-    assert_eq!(restored.into_iter().map(|row| row.row).collect::<Vec<_>>(), saved,
-        "restore exact physical locator and logical key before refusal assertions");
-    assert_eq!(cached, state.semantic, "false-key corruption does not relabel an already-earned root");
-    assert!(matches!(verification.as_ref().err().and_then(ModelError::primary), Some(ModelError::Conflict("compiler backing typed identity"))),
-        "false typed key independent verification: {verification:?}");
+    let restored =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    assert_eq!(
+        restored.into_iter().map(|row| row.row).collect::<Vec<_>>(),
+        saved,
+        "restore exact physical locator and logical key before refusal assertions"
+    );
+    assert_eq!(
+        cached, state.semantic,
+        "false-key corruption does not relabel an already-earned root"
+    );
+    assert!(
+        matches!(
+            verification.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "false typed key independent verification: {verification:?}"
+    );
 
     store.verify_state(&native_operation_budget).await.unwrap();
-    assert_eq!(store.completed_state(&native_operation_budget).await.unwrap(), state.semantic);
+    assert_eq!(
+        store
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state.semantic
+    );
 
     // External transport must reject the row before trusting even an outer state identity.
     let text = std::fs::read_to_string(file.path()).unwrap();
@@ -444,11 +613,17 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
                 panic!("backing body");
             };
             body.insert("value", Value::Number(Number::Float(2.0)));
-            assert_ne!(object.get("body"), saved[0].as_object().unwrap().get("body"),
-                "external body mutation is substantive");
+            assert_ne!(
+                object.get("body"),
+                saved[0].as_object().unwrap().get("body"),
+                "external body mutation is substantive"
+            );
             for field in ["id", "canonical", "content", "semantic_key", "scope_keys"] {
-                assert_eq!(object.get(field), saved[0].as_object().unwrap().get(field),
-                    "external body-only mutation preserves {field}");
+                assert_eq!(
+                    object.get(field),
+                    saved[0].as_object().unwrap().get(field),
+                    "external body-only mutation preserves {field}"
+                );
             }
             frame["row"]["row"] = serde_json::to_value(row).unwrap();
             changed_backing_rows += 1;
@@ -1117,11 +1292,14 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     let counts: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(counts, vec![serde_json::json!({"rows":16})]);
-    let mut backing = physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
+    let mut backing =
+        physical_backing::Backing::read(&admin, contribution, &native_operation_budget).await;
     assert_eq!(backing.len(), 1);
     let backing = backing.pop().unwrap();
     let metadata = backing.row.as_object().unwrap().get("body").unwrap();
-    assert!(matches!(metadata, lctx_native::surrealdb::types::Value::Object(object) if !object.contains_key("body")));
+    assert!(
+        matches!(metadata, lctx_native::surrealdb::types::Value::Object(object) if !object.contains_key("body"))
+    );
     store.verify_state(&native_operation_budget).await.unwrap();
     let state = store
         .completed_state(&native_operation_budget)
@@ -1131,15 +1309,43 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     assert_eq!(state.memberships, 2);
     assert_eq!(state.backing_rows, 1);
     let mut altered = backing.row.as_object().unwrap().clone();
-    let Some(lctx_native::surrealdb::types::Value::Object(body)) = altered.get_mut("body") else { panic!("original metadata body"); };
+    let Some(lctx_native::surrealdb::types::Value::Object(body)) = altered.get_mut("body") else {
+        panic!("original metadata body");
+    };
     body.insert("ordinal", 1i64);
-    let replacement = backing.replace(&admin, store.attempt(), contribution, lctx_native::surrealdb::types::Value::Object(altered), &native_operation_budget).await;
+    let replacement = backing
+        .replace(
+            &admin,
+            store.attempt(),
+            contribution,
+            lctx_native::surrealdb::types::Value::Object(altered),
+            &native_operation_budget,
+        )
+        .await;
     let verification = store.verify_state(&native_operation_budget).await;
     let completed = store.completed_state(&native_operation_budget).await;
     replacement.restore(&admin).await;
-    assert!(matches!(verification, Err(ModelError::Conflict("compiler original metadata"))), "{verification:?}");
-    assert!(matches!(completed, Err(ModelError::Conflict("compiler original metadata"))), "{completed:?}");
-    assert_eq!(store.completed_state(&native_operation_budget).await.unwrap(), state);
+    assert!(
+        matches!(
+            verification,
+            Err(ModelError::Conflict("compiler original metadata"))
+        ),
+        "{verification:?}"
+    );
+    assert!(
+        matches!(
+            completed,
+            Err(ModelError::Conflict("compiler original metadata"))
+        ),
+        "{completed:?}"
+    );
+    assert_eq!(
+        store
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
     // Metadata is intact; the independently read physical byte owner must still agree.
     let mut response = admin
         .query("SELECT * FROM original_chunk WHERE blob=$source.blob ORDER BY start LIMIT 1")
@@ -1627,18 +1833,59 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
                         assert_eq!(query.expected_terminals(), 1);
                         assert_eq!(query.result_positions(), &[0]);
                         let (sql, bindings) = query.into_request();
-                        assert_eq!(bindings.get("owner"), Some(&Value::RecordId(
-                            lctx_native::surrealdb::types::RecordId::new("compiler_contribution", owner.hex()))));
-                        assert_eq!(bindings.get("relation"), Some(&Value::String(relation.name().into())));
-                        let qualified = window.iter().map(|value| Value::Array(vec![
-                            Value::RecordId(lctx_native::surrealdb::types::RecordId::new("compiler_contribution", owner.hex())),
-                            Value::String(relation.name().into()), Value::String(format!("{}|package|{}",
-                                relation.name(), lctx_native::prepared::scope_string(value)))].into())).collect::<Vec<_>>();
+                        assert_eq!(
+                            bindings.get("owner"),
+                            Some(&Value::RecordId(
+                                lctx_native::surrealdb::types::RecordId::new(
+                                    "compiler_contribution",
+                                    owner.hex()
+                                )
+                            ))
+                        );
+                        assert_eq!(
+                            bindings.get("relation"),
+                            Some(&Value::String(relation.name().into()))
+                        );
+                        let qualified = window
+                            .iter()
+                            .map(|value| {
+                                Value::Array(
+                                    vec![
+                                        Value::RecordId(
+                                            lctx_native::surrealdb::types::RecordId::new(
+                                                "compiler_contribution",
+                                                owner.hex(),
+                                            ),
+                                        ),
+                                        Value::String(relation.name().into()),
+                                        Value::String(format!(
+                                            "{}|package|{}",
+                                            relation.name(),
+                                            lctx_native::prepared::scope_string(value)
+                                        )),
+                                    ]
+                                    .into(),
+                                )
+                            })
+                            .collect::<Vec<_>>();
                         let (name, expected, containment) = if window.len() == 1 {
-                            ("__compiler_scope_key", qualified[0].clone(), "scope_lookup CONTAINS $__compiler_scope_key")
-                        } else { ("__compiler_scope_lookup", Value::Array(qualified.into()), "scope_lookup CONTAINSANY $__compiler_scope_lookup") };
-                        assert_eq!(bindings.get(name), Some(&expected),
-                            "the planner receives literal full owner/relation/token keys, including singleton input");
+                            (
+                                "__compiler_scope_key",
+                                qualified[0].clone(),
+                                "scope_lookup CONTAINS $__compiler_scope_key",
+                            )
+                        } else {
+                            (
+                                "__compiler_scope_lookup",
+                                Value::Array(qualified.into()),
+                                "scope_lookup CONTAINSANY $__compiler_scope_lookup",
+                            )
+                        };
+                        assert_eq!(
+                            bindings.get(name),
+                            Some(&expected),
+                            "the planner receives literal full owner/relation/token keys, including singleton input"
+                        );
                         assert!(sql.contains(&format!("SELECT relation,semantic_key,node FROM compiler_membership WITH INDEX member_scope WHERE contribution=$owner AND relation=$relation AND {containment} EXPLAIN;")),
                             "nomination preserves exact owner, relation and atomic tuple predicate: {sql}");
                         let mut response =
@@ -1653,7 +1900,13 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
                             })
                             .await;
                         let plan: Vec<Value> = response.take(0).unwrap();
-                        assert_atomic_nomination_plan(&plan, *owner, relation.name(), "package", window);
+                        assert_atomic_nomination_plan(
+                            &plan,
+                            *owner,
+                            relation.name(),
+                            "package",
+                            window,
+                        );
                     }
                 }
             }
@@ -3828,19 +4081,44 @@ async fn cold_transport_permuted_copy_alias_chain_keeps_local_absence() {
 /// prerequisites and must earn independent receiving byte/incarnation protection.
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_transport_mixed_graph_and_nongraph_retains_exact_imported_sources() {
-    use lctx_model::domain::{self as d, analytics::QualityStep, input::{InputRevision, CorpusLibrary}};
-    assert_eq!(lctx_native::adapter::select(InputRevision::NAME).unwrap().table,
-        lctx_native::schema::ScopeTable::Entity, "control must include an actual graph member");
-    assert_eq!(lctx_native::adapter::select(QualityStep::NAME).unwrap().table,
-        lctx_native::schema::ScopeTable::CompilerRecord, "control must also include nongraph block content");
-    assert_eq!(lctx_native::adapter::select(CorpusLibrary::NAME).unwrap().table,
-        lctx_native::schema::ScopeTable::Assertion, "multi-token member must be an actual graph assertion");
+    use lctx_model::domain::{
+        self as d,
+        analytics::QualityStep,
+        input::{CorpusLibrary, InputRevision},
+    };
+    assert_eq!(
+        lctx_native::adapter::select(InputRevision::NAME)
+            .unwrap()
+            .table,
+        lctx_native::schema::ScopeTable::Entity,
+        "control must include an actual graph member"
+    );
+    assert_eq!(
+        lctx_native::adapter::select(QualityStep::NAME)
+            .unwrap()
+            .table,
+        lctx_native::schema::ScopeTable::CompilerRecord,
+        "control must also include nongraph block content"
+    );
+    assert_eq!(
+        lctx_native::adapter::select(CorpusLibrary::NAME)
+            .unwrap()
+            .table,
+        lctx_native::schema::ScopeTable::Assertion,
+        "multi-token member must be an actual graph assertion"
+    );
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let config = RuntimeConfig::read(&std::path::PathBuf::from(
-        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"))).unwrap();
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
+    ))
+    .unwrap();
     let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone()).unwrap();
-    let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts, &factory).await.unwrap();
-    let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts, &factory).await.unwrap();
+    let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts, &factory)
+        .await
+        .unwrap();
+    let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts, &factory)
+        .await
+        .unwrap();
     let mut source_abandoned = false;
     let retention_request = source.attempt();
     let mut companion_retained = false;
@@ -3974,18 +4252,65 @@ async fn cold_transport_mixed_graph_and_nongraph_retains_exact_imported_sources(
         Ok::<_, ModelError>((graph, nongraph, graph_rows, nongraph_rows, expected, actual, nongraph_frames, multiple, multiple_rows))
     }.await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
-    if !source_abandoned { terminal.step("mixed cold transport source cleanup", source.abandon().await); }
-    if companion_retained {
-        terminal.step("mixed cold transport companion release", target.release_product_identity(retention_request, source.attempt(), &budget).await.map(|_| ()));
+    if !source_abandoned {
+        terminal.step(
+            "mixed cold transport source cleanup",
+            source.abandon().await,
+        );
     }
-    terminal.step("mixed cold transport target cleanup", target.abandon().await);
-    let (graph, nongraph, graph_rows, nongraph_rows, expected, actual, nongraph_frames, multiple, multiple_rows) =
-        lctx_model::domain::completion::complete(result, terminal).unwrap();
-    assert_eq!(expected.semantic.memberships, 3, "independent fixture supplies exactly three logical memberships");
-    assert_eq!(expected.semantic.backing_rows, 1, "only the nongraph row belongs to family3");
-    assert_eq!(multiple_rows, vec![multiple], "multi-token graph assertion survives source cleanup with exact endpoints");
-    assert_eq!(nongraph_frames, 1, "the sole nongraph row is transported independently of the graph prerequisite");
-    assert_eq!(graph_rows, vec![graph], "actual graph source survives original attempt cleanup");
-    assert_eq!(nongraph_rows, vec![nongraph], "independent nongraph block decodes the exact source");
-    assert_eq!(actual, expected, "fresh physical receiving owners preserve exact logical roots and source content");
+    if companion_retained {
+        terminal.step(
+            "mixed cold transport companion release",
+            target
+                .release_product_identity(retention_request, source.attempt(), &budget)
+                .await
+                .map(|_| ()),
+        );
+    }
+    terminal.step(
+        "mixed cold transport target cleanup",
+        target.abandon().await,
+    );
+    let (
+        graph,
+        nongraph,
+        graph_rows,
+        nongraph_rows,
+        expected,
+        actual,
+        nongraph_frames,
+        multiple,
+        multiple_rows,
+    ) = lctx_model::domain::completion::complete(result, terminal).unwrap();
+    assert_eq!(
+        expected.semantic.memberships, 3,
+        "independent fixture supplies exactly three logical memberships"
+    );
+    assert_eq!(
+        expected.semantic.backing_rows, 1,
+        "only the nongraph row belongs to family3"
+    );
+    assert_eq!(
+        multiple_rows,
+        vec![multiple],
+        "multi-token graph assertion survives source cleanup with exact endpoints"
+    );
+    assert_eq!(
+        nongraph_frames, 1,
+        "the sole nongraph row is transported independently of the graph prerequisite"
+    );
+    assert_eq!(
+        graph_rows,
+        vec![graph],
+        "actual graph source survives original attempt cleanup"
+    );
+    assert_eq!(
+        nongraph_rows,
+        vec![nongraph],
+        "independent nongraph block decodes the exact source"
+    );
+    assert_eq!(
+        actual, expected,
+        "fresh physical receiving owners preserve exact logical roots and source content"
+    );
 }

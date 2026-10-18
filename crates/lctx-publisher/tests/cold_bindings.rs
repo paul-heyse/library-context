@@ -95,17 +95,17 @@ async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
     let native = NativeCompilerStore::begin(
         config,
         Frontier::Facts,
-        &lctx_compiler_store::compiler::recovery_factory(
-            config,
-            budget.clone(),
-        )
-        .expect("owned native control factory"),
+        &lctx_compiler_store::compiler::recovery_factory(config, budget.clone())
+            .expect("owned native control factory"),
     )
     .await
     .unwrap();
     Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions { memory_bytes: budget.limit(), ..WorkspaceOptions::default() },
+        WorkspaceOptions {
+            memory_bytes: budget.limit(),
+            ..WorkspaceOptions::default()
+        },
         native,
     )
     .unwrap()
@@ -394,11 +394,8 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     let refused = NativeCompilerStore::begin(
         &config,
         Frontier::Catalog,
-        &lctx_compiler_store::compiler::recovery_factory(
-            &config,
-            refused_budget.clone(),
-        )
-        .expect("owned native control factory"),
+        &lctx_compiler_store::compiler::recovery_factory(&config, refused_budget.clone())
+            .expect("owned native control factory"),
     )
     .await
     .unwrap();
@@ -453,7 +450,10 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
 
     let restored = workspace(&config).await;
     let restored_budget = restored.budget();
-    assert!(!native_operation_budget.shares_pool(restored_budget), "independent ingress earns selectors in its own workspace resource pool");
+    assert!(
+        !native_operation_budget.shares_pool(restored_budget),
+        "independent ingress earns selectors in its own workspace resource pool"
+    );
     assert_eq!(source.native().database(), restored.native().database());
     assert_ne!(source.native().attempt(), restored.native().attempt());
     // Shared immutable canonical payload survives attempt closure. Import independently

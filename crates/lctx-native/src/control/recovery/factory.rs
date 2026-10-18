@@ -203,8 +203,14 @@ impl RecoveryFactoryOwner {
             .children
             .lock()
             .map_err(|_| ModelError::Conflict("native recovery factory"))?;
-        if !children.entries.iter().any(|child| std::ptr::eq(child.scope.as_ref(), parent)) {
-            return Err(ModelError::Conflict("independent session source is not an actual factory child"));
+        if !children
+            .entries
+            .iter()
+            .any(|child| std::ptr::eq(child.scope.as_ref(), parent))
+        {
+            return Err(ModelError::Conflict(
+                "independent session source is not an actual factory child",
+            ));
         }
         let admitted = self.admit_child(&mut children)?;
         // SDK clone queues session attachment. Everything below is infallible

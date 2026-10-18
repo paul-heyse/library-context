@@ -1248,7 +1248,14 @@ pub async fn produce(
             }
         }
     }
-    publish_frames(&mut frames, &mut sources, &mut inputs, &mut receipts, &output).await?;
+    publish_frames(
+        &mut frames,
+        &mut sources,
+        &mut inputs,
+        &mut receipts,
+        &output,
+    )
+    .await?;
     publish_coverage(
         &invocations,
         &definition,

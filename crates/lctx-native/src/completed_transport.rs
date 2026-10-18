@@ -515,9 +515,11 @@ async fn inventory_projection(
     // Each selected root already carries its complete transitive mappings, even
     // for zero-row dependencies. Do not select a dependency independently: its
     // installed selector may use a different physical copy/local alias route.
-    let selected_references = || inventory.references().iter().filter(|reference| {
-        inventory.bindings().is_empty() || bound.contains(&reference.logical_view)
-    });
+    let selected_references = || {
+        inventory.references().iter().filter(|reference| {
+            inventory.bindings().is_empty() || bound.contains(&reference.logical_view)
+        })
+    };
     let _selection_charge = source_charge(
         selected_references().map(|reference| {
             (
@@ -598,30 +600,33 @@ pub async fn prepare_published(
         .retained_reader()
         .transport_reader()
         .with_budget(budget);
-    let recovery=reader.attached_recovery_scope(completed.completion().generation)?;
-    let result: Result<PreparedTransport, ModelError> = crate::control::with_recovery_scope(recovery,async {
-        crate::completed_state::verify_installed_refs(
-            &reader,
-            completed.completion(),
-            completed.inventory().references(),
-            budget,
-        )
-        .await?;
-        let prepared = inventory_projection(&reader, completed.inventory(), true, budget).await?;
-        let envelope = CompletedTransportEnvelope {
-            version: 1,
-            semantic: CompletedStateIdentity::from_roots(&completed.completion().roots)?,
-            families: completed.completion().roots.clone(),
-            roots: prepared.roots,
-            copies: prepared.copies,
-        };
-        envelope.validate()?;
-        Ok(PreparedTransport {
-            envelope,
-            copies: prepared.prepared,
-            _charge: prepared._charge,
+    let recovery = reader.attached_recovery_scope(completed.completion().generation)?;
+    let result: Result<PreparedTransport, ModelError> =
+        crate::control::with_recovery_scope(recovery, async {
+            crate::completed_state::verify_installed_refs(
+                &reader,
+                completed.completion(),
+                completed.inventory().references(),
+                budget,
+            )
+            .await?;
+            let prepared =
+                inventory_projection(&reader, completed.inventory(), true, budget).await?;
+            let envelope = CompletedTransportEnvelope {
+                version: 1,
+                semantic: CompletedStateIdentity::from_roots(&completed.completion().roots)?,
+                families: completed.completion().roots.clone(),
+                roots: prepared.roots,
+                copies: prepared.copies,
+            };
+            envelope.validate()?;
+            Ok(PreparedTransport {
+                envelope,
+                copies: prepared.prepared,
+                _charge: prepared._charge,
+            })
         })
-    }).await;
+        .await;
     // This is a borrowed transport view of the retained publication's reader/pin,
     // not a separately owned reader. Each operation above drains its own transport;
     // the enclosing publication owner closes the shared reader after all borrowers.
@@ -642,18 +647,21 @@ pub async fn eligibility_published(
         .retained_reader()
         .transport_reader()
         .with_budget(budget);
-    let recovery=reader.attached_recovery_scope(completed.completion().generation)?;
-    let result: Result<EligibilityIdentity, ModelError> = crate::control::with_recovery_scope(recovery,async {
-        crate::completed_state::verify_installed_refs(
-            &reader,
-            completed.completion(),
-            completed.inventory().references(),
-            budget,
-        )
-        .await?;
-        let prepared = inventory_projection(&reader, completed.inventory(), false, budget).await?;
-        eligibility_projection(&prepared.roots, &prepared.copies)
-    }).await;
+    let recovery = reader.attached_recovery_scope(completed.completion().generation)?;
+    let result: Result<EligibilityIdentity, ModelError> =
+        crate::control::with_recovery_scope(recovery, async {
+            crate::completed_state::verify_installed_refs(
+                &reader,
+                completed.completion(),
+                completed.inventory().references(),
+                budget,
+            )
+            .await?;
+            let prepared =
+                inventory_projection(&reader, completed.inventory(), false, budget).await?;
+            eligibility_projection(&prepared.roots, &prepared.copies)
+        })
+        .await;
     // Closing this shared transport view would attempt to close its live parent.
     if result
         .as_ref()

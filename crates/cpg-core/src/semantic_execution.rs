@@ -254,20 +254,8 @@ pub async fn evaluate_base(
     let mut local = Rows::<analysis::local::AnalysisInvocation>::new(budget);
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(budget);
     if profile == Profile::Behavioral {
-        load_ignored::<EntryValueWitness>(
-            &access,
-            &session,
-            &mut consumed,
-            &mut admission,
-        )
-        .await?;
-        load_ignored::<EntryAccessSource>(
-            &access,
-            &session,
-            &mut consumed,
-            &mut admission,
-        )
-        .await?;
+        load_ignored::<EntryValueWitness>(&access, &session, &mut consumed, &mut admission).await?;
+        load_ignored::<EntryAccessSource>(&access, &session, &mut consumed, &mut admission).await?;
     }
     load::<analysis::local::AnalysisInvocation>(
         &access,
@@ -983,7 +971,7 @@ pub async fn complete_base(
                             jobs.push(job);
                         }
                         let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
-            while let Some((mut records, owner)) = ready.next().await? {
+                        while let Some((mut records, owner)) = ready.next().await? {
                             if let Some(owner) = owner {
                                 produced
                                     .as_mut()
@@ -1353,7 +1341,8 @@ pub async fn prepare_source_calls(
                         .event_window(&keys, budget, &runtime.cancellation())
                         .await?;
                     let mut jobs = Vec::new();
-                    let mut jobs_charge = charged::StateCharge::new(budget, "SourceCall private event jobs");
+                    let mut jobs_charge =
+                        charged::StateCharge::new(budget, "SourceCall private event jobs");
                     for (partition, key) in keys.iter().enumerate() {
                         runtime.cancellation().check()?;
                         let event = execution_scope::nominal(key)?;
@@ -1366,13 +1355,38 @@ pub async fn prepare_source_calls(
                         let evaluation_owner = evaluation_owner.clone();
                         let body_owner = body_owner.clone();
                         let job = async move {
-                            let application = binding_owner.as_ref().map(|owner| owner.application(&access, &runtime)).transpose()?;
-                            let evaluations = evaluation_owner.as_ref().map(|owner| owner.borrow(&access, &runtime)).transpose()?;
-                            let bodies = body_owner.as_ref().map(|owner| owner.borrow(&access, &runtime)).transpose()?;
-                            let (records, owner, payload) = crate::stage_runtime::borrowed_cpu("source_call_event", || prepare_event_produced(&selected, &invocation, &definition, profile, runtime.budget(), application, evaluations, bodies, event))?;
+                            let application = binding_owner
+                                .as_ref()
+                                .map(|owner| owner.application(&access, &runtime))
+                                .transpose()?;
+                            let evaluations = evaluation_owner
+                                .as_ref()
+                                .map(|owner| owner.borrow(&access, &runtime))
+                                .transpose()?;
+                            let bodies = body_owner
+                                .as_ref()
+                                .map(|owner| owner.borrow(&access, &runtime))
+                                .transpose()?;
+                            let (records, owner, payload) =
+                                crate::stage_runtime::borrowed_cpu("source_call_event", || {
+                                    prepare_event_produced(
+                                        &selected,
+                                        &invocation,
+                                        &definition,
+                                        profile,
+                                        runtime.budget(),
+                                        application,
+                                        evaluations,
+                                        bodies,
+                                        event,
+                                    )
+                                })?;
                             Ok((event, records, owner, payload))
                         };
-                        if jobs.is_empty() { jobs_charge.grow(keys.len().saturating_mul(size_of_val(&job)))?; jobs.reserve_exact(keys.len()); }
+                        if jobs.is_empty() {
+                            jobs_charge.grow(keys.len().saturating_mul(size_of_val(&job)))?;
+                            jobs.reserve_exact(keys.len());
+                        }
                         jobs.push(job);
                     }
                     let mut ready = crate::owned_work::ordered(runtime, jobs).await?;
@@ -1993,11 +2007,33 @@ mod produced_authority_controls {
         // A complete dependency with no rich or coverage demand dispatches without
         // planning SQL. An unrelated empty session intentionally has no source table.
         {
-            let dependency = runtime.inputs("dependency-only-control", Profile::Catalog, [ArtifactChunk::NAME]).unwrap();
-            let captured = CapturedSources::capture(dependency.profile(), dependency.snapshots(), runtime.budget()).unwrap();
+            let dependency = runtime
+                .inputs(
+                    "dependency-only-control",
+                    Profile::Catalog,
+                    [ArtifactChunk::NAME],
+                )
+                .unwrap();
+            let captured = CapturedSources::capture(
+                dependency.profile(),
+                dependency.snapshots(),
+                runtime.budget(),
+            )
+            .unwrap();
             let mut admission = CoverageAdmission::new(&captured, runtime.budget()).unwrap();
-            let mut consumed = crate::consumed_rows::ConsumedInputs::new(vec![ValidationInput::of::<ArtifactChunk>(&["id"])], runtime.budget()).unwrap();
-            load_ignored::<ArtifactChunk>(&dependency, &datafusion::prelude::SessionContext::new(), &mut consumed, &mut admission).await.unwrap();
+            let mut consumed = crate::consumed_rows::ConsumedInputs::new(
+                vec![ValidationInput::of::<ArtifactChunk>(&["id"])],
+                runtime.budget(),
+            )
+            .unwrap();
+            load_ignored::<ArtifactChunk>(
+                &dependency,
+                &datafusion::prelude::SessionContext::new(),
+                &mut consumed,
+                &mut admission,
+            )
+            .await
+            .unwrap();
             consumed.finish("dependency-only-control").unwrap();
         }
 

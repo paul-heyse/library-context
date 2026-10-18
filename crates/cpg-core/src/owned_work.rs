@@ -59,7 +59,9 @@ impl<T> Drop for OrderedResults<T> {
 }
 impl<T> OrderedResults<T> {
     pub(crate) async fn next(&mut self) -> Result<Option<T>, ModelError> {
-        if self.finished { return Ok(None); }
+        if self.finished {
+            return Ok(None);
+        }
         loop {
             if self.failures.is_empty() {
                 if let Some(value) = self.values.get_mut(self.next).and_then(Option::take) {
@@ -77,13 +79,15 @@ impl<T> OrderedResults<T> {
                 }
             }
             match self.pending.next().await {
-                Some((ordinal, Ok(value))) if self.failures.is_empty() => self.values[ordinal] = Some(value),
-                Some((_, Ok(_))) => {},
+                Some((ordinal, Ok(value))) if self.failures.is_empty() => {
+                    self.values[ordinal] = Some(value)
+                }
+                Some((_, Ok(_))) => {}
                 Some((ordinal, Err(error))) => {
                     self.values.iter_mut().for_each(|value| *value = None);
                     self.failures.insert(ordinal, error);
                     self.cancellation.cancel();
-                },
+                }
                 None => {
                     self.finished = true;
                     if self.failures.is_empty() {
@@ -94,7 +98,9 @@ impl<T> OrderedResults<T> {
                         .or_else(|| self.failures.first_key_value()).map(|(key,_)| *key).expect("private work failure");
                     let primary = self.failures.remove(&key).expect("private work primary");
                     let mut terminal = completion::Completion::default();
-                    for (_, error) in std::mem::take(&mut self.failures) { terminal.step("private peer completion", Err(error)); }
+                    for (_, error) in std::mem::take(&mut self.failures) {
+                        terminal.step("private peer completion", Err(error));
+                    }
                     return completion::complete(Err(primary), terminal);
                 }
             }
@@ -103,12 +109,17 @@ impl<T> OrderedResults<T> {
     #[cfg(test)]
     async fn collect(mut self) -> Result<Vec<T>, ModelError> {
         let mut values = Vec::new();
-        while let Some(value) = self.next().await? { values.push(value); }
+        while let Some(value) = self.next().await? {
+            values.push(value);
+        }
         Ok(values)
     }
 }
 
-pub(crate) async fn ordered<T, F, I>(workspace: &Workspace, work: I) -> Result<OrderedResults<T>, ModelError>
+pub(crate) async fn ordered<T, F, I>(
+    workspace: &Workspace,
+    work: I,
+) -> Result<OrderedResults<T>, ModelError>
 where
     T: Send + 'static,
     F: Future<Output = Result<T, ModelError>> + Send + 'static,
@@ -118,18 +129,35 @@ where
     use futures::FutureExt;
     let work = work.into_iter();
     let len = work.len();
-    let charge = workspace.budget().reserve("private work ordinal results",
-        len.checked_mul(size_of::<Option<T>>().saturating_add(128)).ok_or(ModelError::Conflict("private work slots overflow"))?)?;
+    let charge = workspace.budget().reserve(
+        "private work ordinal results",
+        len.checked_mul(size_of::<Option<T>>().saturating_add(128))
+            .ok_or(ModelError::Conflict("private work slots overflow"))?,
+    )?;
     let mut results = OrderedResults {
         values: std::iter::repeat_with(|| None).take(len).collect(),
-        pending: FuturesUnordered::new(), failures: Default::default(), next: 0,
-        finished: false, cancellation: workspace.cancellation(), native: workspace.native().clone(), _charge: charge,
+        pending: FuturesUnordered::new(),
+        failures: Default::default(),
+        next: 0,
+        finished: false,
+        cancellation: workspace.cancellation(),
+        native: workspace.native().clone(),
+        _charge: charge,
     };
     for (ordinal, future) in work.enumerate() {
-        let task = workspace.cancellation().check().and_then(|()| workspace.spawn_stage(future));
+        let task = workspace
+            .cancellation()
+            .check()
+            .and_then(|()| workspace.spawn_stage(future));
         match task {
-            Ok(task) => results.pending.push(async move { (ordinal, task.await) }.boxed()),
-            Err(error) => { results.failures.insert(ordinal, error); results.cancellation.cancel(); break; }
+            Ok(task) => results
+                .pending
+                .push(async move { (ordinal, task.await) }.boxed()),
+            Err(error) => {
+                results.failures.insert(ordinal, error);
+                results.cancellation.cancel();
+                break;
+            }
         }
     }
     Ok(results)
@@ -171,7 +199,12 @@ mod controls {
                 Ok(ordinal)
             }
         });
-        let results = ordered(&workspace, work).await.unwrap().collect().await.unwrap();
+        let results = ordered(&workspace, work)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
         assert_eq!(results, vec![0, 1, 2]);
         // No native I/O was admitted; actual registered task joins all completed.
     }
@@ -183,7 +216,11 @@ mod controls {
         let observed = later_done.clone();
         let work: Vec<futures::future::BoxFuture<'static, Result<usize, ModelError>>> = vec![
             Box::pin(async { Ok(0) }),
-            Box::pin(async move { held.await.map_err(ModelError::codec)?; observed.store(1, Ordering::SeqCst); Ok(1) }),
+            Box::pin(async move {
+                held.await.map_err(ModelError::codec)?;
+                observed.store(1, Ordering::SeqCst);
+                Ok(1)
+            }),
         ];
         let mut ready = ordered(&workspace, work).await.unwrap();
         assert_eq!(ready.next().await.unwrap(), Some(0));
@@ -220,7 +257,13 @@ mod controls {
                 }))
             }
         });
-        let error = ordered(&workspace, work).await.unwrap().collect().await.err().unwrap();
+        let error = ordered(&workspace, work)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .err()
+            .unwrap();
         assert!(format!("{error:?}").contains("first declared failure"));
         assert_eq!(done.load(Ordering::SeqCst), 3);
     }

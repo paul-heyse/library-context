@@ -361,7 +361,7 @@ pub struct WindowWriter<'a> {
     owner: EffectOwner,
     issuance: Option<IssuanceEra>,
     control_bytes: Option<usize>,
-    operation:Option<Arc<operation_pages::OperationWriter>>,
+    operation: Option<Arc<operation_pages::OperationWriter>>,
 }
 impl<'a> WindowWriter<'a> {
     pub fn new(
@@ -388,77 +388,202 @@ impl<'a> WindowWriter<'a> {
             owner,
             issuance: None,
             control_bytes: None,
-            operation:None,
+            operation: None,
         }
     }
     /// Attach the durable root of the actual producer; windows remain native-only pages.
-    pub fn with_operation(mut self,operation:Arc<operation_pages::OperationWriter>)->Self{
-        self.operation=Some(operation);self
+    pub fn with_operation(mut self, operation: Arc<operation_pages::OperationWriter>) -> Self {
+        self.operation = Some(operation);
+        self
     }
-    pub(super) fn set_operation(&mut self,operation:Arc<operation_pages::OperationWriter>){self.operation=Some(operation);self.control_bytes=None;}
+    pub(super) fn set_operation(&mut self, operation: Arc<operation_pages::OperationWriter>) {
+        self.operation = Some(operation);
+        self.control_bytes = None;
+    }
     /// Retain exact physical endpoints through the same producer operation root.
-    pub async fn hold_many(&mut self,references:Vec<(RecordId,RecordId)>)->Result<(),ModelError>{
-        if let Some((_,sql,bindings))=hold_plan_in(None,references,CoalescingAdmission::ExistingConstruction)?{self.effect(&sql,bindings).await?;}Ok(())
+    pub async fn hold_many(
+        &mut self,
+        references: Vec<(RecordId, RecordId)>,
+    ) -> Result<(), ModelError> {
+        if let Some((_, sql, bindings)) =
+            hold_plan_in(None, references, CoalescingAdmission::ExistingConstruction)?
+        {
+            self.effect(&sql, bindings).await?;
+        }
+        Ok(())
     }
     /// Acquire a bounded set using its independently observed full bytes and original
     /// incarnation. Ordinary immutable-hold lowering still supplies the scalar locks;
     /// the set observation cannot silently refresh an intervening recreation.
-    pub async fn hold_expected_window(&mut self, owner:RecordId, expected:Vec<ExpectedRecord>)->Result<(),ModelError>{
-        if expected.is_empty(){return Ok(());}
-        if expected.len()>crate::loader::NATIVE_WINDOW_ROWS{return Err(ModelError::Schema("expected hold window bound"));}
-        let _metadata=self.budget.map(|budget|budget.reserve("expected hold window metadata",expected.len().saturating_mul(2048).saturating_add(4096))).transpose()?;
-        let mut references=Vec::with_capacity(expected.len());
-        let mut rows=Vec::with_capacity(expected.len());
-        let mut charges=Vec::with_capacity(expected.len());
-        for value in expected{
-            let record=value.record().clone();
-            let mut row=Object::new();row.insert("record",record.clone());
-            row.insert("guard",guard_id(&Value::RecordId(record.clone()))?);
-            row.insert("incarnation",value.incarnation());
-            let (bytes,charge)=value.into_owned_row();row.insert("bytes",bytes);
-            rows.push(Value::Object(row));charges.push(charge);references.push((owner.clone(),record));
+    pub async fn hold_expected_window(
+        &mut self,
+        owner: RecordId,
+        expected: Vec<ExpectedRecord>,
+    ) -> Result<(), ModelError> {
+        if expected.is_empty() {
+            return Ok(());
         }
-        let (_,hold_sql,mut bindings)=hold_plan_in(None,references,CoalescingAdmission::ExistingConstruction)?.ok_or(ModelError::Schema("expected hold window plan"))?;
-        bindings.insert("captured_expected_rows",rows);
-        let sql=format!("LET $captured_ids=$captured_expected_rows.map(|$row|$row.record); LET $captured_guard_ids=$captured_expected_rows.map(|$row|$row.guard); LET $captured_actual=SELECT * FROM $captured_ids; LET $captured_guards=SELECT id,phase,incarnation FROM $captured_guard_ids; LET $captured_actual_by_id=object::from_entries($captured_actual.map(|$row|[<string>$row.id,$row])); LET $captured_guards_by_id=object::from_entries($captured_guards.map(|$row|[<string>$row.id,$row])); FOR $expected IN $captured_expected_rows {{ LET $guard=$captured_guards_by_id[<string>$expected.guard]; IF $guard.phase!='active' OR $guard.incarnation!=$expected.incarnation OR $captured_actual_by_id[<string>$expected.record]!=$expected.bytes {{ THROW 'native expected window incarnation or bytes changed'; }}; }}; {hold_sql}");
-        self.effect(&sql,bindings).await?;drop(charges);Ok(())
+        if expected.len() > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Schema("expected hold window bound"));
+        }
+        let _metadata = self
+            .budget
+            .map(|budget| {
+                budget.reserve(
+                    "expected hold window metadata",
+                    expected.len().saturating_mul(2048).saturating_add(4096),
+                )
+            })
+            .transpose()?;
+        let mut references = Vec::with_capacity(expected.len());
+        let mut rows = Vec::with_capacity(expected.len());
+        let mut charges = Vec::with_capacity(expected.len());
+        for value in expected {
+            let record = value.record().clone();
+            let mut row = Object::new();
+            row.insert("record", record.clone());
+            row.insert("guard", guard_id(&Value::RecordId(record.clone()))?);
+            row.insert("incarnation", value.incarnation());
+            let (bytes, charge) = value.into_owned_row();
+            row.insert("bytes", bytes);
+            rows.push(Value::Object(row));
+            charges.push(charge);
+            references.push((owner.clone(), record));
+        }
+        let (_, hold_sql, mut bindings) =
+            hold_plan_in(None, references, CoalescingAdmission::ExistingConstruction)?
+                .ok_or(ModelError::Schema("expected hold window plan"))?;
+        bindings.insert("captured_expected_rows", rows);
+        let sql = format!(
+            "LET $captured_ids=$captured_expected_rows.map(|$row|$row.record); LET $captured_guard_ids=$captured_expected_rows.map(|$row|$row.guard); LET $captured_actual=SELECT * FROM $captured_ids; LET $captured_guards=SELECT id,phase,incarnation FROM $captured_guard_ids; LET $captured_actual_by_id=object::from_entries($captured_actual.map(|$row|[<string>$row.id,$row])); LET $captured_guards_by_id=object::from_entries($captured_guards.map(|$row|[<string>$row.id,$row])); FOR $expected IN $captured_expected_rows {{ LET $guard=$captured_guards_by_id[<string>$expected.guard]; IF $guard.phase!='active' OR $guard.incarnation!=$expected.incarnation OR $captured_actual_by_id[<string>$expected.record]!=$expected.bytes {{ THROW 'native expected window incarnation or bytes changed'; }}; }}; {hold_sql}"
+        );
+        self.effect(&sql, bindings).await?;
+        drop(charges);
+        Ok(())
     }
     /// Install fused contribution locators without making them physical hold/guard targets.
     /// Existing equal logical rows retain their first placement, even under new packing.
-    pub async fn install_compiler_packet(&mut self,contribution:ContentHash,blocks:crate::compiler_blocks::PreparedBlocks,graph:Vec<Value>)->Result<(),ModelError>{
-        let (blocks,locators,_packet)=blocks.into_parts();
-        let budget=self.budget.ok_or(ModelError::Conflict("compiler locator installation budget"))?;
-        let _grouping=budget.reserve("compiler packet unique grouping",graph.iter().map(crate::loader::native_bytes).sum::<usize>().saturating_mul(8).saturating_add(blocks.len().saturating_mul(4096)))?;
-        let mut grouped=std::collections::BTreeMap::<RecordId,Vec<Value>>::new();
-        for locator in locators{let physical=crate::compiler_blocks::validate_locator(&locator)?.record().clone();grouped.entry(physical).or_default().push(locator);}
-        let mut packets=blocks.into_iter().map(|block|{
-            let id=match block.as_object().and_then(|row|row.get("id")){Some(Value::RecordId(id))=>id.clone(),_=>unreachable!("prepared block identity")};
-            (vec![block],grouped.remove(&id).expect("prepared block locators"))
-        }).collect::<Vec<_>>();
-        assert!(grouped.is_empty(),"prepared locators all belong to exact blocks");
-        packets.extend(graph.chunks(crate::loader::NATIVE_WINDOW_ROWS).map(|page|(Vec::new(),page.to_vec())));
-        for (rows,page) in packets{
-            let budget=self.budget.ok_or(ModelError::Conflict("compiler locator installation budget"))?;
-            let parent=RecordId::new("compiler_contribution",contribution.hex());
-            for locator in &page{
+    pub async fn install_compiler_packet(
+        &mut self,
+        contribution: ContentHash,
+        blocks: crate::compiler_blocks::PreparedBlocks,
+        graph: Vec<Value>,
+    ) -> Result<(), ModelError> {
+        let (blocks, locators, _packet) = blocks.into_parts();
+        let budget = self
+            .budget
+            .ok_or(ModelError::Conflict("compiler locator installation budget"))?;
+        let _grouping = budget.reserve(
+            "compiler packet unique grouping",
+            graph
+                .iter()
+                .map(crate::loader::native_bytes)
+                .sum::<usize>()
+                .saturating_mul(8)
+                .saturating_add(blocks.len().saturating_mul(4096)),
+        )?;
+        let mut grouped = std::collections::BTreeMap::<RecordId, Vec<Value>>::new();
+        for locator in locators {
+            let physical = crate::compiler_blocks::validate_locator(&locator)?
+                .record()
+                .clone();
+            grouped.entry(physical).or_default().push(locator);
+        }
+        let mut packets = blocks
+            .into_iter()
+            .map(|block| {
+                let id = match block.as_object().and_then(|row| row.get("id")) {
+                    Some(Value::RecordId(id)) => id.clone(),
+                    _ => unreachable!("prepared block identity"),
+                };
+                (
+                    vec![block],
+                    grouped.remove(&id).expect("prepared block locators"),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            grouped.is_empty(),
+            "prepared locators all belong to exact blocks"
+        );
+        packets.extend(
+            graph
+                .chunks(crate::loader::NATIVE_WINDOW_ROWS)
+                .map(|page| (Vec::new(), page.to_vec())),
+        );
+        for (rows, page) in packets {
+            let budget = self
+                .budget
+                .ok_or(ModelError::Conflict("compiler locator installation budget"))?;
+            let parent = RecordId::new("compiler_contribution", contribution.hex());
+            for locator in &page {
                 crate::compiler_blocks::validate_locator(locator)?;
-                if locator.as_object().and_then(|row|row.get("contribution"))!=Some(&Value::RecordId(parent.clone())){return Err(ModelError::Conflict("compiler packet exact locator contribution"));}
+                if locator.as_object().and_then(|row| row.get("contribution"))
+                    != Some(&Value::RecordId(parent.clone()))
+                {
+                    return Err(ModelError::Conflict(
+                        "compiler packet exact locator contribution",
+                    ));
+                }
             }
-            let _charge=budget.reserve("compiler fused locator native packet",page.iter().map(crate::loader::native_bytes).sum::<usize>().saturating_mul(32).saturating_add(rows.iter().map(crate::loader::native_bytes).sum::<usize>().saturating_mul(4)).saturating_add(65536))?;
-            let references=rows.iter().map(|row|Ok((parent.clone(),match row.as_object().and_then(|r|r.get("id")){Some(Value::RecordId(id))=>id.clone(),_=>return Err(ModelError::Schema("compiler block packet identity"))}))).collect::<Result<Vec<_>,ModelError>>()?;
-            let (mut sql,mut bindings)=if let Some((sql,vars))=immutable_row_plan_in(None,None,rows,CoalescingAdmission::ExistingConstruction)?{(sql,vars)}else{(String::new(),Variables::new())};
-            if let Some((_,hold_sql,holds))=hold_plan_in(None,references,CoalescingAdmission::ExistingConstruction)?{
-                sql=if sql.is_empty(){hold_sql}else{join_immutable_holds(&sql,&hold_sql)};
-                merge_plan_bindings(&mut bindings,holds)?;
+            let _charge = budget.reserve(
+                "compiler fused locator native packet",
+                page.iter()
+                    .map(crate::loader::native_bytes)
+                    .sum::<usize>()
+                    .saturating_mul(32)
+                    .saturating_add(
+                        rows.iter()
+                            .map(crate::loader::native_bytes)
+                            .sum::<usize>()
+                            .saturating_mul(4),
+                    )
+                    .saturating_add(65536),
+            )?;
+            let references = rows
+                .iter()
+                .map(|row| {
+                    Ok((
+                        parent.clone(),
+                        match row.as_object().and_then(|r| r.get("id")) {
+                            Some(Value::RecordId(id)) => id.clone(),
+                            _ => return Err(ModelError::Schema("compiler block packet identity")),
+                        },
+                    ))
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            let (mut sql, mut bindings) = if let Some((sql, vars)) =
+                immutable_row_plan_in(None, None, rows, CoalescingAdmission::ExistingConstruction)?
+            {
+                (sql, vars)
+            } else {
+                (String::new(), Variables::new())
+            };
+            if let Some((_, hold_sql, holds)) =
+                hold_plan_in(None, references, CoalescingAdmission::ExistingConstruction)?
+            {
+                sql = if sql.is_empty() {
+                    hold_sql
+                } else {
+                    join_immutable_holds(&sql, &hold_sql)
+                };
+                merge_plan_bindings(&mut bindings, holds)?;
             }
             // An entirely graph-only packet still protects the actual parent guard.
-            let mut owner=Variables::new();owner.insert("__guard_records",guard_records(std::iter::once(&parent))?);merge_plan_bindings(&mut bindings,owner)?;
-            bindings.insert("__compiler_locator_packet",true);
-            bindings.insert("locator_parent",parent);bindings.insert("locator_rows",page);
-            if bindings.get("rows").is_none(){bindings.insert("rows",Vec::<Value>::new());}
-            if bindings.get("holds").is_none(){bindings.insert("holds",Vec::<Value>::new());}
-            let suffix="IF array::len($new_locators)>0 { fn::native_touch_admitted($locator_parent,$__attempt_context); INSERT INTO compiler_membership $new_locators RETURN NONE; };";
-            self.effect(&format!("{sql} {suffix}"),bindings).await?;
+            let mut owner = Variables::new();
+            owner.insert("__guard_records", guard_records(std::iter::once(&parent))?);
+            merge_plan_bindings(&mut bindings, owner)?;
+            bindings.insert("__compiler_locator_packet", true);
+            bindings.insert("locator_parent", parent);
+            bindings.insert("locator_rows", page);
+            if bindings.get("rows").is_none() {
+                bindings.insert("rows", Vec::<Value>::new());
+            }
+            if bindings.get("holds").is_none() {
+                bindings.insert("holds", Vec::<Value>::new());
+            }
+            let suffix = "IF array::len($new_locators)>0 { fn::native_touch_admitted($locator_parent,$__attempt_context); INSERT INTO compiler_membership $new_locators RETURN NONE; };";
+            self.effect(&format!("{sql} {suffix}"), bindings).await?;
         }
         Ok(())
     }
@@ -528,7 +653,12 @@ impl<'a> WindowWriter<'a> {
         };
         let controls = self.control_workspace_bytes()?;
         let mut workspace_bytes = plan_bytes(sql, &bindings)?.saturating_add(controls);
-        if bindings.get("__compiler_locator_packet")==Some(&Value::Bool(true)){workspace_bytes=workspace_bytes.saturating_add(plan_bytes(coordination::COMPILER_LOCATOR_PREPARATION,&Variables::new())?);}
+        if bindings.get("__compiler_locator_packet") == Some(&Value::Bool(true)) {
+            workspace_bytes = workspace_bytes.saturating_add(plan_bytes(
+                coordination::COMPILER_LOCATOR_PREPARATION,
+                &Variables::new(),
+            )?);
+        }
         let mut workspace = self
             .budget
             .map(|budget| budget.reserve("native immutable complete preparation", workspace_bytes))
@@ -542,10 +672,12 @@ impl<'a> WindowWriter<'a> {
             workspace.try_resize(workspace_bytes)?;
         }
         drop(sizing);
-        if let Some(operation)=&self.operation{
-            let budget=self.budget.ok_or(ModelError::Conflict("native operation requires resource owner"))?;
-            coordination::prepare_expectations(self.client,&mut bindings).await?;
-            return operation.apply(self.client,sql,bindings,budget).await;
+        if let Some(operation) = &self.operation {
+            let budget = self.budget.ok_or(ModelError::Conflict(
+                "native operation requires resource owner",
+            ))?;
+            coordination::prepare_expectations(self.client, &mut bindings).await?;
+            return operation.apply(self.client, sql, bindings, budget).await;
         }
         if self.issuance.is_none() {
             self.issuance = Some(match self.owner {
@@ -575,8 +707,10 @@ impl<'a> WindowWriter<'a> {
         if let Some(bytes) = self.control_bytes {
             return Ok(bytes);
         }
-        if let Some(operation)=&self.operation{
-            let bytes=operation.workspace_bytes()?;self.control_bytes=Some(bytes);return Ok(bytes);
+        if let Some(operation) = &self.operation {
+            let bytes = operation.workspace_bytes()?;
+            self.control_bytes = Some(bytes);
+            return Ok(bytes);
         }
         // Fixed-width hashes and the widest positive era bound every actual request.
         // Reuse the production lowering rather than copying its wrapper SQL/controls.
@@ -1022,13 +1156,25 @@ mod tests {
         (scope, signals)
     }
     #[test]
-    fn logical_compiler_ids_cannot_be_raw_physical_guards_holds_or_installations(){
-        for table in ["compiler_record","compiler_membership"]{
-            let id=RecordId::new(table,"virtual");
+    fn logical_compiler_ids_cannot_be_raw_physical_guards_holds_or_installations() {
+        for table in ["compiler_record", "compiler_membership"] {
+            let id = RecordId::new(table, "virtual");
             assert!(guard_id(&Value::RecordId(id.clone())).is_err());
-            assert!(hold_plan(None,vec![(RecordId::new("native_pin","owner"),id.clone())]).is_err());
-            let mut row=Object::new();row.insert("id",id);
-            assert!(ImmutableWindows::new(vec![Value::Object(row)],None,None,None).next().unwrap().is_err());
+            assert!(
+                hold_plan(
+                    None,
+                    vec![(RecordId::new("native_pin", "owner"), id.clone())]
+                )
+                .is_err()
+            );
+            let mut row = Object::new();
+            row.insert("id", id);
+            assert!(
+                ImmutableWindows::new(vec![Value::Object(row)], None, None, None)
+                    .next()
+                    .unwrap()
+                    .is_err()
+            );
         }
     }
     #[test]

@@ -1424,11 +1424,14 @@ async fn compare_derived_claims(
     for family in RECOVERY_FAMILIES.iter().copied() {
         match family {
             RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints => graph_tables
-                .extend_from_slice(lctx_compiler_store::compiler::logical_recovery_tables(family)),
+                .extend_from_slice(lctx_compiler_store::compiler::logical_recovery_tables(
+                    family,
+                )),
             RecoveryFamily::SearchOccurrences
             | RecoveryFamily::SearchDocuments
-            | RecoveryFamily::SearchVectors => search_tables
-                .extend_from_slice(lctx_compiler_store::compiler::logical_recovery_tables(family)),
+            | RecoveryFamily::SearchVectors => search_tables.extend_from_slice(
+                lctx_compiler_store::compiler::logical_recovery_tables(family),
+            ),
             RecoveryFamily::Contributions
             | RecoveryFamily::Memberships
             | RecoveryFamily::Views
@@ -1498,7 +1501,9 @@ async fn reconstruct(
     let manifest = &prepared.manifest;
     let nodes = &prepared.nodes;
     let mut batch_charge = budget.reserve("restore-canonical-ingress", 0)?;
-    for &table in lctx_compiler_store::compiler::logical_recovery_tables(RecoveryFamily::GraphPayloads) {
+    for &table in
+        lctx_compiler_store::compiler::logical_recovery_tables(RecoveryFamily::GraphPayloads)
+    {
         let mut entities = Vec::new();
         let mut assertions = Vec::new();
         let mut batch_bytes = 0usize;

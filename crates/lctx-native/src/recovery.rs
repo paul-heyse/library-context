@@ -45,11 +45,26 @@ pub const fn recovery_tables(
     }
 }
 /// Portable semantic envelopes retain format4 names and do not expose packing.
-pub const fn logical_recovery_tables(family:d::recovery_closure::RecoveryFamily)->&'static [&'static str]{
-    match family{d::recovery_closure::RecoveryFamily::TypedBacking=>&["compiler_record"],_=>recovery_tables(family)}
+pub const fn logical_recovery_tables(
+    family: d::recovery_closure::RecoveryFamily,
+) -> &'static [&'static str] {
+    match family {
+        d::recovery_closure::RecoveryFamily::TypedBacking => &["compiler_record"],
+        _ => recovery_tables(family),
+    }
 }
-pub fn classify_logical_recovery_table(name:&str)->Option<RecoveryTable>{
-    if name=="compiler_record"{Some(RecoveryTable{name:"compiler_record",kind:RecoveryTableKind::Content(d::recovery_closure::RecoveryFamily::TypedBacking),relation:false})}else if name=="compiler_block"{None}else{classify_recovery_table(name)}
+pub fn classify_logical_recovery_table(name: &str) -> Option<RecoveryTable> {
+    if name == "compiler_record" {
+        Some(RecoveryTable {
+            name: "compiler_record",
+            kind: RecoveryTableKind::Content(d::recovery_closure::RecoveryFamily::TypedBacking),
+            relation: false,
+        })
+    } else if name == "compiler_block" {
+        None
+    } else {
+        classify_recovery_table(name)
+    }
 }
 /// Codec behavior is exhaustive too: a new semantic family cannot inherit a default kind.
 pub const fn recovery_relation(family: d::recovery_closure::RecoveryFamily) -> bool {
@@ -91,9 +106,16 @@ pub fn recovery_table_inventory() -> impl Iterator<Item = RecoveryTable> {
 }
 /// Portable rows retain the logical codec; installation witnesses remain inert claims.
 pub fn logical_recovery_table_inventory() -> impl Iterator<Item = RecoveryTable> {
-    recovery_table_inventory().map(|table| if table.name == "compiler_block" {
-        RecoveryTable { name: "compiler_record", ..table }
-    } else { table })
+    recovery_table_inventory().map(|table| {
+        if table.name == "compiler_block" {
+            RecoveryTable {
+                name: "compiler_record",
+                ..table
+            }
+        } else {
+            table
+        }
+    })
 }
 pub fn classify_recovery_table(name: &str) -> Option<RecoveryTable> {
     recovery_table_inventory().find(|table| table.name == name)

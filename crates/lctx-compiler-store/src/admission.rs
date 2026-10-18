@@ -1604,10 +1604,14 @@ impl AdmissionRuntime {
                 let private_whole = !is_scoped
                     && reference_owner.is_some()
                     && self.private_whole_eligible(
-                        &invariant, &inputs, &unrequested, uniform.owners().is_empty(),
+                        &invariant,
+                        &inputs,
+                        &unrequested,
+                        uniform.owners().is_empty(),
                     );
                 let mut scoped = if (is_scoped || private_whole)
-                    && let Some(inventory) = &scoped_inventory {
+                    && let Some(inventory) = &scoped_inventory
+                {
                     self.scoped_premise(
                         &invariant,
                         &inputs,
@@ -1637,17 +1641,24 @@ impl AdmissionRuntime {
                     continue;
                 }
                 if private_whole && let Some(prepared) = scoped.take() {
-                    let executed = self.execute_private_whole(
-                        prepared, &invariant, &inputs, reference_session,
-                    ).await?;
+                    let executed = self
+                        .execute_private_whole(prepared, &invariant, &inputs, reference_session)
+                        .await?;
                     if earn {
                         evidence.push(self.execution_evidence(
-                            &invariant, Execution::WholeInput, &inputs, &unrequested,
+                            &invariant,
+                            Execution::WholeInput,
+                            &inputs,
+                            &unrequested,
                             &mut evidence_charge,
                         )?);
-                        if let Some(executed) = &executed { scoped_borrowers.push(executed.clone()); }
+                        if let Some(executed) = &executed {
+                            scoped_borrowers.push(executed.clone());
+                        }
                     }
-                    if let Some(executed) = executed { scoped_attempt.retain(executed)?; }
+                    if let Some(executed) = executed {
+                        scoped_attempt.retain(executed)?;
+                    }
                     self.remember_premise(premise)?;
                     continue;
                 }
@@ -2160,8 +2171,8 @@ impl AdmissionRuntime {
                     continue;
                 }
                 if external.is_none()
-                    && !matches!(self
-                        .validate_durable_whole(
+                    && !matches!(
+                        self.validate_durable_whole(
                             &invariant,
                             &inputs,
                             &unrequested,
@@ -2171,7 +2182,9 @@ impl AdmissionRuntime {
                             planner,
                             None,
                         )
-                        .await?, durable::WholeExecution::Unsupported)
+                        .await?,
+                        durable::WholeExecution::Unsupported
+                    )
                 {
                     if earn {
                         evidence.push(self.execution_evidence(
@@ -2846,12 +2859,14 @@ impl std::ops::Deref for ValidationSession {
 // Provider Arcs are retained by native_sources throughout each current() call;
 // their data addresses identify actual owners, never logical selector equality.
 fn first_reference_provider(
-    seen:&mut BTreeSet<usize>,
-    provider:&Arc<dyn TableProvider>,
-    charge:&mut StateCharge,
-)->Result<bool,ModelError>{
-    let identity=Arc::as_ptr(provider) as *const () as usize;
-    if seen.contains(&identity){return Ok(false);}
+    seen: &mut BTreeSet<usize>,
+    provider: &Arc<dyn TableProvider>,
+    charge: &mut StateCharge,
+) -> Result<bool, ModelError> {
+    let identity = Arc::as_ptr(provider) as *const () as usize;
+    if seen.contains(&identity) {
+        return Ok(false);
+    }
     charge.grow(std::mem::size_of::<usize>().saturating_add(64))?;
     seen.insert(identity);
     Ok(true)
@@ -2905,11 +2920,12 @@ impl ValidationSession {
         // Only the very same provider Arc shares this remote observation.
         // Equal selectors can retain distinct external producing owners, which
         // must each qualify independently. Every per-role local check remains.
-        let mut charge=StateCharge::new(runtime.budget(),"reference current provider identities");
-        let mut seen=BTreeSet::new();
+        let mut charge =
+            StateCharge::new(runtime.budget(), "reference current provider identities");
+        let mut seen = BTreeSet::new();
         for sources in self.native_sources.values() {
             for source in sources {
-                if first_reference_provider(&mut seen,&source.provider(),&mut charge)? {
+                if first_reference_provider(&mut seen, &source.provider(), &mut charge)? {
                     source.current().await?;
                     self.require_owner(runtime, context)?;
                 }
@@ -3046,7 +3062,7 @@ impl ValidationInputs {
         // Qualify every captured source and target, including nonempty memo inputs,
         // only after all aliases match. Closed/failed owner errors propagate instead
         // of silently converting an actual native source to finite external SQL.
-        snapshot.current(runtime,&snapshot.context).await?;
+        snapshot.current(runtime, &snapshot.context).await?;
         runtime.cancellation.check()?;
         Ok(Some(snapshot))
     }
@@ -3079,20 +3095,41 @@ impl ValidationInputs {
         // Exact repeated views in this invocation share their already acquired
         // provider, while each semantic role still registers/qualifies separately.
         // Runtime fixes the actual native client, pool and admission context.
-        let mut provider_charge=StateCharge::new(runtime.budget(),"private reference exact-view providers");
-        let mut providers=BTreeMap::<ContentHash,(&ExactRelation,Arc<dyn TableProvider>)>::new();
+        let mut provider_charge =
+            StateCharge::new(runtime.budget(), "private reference exact-view providers");
+        let mut providers =
+            BTreeMap::<ContentHash, (&ExactRelation, Arc<dyn TableProvider>)>::new();
         for ((name, prefix), source) in bindings {
-            let provider=if let Some((previous,provider))=providers.get(&source.view.identity){
-                if previous.view!=source.view || previous.relation.type_id()!=source.relation.type_id()
-                    || previous.relation.name()!=source.relation.name() || previous.relation.schema()!=source.relation.schema(){
-                    return Err(ModelError::Conflict("private reference view or relation descriptor collision"));
+            let provider = if let Some((previous, provider)) = providers.get(&source.view.identity)
+            {
+                if previous.view != source.view
+                    || previous.relation.type_id() != source.relation.type_id()
+                    || previous.relation.name() != source.relation.name()
+                    || previous.relation.schema() != source.relation.schema()
+                {
+                    return Err(ModelError::Conflict(
+                        "private reference view or relation descriptor collision",
+                    ));
                 }
                 provider.clone()
-            }else{
-                provider_charge.grow(std::mem::size_of::<(ContentHash,&ExactRelation,Arc<dyn TableProvider>)>().saturating_add(128))?;
-                let provider=runtime.native.table_provider(&source.view,source.relation.clone(),
-                    runtime.budget.clone(),runtime.options.batch_rows).await?;
-                providers.insert(source.view.identity,(source.source.as_ref(),provider.clone()));
+            } else {
+                provider_charge.grow(
+                    std::mem::size_of::<(ContentHash, &ExactRelation, Arc<dyn TableProvider>)>()
+                        .saturating_add(128),
+                )?;
+                let provider = runtime
+                    .native
+                    .table_provider(
+                        &source.view,
+                        source.relation.clone(),
+                        runtime.budget.clone(),
+                        runtime.options.batch_rows,
+                    )
+                    .await?;
+                providers.insert(
+                    source.view.identity,
+                    (source.source.as_ref(), provider.clone()),
+                );
                 provider
             };
             let actual = crate::compiler_provider::reference_source(

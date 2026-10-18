@@ -120,9 +120,25 @@ pub enum RecoveryAction {
     ReleaseTerminalOperation,
 }
 impl RecoveryAction {
-    fn is_operation(self) -> bool { matches!(self, Self::ReconcileOperationRoot | Self::ReleaseTerminalOperation) }
-    fn is_terminal(self) -> bool { matches!(self, Self::ReleaseTerminalReference | Self::ReleaseTerminalOperation) }
-    fn terminal(self) -> Self { if self.is_operation() { Self::ReleaseTerminalOperation } else { Self::ReleaseTerminalReference } }
+    fn is_operation(self) -> bool {
+        matches!(
+            self,
+            Self::ReconcileOperationRoot | Self::ReleaseTerminalOperation
+        )
+    }
+    fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::ReleaseTerminalReference | Self::ReleaseTerminalOperation
+        )
+    }
+    fn terminal(self) -> Self {
+        if self.is_operation() {
+            Self::ReleaseTerminalOperation
+        } else {
+            Self::ReleaseTerminalReference
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecoveryReferencePolicy {
@@ -164,7 +180,8 @@ impl PendingRecoveryEnvelope {
             ));
         }
         if self.schema != if self.action.is_operation() { 2 } else { 1 }
-            || (self.action.is_operation() && self.reference_policy != RecoveryReferencePolicy::ReleaseRecovery)
+            || (self.action.is_operation()
+                && self.reference_policy != RecoveryReferencePolicy::ReleaseRecovery)
             || self.target.generation != expected.generation
             || self.target.namespace != expected.namespace
             || self.target.database != expected.database
@@ -190,7 +207,10 @@ impl PendingRecoveryEnvelope {
             ));
         }
         match (self.action, self.observed_disposition) {
-            (RecoveryAction::ReconcileOriginalRequest | RecoveryAction::ReconcileOperationRoot, EffectDisposition::Pending)
+            (
+                RecoveryAction::ReconcileOriginalRequest | RecoveryAction::ReconcileOperationRoot,
+                EffectDisposition::Pending,
+            )
             | (
                 RecoveryAction::ReleaseTerminalReference | RecoveryAction::ReleaseTerminalOperation,
                 EffectDisposition::Committed
@@ -573,18 +593,38 @@ impl RecoveryScope {
         outcome_reference: RecordId,
         reference_policy: RecoveryReferencePolicy,
     ) -> Result<PendingRecovery, ModelError> {
-        self.prepare_action(request, owner, outcome_reference, reference_policy, RecoveryAction::ReconcileOriginalRequest)
+        self.prepare_action(
+            request,
+            owner,
+            outcome_reference,
+            reference_policy,
+            RecoveryAction::ReconcileOriginalRequest,
+        )
     }
     /// One durable discovery record precedes even operation-root creation. Pages
     /// remain exclusively native; no page payload/history enters the host ledger.
-    pub fn prepare_operation_root(self: &Arc<Self>, request: NativeRequest, owner: RecoveryOwner) -> Result<PendingRecovery, ModelError> {
+    pub fn prepare_operation_root(
+        self: &Arc<Self>,
+        request: NativeRequest,
+        owner: RecoveryOwner,
+    ) -> Result<PendingRecovery, ModelError> {
         let policy = RecoveryReferencePolicy::ReleaseRecovery;
         let reference = super::authorization::request_outcome_reference(request, policy)?;
-        self.prepare_action(request, owner, reference, policy, RecoveryAction::ReconcileOperationRoot)
+        self.prepare_action(
+            request,
+            owner,
+            reference,
+            policy,
+            RecoveryAction::ReconcileOperationRoot,
+        )
     }
     fn prepare_action(
-        self: &Arc<Self>, request: NativeRequest, owner: RecoveryOwner,
-        outcome_reference: RecordId, reference_policy: RecoveryReferencePolicy, action: RecoveryAction,
+        self: &Arc<Self>,
+        request: NativeRequest,
+        owner: RecoveryOwner,
+        outcome_reference: RecordId,
+        reference_policy: RecoveryReferencePolicy,
+        action: RecoveryAction,
     ) -> Result<PendingRecovery, ModelError> {
         if self.cancellation.stopped() {
             return Err(ModelError::Conflict("native recovery admission stopped"));
@@ -937,32 +977,66 @@ mod tests {
         let signals = owner(directory.path(), &target, cancellation.clone());
         // An unconnected client establishes that discovery itself dispatches no
         // native request and does not depend on the root already existing.
-        let scope = RecoveryScope::new(Arc::new(Surreal::init()), budget.clone(), cancellation, signals.pending_recipient().unwrap(), target.clone()).unwrap();
-        let pending = scope.prepare_operation_root(request, RecoveryOwner::OpenAttempt(ContentHash::of(b"root-attempt"))).unwrap();
+        let scope = RecoveryScope::new(
+            Arc::new(Surreal::init()),
+            budget.clone(),
+            cancellation,
+            signals.pending_recipient().unwrap(),
+            target.clone(),
+        )
+        .unwrap();
+        let pending = scope
+            .prepare_operation_root(
+                request,
+                RecoveryOwner::OpenAttempt(ContentHash::of(b"root-attempt")),
+            )
+            .unwrap();
         let path = envelope_path(&scope, request);
         let read = read_recovery_envelope(&path, &target, &budget).unwrap();
         assert_eq!(read.envelope().schema, 2);
-        assert_eq!(read.envelope().action, RecoveryAction::ReconcileOperationRoot);
+        assert_eq!(
+            read.envelope().action,
+            RecoveryAction::ReconcileOperationRoot
+        );
         assert_eq!(read.envelope().request, request);
         let encoded = fs::read(&path).unwrap();
         let raw: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(raw.as_object().unwrap().len(), 9);
         assert!(!raw.as_object().unwrap().contains_key("pages"));
         assert!(!raw.as_object().unwrap().contains_key("payload"));
-        assert!(scope.prepare(request, read.envelope().owner.clone(), read.envelope().outcome_reference.clone(), RecoveryReferencePolicy::ReleaseRecovery).is_err(), "one operation identity cannot be relabelled as a generic effect");
+        assert!(
+            scope
+                .prepare(
+                    request,
+                    read.envelope().owner.clone(),
+                    read.envelope().outcome_reference.clone(),
+                    RecoveryReferencePolicy::ReleaseRecovery
+                )
+                .is_err(),
+            "one operation identity cannot be relabelled as a generic effect"
+        );
         assert!(pending.settle(EffectDisposition::Committed).is_err());
         drop(read);
-        pending.observed(EffectDisposition::FencedUncommitted).unwrap();
+        pending
+            .observed(EffectDisposition::FencedUncommitted)
+            .unwrap();
         let mut read = read_recovery_envelope(&path, &target, &budget).unwrap();
-        assert_eq!(read.envelope().action, RecoveryAction::ReleaseTerminalOperation);
+        assert_eq!(
+            read.envelope().action,
+            RecoveryAction::ReleaseTerminalOperation
+        );
         assert_eq!(read.envelope().schema, 2);
-        read.record_terminal(EffectDisposition::FencedUncommitted).unwrap();
+        read.record_terminal(EffectDisposition::FencedUncommitted)
+            .unwrap();
         assert!(read.record_terminal(EffectDisposition::Committed).is_err());
         assert!(pending.observed(EffectDisposition::Committed).is_err());
         drop(read);
-        pending.settle(EffectDisposition::FencedUncommitted).unwrap();
+        pending
+            .settle(EffectDisposition::FencedUncommitted)
+            .unwrap();
         assert!(!path.exists());
-        drop(pending); drop(scope);
+        drop(pending);
+        drop(scope);
         assert_eq!(budget.reserved(), 0);
         signals.complete(&Completion::default()).await.unwrap();
     }
@@ -974,16 +1048,32 @@ mod tests {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let cancellation = RetryCancellation::default();
         let signals = owner(directory.path(), &target, cancellation.clone());
-        let scope = RecoveryScope::new(Arc::new(Surreal::init()), budget.clone(), cancellation, signals.pending_recipient().unwrap(), target.clone()).unwrap();
-        let pending = scope.prepare_operation_root(request, RecoveryOwner::Installation).unwrap();
+        let scope = RecoveryScope::new(
+            Arc::new(Surreal::init()),
+            budget.clone(),
+            cancellation,
+            signals.pending_recipient().unwrap(),
+            target.clone(),
+        )
+        .unwrap();
+        let pending = scope
+            .prepare_operation_root(request, RecoveryOwner::Installation)
+            .unwrap();
         let original = pending.inspect(Clone::clone).unwrap();
-        let mut changed = original.clone(); changed.schema = 1;
+        let mut changed = original.clone();
+        changed.schema = 1;
         assert!(changed.validate(&target).is_err());
-        changed = original; changed.reference_policy = RecoveryReferencePolicy::RetainCaller;
+        changed = original;
+        changed.reference_policy = RecoveryReferencePolicy::RetainCaller;
         assert!(changed.validate(&target).is_err());
-        pending.observed(EffectDisposition::FencedUncommitted).unwrap();
-        pending.settle(EffectDisposition::FencedUncommitted).unwrap();
-        drop(pending); drop(scope);
+        pending
+            .observed(EffectDisposition::FencedUncommitted)
+            .unwrap();
+        pending
+            .settle(EffectDisposition::FencedUncommitted)
+            .unwrap();
+        drop(pending);
+        drop(scope);
         signals.complete(&Completion::default()).await.unwrap();
     }
     #[tokio::test]

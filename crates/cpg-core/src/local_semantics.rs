@@ -162,19 +162,38 @@ impl SourceApplication<'_> {
             .await?;
         let union = self.scopes.union(&selected, self.runtime).await?;
         let mut jobs = Vec::new();
-        let mut jobs_charge = charged::StateCharge::new(self.runtime.budget(), "Local private grain jobs");
+        let mut jobs_charge =
+            charged::StateCharge::new(self.runtime.budget(), "Local private grain jobs");
         for (partition, root) in roots.iter().enumerate() {
             self.runtime.cancellation().check()?;
-            let source: Id<source::SourceArtifact> = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(root.key.into_iter())).map_err(ModelError::codec)?;
-            let data = self.scopes.partition(&union, &selected, partition, self.runtime.budget())?;
+            let source: Id<source::SourceArtifact> =
+                serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+                    _,
+                    serde::de::value::Error,
+                >::new(root.key.into_iter()))
+                .map_err(ModelError::codec)?;
+            let data =
+                self.scopes
+                    .partition(&union, &selected, partition, self.runtime.budget())?;
             let invocation = self.invocation.clone();
             let definition = self.definition.clone();
             let budget = self.runtime.budget().clone();
             let job = async move {
-                let rows = crate::stage_runtime::borrowed_cpu("local_transfers", || local_semantics::produce_source(&data, &invocation, &definition, source, &budget))?;
+                let rows = crate::stage_runtime::borrowed_cpu("local_transfers", || {
+                    local_semantics::produce_source(
+                        &data,
+                        &invocation,
+                        &definition,
+                        source,
+                        &budget,
+                    )
+                })?;
                 Ok((data, rows))
             };
-            if jobs.is_empty() { jobs_charge.grow(roots.len().saturating_mul(size_of_val(&job)))?; jobs.reserve_exact(roots.len()); }
+            if jobs.is_empty() {
+                jobs_charge.grow(roots.len().saturating_mul(size_of_val(&job)))?;
+                jobs.reserve_exact(roots.len());
+            }
             jobs.push(job);
         }
         let mut ready = crate::owned_work::ordered(self.runtime, jobs).await?;

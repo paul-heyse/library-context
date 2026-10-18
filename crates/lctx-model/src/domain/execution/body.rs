@@ -111,15 +111,24 @@ impl CheckedSourceBody {
     }
 }
 fn body_declaration(
-    data: evaluation::EvaluationDataView<'_>, request: SourceBodyRequest,
+    data: evaluation::EvaluationDataView<'_>,
+    request: SourceBodyRequest,
 ) -> Result<Id<Occurrence>, ObligationKind> {
     let Some(EntityRef::Callable { callable }) = data.refs.get(request.callee) else {
         return Err(ObligationKind::MissingEvidence);
     };
-    let Some(CallableEntity::Source { declaration, kind: CallableKind::Function }) = data.callables.get(*callable) else {
+    let Some(CallableEntity::Source {
+        declaration,
+        kind: CallableKind::Function,
+    }) = data.callables.get(*callable)
+    else {
         return Err(ObligationKind::ScopeBoundary);
     };
-    if data.occurrences.get(*declaration).is_none_or(|row| row.syntax_kind != SyntaxKind::StmtFunctionDef) {
+    if data
+        .occurrences
+        .get(*declaration)
+        .is_none_or(|row| row.syntax_kind != SyntaxKind::StmtFunctionDef)
+    {
         return Err(ObligationKind::MissingEvidence);
     }
     Ok(*declaration)
@@ -130,8 +139,11 @@ pub fn complete_body(
     statements: &[&CheckedCompletion],
     budget: &ResourceBudget,
 ) -> Result<Result<CheckedSourceBody, ObligationKind>, ModelError> {
-    if let Err(reason) = body_declaration(data.view(), request) { return Ok(Err(reason)); }
-    let prepared = evaluation::PreparedExecution::new(data, request.input, request.context, budget)?;
+    if let Err(reason) = body_declaration(data.view(), request) {
+        return Ok(Err(reason));
+    }
+    let prepared =
+        evaluation::PreparedExecution::new(data, request.input, request.context, budget)?;
     complete_body_prepared(&prepared, request, statements)
 }
 pub(crate) fn complete_body_prepared(
