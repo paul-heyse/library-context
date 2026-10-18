@@ -2,6 +2,54 @@
 use super::*;
 use lctx_model::domain::{self as d, checked_admission::FixedValidationDriver};
 use lctx_native::control::validation_premise::{PendingValidation, SelectedInput};
+
+// Keep concrete native child construction out of the enclosing semantic-driver
+// poll frame. Boxing only that enclosing future does not erase its inline child
+// temporaries. Each operation retains its real allocation owner through drop.
+#[inline(never)]
+fn prepare_native_validation<'a>(
+    model: Arc<d::ValidatedModel>,
+    invariant: &'a d::Invariant,
+    profile: Profile,
+    inputs: Vec<SelectedInput>,
+    caps: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
+    uniform: &'a [d::uniform_outcome::ValidatedUniformOwner],
+    budget: &'a ResourceBudget,
+) -> Result<lctx_native::continuation::Continuation<'a, Result<PendingValidation, ModelError>>, ModelError> {
+    lctx_native::continuation::admit(budget, "native validation preparation continuation",
+        PendingValidation::prepare(model, invariant, profile, inputs, caps, uniform, budget))
+}
+#[inline(never)]
+fn lookup_native_validation<'a>(
+    pending: &'a PendingValidation,
+    budget: &ResourceBudget,
+) -> Result<lctx_native::continuation::Continuation<'a, Result<bool, ModelError>>, ModelError> {
+    lctx_native::continuation::admit(budget, "native validation lookup continuation", pending.lookup())
+}
+#[inline(never)]
+fn visit_native_validation<'a>(
+    pending: &'a mut PendingValidation,
+    index: usize,
+    batch: &'a RecordBatch,
+    budget: &ResourceBudget,
+) -> Result<lctx_native::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
+    lctx_native::continuation::admit(budget, "native validation visit continuation", pending.visit(index, batch))
+}
+#[inline(never)]
+fn persist_native_validation<'a>(
+    pending: &'a mut PendingValidation,
+    proof: &'a d::checked_admission::CheckedValidationPremise,
+    budget: &ResourceBudget,
+) -> Result<lctx_native::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
+    lctx_native::continuation::admit(budget, "native validation persist continuation", pending.persist(proof))
+}
+#[inline(never)]
+fn close_native_validation<'a>(
+    pending: &'a mut PendingValidation,
+    budget: &ResourceBudget,
+) -> Result<lctx_native::continuation::Continuation<'a, Result<(), ModelError>>, ModelError> {
+    lctx_native::continuation::admit(budget, "native validation close continuation", pending.close())
+}
 pub(super) enum WholeExecution {
     Unsupported,
     Completed(Option<Box<d::checked_admission::CheckedValidationPremise>>),
@@ -99,7 +147,7 @@ impl AdmissionRuntime {
             )?;
             let mut pending = lctx_native::control::with_recovery_scope(
                 self.native.recovery_scope()?,
-                PendingValidation::prepare(
+                prepare_native_validation(
                     self.model.clone(),
                     invariant,
                     profile,
@@ -107,11 +155,11 @@ impl AdmissionRuntime {
                     caps.into_values().collect(),
                     uniform,
                     self.budget(),
-                ),
+                )?,
             )
             .await?;
             let result: Result<Option<d::checked_admission::CheckedValidationPremise>, ModelError> = async {
-                if pending.lookup().await? {
+                if lookup_native_validation(&pending, self.budget())?.await? {
                     tracing::debug!(
                         invariant = invariant.name,
                         "reused exact durable native validation premise"
@@ -143,14 +191,14 @@ impl AdmissionRuntime {
                         .map_err(ModelError::codec)?;
                     while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
                         self.cancellation.check()?;
-                        pending.visit(index, &batch).await?;
+                        visit_native_validation(&mut pending, index, &batch, self.budget())?.await?;
                         driver.visit(index, &batch)?;
                     }
                     pending.end_input(index)?;
                     driver.end_input(index)?;
                 }
                 let proof = driver.finish()?;
-                pending.persist(&proof).await?;
+                persist_native_validation(&mut pending, &proof, self.budget())?.await?;
                 tracing::debug!(
                     invariant = invariant.name,
                     "persisted executed native validation premise"
@@ -168,9 +216,20 @@ impl AdmissionRuntime {
                 return result.map(WholeExecution::completed);
             }
             let mut terminal = d::completion::Completion::default();
+            let closed = match close_native_validation(&mut pending, self.budget()) {
+                Ok(close) => close.await,
+                Err(error) => {
+                    // The live reader was never polled closed. Its Drop retains
+                    // the actual owner; a local allocation refusal cannot claim
+                    // that ownership or native finality was discharged.
+                    terminal.local = d::completion::LocalState::Outstanding;
+                    terminal.remote = d::completion::RemoteState::Unknown;
+                    Err(error)
+                }
+            };
             terminal.step(
                 "durable validation native scope close",
-                pending.close().await,
+                closed,
             );
             d::completion::complete(result, terminal).map(WholeExecution::completed)
         })
@@ -195,6 +254,19 @@ mod controls {
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     static FINISHED: AtomicUsize = AtomicUsize::new(0);
+    #[tokio::test]
+    async fn erased_native_preparation_preserves_ordered_input_refusal_and_releases_admission() {
+        let model = Arc::new(d::model().unwrap());
+        let invariant = model.invariant("call_origin_membership").unwrap().clone();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let prepare = prepare_native_validation(model, &invariant, Profile::Catalog,
+            vec![], vec![], &[], &budget).unwrap();
+        assert!(budget.reserved() > 0, "actual concrete preparation is admitted before polling");
+        let Err(error) = prepare.await else { panic!("missing declared roles cannot acquire a native owner"); };
+        assert!(matches!(error.primary(), Some(ModelError::Conflict("fixed driver ordered input cardinality"))),
+            "the native operation retains its actual declaration refusal: {error:?}");
+        assert_eq!(budget.reserved(), 0, "failed preparation releases its real continuation and model state");
+    }
     #[test]
     fn scoped_generated_derivation_differs_from_the_registered_whole_factory() {
         let model = d::model().unwrap();

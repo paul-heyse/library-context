@@ -40,6 +40,13 @@ ordering without introducing another materialization or assurance owner. Focused
 exercise the actual distribution/corpus ownership program and independently expected scope,
 NULL and duplicate results; the coordinator owns their outcomes and Catalog integration.
 
+Durable whole-input validation composes substantial native preparation, lookup, visit,
+persistence and close through the existing charged continuation owner. Concrete child
+construction stays outside the enclosing semantic-driver poll, rather than merely boxing that
+outer driver. Recovery/client/view/proof lifetimes remain unchanged. Failed close admission is
+explicitly Outstanding/Unknown and retains the actual owner; a local allocation refusal cannot
+claim native finality. No stack, concurrency or timeout limit is increased.
+
 ## 2. PC00 — Separate dependency admission from rich read demand
 
 **Consumes:** PP00's contract/decision slice for RC01. **Delivers:** actual Base, Completion,

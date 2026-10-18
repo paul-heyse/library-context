@@ -135,6 +135,15 @@ their independently necessary captured universe. This avoids recursively expandi
 nested SQL while preserving duplicate left rows, exact scope and declared ordering. The
 publication coordinator owns current native integration and the observed SQL-parser stack fault.
 
+**Implemented / focused qualification in progress,2026-10-18:** durable whole-input validation
+erases each substantial native child continuation before entering its enclosing semantic poll.
+The existing budgeted continuation owner retains the actual allocation through child destruction;
+no worker, stack or deadline limit changes. Preparation keeps the exact recovery scope, and
+lookup/visit/persist/close keep the same reader, held views and semantic proof. A refused close
+allocation leaves local ownership Outstanding and native finality Unknown, preserving the
+original result and retained pending owner. The publication coordinator owns the actual stack
+counterexample, narrow refusal control and integrated qualification.
+
 The demand classification is explicit at each current consumer:
 
 | Consumer | Required preparation |
