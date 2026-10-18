@@ -9,6 +9,7 @@ pub(crate) mod scoped;
 use crate::compiler::NativeCompilerStore;
 use arrow_array::RecordBatch;
 use datafusion::{
+    catalog::TableProvider,
     execution::{
         disk_manager::{DiskManagerBuilder, DiskManagerMode},
         memory_pool::{MemoryPool, MemoryReservation},
@@ -2842,6 +2843,19 @@ impl std::ops::Deref for ValidationSession {
         &self.context
     }
 }
+// Provider Arcs are retained by native_sources throughout each current() call;
+// their data addresses identify actual owners, never logical selector equality.
+fn first_reference_provider(
+    seen:&mut BTreeSet<usize>,
+    provider:&Arc<dyn TableProvider>,
+    charge:&mut StateCharge,
+)->Result<bool,ModelError>{
+    let identity=Arc::as_ptr(provider) as *const () as usize;
+    if seen.contains(&identity){return Ok(false);}
+    charge.grow(std::mem::size_of::<usize>().saturating_add(64))?;
+    seen.insert(identity);
+    Ok(true)
+}
 impl ValidationSession {
     fn require_owner(
         &self,
@@ -2888,12 +2902,17 @@ impl ValidationSession {
         context: &SessionContext,
     ) -> Result<(), ModelError> {
         self.require_owner(runtime, context)?;
-        // Equal logical views may have independent captured producing owners;
-        // retain every original provider instead of collapsing those aliases.
+        // Only the very same provider Arc shares this remote observation.
+        // Equal selectors can retain distinct external producing owners, which
+        // must each qualify independently. Every per-role local check remains.
+        let mut charge=StateCharge::new(runtime.budget(),"reference current provider identities");
+        let mut seen=BTreeSet::new();
         for sources in self.native_sources.values() {
             for source in sources {
-                source.current().await?;
-                self.require_owner(runtime, context)?;
+                if first_reference_provider(&mut seen,&source.provider(),&mut charge)? {
+                    source.current().await?;
+                    self.require_owner(runtime, context)?;
+                }
             }
         }
         self.check_all(runtime, context).await
@@ -3027,11 +3046,7 @@ impl ValidationInputs {
         // Qualify every captured source and target, including nonempty memo inputs,
         // only after all aliases match. Closed/failed owner errors propagate instead
         // of silently converting an actual native source to finite external SQL.
-        for sources in snapshot.native_sources.values() {
-            for source in sources {
-                source.current().await?;
-            }
-        }
+        snapshot.current(runtime,&snapshot.context).await?;
         runtime.cancellation.check()?;
         Ok(Some(snapshot))
     }
@@ -3061,16 +3076,25 @@ impl ValidationInputs {
                 session.empty_companions.insert(companion.identity);
             }
         }
+        // Exact repeated views in this invocation share their already acquired
+        // provider, while each semantic role still registers/qualifies separately.
+        // Runtime fixes the actual native client, pool and admission context.
+        let mut provider_charge=StateCharge::new(runtime.budget(),"private reference exact-view providers");
+        let mut providers=BTreeMap::<ContentHash,(&ExactRelation,Arc<dyn TableProvider>)>::new();
         for ((name, prefix), source) in bindings {
-            let provider = runtime
-                .native
-                .table_provider(
-                    &source.view,
-                    source.relation.clone(),
-                    runtime.budget.clone(),
-                    runtime.options.batch_rows,
-                )
-                .await?;
+            let provider=if let Some((previous,provider))=providers.get(&source.view.identity){
+                if previous.view!=source.view || previous.relation.type_id()!=source.relation.type_id()
+                    || previous.relation.name()!=source.relation.name() || previous.relation.schema()!=source.relation.schema(){
+                    return Err(ModelError::Conflict("private reference view or relation descriptor collision"));
+                }
+                provider.clone()
+            }else{
+                provider_charge.grow(std::mem::size_of::<(ContentHash,&ExactRelation,Arc<dyn TableProvider>)>().saturating_add(128))?;
+                let provider=runtime.native.table_provider(&source.view,source.relation.clone(),
+                    runtime.budget.clone(),runtime.options.batch_rows).await?;
+                providers.insert(source.view.identity,(source.source.as_ref(),provider.clone()));
+                provider
+            };
             let actual = crate::compiler_provider::reference_source(
                 &provider,
                 &runtime.native,
@@ -4664,9 +4688,17 @@ mod reference_empty_controls {
                 )
                 .await
                 .unwrap();
-            let inputs = selected(&runtime, views.into_values().collect());
+            let mut inputs = selected(&runtime, views.into_values().collect());
+            let mut package_role=inputs.relations.get(&(Package::NAME,None)).unwrap().clone();
+            package_role.role=inputs.relations.len();
+            package_role.requested=Some(PublicationBoundary::Facts);
+            inputs.relations.insert((Package::NAME,Some(PublicationBoundary::Facts)),package_role);
             let session = inputs.session(&runtime).await.unwrap();
             assert_eq!(session.native_sources.len(), 2);
+            let base=session.table_provider(ValidationInputs::table(Package::NAME,None)).await.unwrap();
+            let alias=session.table_provider(ValidationInputs::table(Package::NAME,Some(PublicationBoundary::Facts))).await.unwrap();
+            assert!(Arc::ptr_eq(&base,&alias),"same exact private view shares its actual provider across requested roles");
+            assert_eq!(session.native_sources.get(&inputs.relations[&(Package::NAME,None)].view.identity).unwrap().len(),2,"both role-specific reference handles remain");
             for name in [Package::NAME, Release::NAME] {
                 let (name, prefix) = inputs.plain_binding(name).unwrap();
                 let qualified = session.table_provider(ValidationInputs::table(name, prefix)).await.unwrap();
@@ -4707,6 +4739,21 @@ mod reference_empty_controls {
                 .validate_references(&snapshot, &[], &inputs, Some(&snapshot))
                 .await
                 .unwrap();
+            // An external alias may select the same view through a genuinely
+            // independent producing owner. It must not be collapsed by view ID.
+            let alias_scope=native.producing_scope(ContentHash::of(b"independent-reference-role-owner"),runtime.budget()).unwrap();
+            let alias_name=ValidationInputs::table(Package::NAME,Some(PublicationBoundary::Facts));
+            let original_alias=external_native.deregister_table(alias_name.as_str()).unwrap().unwrap();
+            external_native.register_table(alias_name.clone(),crate::compiler_provider::bind_producing(&base,&alias_scope).unwrap()).unwrap();
+            let independent_snapshot=inputs.reference_session(&runtime,&external_native).await.unwrap().unwrap();
+            let package_sources=&independent_snapshot.native_sources[&inputs.relations[&(Package::NAME,None)].view.identity];
+            assert_eq!(package_sources.len(),2);
+            assert!(!Arc::ptr_eq(&package_sources[0].provider(),&package_sources[1].provider()),"external equal-view providers retain distinct allocation/producer authority");
+            alias_scope.close_and_wait().await.unwrap();
+            assert!(independent_snapshot.current(&runtime,&independent_snapshot.context).await.is_err(),"the independent role's closed owner cannot hide behind a live equal-view provider");
+            drop(independent_snapshot);
+            external_native.deregister_table(alias_name.as_str()).unwrap().unwrap();
+            external_native.register_table(alias_name,original_alias).unwrap();
             let package_source = inputs
                 .relations
                 .values()
