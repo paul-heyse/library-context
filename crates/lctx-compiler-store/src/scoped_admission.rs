@@ -7,7 +7,7 @@ use crate::{
 };
 use arrow_array::{Array, FixedSizeBinaryArray};
 use datafusion::prelude::SessionContext;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::BoxFuture};
 use lctx_model::domain::{
     admission_scope_program::{OwnershipRows, OwnershipSet, SupportOwnership},
     assertion::{AssertionQualification, SupportScope},
@@ -86,68 +86,64 @@ pub fn column(
         ModelError::Schema("support grain nominal width")
     })?))
 }
-fn ownership_rows(
-    rows: &OwnershipRows,
-    closure: &PreparedClosure,
-    tables: &[ClosureTable],
-) -> Result<String, ModelError> {
-    match rows {
-        OwnershipRows::Selected(input) => closure.select(*input),
+/// Lower the model-owned selection directly. Repeated ownership expressions must
+/// never become nested SQL text reparsed through IN/derived-table recursion.
+fn ownership_rows<'a>(
+    rows: &'a OwnershipRows,
+    closure: &'a PreparedClosure,
+    tables: &'a [ClosureTable],
+) -> BoxFuture<'a, Result<datafusion::dataframe::DataFrame, ModelError>> {
+    Box::pin(async move { match rows {
+        OwnershipRows::Selected(input) => closure.selected_input(*input).await,
         OwnershipRows::Full { input, filters } => {
             let table = tables
                 .get(*input)
                 .ok_or(ModelError::Schema("ownership physical input absent"))?;
-            let filters = filters
-                .iter()
-                .map(|filter| {
-                    Ok(format!(
-                        "{} IN ({})",
-                        identifier(filter.field),
-                        ownership_set(&filter.values, closure, tables)?
-                    ))
-                })
-                .collect::<Result<Vec<_>, ModelError>>()?
-                .join(" AND ");
-            Ok(format!(
-                "SELECT * FROM {}{}",
-                identifier(&table.alias),
-                if filters.is_empty() {
-                    String::new()
-                } else {
-                    format!(" WHERE {filters}")
-                }
-            ))
+            let mut frame = closure.session()
+                .table(datafusion::common::TableReference::bare(table.alias.clone())).await
+                .map_err(crate::sql::model_error)?;
+            for filter in filters {
+                let values = ownership_set(&filter.values, closure, tables).await?;
+                // LeftSemi preserves every matching left row, with no duplicate
+                // multiplication; ordinary equality never matches a NULL key.
+                // Explicit side-specific keys also handle a left field named value.
+                frame = frame.join(values, datafusion::logical_expr::JoinType::LeftSemi,
+                    &[filter.field], &["value"], None).map_err(crate::sql::model_error)?;
+            }
+            Ok(frame)
         }
-    }
+    } })
 }
-fn ownership_set(
-    set: &OwnershipSet,
-    closure: &PreparedClosure,
-    tables: &[ClosureTable],
-) -> Result<String, ModelError> {
-    match set {
+fn ownership_set<'a>(
+    set: &'a OwnershipSet,
+    closure: &'a PreparedClosure,
+    tables: &'a [ClosureTable],
+) -> BoxFuture<'a, Result<datafusion::dataframe::DataFrame, ModelError>> {
+    Box::pin(async move { match set {
         OwnershipSet::Projection {
             rows,
             field,
             non_null,
         } => {
-            let column = identifier(field);
-            let filter = if *non_null {
-                format!(" WHERE {column} IS NOT NULL")
-            } else {
-                String::new()
-            };
-            Ok(format!(
-                "SELECT {column} AS value FROM ({}) AS ownership_rows{filter}",
-                ownership_rows(rows, closure, tables)?
-            ))
+            let mut frame = ownership_rows(rows, closure, tables).await?;
+            if *non_null {
+                frame = frame.filter(datafusion::prelude::col(*field).is_not_null())
+                    .map_err(crate::sql::model_error)?;
+            }
+            frame.select(vec![datafusion::prelude::col(*field).alias("value")])
+                .map_err(crate::sql::model_error)
         }
-        OwnershipSet::Union(parts) => Ok(parts
-            .iter()
-            .map(|part| ownership_set(part, closure, tables))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(" UNION ")),
-    }
+        OwnershipSet::Union(parts) => {
+            let mut parts = parts.iter();
+            let first = parts.next().ok_or(ModelError::Schema("empty ownership union"))?;
+            let mut frame = ownership_set(first, closure, tables).await?;
+            for part in parts {
+                frame = frame.union_distinct(ownership_set(part, closure, tables).await?)
+                    .map_err(crate::sql::model_error)?;
+            }
+            Ok(frame)
+        }
+    } })
 }
 
 /// Complete ownership inputs can contain rows absent from every producer-positive closure.
@@ -294,8 +290,8 @@ async fn validate_grain(
     budget: &ResourceBudget,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let corpus = ownership_rows(&ownership.corpus, closure, tables)?;
-    let distributions = ownership_rows(&ownership.distributions, closure, tables)?;
+    let corpus = ownership_rows(&ownership.corpus, closure, tables).await?;
+    let distributions = ownership_rows(&ownership.distributions, closure, tables).await?;
     let mut check = (invariant.create)(budget);
     for (index, input) in invariant.inputs.iter().enumerate() {
         if index != ownership.corpus_input && index != ownership.distributions_input {
@@ -311,30 +307,12 @@ async fn validate_grain(
             }
             continue;
         }
-        let select = if index == ownership.corpus_input {
+        let frame = if index == ownership.corpus_input {
             corpus.clone()
-        } else if index == ownership.distributions_input {
-            distributions.clone()
         } else {
-            closure.select(index)?
+            distributions.clone()
         };
-        let order = input
-            .order()
-            .iter()
-            .map(|field| identifier(field))
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT * FROM ({select}) AS selected_rows{}",
-            if order.is_empty() {
-                String::new()
-            } else {
-                format!(" ORDER BY {order}")
-            }
-        );
-        let mut rows = crate::sql::query(closure.session(), &sql)
-            .await
-            .map_err(crate::sql::model_error)?
+        let mut rows = closure.order_input(frame, input)?
             .execute_stream()
             .await
             .map_err(crate::sql::model_error)?;
@@ -962,10 +940,10 @@ mod controls {
             .await
             .unwrap();
         let corpus =
-            ownership_rows(&scope_program.ownership.corpus, &closure, &fixture.tables).unwrap();
-        let batches = crate::sql::query(closure.session(), &corpus)
+            ownership_rows(&scope_program.ownership.corpus, &closure, &fixture.tables)
             .await
-            .unwrap()
+            .unwrap();
+        let batches = corpus
             .collect()
             .await
             .unwrap();
@@ -981,6 +959,91 @@ mod controls {
         fixture.put::<CorpusLibrary>(&[]);
         assert!(fixture.validate().await.is_err());
         assert_eq!(fixture.budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn typed_ownership_executes_actual_model_distribution_dag_without_sql_expansion() {
+        use lctx_model::domain::input::{DistributionRole, InputDistribution};
+        let mut fixture = Fixture::new();
+        let release = nominal(41);
+        let scope = CoverageScope::Release { release };
+        let qi = typed::<AssertionQualification>(&fixture.tables).unwrap();
+        let batches = fixture.session.table(fixture.tables[qi].alias.as_str()).await.unwrap()
+            .collect().await.unwrap();
+        let mut qualification = batches.iter()
+            .flat_map(|batch| AssertionQualification::decode(batch).unwrap()).next().unwrap();
+        qualification.scope = scope.id();
+        fixture.assertion.qualification = qualification.id();
+        fixture.support.assertion = fixture.assertion.id();
+        fixture.put(&[scope]);
+        fixture.put(&[qualification]);
+        fixture.put(std::slice::from_ref(&fixture.assertion));
+        fixture.put(std::slice::from_ref(&fixture.support));
+        let wanted = InputDistribution { input: fixture.artifact.input, release, role: DistributionRole::FirstParty };
+        fixture.put(&[wanted.clone(),
+            InputDistribution { input: nominal(42), ..wanted.clone() },
+            InputDistribution { release: nominal(43), ..wanted.clone() }]);
+        let member = CorpusLibrary { corpus: fixture.run.input, library: fixture.artifact.input };
+        fixture.put(&[member.clone(),
+            CorpusLibrary { library: nominal(44), ..member.clone() },
+            CorpusLibrary { corpus: nominal(45), ..member.clone() }]);
+        let model = lctx_model::domain::model().unwrap();
+        let program = fixture.scope.program(fixture.invariant.inputs.clone(), &model, &fixture.budget).unwrap();
+        let root = declared(&fixture.tables, &fixture.invariant.inputs, &fixture.scope.assertion).unwrap();
+        let edges = crate::scope_compilation::lower(&program.program, &fixture.tables).unwrap()
+            .prepare(&fixture.session, &fixture.budget).await.unwrap();
+        let closure = edges.grain(root, &root_predicate(&[*fixture.assertion.id().bytes()]), &fixture.budget).await.unwrap();
+        let corpus = ownership_rows(&program.ownership.corpus, &closure, &fixture.tables).await.unwrap()
+            .collect().await.unwrap();
+        let distributions = ownership_rows(&program.ownership.distributions, &closure, &fixture.tables).await.unwrap()
+            .collect().await.unwrap();
+        assert_eq!(corpus.iter().flat_map(|batch| CorpusLibrary::decode(batch).unwrap()).collect::<Vec<_>>(), vec![member]);
+        assert_eq!(distributions.iter().flat_map(|batch| InputDistribution::decode(batch).unwrap()).collect::<Vec<_>>(), vec![wanted]);
+        drop(closure); drop(edges); drop(program);
+        assert_eq!(fixture.budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn typed_ownership_preserves_null_duplicates_scope_and_literal_table_names() {
+        use lctx_model::domain::{flow::FlowDefinitionObservation, lexical::BindingEventKind};
+        let session = SessionContext::new();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let hit = FlowDefinitionObservation { qualification: nominal(1), definition: nominal(2),
+            scope: nominal(3), kind: BindingEventKind::Assignment, value: Some(nominal(4)) };
+        let null = FlowDefinitionObservation { definition: nominal(5), value: None, ..hit.clone() };
+        let foreign = FlowDefinitionObservation { definition: nominal(6), scope: nominal(7), ..hit.clone() };
+        let left = [hit.clone(), hit.clone(), null.clone(), foreign];
+        let right = [hit.clone(), hit.clone(), null];
+        let tables = ["Full.Left", "Full.Right"].into_iter().zip([&left[..], &right[..]])
+            .map(|(alias, rows)| {
+                let batch = FlowDefinitionObservation::encode(rows).unwrap();
+                session.register_table(datafusion::common::TableReference::bare(alias),
+                    Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap())).unwrap();
+                ClosureTable { relation: Relation::of::<FlowDefinitionObservation>(), alias: alias.into() }
+            }).collect::<Vec<_>>();
+        let edges = crate::consumed_rows::NominalClosure::new(tables.clone()).unwrap()
+            .prepare(&session, &budget).await.unwrap();
+        let closure = edges.grain(0, "FALSE", &budget).await.unwrap();
+        let full = Arc::new(OwnershipRows::Full { input: 1, filters: vec![] });
+        let projection = Arc::new(OwnershipSet::Projection { rows: full.clone(), field: "value", non_null: false });
+        let values = OwnershipSet::Union(vec![projection.clone(), projection.clone()]);
+        let batches = ownership_set(&values, &closure, &tables).await.unwrap().collect().await.unwrap();
+        assert_eq!(batches.iter().map(|batch| batch.num_rows()).sum::<usize>(), 2, "UNION is distinct including one NULL");
+        assert_eq!(batches.iter().map(|batch| batch.column(0).null_count()).sum::<usize>(), 1);
+        let nonnull = OwnershipSet::Projection { rows: full.clone(), field: "value", non_null: true };
+        let batches = ownership_set(&nonnull, &closure, &tables).await.unwrap().collect().await.unwrap();
+        assert_eq!(batches.iter().map(|batch| batch.num_rows()).sum::<usize>(), 2, "projection retains duplicate non-NULL values");
+        assert_eq!(batches.iter().map(|batch| batch.column(0).null_count()).sum::<usize>(), 0);
+        let selected = OwnershipRows::Full { input: 0, filters: vec![
+            lctx_model::domain::admission_scope_program::OwnershipFilter { field: "value", values: Arc::new(values) },
+            lctx_model::domain::admission_scope_program::OwnershipFilter { field: "scope", values: Arc::new(OwnershipSet::Projection { rows: full, field: "scope", non_null: false }) },
+        ] };
+        let batches = ownership_rows(&selected, &closure, &tables).await.unwrap().collect().await.unwrap();
+        assert_eq!(batches.iter().flat_map(|batch| FlowDefinitionObservation::decode(batch).unwrap()).collect::<Vec<_>>(), vec![hit.clone(), hit],
+            "NULL never matches, foreign scope is excluded, left duplicates survive and right duplicates do not multiply them");
+        assert!(matches!(ownership_set(&OwnershipSet::Union(vec![]), &closure, &tables).await,
+            Err(ModelError::Schema("empty ownership union"))));
+        assert!(ownership_rows(&OwnershipRows::Full { input: tables.len(), filters: vec![] }, &closure, &tables).await.is_err());
+        drop(closure); drop(edges);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn absent_qualification_is_not_removed_by_grain_selection() {

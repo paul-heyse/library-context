@@ -2277,9 +2277,47 @@ impl PreparedClosure {
     pub fn session(&self) -> &SessionContext {
         &self.edges.session
     }
-    /// The input shape stays typed while its selected provider port is rebound. Native
-    /// selected providers and borrowed columnar partitions need no SQL parse per grain;
-    /// detached finite joins retain the checked relational helper.
+    /// Select one exact port as a typed plan. Native and already-hydrated aliases
+    /// keep their actual source owner; detached ports join the compact key table.
+    pub async fn selected_input(
+        &self,
+        table: usize,
+    ) -> Result<datafusion::dataframe::DataFrame, ModelError> {
+        use datafusion::{common::TableReference, logical_expr::JoinType, prelude::{col, lit}};
+        let binding = self.edges.tables.get(table)
+            .ok_or(ModelError::Schema("selected input namespace"))?;
+        if let Some(alias) = self.selected_alias(table)? {
+            return self.session().table(TableReference::bare(alias)).await
+                .map_err(crate::sql::model_error);
+        }
+        let source = self.session().table(TableReference::bare(binding.alias.clone())).await
+            .map_err(crate::sql::model_error)?;
+        let keys = self.session().table(TableReference::bare(self.alias.clone())).await
+            .map_err(crate::sql::model_error)?
+            .filter(col("kind").eq(lit(table as i64)))
+            .map_err(crate::sql::model_error)?
+            .select(vec![col("id")])
+            .map_err(crate::sql::model_error)?;
+        source.join(keys, JoinType::LeftSemi, &["id"], &["id"], None)
+            .map_err(crate::sql::model_error)
+    }
+    /// Append the same ascending/default-null order as the SQL input contract,
+    /// without converting an existing typed plan back to text.
+    pub(crate) fn order_input(
+        &self,
+        frame: datafusion::dataframe::DataFrame,
+        input: &ValidationInput,
+    ) -> Result<datafusion::dataframe::DataFrame, ModelError> {
+        if input.order().is_empty() { return Ok(frame); }
+        let config = self.session().copied_config();
+        let nulls = config.options().sql_parser.default_null_ordering
+            .parse::<datafusion::sql::planner::NullOrdering>()
+            .map_err(crate::sql::model_error)?;
+        frame.sort(input.order().iter()
+            .map(|field| datafusion::prelude::col(*field).sort(true, nulls.nulls_first(true)))
+            .collect()).map_err(crate::sql::model_error)
+    }
+    /// The input shape stays typed while its selected provider port is rebound.
     pub async fn ordered_input(
         &self,
         table: usize,
@@ -2294,56 +2332,7 @@ impl PreparedClosure {
         if relation.type_id() != input.type_id() || relation.name() != input.name() {
             return Err(ModelError::Conflict("ordered selected input nominal type"));
         }
-        let selected = self.select(table)?;
-        let alias = self
-            .selected_aliases
-            .lock()
-            .map_err(|_| ModelError::Conflict("ordered selected input aliases"))?
-            .get(&table)
-            .cloned();
-        if let Some(alias) = alias.filter(|_| {
-            self.session()
-                .copied_config()
-                .options()
-                .sql_parser
-                .default_null_ordering
-                == "nulls_max"
-        }) {
-            let frame = self
-                .session()
-                .table(alias.as_str())
-                .await
-                .map_err(crate::sql::model_error)?;
-            if input.order().is_empty() {
-                return Ok(frame);
-            }
-            return frame
-                .sort(
-                    input
-                        .order()
-                        .iter()
-                        .map(|field| datafusion::prelude::col(*field).sort(true, false))
-                        .collect(),
-                )
-                .map_err(crate::sql::model_error);
-        }
-        let order = input
-            .order()
-            .iter()
-            .map(|field| identifier(field))
-            .collect::<Vec<_>>()
-            .join(",");
-        let sql = format!(
-            "SELECT * FROM ({selected}) AS selected_input{}",
-            if order.is_empty() {
-                String::new()
-            } else {
-                format!(" ORDER BY {order}")
-            }
-        );
-        crate::sql::query(self.session(), &sql)
-            .await
-            .map_err(crate::sql::model_error)
+        self.order_input(self.selected_input(table).await?, input)
     }
     /// Bind already hydrated, ordered rows for an independent semantic check. The caller
     /// retains their charge until this scope is dropped; the scope owns catalog cleanup.
@@ -2390,12 +2379,25 @@ impl PreparedClosure {
             .tables
             .get(table)
             .ok_or_else(|| ModelError::Invalid("closure table index absent".into()))?;
+        if let Some(alias) = self.selected_alias(table)? {
+            return Ok(format!("SELECT * FROM {}", identifier(&alias)));
+        }
+        Ok(format!(
+            "SELECT source.* FROM {} AS keys JOIN {} AS source ON keys.kind={table} AND source.id=keys.id",
+            identifier(&self.alias),
+            identifier(&table_binding.alias)
+        ))
+    }
+    fn selected_alias(&self, table: usize) -> Result<Option<String>, ModelError> {
+        if table >= self.edges.tables.len() {
+            return Err(ModelError::Schema("selected input namespace"));
+        }
         let mut aliases = self
             .selected_aliases
             .lock()
             .map_err(|_| ModelError::Conflict("native scope alias ownership"))?;
         if let Some(alias) = aliases.get(&table) {
-            return Ok(format!("SELECT * FROM {}", identifier(alias)));
+            return Ok(Some(alias.clone()));
         }
         if let Some(earned) = self.edges.providers[table].get()
             && let Some(provider) = crate::compiler_provider::select_table(
@@ -2410,13 +2412,9 @@ impl PreparedClosure {
                 .register_table(alias.clone(), provider)
                 .map_err(ModelError::codec)?;
             aliases.insert(table, alias.clone());
-            return Ok(format!("SELECT * FROM {}", identifier(&alias)));
+            return Ok(Some(alias));
         }
-        Ok(format!(
-            "SELECT source.* FROM {} AS keys JOIN {} AS source ON keys.kind={table} AND source.id=keys.id",
-            identifier(&self.alias),
-            identifier(&table_binding.alias)
-        ))
+        Ok(None)
     }
 }
 impl Drop for PreparedClosure {

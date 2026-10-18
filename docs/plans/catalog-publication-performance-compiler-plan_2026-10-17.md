@@ -1,6 +1,6 @@
 # Catalog publication performance: compiler execution
 
-**Proposed implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md).
+**Approved implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md).
 The coordinator owns shared contracts, dependencies, approved rule directions and all current
 dispositions. This document develops F01/F04/F08, I01 and the compiler integration of F03/F05/F06.
 It is a standalone new track; existing plans are unchanged. Authoring does not implement these changes.
@@ -31,6 +31,14 @@ Protected preparation is invocation-owned. Reuse follows exact source views, sel
 query shape, context, pin and resource ownership. No global rich cache, new task pool or
 alternate canonical store is introduced. Improvements are expected from removing work and
 moving ownership; no numerical benefit is established.
+
+Support ownership remains model-owned. Compiler physical lowering uses typed DataFusion
+frames for selected/full inputs, null-rejecting left semi membership, non-null projections and
+distinct unions. It does not recursively interpolate ownership programs into SQL text. This
+preserves each grain's complete universe, duplicate/null semantics, literal aliases and declared
+ordering without introducing another materialization or assurance owner. Focused controls
+exercise the actual distribution/corpus ownership program and independently expected scope,
+NULL and duplicate results; the coordinator owns their outcomes and Catalog integration.
 
 ## 2. PC00 — Separate dependency admission from rich read demand
 

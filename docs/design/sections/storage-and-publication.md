@@ -127,6 +127,14 @@ row rewrite is introduced; unresolved old owners remain protected.
 **Implemented / focused-Tested, 2026-10-17 (ADR-0185).** Native preparation is demand-scoped beneath the actual checked audit pin. Ordinary selectors retain complete audited memberships and relation partitions; only explicit full-identity consumers retain logical backing runs. Fresh full demand shares required acquisition; late demand reacquires only unretained backing. Typed page workspace may split its failed exact slice after drainage, without replaying completed memberships or accepted pages. Sealed original completion validates/drains every distinct layout before unique blob readback/CAS; receiving independently prepares full and canonical range hashes. Substantial audit preparation uses registered acknowledged blocking work, drained before pin release. The [upper execution coordinator §6](../../plans/catalog-upper-execution-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint) owns implementation, focused evidence and remaining wider overlap.
 
 
+**Implemented / focused-Tested,2026-10-18:** model-owned support ownership programs lower
+directly to typed DataFusion plans. Positive membership filters use null-rejecting left semi
+joins, projections preserve their non-null requirements, and unions remain distinct. Selected
+inputs use their actual provider or compact nominal-key join; complete ownership inputs retain
+their independently necessary captured universe. This avoids recursively expanding and parsing
+nested SQL while preserving duplicate left rows, exact scope and declared ordering. The
+publication coordinator owns current native integration and the observed SQL-parser stack fault.
+
 The demand classification is explicit at each current consumer:
 
 | Consumer | Required preparation |
