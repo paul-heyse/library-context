@@ -19,6 +19,7 @@ use lctx_model::domain::{
     charged::StateCharge,
     resources::{Reservation, ResourceBudget},
     stages::{Profile, ProviderOutcome},
+    uniform_outcome,
 };
 use lctx_tracing::InContext;
 use std::{
@@ -688,6 +689,19 @@ impl Workspace {
         let mut admission = analysis::expected::CoverageAdmission::new(sources, self.budget())?;
         for owner in owners.owners() {
             admission.admit_uniform_owner(owner)?;
+            if owner.analysis_owner().is_some() {
+                // A shared admission may know more owners than this consumer captured. Reuse
+                // metadata only from a declared, captured role that actually selected its owner.
+                for source in access.relations.values().filter(|source| {
+                    source.name() == uniform_outcome::UniformNotRequested::NAME
+                        && source.view.contributions.contains(&owner.contribution())
+                }) {
+                    let permit = access.read_at::<uniform_outcome::UniformNotRequested>(source.requested)?;
+                    if sources.iter().any(|captured| captured == permit.source()) {
+                        admission.admit_uniform_analysis(owner, &permit, &source.view)?;
+                    }
+                }
+            }
         }
         Ok(admission)
     }

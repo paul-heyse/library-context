@@ -415,6 +415,12 @@ pub(crate) struct FrontierIndex {
         Id<uniform_outcome::UniformNotRequested>,
         uniform_outcome::UniformNotRequested,
     >,
+    // Admitted descriptor metadata is distinct from observed stream rows: visiting the actual
+    // stream once must still be legal, while duplicate rows in that stream must still refuse.
+    admitted_analysis: charged::ChargedMap<
+        Id<uniform_outcome::UniformNotRequested>,
+        uniform_outcome::UniformNotRequested,
+    >,
     prepared_uniforms: std::sync::OnceLock<PreparedUniforms>,
     charge: charged::StateCharge,
     profile: Profile,
@@ -442,6 +448,7 @@ impl FrontierIndex {
             coalescing: false,
             uniform_owners: uniform_outcome::UniformOwners::new(budget),
             uniform: Default::default(),
+            admitted_analysis: Default::default(),
             prepared_uniforms: Default::default(),
             charge: charged::StateCharge::new(budget, "analysis_expected_frontier"),
             profile,
@@ -797,7 +804,7 @@ impl FrontierIndex {
         definitions: &normalized::Rows<super::AnalysisDefinition>,
         budget: &resources::ResourceBudget,
     ) -> Result<Option<uniform_outcome::ValidatedUniformDomain>, ModelError> {
-        let mut rows = self.uniform.values().filter(|row| {
+        let mut rows = self.uniform.values().chain(self.admitted_analysis.values()).filter(|row| {
             row.kind == uniform_outcome::UniformKind::AnalysisOwner
                 && row.owner == kind.name()
                 && row.input == input
@@ -806,7 +813,7 @@ impl FrontierIndex {
         let Some(row) = rows.next() else {
             return Ok(None);
         };
-        if rows.next().is_some() {
+        if rows.any(|other| other != row) {
             return Err(invalid("ambiguous compact analysis selected owner"));
         }
         let owner = self.uniform_owners.require(row)?;
@@ -1145,6 +1152,42 @@ impl<'a> CoverageAdmission<'a> {
     ) -> Result<(), ModelError> {
         self.index.admit_uniform_owner(owner)
     }
+    /// Reuse an already admitted analysis descriptor only through its actual captured completed
+    /// view. This is metadata for expected-domain reconstruction, never a new physical read grant.
+    /// Native-family evidence remains supplied by the explicitly selected Facts stream.
+    pub fn admit_uniform_analysis(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+        permit: &CompletedInput<uniform_outcome::UniformNotRequested>,
+        view: &completed::CompletedView,
+    ) -> Result<(), ModelError> {
+        self.sources.accepts(permit)?;
+        view.validate()?;
+        if view.relation != uniform_outcome::UniformNotRequested::NAME
+            || view.identity != permit.source().view()
+            || i64::try_from(view.rows).ok() != Some(permit.source().rows())
+            || !view.contributions.contains(&owner.contribution())
+        {
+            return Err(invalid("compact analysis owner differs from captured completed view"));
+        }
+        let descriptor = owner.descriptor();
+        self.index.uniform_owners.require(descriptor)?;
+        if owner.profile() != self.index.profile || owner.analysis_owner().is_none() {
+            return Err(invalid("compact analysis semantic owner profile/kind differs"));
+        }
+        if let Some(previous) = self.index.admitted_analysis.get(&descriptor.id()) {
+            if previous != descriptor {
+                return Err(invalid("conflicting admitted compact analysis descriptor"));
+            }
+            return Ok(());
+        }
+        self.index.admitted_analysis.insert(
+            &mut self.index.charge,
+            descriptor.id(),
+            descriptor.clone(),
+        )?;
+        Ok(())
+    }
     pub fn new(
         sources: &'a super::sources::CapturedSources,
         budget: &resources::ResourceBudget,
@@ -1234,6 +1277,69 @@ mod tests {
         input::{ManifestEntry, SourceRole},
         normalized::coverage::EvidenceAvailability,
     };
+    #[test]
+    fn admitted_compact_analysis_uses_exact_captured_owner_without_stream_replay() {
+        use super::super::owner::AnalysisOwner;
+        use super::super::sources::{CapturedSources, CompletedInput};
+        use uniform_outcome::{UniformNotRequested, test_support};
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let model = crate::domain::model().unwrap();
+        let (input, context) = test_support::input_context();
+        for kind in [AnalysisOwner::Local, AnalysisOwner::SourceCalls, AnalysisOwner::Analytic, AnalysisOwner::Summary] {
+            let fixture = test_support::empty_owner(kind, &input, &context, &budget);
+            let view = completed::CompletedView::new(
+                UniformNotRequested::NAME.into(), [fixture.owner.contribution()].into(), 1,
+            ).unwrap();
+            let permit = CompletedInput::<UniformNotRequested>::new(
+                "actual-selected-compact-view", model.digest(), ContentHash::of(b"typed-view-contract"),
+                view.identity, view.rows,
+            ).unwrap();
+            let sources = CapturedSources::capture(Profile::Catalog, [permit.snapshot()], &budget).unwrap();
+            let mut admission = CoverageAdmission::new(&sources, &budget).unwrap();
+            let mut definitions = normalized::Rows::<super::super::AnalysisDefinition>::new(&budget);
+            for (name, batch) in &fixture.batches {
+                if *name == super::super::AnalysisDefinition::NAME {
+                    for row in super::super::AnalysisDefinition::decode(batch).unwrap() {
+                        definitions.insert(row).unwrap();
+                    }
+                }
+                if *name != UniformNotRequested::NAME {
+                    admission.index.visit_with_check(name, batch, &mut || Ok(())).unwrap();
+                }
+            }
+            assert!(admission.uniform_analysis(kind, input.id(), context.id(), &definitions, &budget).unwrap().is_none());
+            assert!(admission.admit_uniform_analysis(&fixture.owner, &permit, &view).is_err(), "metadata cannot create a semantic owner");
+            admission.admit_uniform_owner(&fixture.owner).unwrap();
+            admission.admit_uniform_analysis(&fixture.owner, &permit, &view).unwrap();
+            admission.admit_uniform_analysis(&fixture.owner, &permit, &view).unwrap();
+            let domain = admission.uniform_analysis(kind, input.id(), context.id(), &definitions, &budget).unwrap().unwrap();
+            assert_eq!(domain.authority(), fixture.domain.authority());
+            // The metadata route neither manufactures a stream observation nor weakens its
+            // duplicate-row check. The real selected stream may be visited once afterwards.
+            let batch = UniformNotRequested::encode(&[fixture.owner.descriptor().clone()]).unwrap();
+            admission.visit_if_expected(&permit, &batch).unwrap();
+            assert!(admission.uniform_analysis(kind, input.id(), context.id(), &definitions, &budget).unwrap().is_some());
+            assert!(matches!(admission.visit_if_expected(&permit, &batch), Err(ModelError::Conflict(UniformNotRequested::NAME))));
+
+            let foreign = CompletedInput::<UniformNotRequested>::new(
+                "foreign-capture", model.digest(), ContentHash::of(b"typed-view-contract"), view.identity, view.rows,
+            ).unwrap();
+            assert!(admission.admit_uniform_analysis(&fixture.owner, &foreign, &view).is_err());
+            let wrong_profile = CapturedSources::capture(Profile::Behavioral, [permit.snapshot()], &budget).unwrap();
+            let mut wrong = CoverageAdmission::new(&wrong_profile, &budget).unwrap();
+            wrong.admit_uniform_owner(&fixture.owner).unwrap();
+            assert!(wrong.admit_uniform_analysis(&fixture.owner, &permit, &view).is_err());
+
+            let unselected = completed::CompletedView::new(UniformNotRequested::NAME.into(), [ContentHash::of(b"another-contributor")].into(), 1).unwrap();
+            let unselected_permit = CompletedInput::<UniformNotRequested>::new(
+                "actual-selected-compact-view", model.digest(), ContentHash::of(b"typed-view-contract"), unselected.identity, unselected.rows,
+            ).unwrap();
+            let unselected_sources = CapturedSources::capture(Profile::Catalog, [unselected_permit.snapshot()], &budget).unwrap();
+            let mut wrong = CoverageAdmission::new(&unselected_sources, &budget).unwrap();
+            wrong.admit_uniform_owner(&fixture.owner).unwrap();
+            assert!(wrong.admit_uniform_analysis(&fixture.owner, &unselected_permit, &unselected).is_err(), "a captured role must actually select the admitted contributor");
+        }
+    }
     #[test]
     fn native_expected_availability_selects_facts_independently_of_analysis_results() {
         let mut checked = 0;
