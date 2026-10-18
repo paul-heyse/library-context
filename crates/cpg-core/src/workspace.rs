@@ -576,10 +576,13 @@ impl Workspace {
         });
         Ok(())
     }
-    /// Fence the complete native completion/binding/visibility handoff before admission.
-    /// The permanent mutation fence also applies to restored workspaces, which do not
-    /// invent a normal compilation attestation.
-    pub(crate) async fn freeze_for_admission(
+    /// After producers complete, join their accepted retention children and permanently
+    /// fence workspace completion/binding/visibility mutation without cancelling execution
+    /// or closing the native owner. Native content freeze and semantic admission remain
+    /// separate operations. `Some` checks the exact compilation attestation; `None` also
+    /// supports restored workspaces and raw transport without inventing that attestation
+    /// or granting semantic admission.
+    pub async fn freeze_for_admission(
         &self,
         request: Option<(
             &cpg_extract::bundle::CapturedInputs,

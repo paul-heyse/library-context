@@ -120,6 +120,7 @@ async fn prepare_control() -> Result<(), ModelError> {
     let native = workspace.native().clone();
     let result = AssertUnwindSafe(async {
         let settings = compile_source(&workspace).await?;
+        observed("cn02_raw_workspace_freeze", workspace.freeze_for_admission(None)).await?;
         observed("cn02_raw_freeze", native.freeze_content(workspace.budget())).await?;
         let receipt = observed("cn02_raw_export", native.export_state(&directory.join("native-state.jsonl"), workspace.budget())).await?;
         receipt.validate()?;
