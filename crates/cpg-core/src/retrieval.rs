@@ -155,13 +155,15 @@ pub async fn produce(
                 })?,
         );
     }
-    let session = preparation.session();
+    // Rendering deliberately captures only Data::inputs(). Configuration and completed
+    // AnalyticEmbedding seeds belong to this producer's wider, explicitly declared inputs.
+    let session = access.session(runtime).await?;
     let mut data = ConsumptionData::new(b);
     // Configuration is finite authored metadata. E1 text and use rows are read one at a time.
     let permit = access.read::<embedding::EmbeddingSpec>()?;
     load(
         &access,
-        session,
+        &session,
         &mut data.specifications,
         &permit,
         &mut admission,
@@ -170,7 +172,7 @@ pub async fn produce(
     let permit = access.read::<embedding::configuration::ServiceConfiguration>()?;
     load(
         &access,
-        session,
+        &session,
         &mut data.services,
         &permit,
         &mut admission,
@@ -179,7 +181,7 @@ pub async fn produce(
     let permit = access.read::<embedding::DocumentRecipe>()?;
     load(
         &access,
-        session,
+        &session,
         &mut data.documents,
         &permit,
         &mut admission,
@@ -188,7 +190,7 @@ pub async fn produce(
     let permit = access.read::<embedding::projection::ProjectionDefinition>()?;
     load(
         &access,
-        session,
+        &session,
         &mut data.projections,
         &permit,
         &mut admission,
@@ -221,7 +223,7 @@ pub async fn produce(
             &permit,
             &full,
             &access,
-            session,
+            &session,
             &format!(
                 "SELECT * FROM {} ORDER BY id",
                 crate::consumed_rows::identifier(&table)
@@ -242,7 +244,7 @@ pub async fn produce(
             &permit,
             &projection,
             &access,
-            session,
+            &session,
             &format!(
                 "SELECT * FROM {} ORDER BY id",
                 crate::consumed_rows::identifier(&table)
@@ -256,6 +258,7 @@ pub async fn produce(
         )
         .await?;
     }
+    drop(session);
     let preparation = crate::owned_work::Shared::new(preparation, b)?;
     let mut frames = charged::ChargedSet::default();
     let mut charge = charged::StateCharge::new(b, "retrieval-native-frames");
@@ -504,6 +507,26 @@ pub async fn produce(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retrieval_owner_configuration_and_seed_roles_are_distinct_from_renderer_inputs() {
+        let model = lctx_model::domain::model().unwrap();
+        let order = PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true)).unwrap();
+        let configuration = [embedding::EmbeddingSpec::NAME, embedding::configuration::ServiceConfiguration::NAME,
+            embedding::DocumentRecipe::NAME, embedding::projection::ProjectionDefinition::NAME];
+        let renderer = retrieval::build::Data::inputs();
+        for profile in [Profile::Catalog, Profile::Behavioral] {
+            for selected in [false, true] {
+                let stage = build::stage(profile, &retrieval::RetrievalDefinition::builtin(selected), &model, &order).unwrap();
+                for name in configuration {
+                    assert!(stage.inputs.iter().any(|role| role.name() == name), "actual E0 must capture {name}, even without embedding inference");
+                    assert!(!renderer.iter().any(|input| input.name() == name), "finite configuration is not a renderer grain premise");
+                }
+                for name in [embedding::value::FullValue::NAME, embedding::projection::ProjectedValue::NAME] {
+                    assert!(stage.inputs.iter().any(|role| role.name() == name && role.prefix() == Some(PublicationBoundary::AnalyticEmbedding)), "seed vectors require the completed E1 role, never E0 output authority");
+                }
+            }
+        }
+    }
     #[test]
     fn pending_use_capacity_stays_charged_after_partial_and_complete_drains() {
         let budget = resources::ResourceBudget::fixed(8192).unwrap();
