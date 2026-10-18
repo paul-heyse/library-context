@@ -20,7 +20,7 @@ use lctx_native::{
 use lctx_tracing::InContext;
 use std::{panic::AssertUnwindSafe, sync::Arc};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 enum Mutation {
     ReadbackFinalizer,
     Roles,
@@ -43,22 +43,46 @@ async fn observed<T>(
 mod campaign;
 use campaign::require_campaign_maintenance;
 
-fn prepared_directory() -> Result<std::path::PathBuf, ModelError> {
-    let directory = std::env::var_os("LCTX_CN02_PREPARED_DIR").ok_or_else(|| ModelError::Invalid(
-        "CN02 requires LCTX_CN02_PREPARED_DIR naming the coordinator-owned prepared artifact directory".into(),
+async fn control(mutation: Mutation) -> Result<(), ModelError> {
+    let config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned campaign runtime"),
     ))?;
-    let directory = std::path::PathBuf::from(directory);
-    if !directory.is_dir() {
-        return Err(ModelError::Invalid("CN02 prepared artifact directory must already have its managed-run storage owner".into()));
+    require_campaign_maintenance(&config)?;
+    let installer = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("owned campaign installer"),
+    ))?;
+    if installer.endpoint != config.endpoint
+        || installer.namespace != config.namespace
+        || installer.database != config.database
+        || installer.service_generation != config.service_generation
+        || installer.authentication != lctx_native::AuthenticationScope::Root
+    {
+        return Err(ModelError::Conflict(
+            "CN02 exact campaign installer correspondence",
+        ));
     }
-    Ok(directory)
-}
-
-// One real provider compilation supplies raw completed transport. A separate
-// receiving stage earns semantic admission and exports the standalone artifact;
-// every mutation control imports and re-admits that into a fresh one-seal source.
-async fn compile_source(workspace: &Arc<Workspace>) -> Result<ContentHash, ModelError> {
-    let native = workspace.native();
+    let model = Arc::new(model()?);
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+        &config,
+        Frontier::Catalog,
+        &lctx_compiler_store::compiler::recovery_factory(
+            &config,
+            (lctx_model::domain::resources::ResourceBudget::fixed(
+                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+            )
+            .expect("owned native control recovery budget"))
+            .clone(),
+        )
+        .expect("owned native control factory"),
+    )
+    .await?;
+    let workspace = match Workspace::new(model, WorkspaceOptions::default(), native.clone()) {
+        Ok(workspace) => workspace,
+        Err(error) => return complete(Err(error), native.abandon_finality_report().await),
+    };
+    let mut terminal = Completion::default();
+    let mut expected_refusal = None;
+    let result = AssertUnwindSafe(async {
         let scratch = tempfile::tempdir().map_err(ModelError::codec)?;
         let module = format!("cn02_{}", native.attempt().hex());
         let path = format!("{module}.py");
@@ -78,178 +102,13 @@ async fn compile_source(workspace: &Arc<Workspace>) -> Result<ContentHash, Model
             type_layer: false, mention_layer: false, knn_layer: false,
         };
         let prepared = compilation::PreparedCompilation::new(Frontier::Catalog, analytics, captured.config().catalog(), None, workspace.budget()).map(std::sync::Arc::new)?;
-        observed("cn02_compile", compilation::compile(workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(prepared.clone()), None, None)).await?;
+        observed("cn02_compile", compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(prepared.clone()), None, None)).await?;
         drop(prepared);
-        Ok(settings)
-
-}
-
-async fn owned_workspace(config: &RuntimeConfig) -> Result<Arc<Workspace>, ModelError> {
-    let model = Arc::new(model()?);
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
-        config,
-        Frontier::Catalog,
-        &lctx_compiler_store::compiler::recovery_factory(
-            config,
-            (lctx_model::domain::resources::ResourceBudget::fixed(
-                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-            )
-            .expect("owned native control recovery budget"))
-            .clone(),
-        )
-        .expect("owned native control factory"),
-    )
-    .await?;
-    match Workspace::new(model, WorkspaceOptions::default(), native.clone()) {
-        Ok(workspace) => Ok(workspace),
-        Err(error) => complete(Err(error), native.abandon_finality_report().await),
-    }
-}
-
-async fn prepare_control() -> Result<(), ModelError> {
-    use std::io::Write;
-    let config = RuntimeConfig::read(std::path::Path::new(
-        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned campaign runtime"),
-    ))?;
-    require_campaign_maintenance(&config)?;
-    let directory = prepared_directory()?;
-    if ["native-state.jsonl", "native-receipt.json", "settings.json"].iter().any(|name| directory.join(name).exists()) {
-        return Err(ModelError::Conflict("CN02 prepared raw transport output already exists"));
-    }
-    let workspace = owned_workspace(&config).await?;
-    let native = workspace.native().clone();
-    let result = AssertUnwindSafe(async {
-        let settings = compile_source(&workspace).await?;
-        observed("cn02_raw_workspace_freeze", workspace.freeze_for_admission(None)).await?;
-        observed("cn02_raw_freeze", native.freeze_content(workspace.budget())).await?;
-        let receipt = observed("cn02_raw_export", native.export_state(&directory.join("native-state.jsonl"), workspace.budget())).await?;
-        receipt.validate()?;
-        for (name, bytes) in [
-            ("native-receipt.json", serde_json::to_vec(&receipt).map_err(ModelError::codec)?),
-            ("settings.json", serde_json::to_vec(&settings).map_err(ModelError::codec)?),
-        ] {
-            let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
-                .open(directory.join(name)).map_err(ModelError::codec)?;
-            file.write_all(&bytes).map_err(ModelError::codec)?;
-            file.write_all(b"\n").map_err(ModelError::codec)?;
-            file.sync_all().map_err(ModelError::codec)?;
-        }
-        eprintln!("CN02 genuine compiled raw transport prepared at {}; this is not semantic admission. Retain this exact campaign backing without logical collection through independent admission/export and whole-target disposal", directory.display());
-        Ok(())
-    }).catch_unwind().await;
-    let mut terminal = workspace.drain_owned_report().await;
-    terminal.merge(native.abandon_finality_report().await);
-    let signalled = workspace.complete_signal(&terminal).await;
-    terminal.step("CN02 preparation workspace signal finality", signalled);
-    workspace.append_operation_failures(&mut terminal);
-    match result {
-        Ok(result) => complete(result, terminal),
-        Err(panic) => {
-            if let Err(error) = complete::<()>(Ok(()), terminal) {
-                eprintln!("CN02 preparation panic cleanup: {error:#?}");
-            }
-            std::panic::resume_unwind(panic)
-        }
-    }
-}
-
-// This stage uses raw completed transport only as input data. It earns all
-// semantic/graph/frontier admission before creating the standalone artifact.
-async fn admit_prepared_control() -> Result<(), ModelError> {
-    use std::io::Write;
-    let config = RuntimeConfig::read(std::path::Path::new(
-        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned campaign runtime"),
-    ))?;
-    require_campaign_maintenance(&config)?;
-    let directory = prepared_directory()?;
-    if directory.join("artifact").exists() || directory.join("receipt.json").exists() {
-        return Err(ModelError::Conflict("CN02 prepared admitted artifact output already exists"));
-    }
-    let receipt: completed_transport::CompletedTransportReceipt = serde_json::from_slice(
-        &std::fs::read(directory.join("native-receipt.json")).map_err(ModelError::codec)?,
-    ).map_err(ModelError::codec)?;
-    receipt.validate()?;
-    let settings: ContentHash = serde_json::from_slice(
-        &std::fs::read(directory.join("settings.json")).map_err(ModelError::codec)?,
-    ).map_err(ModelError::codec)?;
-    let model = Arc::new(model()?);
-    let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES)?;
-    let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())?;
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog, &factory).await?;
-    let runtime = match lctx_compiler_store::admission::AdmissionRuntime::with_budget(
-        model, lctx_compiler_store::admission::AdmissionOptions::default(), budget.clone(), native.clone(),
-    ) {
-        Ok(runtime) => runtime,
-        Err(error) => return complete(Err(error), native.abandon_finality_report().await),
-    };
-    let result = AssertUnwindSafe(async {
-        observed("cn02_raw_import", native.import_state(&directory.join("native-state.jsonl"), &receipt, &budget)).await?;
-        observed("cn02_raw_restore", runtime.restore(Profile::Catalog)).await?;
-        let admitted = observed("cn02_admit", lctx_compiler_store::artifact::admit(
-            &runtime, Frontier::Catalog, Profile::Catalog, settings,
-        )).await?;
-        let artifact_receipt = observed("cn02_export", admitted.export(&directory.join("artifact"))).await?;
-        artifact_receipt.validate()?;
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true)
-            .open(directory.join("receipt.json")).map_err(ModelError::codec)?;
-        serde_json::to_writer(&mut file, &artifact_receipt).map_err(ModelError::codec)?;
-        file.write_all(b"\n").map_err(ModelError::codec)?;
-        file.sync_all().map_err(ModelError::codec)?;
-        eprintln!("CN02 independently admitted current artifact prepared at {}; retain through all independent receiving scenarios and whole-target disposal", directory.display());
-        Ok(())
-    }).catch_unwind().await;
-    let mut terminal = runtime.drain_owned_report().await;
-    terminal.merge(native.abandon_finality_report().await);
-    let signalled = runtime.complete_signal(&terminal).await;
-    terminal.step("CN02 independent admission runtime signal finality", signalled);
-    runtime.append_operation_failures(&mut terminal);
-    match result {
-        Ok(result) => complete(result, terminal),
-        Err(panic) => {
-            if let Err(error) = complete::<()>(Ok(()), terminal) {
-                eprintln!("CN02 independent admission panic cleanup: {error:#?}");
-            }
-            std::panic::resume_unwind(panic)
-        }
-    }
-}
-
-async fn control(mutation: Mutation) -> Result<(), ModelError> {
-    let config = RuntimeConfig::read(std::path::Path::new(
-        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned campaign runtime"),
-    ))?;
-    require_campaign_maintenance(&config)?;
-    let prepared = prepared_directory()?;
-    let receipt: completed_transport::ArtifactExportReceipt = serde_json::from_slice(
-        &std::fs::read(prepared.join("receipt.json")).map_err(ModelError::codec)?,
-    ).map_err(ModelError::codec)?;
-    receipt.validate()?;
-    let installer = RuntimeConfig::read(std::path::Path::new(
-        &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("owned campaign installer"),
-    ))?;
-    if installer.endpoint != config.endpoint
-        || installer.namespace != config.namespace
-        || installer.database != config.database
-        || installer.service_generation != config.service_generation
-        || installer.authentication != lctx_native::AuthenticationScope::Root
-    {
-        return Err(ModelError::Conflict(
-            "CN02 exact campaign installer correspondence",
-        ));
-    }
-    let workspace = owned_workspace(&config).await?;
-    let native = workspace.native().clone();
-    let mut terminal = Completion::default();
-    let mut expected_refusal = None;
-    let result = AssertUnwindSafe(async {
-        eprintln!("CN02 {mutation:?}: independently receive and admit the prepared current artifact");
-        let admitted = observed("cn02_receive", artifact::verify_export(
-            &prepared.join("artifact"), &workspace, &receipt,
-        )).await?;
+        let admitted = observed("cn02_admit", artifact::admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings)).await?;
         let definitions = lctx_native::materialization::native_definitions();
         let client = lctx_native::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
         let root = Loader::new(client.clone()).with_budget(workspace.budget());
-        let created = AssertUnwindSafe(observed("cn02_publication_prepare", Publication::new(Admission::Export(&admitted), &config, &definitions))).catch_unwind().await;
+        let created = AssertUnwindSafe(observed("cn02_publication_prepare", Publication::new(Admission::Completed(&admitted), &config, &definitions))).catch_unwind().await;
         let mut publication = match created {
             Ok(Ok(publication)) => publication,
             failed => {
@@ -429,7 +288,6 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
             eprintln!(
                 "CN02 expected seal refusal retained after actual finality: {diagnostics:#?}"
             );
-            eprintln!("CN02 {mutation:?}: actual mutation restored and independent source finalized");
             Ok(())
         }
         Ok(Err(error)) => {
@@ -460,24 +318,6 @@ fn same_refusal(actual: &ModelError, expected: &ModelError) -> bool {
         actual = source;
     }
     false
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "requires coordinator-owned disposable maintenance campaign and registered prepared artifact output"]
-async fn prepare_publication_expectations_artifact() {
-    prepare_control()
-        .with_tracing_dispatch(cpg_extract::logging::dispatch())
-        .await
-        .unwrap();
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "requires same retained disposable campaign and current compiled raw transport"]
-async fn admit_publication_expectations_artifact() {
-    admit_prepared_control()
-        .with_tracing_dispatch(cpg_extract::logging::dispatch())
-        .await
-        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

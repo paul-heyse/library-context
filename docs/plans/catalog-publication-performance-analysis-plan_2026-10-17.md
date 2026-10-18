@@ -1,6 +1,6 @@
 # Catalog publication performance: analysis products and preparation
 
-**Proposed implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md),
+**Approved implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md),
 the sole owner of shared decisions, dependencies and current dispositions. This document covers
 F02/F03, I03 and conditional candidate/SCC scheduling improvements. Compiler integration is
 developed in the [compiler companion](catalog-publication-performance-compiler-plan_2026-10-17.md).
@@ -189,6 +189,18 @@ budget reservations with deterministic integration. Do not add a new executor, a
 semantics or thread caps. If a component has real predecessor/premise dependencies, retain them.
 PC03 independently removes all-window delivery barriers; it does not create kernel parallelism
 inside the current one-frame recursive fixture.
+
+**Selected implementation, 2026-10-17 (source implemented; focused integration pending):** Local
+and SourceCall private grain preparation use actual registered jobs with shared immutable selected
+inputs; results, meters, append and proof integration remain canonical. Base expression compute
+already uses owned independent jobs with shared syntax; adopting its shrinking selected support
+state remains ordered. Completion retains semantic statement order and stop-after-first-nonnormal.
+Enriched owner/frame rounds consume and extend actual premise state, so their dependent rounds
+remain ordered. Summary's single recursive SCC shares work, vocabulary and frame-wide member
+allowances, including shared-callee progress across components. Concurrent mutation or skipping
+canonical queue visits would change which bounded proof fits; retain that order and remove pair
+trace/preparation cost instead. Independent outer work delivers ready canonical prefixes through
+PC03; this does not claim parallelism inside the recursive kernel or a new semantic budget policy.
 
 **Focused acceptance:** independent components, a single recursive SCC, reconvergence/shared
 callees, shuffled completion order, global member/work exhaustion and failure after a private

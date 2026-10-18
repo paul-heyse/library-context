@@ -1,6 +1,6 @@
 # Catalog publication performance: public publication
 
-**Proposed implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md),
+**Approved implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md),
 which owns shared decisions, dependencies and sole current dispositions. This document covers
 F09–F11 and their definition, role, search, backup/restore and reader integrations. It is not
 an update to any existing plan. Production implementation and qualification are not established
@@ -173,6 +173,49 @@ concurrent winner, invalid incoming derived claim and injected finalization/clea
 Test logical validation scopes; no operator selection/adoption or blanket shared-store reset.
 If a schema/permission/destructive case needs a disposable development target, use PN06's
 explicit owner/cutover route and authenticated drainage. Never create a scratch fallback.
+
+### Selected protection and finalization details
+
+The actual Loader does not establish exclusion from definition-changing maintenance. Retain
+parsed required declarations and the required-table set, but freshly observe actual required
+definitions and engine identity at seal. Full installation identity and selected backup retain
+their independent coherent inventory obligations. No elapsed-time definition cache is introduced.
+
+Role preparation is opaque and bound to the actual source client, pin, staging allocation,
+realization and resource pool. Canonical rows and complete role expectations use charged ordered
+spillable backing. The actual seal independently enumerates current canonical/role/search/root
+content; expected IDs do not nominate the universe being challenged. Search retains individual
+Basic frames across the genuine documents-before-occurrences barrier, with indexed parameter
+links and window/part bindings, and consumes the preparation after its last borrower.
+
+Record the committed marker in both its native lease and the returned completion before any
+fallible operation-root finalizer, reader acquisition, session close or attempt cleanup. A
+subsequent failure carries that exact committed publication identity. Portable SQL continues to
+represent independently validated logical compiler rows; physical block rows are not accepted
+as archive authority. Backup decodes current physical content into that logical transport, and
+receiving reconstructs fresh independent native ownership.
+
+### Focused actual mutation fixture
+
+Each original `native_publication::expectations_controls` case compiles the genuine small
+Catalog, fully admits that completed Workspace with its actual captured inputs, and constructs
+ordinary `Publication::new(Admission::Completed(...))`. No raw export, standalone carrier,
+receiving import or extra setup selector is a prerequisite for these ordinary publication
+controls. Portable export/import keeps its separate production purpose and dedicated controls.
+
+Mutate the actual admitted native rows or installed analyzer under the wholly owned campaign's
+maintenance authority, then restore exact prior values on success, error and panic before
+another dependent case. Preserve public seal, independent cold search, foreign Loader/pool
+refusal, committed-marker/finalizer and exact native finality assertions. A failed public seal
+permanently finalizes its source: restoring rows does not restore admission eligibility. Each
+negative seal therefore owns its own genuine compile and admission; do not reset lifecycle
+flags, reuse a failed owner or add production APIs for test convenience. Whole-instance cloning
+is not an assumed substitute for establishing fresh live admission/session ownership.
+
+The original five direct cases and their existing360s allowances are restored. Their aggregate
+compile/admission/publication endpoint remains unverified after earlier timeout observations;
+separate native transport passes do not close it. Any further allowance change requires its own
+explicit disposition, rather than silently splitting the endpoint through an export fixture.
 
 ## 6. Completion and later validation
 

@@ -1,9 +1,9 @@
 # Catalog publication performance: native realization and recovery
 
-**Proposed implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md).
+**Approved implementation plan, 2026-10-17.** Companion to the [coordinator](catalog-publication-performance-plan_2026-10-17.md).
 The coordinator alone owns current dispositions, shared decisions and completion. This document
 develops F05/F06/F07/F12 and I02/I04, including cold/candidate/original consumers. It does not
-supersede existing plans or authorize operator adoption. All replacements below remain Proposed.
+supersede existing plans or authorize operator adoption. ADR-0190 selects the replacement contracts; the coordinator distinguishes source delivery from functional qualification.
 
 ## 1. Foundations and selected direction
 
@@ -74,6 +74,92 @@ depends on unavailable behavior, such as a locator's selective access or locked-
 Specify the question and decision-changing outcomes before launch. Otherwise record that finer
 timing attribution is unnecessary for the structural decision. No blanket benchmark/environment
 campaign, inferred server memory attribution or invented speedup.
+
+### Selected realization (ADR-0190)
+
+Canonical nongraph envelopes occupy homogeneous immutable content-addressed blocks, targeting
+256KiB per container. A contribution-qualified indexed locator combines logical membership with
+physical block/slot correspondence. Graph entities/assertions retain actual native identities;
+`compiler_record` is a logical nongraph identity, never a guard, hold or retirement target.
+A contribution protects each distinct actual block once. Every original pointer in a shared
+container remains protected until that container dies, including slots absent from a particular
+semantic selection. Full selected row content and nominal conflicts remain independently checked;
+different valid packings converge logically without requiring the same physical address. Declared zero-row
+logical contributors remain in exact CompletedView identities even when they need no physical
+container. Removing physical emptiness does not erase semantic checkpoint/input identity;
+cumulative expected-domain readers distinguish those actual views.
+
+Full physical assurance may additionally protect independent retained-product output views.
+Portable semantic content follows actual bound views and their dependency closure; if bindings
+are absent, the existing all-roots meaning remains. Projection selects actual bound roots with their exact root-qualified contributor
+mappings and dependency descriptors, including zero-row views with real declared contributors.
+It never substitutes a dependency's independently selected physical copy for the bound root's copy. It never
+shrinks the broader physical verification/protection inventory or treats every protected cache
+output as published artifact content. Frozen semantic roots and reconstructed transport roots
+must still agree exactly.
+
+Packet preparation retains exact values, full byte admission and distinct physical targets. Complete
+membership inventory names the unique nonwildcard contribution_rows index; token nomination uses
+member_scope only with its actual scope predicate, avoiding token-entry fanout in whole inventories.
+The pinned planner cannot constrain a trailing containment column after an owner/relation
+compound prefix. Each fused locator therefore derives exact `[contribution, relation, token]`
+entries in `scope_lookup`, indexed as one wildcard column. Bounded containment nominates full
+tuple equality seeks with native deduplication; strict actual EXPLAIN controls must establish
+that access. Logical `scope_keys` and six-field portable membership remain unchanged. Packet,
+receiving and retransmission checks validate the complete lookup derivation rather than trusting
+the index or accepting owner/relation-only scans.
+One block travels with its complete byte-bounded locator run, rather than being resent per128
+locators. Alternate-placement comparison groups bounded locator metadata and observes one prior
+container at a time; it retains no array of all old payloads. Cold verification independently
+validates actual blocks/slots to EOF, then reconciles membership against its spillable compact
+identity/content inventory. It does not fetch each block again per logical member. Incoming
+portable content reconstructs its own graph prerequisites and nongraph backing; an omitted graph
+row cannot be repaired by silently borrowing unrelated shared state.
+
+The operation retains its own actual payload/state allocation and exact client/recovery scope;
+factory recovery metadata retains its independently admitted pool. Equality between those two
+legitimate pools is not required. The actual contribution, view declaration, original completion/freeze drain, portable import
+and derived publication each retain one operation writer across their bounded pages. A durable
+host discovery envelope precedes root creation. Exact page payload/incidence/outcome/prefix is
+atomic; committed original pages replay their old result, and absent pages are fenced against
+late execution. Terminal native knowledge precedes host observation and last-witness release.
+Current-era terminal receipts remain legitimate replay consumers. Closed-era history collection
+requires irreversible original-era closure and exact reference absence. Scalar blob-completion
+CAS and genuine control transitions retain their separately necessary protocols; these are not
+legacy per-window producer sidecars.
+
+Published lazy selection captures its reader's actual attached recovery scope before spawning,
+checks exact client and generation, and retains the source lease through worker EOF. Its borrowed
+preparation reader has a separate query registry and cannot close the original session. No
+ambient fallback confers authority. Repeated completed-view declaration skips native work only
+under the existing live mutation owner's exact acknowledged declaration-and-holds receipt,
+with unchanged descriptor/mapping validation, actual recovery/client/generation and caller pool.
+Failed, Unknown, closed, foreign and independent receiving contexts do not inherit that receipt.
+Published completion, transport preparation and eligibility also enter this attached scope for
+all nested audits; borrowing a capability outside an ambient task does not lose its owner.
+A confirmed refused page durably settles its exact fenced root before reporting failure. The
+writer retains a failed-terminal state and original cause; earlier committed prefix receipts
+remain true. Settlement uncertainty retains the original pending obligation. Joined operation
+errors carry their own uncertainty; another admitted producer's open root is not evidence that
+this joined refusal is Unknown. Dropped work and final drainage of every pending request remain
+independent, strict cleanup gates.
+
+Terminal-attempt incidence uses its exact permanent fence and row/predicate exclusion. Open and
+frozen production, completion, admission and maintenance retain their actual full cuts. Finer
+server timing or memory attribution is unnecessary to choose these structural reductions; no
+measured performance claim follows from the design.
+
+Bounded pin/cleanup, retirement and immutable-install predicate pages observe their exact
+predicate IDs once, reject exhausted revisions, update every existing predicate and insert
+missing predicates. Every participating predicate is actually written in the same atomic
+effect as the protected hold mutation. The pinned snapshot engine checks these write keys at
+commit, including fresh-creation races; this preserves exclusion without scalar locking reads.
+Duplicate-key insert/update is deliberately avoided here because the actual RocksDB
+create/rollback path rebuilds its index over the accumulated retained write batch. Full attempt
+cuts, other necessary guard locks, actual
+retry identity and Unknown handling remain unchanged. The exact257-predicate pin page control
+challenges mixed existing/missing predicates, tail-overflow rollback, foreign holds and live
+holder exclusion; runtime outcomes belong to coordinator §6.
 
 ## 3. PN01 — Correct observation session ownership
 

@@ -99,6 +99,10 @@ retains logical scope tags plus exactly derived `[contribution, relation, scope 
 entries. A single native array index nominates those complete tuple keys selectively; the pinned
 planner cannot extend scalar compound prefixes through a trailing containment column. Receiving
 and replay validate the derivation, and multiple matching tokens confer one logical membership.
+Physical assurance can protect independent retained-product outputs beyond the semantic artifact.
+Portable logical content follows bound views and their dependency closure (all roots only when
+there are no bindings), including empty dependency-view identities. Exact physical verification
+and protection remain broader; portable reconstruction must match the frozen semantic roots.
 One operation root protects exact native page outcomes and bounded progress, replacing ordinary per-page host
 envelopes. Genuine full cuts, independent receiving and Unknown ownership remain. Terminal cleanup
 excludes its exact reference/collector hazards. The [publication coordinator §6](../../plans/catalog-publication-performance-plan_2026-10-17.md#6-sole-disposition-and-current-checkpoint)

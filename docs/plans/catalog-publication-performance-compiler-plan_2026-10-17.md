@@ -179,6 +179,11 @@ completed source, operation identity, budget and native recovery owner until its
 join. The enclosing operation reports accepted retention failure or Unknown according to that
 contract; downstream readiness is not a claim that the whole operation already succeeded.
 
+Ordinary semantic admission uses the existing internal Workspace completion fence to join
+accepted children before native handoff. Native mutation drainage alone does not join retention
+still doing effect-free preparation before native admission. This existing internal ownership
+contract remains; no public transport-preparation API is added solely to support a test fixture.
+
 Keep retention where it purchases useful avoided computation. Reuse exact selection/inventory
 preparation from PN03/PC05 when available; those enhancements do not block the lifecycle split
 if existing acquisition is sufficient. Never swallow an accepted ambiguous effect as a cache
@@ -202,6 +207,15 @@ model/profile/factory/revision, complete dependency mappings, physical validity 
 uniform-owner premises separate. Share native acquisition where these premises allow it;
 do not equate roles merely because they point to the same physical view. Original pins still
 need current validity, even when a new final capability has an equal selector.
+
+The private reference session shares one actual provider allocation for aliases of the same
+complete view under its fixed native owner, pool and batch context. Check full view and relation
+identity/schema before sharing, reserve invocation-local map metadata, and retain every role's
+permit/qualification/registration/evidence handle. Entry and terminal current checks coalesce
+only pointer-identical providers while all local owner checks remain. Distinct external
+providers retain separate current checks even for equal logical views. This prepares required
+reference validation; it does not skip global reference or nominal-agreement checks or create
+a whole-input execution success.
 
 **I01 decision:** first identify the independent failure class of acquisition, revalidation
 and execution. The ordinary `!earn` memo and `Execution::WholeInput` cannot simply be admitted
