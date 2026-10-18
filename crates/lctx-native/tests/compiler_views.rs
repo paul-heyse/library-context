@@ -3430,7 +3430,8 @@ async fn cold_transport_distinct_empty_copies_keep_root_qualified_dependency_cho
             let views=source.complete_contribution(owner,ProviderOutcome::Complete,std::slice::from_ref(relation),&BTreeMap::new(),&budget).await?;
             roots.push(views[relation.name()].clone());
         }
-        for view in &roots {
+        // The empty base is a dependency, not an independently bound selector.
+        for view in roots.iter().filter(|view| view.identity != base_view.identity) {
             let relation=if view.relation==package.name(){&package}else if view.relation==release.name(){&release}else{&quality};
             source.bind(CompletedBinding{boundary:None,source:d::analysis::sources::SourceSnapshot::of_completed_view(relation,base.model,view)?,view:view.clone(),configuration:None}).await?;
         }
@@ -3439,6 +3440,9 @@ async fn cold_transport_distinct_empty_copies_keep_root_qualified_dependency_cho
         let original=source.export_state(file.path(),&budget).await?;
         let mut frames=std::fs::read_to_string(file.path()).map_err(ModelError::codec)?.lines().map(serde_json::from_str::<serde_json::Value>).collect::<Result<Vec<_>,_>>().map_err(ModelError::codec)?;
         let mut envelope:CompletedTransportEnvelope=serde_json::from_value(frames[0]["header"]["envelope"].clone()).map_err(ModelError::codec)?;
+        assert_eq!(envelope.roots.len(),2,"only actual bindings become portable roots");
+        assert!(envelope.roots.iter().all(|root|root.dependencies.iter().any(|view|view==&base_view)),
+            "zero-row dependency identity remains in each root-qualified closure");
         let base_logical=*base_view.contributions.iter().next().ok_or(ModelError::Schema("base logical"))?;
         let base_label=envelope.copies.iter().find(|copy|copy.descriptor.identity().ok()==Some(base_logical)).ok_or(ModelError::Schema("base transport copy"))?.label;
         let mut duplicate=envelope.copies[base_label as usize].clone();duplicate.label=envelope.copies.len() as u64;let duplicate_label=duplicate.label;envelope.copies.push(duplicate);
@@ -3838,6 +3842,8 @@ async fn cold_transport_mixed_graph_and_nongraph_retains_exact_imported_sources(
     let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts, &factory).await.unwrap();
     let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts, &factory).await.unwrap();
     let mut source_abandoned = false;
+    let retention_request = source.attempt();
+    let mut companion_retained = false;
     let result = async {
         let graph = InputRevision::from_entries(vec![])?;
         let multiple = CorpusLibrary { corpus: graph.id(), library: graph.id() };
@@ -3884,9 +3890,40 @@ async fn cold_transport_mixed_graph_and_nongraph_retains_exact_imported_sources(
                 source: d::analysis::sources::SourceSnapshot::of_completed_view(relation, model, &view)?,
                 view, configuration: None }).await?;
         }
+        // A warm producer can retain outputs that do not belong to these bound
+        // roots. Its empty output is still a real physical selector, not absence.
+        let empty_relation = Relation::of::<Package>();
+        let mut companion_spec = spec(&format!("unbound-companion-{}", source.attempt().hex()), &nongraph_relation);
+        companion_spec.model = model;
+        companion_spec.outputs.insert(empty_relation.name().into());
+        let companion_owner = source.begin_contribution(companion_spec).await?;
+        let companion_row = QualityStep { ordinal: 1, ..nongraph.clone() };
+        source.write_batch(&companion_owner, &nongraph_relation,
+            &QualityStep::encode(std::slice::from_ref(&companion_row))?, &budget).await?;
+        let companion_views = source.complete_contribution(companion_owner, ProviderOutcome::Complete,
+            &[nongraph_relation.clone(), empty_relation.clone()], &BTreeMap::new(), &budget).await?;
+        assert_eq!(companion_views[empty_relation.name()].rows, 0);
+        source.retain_product_identity(retention_request, companion_owner, &budget).await?;
+        companion_retained = true;
         source.freeze_content(&budget).await?;
+        {
+            let physical = source.complete_physical_content(&budget).await?;
+            for companion in companion_views.values() {
+                assert_eq!(&physical.inventory().installed(companion.identity)?.view, companion,
+                    "unrelated retained outputs remain in full physical assurance");
+            }
+        }
         let file = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
         let expected = source.export_state(file.path(), &budget).await?;
+        {
+            let portable = lctx_native::completed_transport::read_transport(file.path(), &expected, &budget)?;
+            assert_eq!(portable.envelope().copies.len(), 1, "unbound retained contribution is not portable logical content");
+            for companion in companion_views.values() {
+                assert!(!portable.envelope().roots.iter().any(|root| root.view.identity == companion.identity
+                    || root.dependencies.iter().any(|dependency| dependency.identity == companion.identity)),
+                    "neither nonempty nor zero-row retained companions enter the bound logical closure");
+            }
+        }
         let mut nongraph_frames = 0usize;
         for line in std::fs::read_to_string(file.path()).map_err(ModelError::codec)?.lines() {
             let frame: serde_json::Value = serde_json::from_str(line).map_err(ModelError::codec)?;
@@ -3901,6 +3938,23 @@ async fn cold_transport_mixed_graph_and_nongraph_retains_exact_imported_sources(
         target.import_state(file.path(), &expected, &budget).await?;
         // Receiving protection must survive release of the original producer's owner.
         source.abandon().await?; source_abandoned = true;
+        {
+            use lctx_native::surrealdb::types::{RecordId, Value};
+            let product = RecordId::new("native_product", format!("{}_{}", retention_request.hex(), source.attempt().hex()));
+            let client = target.recovery_scope()?.client().clone();
+            let mut response = client.query("SELECT * FROM ONLY $product; SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$product")
+                .bind(("product", product)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            let actual_product: Option<Value> = response.take(0).map_err(ModelError::codec)?;
+            assert_eq!(actual_product.as_ref().and_then(Value::as_object).and_then(|row| row.get("released")),
+                Some(&Value::Bool(false)), "portable export and producer cleanup preserve unrelated warm retention");
+            let held: Vec<RecordId> = response.take(1).map_err(ModelError::codec)?;
+            assert!(held.iter().any(|id| id.table.as_str() == "native_completed_state"),
+                "the retained companion's exact physical boundary stays protected");
+        }
+        if target.release_product_identity(retention_request, source.attempt(), &budget).await?.is_none() {
+            return Err(ModelError::Conflict("mixed transport companion retention missing"));
+        }
+        companion_retained = false;
         let graph_batches = target.scan_batches(&views[graph_relation.name()], &graph_relation, None, None, &budget, 8)
             .await?.try_collect::<Vec<_>>().await.map_err(ModelError::codec)?;
         let graph_rows = graph_batches.iter().map(InputRevision::decode).collect::<Result<Vec<_>, _>>()?
@@ -3920,8 +3974,11 @@ async fn cold_transport_mixed_graph_and_nongraph_retains_exact_imported_sources(
         Ok::<_, ModelError>((graph, nongraph, graph_rows, nongraph_rows, expected, actual, nongraph_frames, multiple, multiple_rows))
     }.await;
     let mut terminal = lctx_model::domain::completion::Completion::default();
-    terminal.step("mixed cold transport target cleanup", target.abandon().await);
     if !source_abandoned { terminal.step("mixed cold transport source cleanup", source.abandon().await); }
+    if companion_retained {
+        terminal.step("mixed cold transport companion release", target.release_product_identity(retention_request, source.attempt(), &budget).await.map(|_| ()));
+    }
+    terminal.step("mixed cold transport target cleanup", target.abandon().await);
     let (graph, nongraph, graph_rows, nongraph_rows, expected, actual, nongraph_frames, multiple, multiple_rows) =
         lctx_model::domain::completion::complete(result, terminal).unwrap();
     assert_eq!(expected.semantic.memberships, 3, "independent fixture supplies exactly three logical memberships");

@@ -498,8 +498,28 @@ async fn inventory_projection(
     include_memberships: bool,
     budget: &d::resources::ResourceBudget,
 ) -> Result<SelectionInventory, ModelError> {
+    // Physical completion also protects retained producer outputs. Only bound
+    // roots and their exact dependencies contribute to portable logical meaning.
+    // With no bindings, completion intentionally assigns meaning to every root.
+    let mut selection_charge = StateCharge::new(budget, "transport bound root identities");
+    let mut bound = std::collections::BTreeSet::new();
+    for binding in inventory.bindings() {
+        if inventory.installed(binding.view.identity)?.view != binding.view {
+            return Err(ModelError::Conflict("transport bound view descriptor"));
+        }
+        if !bound.contains(&binding.view.identity) {
+            selection_charge.grow(std::mem::size_of::<ContentHash>() + 128)?;
+            bound.insert(binding.view.identity);
+        }
+    }
+    // Each selected root already carries its complete transitive mappings, even
+    // for zero-row dependencies. Do not select a dependency independently: its
+    // installed selector may use a different physical copy/local alias route.
+    let selected_references = || inventory.references().iter().filter(|reference| {
+        inventory.bindings().is_empty() || bound.contains(&reference.logical_view)
+    });
     let _selection_charge = source_charge(
-        inventory.references().iter().map(|reference| {
+        selected_references().map(|reference| {
             (
                 view_heap(&reference.selector.view),
                 reference.selector.mappings.len(),
@@ -508,7 +528,7 @@ async fn inventory_projection(
         budget,
     )?;
     let mut selected = vec![];
-    for reference in inventory.references() {
+    for reference in selected_references() {
         let root = inventory.installed(reference.logical_view)?;
         selected.push((root.view.clone(), root.mappings.clone()));
     }
