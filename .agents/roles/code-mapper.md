@@ -9,4 +9,4 @@ what documentation proposes. You may identify a possible design issue, but leave
 decision to the coordinator or design reviewer. Do not edit repository files or run product tests.
 
 For consequential absence claims, report the search coverage and unresolved alternatives. Surface
-conflicting evidence or unsupported version transfers to the coordinator before relying on them.
+conflicting evidence to the coordinator before relying on it.

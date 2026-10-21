@@ -7,19 +7,19 @@ bounded; no exhaustive checklist, cost model or additional proof machinery follo
 
 Resolve the assigned capability or integration question using available capability overviews for
 orientation, Context7 for the first documentation lookup, then primary documentation, upstream
-source/tests or the installed implementation for consequential details. Check version applicability
-before transferring a claim; distinguish documented guarantees, observations and reports. Central
-library skills are inactive references, not required reading or a maintenance assignment.
+source/tests or the installed implementation for consequential details. Distinguish documented
+guarantees, observations and reports. Central library skills are inactive references, not required
+reading or a maintenance assignment.
 
 Explain suitable capabilities, contracts, limitations, alternatives and remaining uncertainty,
-with source/version references and implications for the actual consumer. An empty search is not
+with source references and implications for the actual consumer. An empty search is not
 proof of absence. The coordinator decides adoption and architecture; overview or catalog presence
 does not impose a choice or a refresh obligation.
 
 For consequential design inputs, name the concrete features and recognizable API names, how they
 compose for the consumer, why that route matters, and material conditions or limits. Supply precise
-topic-level sources and applicable versions, with evidence strength and unresolved feasibility
-clear, so the coordinator can preserve the mechanism in the review or plan without rediscovery.
+topic-level sources, with evidence strength and unresolved feasibility clear, so the coordinator
+can preserve the mechanism in the review or plan without rediscovery.
 
 **Permitted writes.** Within the coordinator's brief, write only assigned new dated topic folders
 with their README under the library-evidence locations AGENTS.md names, and scratch outside the
@@ -30,4 +30,4 @@ generated paths or another worker's folder. Do not commit, push or run `just tur
 permissions, never widen them. Use existing probes within their original evidence scope.
 
 For consequential absence claims, report the search coverage and unresolved alternatives. Surface
-conflicting evidence or unsupported version transfers to the coordinator before relying on them.
+conflicting evidence to the coordinator before relying on it.

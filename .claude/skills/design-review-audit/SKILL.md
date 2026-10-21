@@ -37,10 +37,10 @@ has become a new engagement, use the binding's freshness rule and make that boun
 Choose the investigation that can change the decision. Read decisive evidence yourself; the
 first review's citations and conclusions are leads, not independent corroboration. Static
 reasoning may suffice. Library research follows the repository's overview, Context7 and primary
-source routes at the applicable versions; probes are useful when they settle a real uncertainty.
+source routes; probes are useful when they settle a real uncertainty.
 
 Reassess concrete library mechanisms on which recommendations depend, including their composed
-semantics, version applicability and material limits. Preserve retained or corrected mechanisms,
+semantics and material limits. Preserve retained or corrected mechanisms,
 their design role and precise source references in the integrated review; explain consequential
 replacements in the companion. Keep candidates and unresolved feasibility distinguishable from
 the resulting selected direction, so synthesis does not erase the enabling functionality.

@@ -30,7 +30,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Pivot testing, validation or oracles | [STATUS](../STATUS.md) names the current verification boundary and its owning plan; commands are in [AGENTS.md, Commands](../AGENTS.md#commands) (`just verify`, `just fixture`, ADR-0134) |
 | Improve test outputs and agent causal analysis | [Standalone test-evidence plan](plans/agent-test-evidence-and-causal-analysis-plan_2026-10-11.md): native capture, independent evidence health, source/context provenance, selective inspection, valid case rerun planning and portable evidence; owns F01–F04 from the [target review](design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md); implemented/focused-Tested with scoped native/tooling acceptance and explicit partial-capture limits |
 | Operate the native store | [SurrealDB runbook](surrealdb.md): runtime configuration, publication, selection, backup/restore and reader quiescence; operator activation is explicit |
-| Research a library capability | [Local capability skills](../.claude/skills/README.md) → Context7, then the `library-research` route, at the locked version; holds are in [Pins](pins.md) |
+| Research a library capability | Optional [overviews](libraries/README.md) → Context7 and primary sources, with the `library-research` role for delegated questions |
 | Understand why a decision was made | Owner section's `> Decision:` line → [ADR index](adr/README.md) |
 | Maintain this site | [Publishing operations](publishing.md) |
 
@@ -66,7 +66,7 @@ Paths in this reference table are relative to the repository root.
 | Develop design solutions | [Prepare review](../.claude/skills/plan-design-review/SKILL.md) → refreshed audit and operator-selected focus |
 | Audit review recommendations | [Recommendation audit](../.claude/skills/design-review-audit/SKILL.md) → [companion](design_review/reviews/audits/README.md) and integrated principal |
 | Audit claimed plan completion | [Completion audit](../.claude/skills/plan-completion-audit/SKILL.md) → same owning plan |
-| Research library capabilities | Optional [overviews](libraries/README.md) → Context7 and primary sources at applicable versions |
+| Research library capabilities | Optional [overviews](libraries/README.md) → Context7 and primary sources |
 
 ## Authority and search
 

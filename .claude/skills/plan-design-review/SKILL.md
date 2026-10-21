@@ -50,7 +50,7 @@ rather than replace isolated functions while leaving duplicated machinery around
 
 Use available [library overviews](../../../docs/libraries/README.md) for orientation, then Context7
 and primary sources for consequential details. Compare composed semantics, integration burden and
-execution fit at the applicable versions. An overview is a source of ideas, not proof of fit.
+execution fit. An overview is a source of ideas, not proof of fit.
 The selected standard and functional target govern judgment; current ADRs and rules describe
 design the review may propose changing.
 

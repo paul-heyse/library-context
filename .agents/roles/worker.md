@@ -22,7 +22,8 @@ independent in-scope work where useful. Make ordinary local decisions within the
 
 Return the result with precise source locations or artifact pointers, the baseline examined,
 material uncertainties and anything unfinished. For consequential negative claims, state the search
-scope, versions or paths covered and limitations; an empty search does not establish absence. Distinguish observed facts from interpretation.
+scope, paths covered and limitations; an empty search does not establish absence. Distinguish
+observed facts from interpretation.
 For edits, identify changed ownership or behavior and deletions. For checks, give commands and
 `passed` / `failed` / `blocked` / `not_run`, retaining raw evidence where useful. Keep the response
 compact enough for integration without hiding consequential details.

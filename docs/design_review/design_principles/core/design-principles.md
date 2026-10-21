@@ -475,7 +475,7 @@ derivative routine.
 
 **SHOULD · G8.** Within the standard library and adopted libraries, use the built-in function,
 kernel, algorithm or idiom rather than a hand-rolled equivalent; do not re-implement what the
-resolved version provides, and do not wrap a library only to rebuild its features. Adapters
+library provides, and do not wrap a library only to rebuild its features. Adapters
 translate representations and bind identifiers; domain rules, defaults, provider selection and
 policy do not live in adapters. A conversion that changes interpretation is a named
 transformation under DP-08. Preserve useful bulk, lazy, indexed and fused interfaces where the
@@ -487,7 +487,7 @@ nowhere else?
 
 ### DP-15 — Qualify every library boundary
 
-**MUST · G7.** Qualify behaviour at the resolved (locked) version and the enabled features. Establish that the specific routine's semantics,
+**MUST · G7.** Qualify behaviour for the intended use and enabled features. Establish that the specific routine's semantics,
 restrictions and outputs fit the intended use — from documentation, source, types or
 experience, with a probe or test only where genuine doubt remains. A library's name or
 reputation alone is not enough, and an entry point's name may not match its algorithm. Keep one resolved

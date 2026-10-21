@@ -57,7 +57,7 @@ explicitly partitioned. Existing plans own scheduled work; do not create a secon
 Read decisive evidence and reconcile results rather than accepting a worker's completion message
 as verification. Resolve architectural contradictions through the existing decision and review
 process; retain unresolved findings and their effects on acceptance. Executors choose local details
-within their brief. Surface consequential absence claims, conflicting evidence, unsupported cross-version transfers,
+within their brief. Surface consequential absence claims, conflicting evidence,
 unresolved ownership or contract decisions, and a second failed attempt at the same repair. The
 coordinator chooses whether to narrow the question, inspect sources, run a focused functional check,
 handle it directly or route stronger work. These are reassessment triggers, not automatic reruns.

@@ -2,13 +2,12 @@
 
 Every declared dependency is pinned exactly in its manifest, and the lockfiles hold the rest (AGENTS.md,
 Dependencies). This page lists the holds, meaning pins that should not be bumped casually, each with
-its reason and when to revisit it. It also lists toolchains and historical library-reference deltas. A pinned
+its reason and when to revisit it. It also lists toolchains. A pinned
 dependency without a row can be bumped when the work calls for it (the `pin-check` skill).
 
 `just deps` fails a declared Cargo dependency that is not `=x.y.z` or a git `rev`
 (`scripts/check_family.py`). Design authority for the pinned compute and analyzer families is
 DESIGN §7 / ADR-0118; the policy is ADR-0132.
-A row without a date is not verified.
 
 ## Toolchains
 
@@ -88,8 +87,7 @@ ER2 owns launcher/client/spec/cache/consumer migration. No checkpoint, service l
 | vLLM (`services/vllm`) | `0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2`, gpu-stack B3/r2 CPython 3.14 SM120 wheel; SHA-256 `84523e185e26680ec202e52f3d2bad73aa77ad0b9fbbc4126f46b9bf37debf64`. Explicit flat index `file:///home/paul/wheelhouse/gpu-stack`; locked torch `2.14.0+cu132`, torchvision `0.29.0+cu132`, CUDA runtime `13.4.2`, Triton `3.8.0`, FlashInfer `0.7.0`; torchaudio excluded (deployment obligations now ADR-0150) | Custom wheel (content-addressed) and platform availability; the service lock moves only with a new wheel | a new gpu-stack wheel | 2026-09-28: wheel bytes hashed; `uv lock --project services/vllm`; `uv sync --project services/vllm --locked`; installed metadata and CUDA availability read from the service environment |
 | Qwen/Qwen3-Embedding-8B | Local `/home/paul/wheelhouse/gpu-stack/models/Qwen3-Embedding-8B-NVFP4-r2`, NVFP4 W4A4 derived from upstream `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`; manifest SHA-256 `13ceecfe1ab2045c55a8ce39bf0be3b8a526fecdd69c94582a474c85aef08967` binds weights and tokenizer. BF16 activations; MRL 4096→1024, float32/L2 output (deployment obligations now ADR-0150) | Content-addressed acquisition | a new model derivation | 2026-09-28: controlled launcher verifies the published manifest and all file checksums; basic startup/output receipt in [PR4 evidence](design_review/evidence/2026-09-28_pr4/README.md). No accuracy assessment |
 | uv_build | `>=0.12,<0.13` (the `lctx-mcp` build backend) | Upper cap at the uv minor in use, as uv recommends for its build backend | uv moves to 0.13 | 2026-09-23: `uv sync` built the member |
-| PyO3, pyo3-async-runtimes | `=0.29.2` with `extension-module`; `=0.29.0`, defaults off, `tokio-runtime` | pyo3-async-runtimes is released in lockstep with PyO3 (type-sharing pair); the `pyo3` library skill indexes exactly these versions | a deliberate PyO3 upgrade, with the skill | 2026-09-24: `cargo info pyo3@0.29.2`, official PyO3 0.29.2 changelog for Python 3.14 support, and `cargo check -p lctx-semantics`; pyo3-async-runtimes: exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
-| hypothesis | `==6.168.1` (uv dev group; runtime soundness oracle only) | The version the `python-oracles` library skill indexes (library-skill pin) | the skill moves | 2026-09-24: `uv add --dev 'hypothesis==6.168.1'`; `uv.lock` resolves sortedcontainers 2.4.0; generated programs execute under CPython 3.14.7 in an isolated worker |
+| PyO3, pyo3-async-runtimes | `=0.29.2` with `extension-module`; `=0.29.0`, defaults off, `tokio-runtime` | pyo3-async-runtimes is released in lockstep with PyO3 (type-sharing pair) | a deliberate PyO3 upgrade | 2026-09-24: `cargo info pyo3@0.29.2`, official PyO3 0.29.2 changelog for Python 3.14 support, and `cargo check -p lctx-semantics`; pyo3-async-runtimes: exact registry API/manifest, `uv sync` native wheel build; one lazy configured two-worker Tokio runtime |
 
 ## Catalog wire contracts (ADR-0073), 2026-09-28
 
@@ -109,27 +107,6 @@ and CI. A tool listed there without a version means the latest (presence is chec
 given there is a pin and needs a row here. Python retains `.python-version`; isolated script
 tests use pytest from `uv.lock`. Qualification is `just docs-test` plus `just docs-check`
 ([publishing operations](publishing.md)).
-
-## Inactive library-reference profiles (built 2026-09-29)
-
-Historical hold rationales and dated evidence below remain in force at their stated scope.
-References to a library skill identify inactive source material; they do not instruct agents to
-select, synchronize, discover or maintain a skill. Changes to held dependencies still follow
-their existing revisit conditions and applicable version evidence.
-
-
-Inactive central references (`~/.local/share/library-skills/skills/<name>`), no longer
-selected, synchronized or discovered here, each
-pinned to the crate versions below. Check a claim against the locked version (`Cargo.lock`/`uv.lock`)
-and the resolved features before transferring it: skills index a **named profile**, and the
-workspace-hack crate (cargo-hakari) widens some features in our resolved graph.
-
-| Skill | Indexes | Our pin | Delta to check | Verified |
-|---|---|---|---|---|
-| `pyo3` | pyo3 0.29.2 (+ ffi, macros, macros-backend, build-config), pyo3-async-runtimes 0.29.0 | the same | features here: `extension-module` (with default `macros`), `tokio-runtime`; docs.rs builds pyo3 with `full` and no defaults; probes ran on Python 3.14.7 | 2026-09-29: `verify.py` 13/13, 66 probes and 228 matrix cells confirmed |
-| `serde-arrow` | serde_arrow 0.15.1 + marrow 0.3.1, `arrow-59` profile | the same, feature `arrow-59` | the Arrow feature must equal the Arrow pin (`arrow-array`/`arrow-schema` 59.3.0); docs.rs shows the `arrow-60` build | 2026-09-29: `verify.py` 12/12, 37 probes confirmed |
-| `fixedbitset` | fixedbitset 0.5.7, default `std`, optional `serde` | the same, `std` only (petgraph's own dependency) | the `serde` claims need a feature we do not enable | 2026-09-29: `verify.py` 12/12, 11 probes confirmed |
-| `python-analyzers` | pyrefly 1.4.0-dev.3 (`80cec3f5`) with embedded Ruff 0.0.14; Ruff 0.16.10 (`3265ed1f`), library crates 0.0.16 and ty 0.0.16; salsa 0.28.5 | Pyrefly fork `b8a668da`, embedded registry Ruff 0.0.14; independent Ruff/ty fork `c5254df8`; salsa 0.28.5; dev CLIs Ruff 0.16.10 and Pyrefly 1.4.0.dev3 | Base versions agree. Repository forks add observational/preparation/selection seams; their exact patch and scoped receipts are above. Shared skill is repo-agnostic; current adapter wiring is in acquisition/extraction and this page. Scoped fork receipts transfer only to their recorded source | 2026-10-17: locked upstream versions checked; source/patch identity checks passed. Shared skill receipts remain independently scoped; coordinator owns current producer/consumer qualification |
 
 ## Native runtime control
 

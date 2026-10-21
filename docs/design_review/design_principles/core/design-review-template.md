@@ -259,15 +259,15 @@ establishes a common cause. No mandatory dependency graph or additional analysis
 
 For recommendations materially enabled by a library, preserve concrete capabilities and API
 names, their composition and design role, the reason for the choice, and material conditions or
-limits. Give precise overview-section or primary-source references with version applicability and
+limits. Give precise overview-section or primary-source references and
 evidence strength. Distinguish selected mechanisms from candidates, examples and unresolved
 feasibility; carry this account into the recommendation for subsequent planning, whatever the
 review's focus. Scale the explanation to its significance without inventorying routine calls.
 
-| Capability and owner | Consumer or planned scenario | Built-in/library/bespoke candidates | Resolved-version semantic fit and gaps | Coupling/lifecycle/test/replacement burden | Choice and reason |
+| Capability and owner | Consumer or planned scenario | Built-in/library/bespoke candidates | Semantic fit and gaps | Coupling/lifecycle/test/replacement burden | Choice and reason |
 |---|---|---|---|---|---|
 
-Inspect the resolved version's interfaces when making an API claim. A library's full surface is eligible for the
+Inspect relevant interfaces when making an API claim. A library's full surface is eligible for the
 agreed capability; availability alone is not a requirement. An intentional shared library data
 contract can be preferable to a forwarding abstraction. Compare composed capabilities, including
 optimizer/bulk interfaces, physical access, locality, preparation/reuse, working set and recovery.

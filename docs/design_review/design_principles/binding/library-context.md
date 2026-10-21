@@ -355,7 +355,7 @@ to reach for where doubt remains.
 ## 7. Stack notes and known conflicts
 
 - **Library specifics** from the graph guidelines' §5 (petgraph container choices, graphops
-  naming and version caveats, leiden-rs data model, rustworkx-core scope) belong to the
+  naming, leiden-rs data model, rustworkx-core scope) belong to the
   `rust-graphs` skill; DataFusion operator and provider rules to `datafusion`; PostgreSQL generation and
   receipt/lease rules to `sqlx-postgres`. The profile names no library.
 

@@ -117,7 +117,7 @@ question about ownership, behavior or change remains unresolved; no complete flo
    rules embedded in orchestration and private mechanics exposed to consumers. Ordinary domain
    functions can suffice; no registry, universal model or conversion of algorithms to data is required.
 4. **Alternatives and library fit.** Compare a suitable library mechanism and the simplest viable
-   design where relevant. Qualify semantics at the resolved version and total integration burden. Functions or
+   design where relevant. Assess semantic fit and total integration burden. Functions or
    modules may be sufficient; a wrapper or new crate must improve a real boundary. Compare the
    composed physical operation: access paths, optimizer/bulk capabilities, movement, preparation,
    working set, enforcement frequency, transaction/recovery scope and total operator/developer
@@ -125,16 +125,15 @@ question about ownership, behavior or change remains unresolved; no complete flo
 
    **Capability orientation.** Available [library overviews](../../../docs/libraries/README.md)
    can reveal complete capabilities and advanced features worth investigating. Follow Context7
-   and primary-source routes for consequential details at the resolved version. Retained central
+   and primary-source routes for consequential details. Retained central
    skill references and old utilization entries, where available, are optional historical leads;
-   neither implies current qualification, required adoption or catalog maintenance.
+   neither requires adoption or catalog maintenance.
 
    **Preserve enabling mechanisms.** In any review focus, when a recommendation materially
    depends on library functionality, name the concrete capabilities and recognizable API names,
    explain how they compose to realize the intended responsibility or guarantee, and preserve why
-   that choice matters. Include material conditions and limitations, applicable version and
-   evidence strength, and precise references to the relevant overview section, primary
-   documentation or tagged source. Overviews orient discovery; qualify consequential contracts
+   that choice matters. Include material conditions and limitations, evidence strength, and precise
+   references to the relevant overview section, primary documentation or tagged source. Overviews orient discovery; qualify consequential contracts
    through the repository's research routes. Distinguish a selected mechanism from a candidate,
    illustrative example or unresolved feasibility question. Keep this account with the
    recommendation so planning can carry it forward without repeating broad capability discovery.

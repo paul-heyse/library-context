@@ -162,10 +162,10 @@ Ordinary verification never creates a scratch fallback. The lifecycle coordinato
 ### Library documentation
 
 Available [library overviews](docs/libraries/README.md) offer optional first-pass awareness of
-functional and advanced capabilities. They are orientation, not current-version API qualification.
+functional and advanced capabilities.
 Context7 is the first documentation lookup, followed by primary documentation, GitHub or installed
-sources when consequential details remain. Check applicability against the relevant lockfile and
-source acquisition owner. An absent overview or empty search is not evidence a capability is absent.
+sources when consequential details remain. An absent overview or empty search is not evidence a
+capability is absent.
 
 [Central library-skill references](.claude/skills/README.md#inactive-central-library-skill-references)
 remain inactive historical context: no selection, synchronization, discovery or required reading.

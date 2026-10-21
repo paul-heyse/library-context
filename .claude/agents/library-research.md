@@ -1,6 +1,6 @@
 ---
 name: library-research
-description: "Resolve library capabilities and versioned contracts from skills, documentation and source."
+description: "Resolve library capabilities and contracts from skills, documentation and source."
 model: opus
 effort: high
 ---

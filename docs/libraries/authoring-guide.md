@@ -1,7 +1,7 @@
 # Generating comprehensive library overviews
 
 Use this brief when asking ChatGPT or another research-capable author to generate a library
-capability overview. Supply the library and desired version scope in the request. The instructions
+capability overview. Supply the library and desired research scope in the request. The instructions
 are reusable across libraries; adapt the organization to the subject rather than treating the
 suggested content as a fixed template or assessment checklist.
 
@@ -41,7 +41,7 @@ map. Express that emphasis in terms of problems, workloads or features rather th
 recommendations. Explain related packages and ecosystem integrations through their actual boundaries:
 which capability belongs to this library, a companion package, an underlying engine or another service.
 
-## Research, versions and evidence
+## Research scope and evidence
 
 Research current primary sources rather than relying on remembered functionality. Use Context7
 where available as the first documentation lookup, then read the relevant official documentation,
@@ -49,15 +49,10 @@ release notes, tagged upstream source or tests as needed. When Context7 is unava
 primary sources directly. Use issue discussions for specific unresolved behavior with their
 status and limits visible; announcements alone may not establish a usable API.
 
-Honor an explicitly requested version. Otherwise, establish the current stable release from
-primary sources and state the research date and target version near the beginning. Separate
+Follow the requested research scope and state the research date near the beginning. Separate
 released behavior from development-branch, experimental, deprecated or planned functionality.
-Check that mutable documentation actually describes the stated version; prefer version-specific
-pages or tagged sources where a consequential claim depends on that distinction.
 
-Distinguish package, engine, model/checkpoint, protocol and companion-package versions when they
-are separate concepts. Explain consequential optional extras, build options, platform requirements
-or dependencies where they change availability. Describe these conditions without asserting a
+Explain consequential optional extras, build options, platform requirements or dependencies where they change availability. Describe these conditions without asserting a
 reader's installed environment.
 
 Connect substantial capability claims to sources that support them. Distinguish documented
@@ -121,7 +116,7 @@ a compact cross-cutting discussion can address interactions that would otherwise
 
 ## Make the overview easy to use
 
-Give the overview a clear library/version title, research date, skimmable orientation, coherent
+Give the overview a clear library title, research date, skimmable orientation, coherent
 capability discussions, and discoverable sources. Use headings, prose,
 compact tables and occasional diagrams or examples where they improve understanding. Adapt the
 shape to the library; no fixed number of sections, features or words is required.
@@ -137,8 +132,8 @@ or source-card fragments.
 
 Before delivering, reconsider whether the document gives a reader a broad mental model, useful
 awareness of advanced capabilities, meaningful conditions for investigating them, and reliable
-routes into deeper detail. Correct unsupported claims, ambiguous version transfers and accidental
-repository-specific assumptions. Preserve genuine uncertainty rather than filling gaps with
+routes into deeper detail. Correct unsupported claims and accidental repository-specific
+assumptions. Preserve genuine uncertainty rather than filling gaps with
 plausible-sounding functionality. This is an editorial judgment, not a required scoring matrix,
 probe campaign or new verification artifact.
 
@@ -148,7 +143,7 @@ probe campaign or new verification artifact.
 >
 > Library: [name and official project URL].
 >
-> Version scope: [explicit version, or current stable release verified during research].
+> Research scope: [requested capabilities or release scope, if any].
 >
 > Optional technical emphasis: [general capabilities or problem families deserving additional depth].
 >
