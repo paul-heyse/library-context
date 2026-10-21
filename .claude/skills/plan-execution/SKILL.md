@@ -69,6 +69,11 @@ behavior and completion boundaries; the architectural owner supplies applicable 
 a review finding can explain a diagnosis, failure scenario or consequential rationale; current
 code and checkpoints establish the actual baseline.
 
+Carry relevant selected library mechanisms and their source pointers into assignments through
+the owning plan sections, explaining which guarantee or advantage depends on them. Give workers
+the preserved discovery leads and material limits, distinguishing settled choices from candidates
+or feasibility questions; broad rediscovery should not be necessary to recover the intended target.
+
 Briefly explain why a reference matters rather than transferring the whole reading burden.
 Preserve enough reasoning for the worker to recognize a locally attractive choice that would
 undermine the combined target. A historical review's suggested remedy is not automatically

@@ -45,6 +45,12 @@ Preservation, retirement, migration and failure/recovery behavior can carry cons
 that happy-path controls miss. Use these as investigative leads, not required findings or an
 exhaustive flow-tracing exercise.
 
+Where accepted scope depends on a concrete library mechanism, assess whether its intended
+guarantees, composition and material advantages reach the actual consumers, or whether a justified
+replacement delivers the accepted target. Follow the plan's capability references when needed;
+API-name presence alone cannot establish delivery. Distinguish a consequential capability dropped
+during implementation from a legitimate local API adjustment or authorized design change.
+
 Separate three questions in the conclusion:
 
 - **Implementation:** does the actual system deliver the claimed functional scope, including

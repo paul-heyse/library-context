@@ -129,6 +129,17 @@ question about ownership, behavior or change remains unresolved; no complete flo
    skill references and old utilization entries, where available, are optional historical leads;
    neither implies current qualification, required adoption or catalog maintenance.
 
+   **Preserve enabling mechanisms.** In any review focus, when a recommendation materially
+   depends on library functionality, name the concrete capabilities and recognizable API names,
+   explain how they compose to realize the intended responsibility or guarantee, and preserve why
+   that choice matters. Include material conditions and limitations, applicable version and
+   evidence strength, and precise references to the relevant overview section, primary
+   documentation or tagged source. Overviews orient discovery; qualify consequential contracts
+   through the repository's research routes. Distinguish a selected mechanism from a candidate,
+   illustrative example or unresolved feasibility question. Keep this account with the
+   recommendation so planning can carry it forward without repeating broad capability discovery.
+   Scale detail to the dependency; ordinary API usage needs no inventory or fixed format.
+
 5. **Independent judgments.** Settle A1–A4 from scenario evidence, G1–G8 and profile gates from
    their own evidence, and applicable foundation/supporting-rule verdicts. A2 requires both an
    adequate domain model and behavior governed by its authorities. A4 needs a qualitative assessment of a credible execution

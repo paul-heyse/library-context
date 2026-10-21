@@ -47,6 +47,13 @@ obligations as part of delivering the target. Follow the repository's overview, 
 primary-source research routes when library behavior matters. A completed assignment does not by itself
 establish accepted integrated scope.
 
+Start library work from the plan's recorded mechanisms and precise references, preserving their
+intended composition, guarantees and advantages. Reassess details when the actual version or
+integration premises differ. A consequential substitution needs a reasoned account of how it
+preserves the target or changes it, with the owning plan and affected assignments reconciled
+through existing decision and authorization routes. Routine API adjustments remain implementation
+judgment; avoid silently replacing an enabling capability with weaker behavior or bespoke machinery.
+
 Follow the binding's
 [review cadence](../../../docs/design_review/design_principles/binding/library-context.md#reviews-in-this-repository).
 Routine execution does not repeat the plan's foundation assessment or initiate recurring

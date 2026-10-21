@@ -49,3 +49,8 @@ implemented and supported by the appropriate evidence.
 
 For documentation work, record focused docs checks separately from product qualification and remote
 CI. Link the current plan; navigation and search selection must not become another progress list.
+
+When next work depends on selected library mechanisms, link the owning plan sections that retain
+their concrete functionality, rationale and source references. Before retiring a plan, carry
+enduring mechanism choices and material limitations into the established architectural owner.
+Keep repository-specific adoption rationale there; reusable library overviews remain repo-agnostic.

@@ -16,6 +16,11 @@ with source/version references and implications for the actual consumer. An empt
 proof of absence. The coordinator decides adoption and architecture; overview or catalog presence
 does not impose a choice or a refresh obligation.
 
+For consequential design inputs, name the concrete features and recognizable API names, how they
+compose for the consumer, why that route matters, and material conditions or limits. Supply precise
+topic-level sources and applicable versions, with evidence strength and unresolved feasibility
+clear, so the coordinator can preserve the mechanism in the review or plan without rediscovery.
+
 **Permitted writes.** Within the coordinator's brief, write only assigned new dated topic folders
 with their README under the library-evidence locations AGENTS.md names, and scratch outside the
 repository. The central library-skill store is outside this role's write scope. Never edit production

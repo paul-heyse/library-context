@@ -39,6 +39,12 @@ first review's citations and conclusions are leads, not independent corroboratio
 reasoning may suffice. Library research follows the repository's overview, Context7 and primary
 source routes at the applicable versions; probes are useful when they settle a real uncertainty.
 
+Reassess concrete library mechanisms on which recommendations depend, including their composed
+semantics, version applicability and material limits. Preserve retained or corrected mechanisms,
+their design role and precise source references in the integrated review; explain consequential
+replacements in the companion. Keep candidates and unresolved feasibility distinguishable from
+the resulting selected direction, so synthesis does not erase the enabling functionality.
+
 Distinguish a diagnosis from its remedy. A real defect may have a poor correction; an appealing
 mechanism may answer the wrong problem. Consider whether the proposed responsibility boundary
 preserves meaning and useful guarantees, whether a simpler or more capable alternative serves

@@ -86,6 +86,13 @@ This paragraph supplies ownership, dataflow, failure behavior, consumer migratio
 behavioral difference. It leaves the local representation and function layout to the implementer.
 Add the context-sensitive details the actual operation needs; no fixed paragraph pattern is required.
 
+When library functionality enables the target, connect its concrete mechanisms to this same
+explanation: the recognizable API or feature names, what their composition supplies, why it was
+chosen, and material conditions or limits at the applicable version. Link the relevant overview
+section or precise primary source. For example, a bulk operation's semantics and transaction
+boundary may be central to the target; saying only "use the library for persistence" loses that
+decision. Keep selected mechanisms distinguishable from candidates and illustrative sketches.
+
 A revealing example can sharpen acceptance:
 
 > Two entry points resolving the same request in the same context produce equivalent admitted
