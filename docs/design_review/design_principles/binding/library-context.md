@@ -65,6 +65,16 @@ initiate a broad principle audit or formal review. Principle audits do not autom
 remediation. Process discussion and edits to this workflow do not require an audit/review artifact.
 The initial audit and detailed library overviews remain separately scoped work.
 
+## Functional capability exploration
+
+Use [functional-extension-review](../../../../.claude/skills/functional-extension-review/SKILL.md)
+and its preparation companion for deliberate functional enhancement within the operator's chosen
+outcome, workflow, subsystem or ecosystem. The [functional collection](../../../functional_reviews/README.md)
+owns output and recommendation-audit conventions. These reviews assess useful capabilities and
+their realization without a diagnostic audit prerequisite or required principle violation.
+The diagnostic design-review cadence below remains distinct. Selected opportunities enter the
+existing planning and decision routes; a review does not itself approve scope or implementation.
+
 ## Reviews in this repository
 
 - **Focus:** the operator selects holistic/unconstrained, library-targeted, principle-focused

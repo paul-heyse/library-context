@@ -42,7 +42,7 @@ include = ["docs/design_review/design_principles/**/*.md"]
 scope = "Current"
 [[collections]]
 title = "Reviews"
-include = ["docs/design_review/reviews/**/*.md"]
+include = ["docs/design_review/reviews/**/*.md", "docs/functional_reviews/**/*.md"]
 scope = "Reference"
 [[collections]]
 title = "Evidence"
@@ -50,7 +50,7 @@ include = ["docs/design_review/evidence/**/README.md"]
 scope = "Reference"
 [[collections]]
 title = "Process"
-include = [".claude/skills/README.md", ".agents/roles/*.md", ".claude/skills/adr/*.md", ".claude/skills/design-principle-audit/**/*.md", ".claude/skills/design-review-audit/*.md", ".claude/skills/plan-completion-audit/*.md", ".claude/skills/plan-design-review/*.md", ".claude/skills/plan-creation/*.md", ".claude/skills/create-plan/**/*.md", ".claude/skills/plan-execution/*.md", ".claude/skills/execute-plan/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/plan-test-review/*.md", ".claude/skills/execute-test-review/**/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
+include = [".claude/skills/README.md", ".agents/roles/*.md", ".claude/skills/adr/*.md", ".claude/skills/design-principle-audit/**/*.md", ".claude/skills/design-review-audit/*.md", ".claude/skills/plan-completion-audit/*.md", ".claude/skills/plan-design-review/*.md", ".claude/skills/functional-extension-review/*.md", ".claude/skills/plan-functional-extension-review/*.md", ".claude/skills/plan-creation/*.md", ".claude/skills/create-plan/**/*.md", ".claude/skills/plan-execution/*.md", ".claude/skills/execute-plan/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/plan-test-review/*.md", ".claude/skills/execute-test-review/**/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
 scope = "Current"
 [[collections]]
 title = "Libraries"

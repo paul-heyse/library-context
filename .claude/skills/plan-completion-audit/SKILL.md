@@ -28,6 +28,11 @@ retirement requirements and affected consumers. A narrative obligation does not 
 because it was omitted from the package checklist. Conversely, a review's illustrative remedy is
 not an accepted obligation merely because it was mentioned before planning.
 
+For accepted scope from functional-extension reviews, recover the selected opportunity's useful
+behavior and intended product, developer, operator or research workflow. A tool being installed
+or an API existing alone does not establish that the proposed capability is usable through its
+intended route. Judge the selected scope without turning unselected opportunities into obligations.
+
 Use current architectural owners and the plan's source references to understand the intended
 contracts. Judge completion against the accepted plan, including authorized amendments; distinguish
 new improvement opportunities from unfinished scope. An authorized exclusion or deferral may

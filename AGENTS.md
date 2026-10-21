@@ -214,9 +214,16 @@ It is not a validation of the existing test scope. Long journeys, whole families
 - **Design principle audits** use `design-principle-audit` before a new design-review engagement;
   the [living account](docs/design_review/audit/README.md) holds baseline diagnosis and the binding
   owns freshness. Ordinary implementation and the separate test-review workflow do not initiate it.
+- **Functional enhancement reviews** use `plan-functional-extension-review` / `functional-extension-review`
+  to explore useful product, developer, operator or research capabilities within the operator's
+  chosen scope. Publish [opportunity reviews](docs/functional_reviews/README.md); no diagnostic audit
+  or principle violation is required. Design principles shape proposed realizations. Selected
+  opportunities proceed through the existing plan workflow without automatic scope approval.
 - **Recommendation audits** use `design-review-audit` at requested or explicitly planned boundaries:
   publish a [net-change companion](docs/design_review/reviews/audits/README.md) and revise the principal
   review in place, preserving its exact input in Git and attributing the new judgment.
+  Functional reviews preserve their value/opportunity lens and use their
+  [companion route](docs/functional_reviews/audits/README.md), without a diagnostic audit prerequisite.
 - **Completion audits** use `plan-completion-audit` for scope claimed complete; update the same
   owning plan's conclusion, package state, findings and next work. Separate implementation,
   qualification and benefit claims. These audits are not recurring per-slice gates or repair authorization.

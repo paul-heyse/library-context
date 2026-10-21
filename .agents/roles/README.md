@@ -87,13 +87,16 @@ can resolve the uncertainty directly. A configuration edit does not change an al
 | Recommendation audit | A fresh design reviewer returns net changes and the complete integrated review for coordinator publication |
 | Plan-completion audit | A read-only implementation reviewer inspects accepted scope and returns corrections to the same owning plan |
 | Review planning and design review | Mappers and library researchers establish evidence; a fresh design reviewer forms the architectural judgment |
+| Functional-extension review preparation and review | A reviewer explores useful capabilities within the operator's chosen scope and compares realizations; no diagnostic audit prerequisite |
 | Test-review planning and execution | Code and library investigation, functional diagnosis and independent design judgment inform one integrated causal assessment |
 | Plan preparation and creation | Evidence workers inform options and the integral foundation assessment; focused design advice addresses consequential questions; one author assembles the document |
 | Execution planning and execution | The coordinator orders ready packages; executors implement; implementation reviewers and test agents assess stable work; design review follows the binding's cadence |
 
 The [process skills](../../.claude/skills/README.md) own each workflow. Planning companions produce
 an adaptable conversational approach and can use the available planning interface. Skills do not
-switch the runtime into Plan mode. No extra planning artifact or hook is required.
+switch the runtime into Plan mode. A broad audit precedes a new diagnostic design-review engagement;
+functional-extension review, ordinary implementation and focused plan advice do not initiate it.
+No extra planning artifact or hook is required.
 
 Configuration references, consulted 2026-10-14:
 [Codex custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents) and

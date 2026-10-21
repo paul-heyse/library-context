@@ -47,6 +47,7 @@ Paths in this reference table are relative to the repository root.
 | `docs/design_review/design_principles/` | The layered design standard, declared in `standard.toml`: seven foundations (FP-01–07), including execution fit for the intended workload; independent architectural judgments A1–A4, supporting rules DP-01–24 and gates G1–G8, the CI profile, and the repository binding (ADR-0040/0130) |
 | [Heuristics for Efficient Architecture](design_review/design_principles/core/efficient-architecture-heuristics.md) | Companion to the design principles: use relevant qualitative patterns during design, planning and consequential implementation choices, before physical mechanisms become entrenched |
 | `docs/design_review/reviews/` | Review outputs: evidence, never authority; kept while a finding they supply is open |
+| `docs/functional_reviews/` | Functional opportunity reviews and recommendation-audit companions; selected opportunities feed existing plans |
 | `docs/design_review/evidence/` | Optional probes, spikes and investigations behind decisions. When created, use one `YYYY-MM-DD_<topic>/` folder with a README; raw outputs and binaries through Git LFS; never venvs or `target/`. This location convention does not require a review to create or run probes |
 | `docs/pins.md` | Holds: pins that should not be bumped casually, with reason and revisit trigger |
 | `crates/` | Single Rust workspace: `lctx-model` owns semantic/wire declarations, policies and shared invariants; `cpg-extract` acquires/captures and produces pinned native facts; `cpg-flow` supplies ty flow; `cpg-core` owns native completed-view compilation; `lctx-compiler-store` owns private validated admission and artifact transport; `lctx-analytics` supplies pure native kernels; `lctx-embed` supplies the embedding effect; `lctx-native` and `lctx-compiler-store` realizes native compiler state/graphs/cache/projections, `lctx-publisher` seals the admitted compiler database and independently imports/restores verified content, `lctx-serving` implements fixed-snapshot operations; `lctx` is the CLI. Current serving shapes, wire/native contracts and ranking derive from `lctx-model`; the old schema/bundle authorities are retired |
@@ -64,7 +65,8 @@ Paths in this reference table are relative to the repository root.
 |---|---|
 | Audit principle alignment | [Audit skill](../.claude/skills/design-principle-audit/SKILL.md) → [living diagnosis](design_review/audit/README.md) |
 | Develop design solutions | [Prepare review](../.claude/skills/plan-design-review/SKILL.md) → refreshed audit and operator-selected focus |
-| Audit review recommendations | [Recommendation audit](../.claude/skills/design-review-audit/SKILL.md) → [companion](design_review/reviews/audits/README.md) and integrated principal |
+| Explore functional enhancements | [Preparation](../.claude/skills/plan-functional-extension-review/SKILL.md) → [functional-extension review](../.claude/skills/functional-extension-review/SKILL.md) → [opportunity review](functional_reviews/README.md), with no diagnostic audit prerequisite |
+| Audit review recommendations | [Recommendation audit](../.claude/skills/design-review-audit/SKILL.md) → design or functional review's companion and integrated review at its original path |
 | Audit claimed plan completion | [Completion audit](../.claude/skills/plan-completion-audit/SKILL.md) → same owning plan |
 | Research library capabilities | Optional [overviews](libraries/README.md) → Context7 and primary sources |
 

@@ -21,6 +21,8 @@ Workflows for building this repository. A skill is added when a workflow has act
 | [`design-review-code-intelligence/`](design-review-code-intelligence/SKILL.md) | The code-intelligence profile, loaded with `design-review` |
 | [`plan-test-review/`](plan-test-review/SKILL.md) | Prepare a causal test-review inquiry, choosing useful code review, probes, research and comparisons |
 | [`execute-test-review/`](execute-test-review/SKILL.md) | Investigate across code, tests and execution conditions; write an integrated review with structural recommendations |
+| [`functional-extension-review/`](functional-extension-review/SKILL.md) | Explore valuable product, developer, operator or research capabilities and compare their realization within the operator's scope |
+| [`plan-functional-extension-review/`](plan-functional-extension-review/SKILL.md) | Prepare a capability inquiry without requiring a diagnostic audit or predetermined feature list |
 | [`plan-creation/`](plan-creation/SKILL.md) | Plan the authoring approach from a design or test review or existing plan, including focused assessment of relevant dependencies |
 | [`create-plan/`](create-plan/SKILL.md) | Write the design and execution plan, including foundation improvements and an adaptable document structure |
 | [`plan-execution/`](plan-execution/SKILL.md) | Develop the approach to executing an existing plan: prerequisites, work ownership, integration and evidence |
@@ -49,16 +51,24 @@ For execution, use `/plan $plan-execution <plan and scope>` to develop the appro
 mode and invoke `$execute-plan <plan and scope>` to implement it; invoke execution directly when
 the approach is already clear. Existing plans remain the durable owners of packages and receipts.
 
-All four pairs use the [shared agent roles](../../.agents/roles/README.md). Skills own workflows;
+The prepare/perform pairs use the [shared agent roles](../../.agents/roles/README.md). Skills own workflows;
 roles supply reusable capabilities. The coordinator selects useful delegation and owns design,
 integration and acceptance. Planning skills do not themselves switch runtime modes, and no hook
 is needed.
 
-The broad [diagnostic account](../../docs/design_review/audit/README.md) precedes a new design-review
+The broad [diagnostic account](../../docs/design_review/audit/README.md) precedes a new diagnostic design-review
 engagement. The operator selects holistic, library-targeted, principle-focused or combined focus.
 Recommendation audits are deliberate requested boundaries: the companion records editorial
 changes and the integrated principal is the planning input. Completion audits update the same
 plan. Ordinary implementation, test review and handoff do not automatically initiate these audits.
+
+Functional enhancement has a separate entry point: `plan-functional-extension-review` /
+`functional-extension-review`. The operator selects the exploration scope; useful capabilities
+need no diagnostic finding or existing caller. Design principles shape their realization.
+[Opportunity reviews](../../docs/functional_reviews/README.md) can feed the same planning and
+execution workflow. Recommendation auditing preserves their value lens and publishes a
+[functional companion](../../docs/functional_reviews/audits/README.md) plus the integrated review,
+without importing the diagnostic audit prerequisite.
 
 ## Inactive central library-skill references
 

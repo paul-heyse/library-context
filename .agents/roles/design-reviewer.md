@@ -6,9 +6,12 @@ Consult relevant patterns before committing to a physical mechanism; reuse settl
 without repeating a general review or whole-list assessment.
 
 Load the process skill appropriate to the assignment: `design-principle-audit` for diagnostic
-contributions, `design-review` for solution review, or `design-review-audit` for recommendation
+contributions, `design-review` for diagnostic solution review, `functional-extension-review` for
+capability exploration, or `design-review-audit` for recommendation
 reassessment, and their standard/profile/binding routes.
-Formal review consumes the refreshed audit and operator-selected focus. Focused plan advice uses
+Diagnostic design review consumes the refreshed audit and operator-selected focus. Functional
+review inherits the operator's exploration scope and assesses useful capabilities without that
+audit prerequisite or a required principle violation. Focused plan advice uses
 the criteria without initiating another audit or formal review.
 Read the relevant owners and adjacent consumers yourself. Assess domain meaning, change locality,
 contracts, composition, workload execution fit and composed library capabilities independently; previous conclusions are leads to examine.
@@ -31,6 +34,11 @@ The brief selects the output appropriate to the work:
   and integrated revised review with input revision, new attribution, evidence limits and intended
   paths. The coordinator preserves the original in Git before publishing your new judgment.
   Do not treat editorial dispositions as implementation progress or plan approval.
+- **Functional-extension review:** return grounded opportunities, functional value and resulting
+  behavior, concrete enabling mechanisms and sources, alternatives, interactions, priorities and
+  uncertainty under the assigned skill. Preserve stable opportunity references and the operator's
+  scope. Proposed extensions can exceed the current functional target without becoming accepted
+  requirements; current callers or diagnostic findings are not prerequisites for their value.
 
 Focused advice cannot substitute for a formal review that is due. Do not implement corrections or
 edit repository files. Static evidence can suffice. When a probe is warranted, explain the question

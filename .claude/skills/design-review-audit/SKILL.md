@@ -1,9 +1,9 @@
 ---
 name: design-review-audit
-description: Independently reassess a completed design review's recommendations and omissions, publish their dispositions and net changes, and integrate a revised review for subsequent planning. Use for a requested recommendation audit, not ordinary implementation review.
+description: Independently reassess a completed design or functional-extension review's recommendations and omissions, publish dispositions and net changes, and integrate a revised review for planning. Preserve the source review's diagnostic or functional-value lens. Use for a requested recommendation audit, not ordinary implementation review.
 ---
 
-# Audit a design review
+# Audit review recommendations
 
 Improve the recommendations and the combined design of an existing review. Account for every
 original recommendation, identify valuable omissions within its focus, and leave a coherent
@@ -16,21 +16,27 @@ disagreement or a quota of changes.
 
 ## Establish the basis
 
-Identify the principal review, its supporting material and the exact input revision. Inherit
-the operator's holistic, library-targeted, principle-focused or combined focus; an audit is not
-an occasion to choose a different focus for the operator. Clarify a materially ambiguous scope.
+Identify the principal review, its kind, supporting material and exact input revision. Inherit
+the operator's selected scope; an audit is not an occasion to choose a different focus for them.
+For design reviews, retain the holistic, library-targeted, principle-focused or combined focus.
+For functional reviews, retain the selected outcome, workflow, subsystem or ecosystem.
+Clarify a materially ambiguous scope.
 Record the reviewed source state, applicable standard and changes since the original assessment.
 Distinguish changed circumstances from errors or missed opportunities in the original review.
 
-Load [design-review](../design-review/SKILL.md) as assessment criteria and follow its routes to
-the standard, profiles, functional target and repository binding. Apply the same independent
-architectural and correctness/fidelity judgments. Existing rules describe the current design;
-recommendations can challenge them and report their rule impacts through the existing route.
+For a **design review**, load [design-review](../design-review/SKILL.md) as assessment criteria
+and follow its standard, profile, target and binding routes. Apply its independent architectural
+and correctness/fidelity judgments. Normally continue the engagement using its still-applicable
+diagnostic audit; reconcile intervening changes. A new design-review engagement follows the
+binding's freshness rule. Loading assessment criteria alone does not start another broad audit.
 
-This normally continues the same review engagement. Reuse its diagnostic audit while the
-baseline remains applicable; reconcile intervening changes and material evidence gaps. Loading
-review criteria here does not itself start another broad design-principle audit. If the work
-has become a new engagement, use the binding's freshness rule and make that boundary explicit.
+For a **functional-extension review**, load
+[functional-extension-review](../functional-extension-review/SKILL.md) and its standard routes.
+Reassess functional value, proposed scope, realization and valuable omissions as well as design
+quality. Current capabilities and intended direction ground the opportunity; a principle violation,
+current caller or diagnostic audit is not required. Do not import the diagnostic review's audit
+prerequisite or full report-slot structure. Existing rules describe current design in either route;
+recommendations can identify rule impacts through the existing decision process.
 
 ## Reconsider the recommendations
 
@@ -63,11 +69,22 @@ mechanism would serve it better; correct faulty premises or scope; omit an unjus
 Leave a consequential unresolved choice visible with the evidence or decision that would settle
 it. Omitting a remedy does not by itself dispose of its still-valid diagnosis.
 
+For functional proposals, distinguish the opportunity from its realization. A valuable capability
+can have a poor implementation direction, while an elegant mechanism can enable little useful
+behavior. Challenge the proposed consumer, benefit assumptions, prerequisites, integration and
+ongoing operation; identify overlooked capabilities and composed opportunities within the chosen
+scope. Hypothetical demand remains a hypothesis without making an existing caller a requirement.
+Retain or improve valuable proposals without inventing a diagnostic defect to justify them.
+
 ## Publish two complementary outputs
 
-The [binding](../../../docs/design_review/design_principles/binding/library-context.md#design-review-recommendation-audit)
-owns locations; the [audit-output guide](../../../docs/design_review/reviews/audits/README.md)
-describes the companion convention. Use flexible Markdown at the depth the reasoning needs.
+For design reviews, the
+[binding](../../../docs/design_review/design_principles/binding/library-context.md#design-review-recommendation-audit)
+owns locations and the [audit-output guide](../../../docs/design_review/reviews/audits/README.md)
+describes companions. Functional reviews use the
+[functional collection](../../../docs/functional_reviews/README.md#recommendation-audits) and its
+[companion guide](../../../docs/functional_reviews/audits/README.md). Use flexible Markdown at
+the depth the reasoning needs.
 
 **Companion net changes.** Identify the exact original review revision, source/standard baselines,
 audit date and coverage limits. Account for every original recommendation with a disposition:
@@ -80,12 +97,14 @@ exist. Preserve correspondence across combined, split or replaced remedies witho
 
 **Integrated principal review.** Update the original review path with the complete resulting
 argument, findings, recommendations and evidence limits. Reconcile the synthesis, alternatives,
-dependencies, A1–A4, gates, overall decision and rule impacts with the revised design. The
+dependencies, applicable architectural/fidelity judgments, overall recommendation and rule impacts
+with the revised proposal. Design reviews retain their A1–A4 and gate account; functional reviews
+retain the value argument, opportunities and priorities without adopting the full design template. The
 principal review should explain that design directly; the companion owns judgments of the first
 round. Briefly attribute the revised judgment, its date and input revision and link the companion.
 Do not imply that the original reviewer authored or agreed with the new judgment.
 
-Preserve stable diagnostic/source finding IDs and rule-impact IDs; new items use the existing
+Preserve stable opportunity, diagnostic/source finding and rule-impact IDs; new items use the existing
 convention without reusing removed identities. Preserve original dated receipts and strength
 labels rather than promoting them to current passes. If an omitted remedy leaves a finding open,
 keep its consequence and next decision discoverable in the integrated review.

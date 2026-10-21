@@ -11,6 +11,11 @@ evidence status near the beginning. Explain which document owns architecture, se
 finding disposition where those responsibilities are split. An approved design remains distinct
 from implemented or verified behavior.
 
+For functional-review inputs, preserve selected opportunity references, the value argument and
+the resulting behavior as well as enabling mechanisms. Explain which proposed extensions enter
+the plan and which remain unscheduled at the source review. Opportunities need no diagnostic
+finding; the existing plan owns their scheduled disposition and acceptance alongside other scope.
+
 | Part | What it establishes |
 |---|---|
 | Purpose, scope and basis | Intended outcome, completion boundary, reference material, governing architecture and credible changes the target should accommodate |

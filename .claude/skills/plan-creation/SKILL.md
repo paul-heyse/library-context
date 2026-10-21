@@ -1,6 +1,6 @@
 ---
 name: plan-creation
-description: Plan how to create an implementation-plan document from a design or test review or existing plan, including the investigations and design questions that matter.
+description: Plan how to create an implementation-plan document from a design, test or functional-extension review, or an existing plan, including the investigations and design questions that matter.
 ---
 
 # Plan the creation of a plan
@@ -12,7 +12,7 @@ target and document structure responsive to what is learned.
 
 Load [create-plan](../create-plan/SKILL.md) for the authoring contract and follow its routes
 to the applicable design-review skills, principles and repository binding. Identify the
-reference review (design or test review) or existing plan and explore enough current code and
+reference review or existing plan and explore enough current code and
 architectural context to make the approach specific. The considerations below guide attention,
 not required stages or an exhaustive investigation sequence.
 
@@ -26,6 +26,11 @@ When a recommendation audit has revised the source review, use its integrated pr
 planning input and record the consumed revision. Consult the net-change companion for a material
 rationale or unresolved issue; it is not a second set of recommendations to reconcile. Do not
 silently expand an accepted plan because a newer review proposes a different target.
+
+A functional-extension review supplies opportunities and a functional-value argument alongside
+design proposals. Identify which opportunities are selected for planning and preserve their
+references and enabling mechanisms. No diagnostic audit is needed for this input; preparation
+still identifies consequential foundation and integration questions under create-plan.
 
 ## Separate obligations from open design choices
 

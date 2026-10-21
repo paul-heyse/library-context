@@ -1,6 +1,6 @@
 ---
 name: create-plan
-description: Create or revise an implementation plan from a design or test review or existing plan, grounded in current code and the applicable design standard.
+description: Create or revise an implementation plan from a design, test or functional-extension review, or an existing plan, grounded in current code and the applicable design standard.
 ---
 
 # Create a plan
@@ -8,7 +8,7 @@ description: Create or revise an implementation plan from a design or test revie
 Develop a plan that gives an intelligent implementer a coherent understanding of the intended
 system, the reasoning behind its boundaries, and a credible path from the current state to
 completion. Explain consequential choices and leave room for implementation judgment.
-Use the supplied design review, test review or existing plan as the starting reference. When the
+Use the supplied review or existing plan as the starting reference. When the
 reference is implicit, resolve it from the conversation and current repository context; ask only
 when the ambiguity would materially change the work.
 
@@ -29,6 +29,15 @@ consume the integrated principal and identify its revision. The companion explai
 recommendations and unresolved choices; it is not another progress ledger or a competing target.
 An audited recommendation remains a proposal, including its rule impacts. Existing accepted
 plans retain their scope until a change is authorized.
+
+A [functional-extension review](../functional-extension-review/SKILL.md) is also a planning
+input. Carry selected opportunities, their value argument, intended behavior and concrete enabling
+mechanisms into the target and relevant packages, preserving source references such as `O01`.
+Distinguish selection from mere mention; an illustrative opportunity is not an accepted obligation.
+Use the same owning plan for scheduled disposition without relabeling opportunities as defects.
+Functional-review inputs require no broad diagnostic audit; the focused foundation assessment below
+still applies. The plan makes proposed functional-target and rule changes explicit through existing
+authorization routes rather than treating the source review as approval.
 
 ## Assess the foundations the plan will use
 
