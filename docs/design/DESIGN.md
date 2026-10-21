@@ -192,8 +192,8 @@ testing roles. Shared responsibilities and permitted effects live in [agent role
 native definitions supply role instructions and effort. Codex roles inherit the operator-selected
 model without project/default/role model pins; Claude allocations remain unchanged. Parent
 permissions and the shared contracts bound effects; role definitions cannot override them.
-`library-research` may write the evidence locations AGENTS.md names and an assigned shared library
-skill; the other evidence roles are read-only (ADR-0113). Paired process skills prepare and carry
+`library-research` may write assigned evidence folders, not central library sources; the other
+evidence roles are read-only. Paired process skills prepare and carry
 out reviews, plan creation and execution. Plan creation includes focused assessment of the existing
 foundations it will use. Delegation is selective: independent coverage, context isolation, capability or judgment must
 justify coordination cost. Worker startup follows the brief and relevant authorities; concrete
@@ -203,7 +203,21 @@ overrides remain available. Fresh parent and delegated-role metadata confirmed i
 `gpt-6.1-sol`; existing threads are not configuration evidence. Task activation starts idle workers;
 messages convey context. Resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0178, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0162, ADR-0040, ADR-0126, ADR-0171, ADR-0113, ADR-0134
+**Audit-led workflow — Implemented guidance, 2026-10-20 (ADR-0193).** A broad
+[diagnostic audit](../design_review/audit/README.md) is refreshed before a new design-review
+engagement; the operator selects holistic, library-targeted, principle-focused or combined focus.
+Requested recommendation audits publish net changes and a newly attributed integrated principal
+review, preserving the input in Git. Completion audits reconcile the same owning plan's accepted
+scope and current claims, separating implementation, qualification and benefit evidence. These
+are deliberate boundaries, not per-slice gates. The binding owns freshness and routes; plans
+retain scheduled disposition. The separate test-review workflow remains unchanged and does not
+automatically initiate these audits. [Library overviews](../libraries/README.md) offer optional
+repository-agnostic capability orientation followed by Context7 and primary sources. Central
+library references remain inactive; selection/synchronization/discovery links are retired.
+FastMCP's gold reference remains evaluation-only and reads central source data directly through
+`scripts/gold_reference.py`, with no discovery, synchronization or compiler input.
+
+> Decision: ADR-0193, ADR-0178, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0162, ADR-0040, ADR-0126, ADR-0171, ADR-0113, ADR-0134
 
 <a id="section-1-3"></a>
 
@@ -236,7 +250,7 @@ messages convey context. Resource savings and broader workflow effectiveness rem
 **accepted** (ADR-0071, ADR-0117).
 
 - **Library.** FastMCP **4.0.5**, acquired as `libraries/fastmcp`
-  ([§4.0](sections/acquisition-and-extraction.md#section-4-0)) with the `fastmcp` skill's install
+  ([§4.0](sections/acquisition-and-extraction.md#section-4-0)) with the retained central FastMCP reference install
   line, `fastmcp[anthropic,openai,gemini,azure,apps,code-mode,tasks]==4.0.5`. The release is three
   distributions: the facade `fastmcp`, `fastmcp-slim` (the code) and `fastmcp-tasks`. `mcp` and
   `mcp-types` are dependency context, resolved but outside the analyzed boundary.
@@ -245,13 +259,13 @@ messages convey context. Resource savings and broader workflow effectiveness rem
   of `content_digest`. It scopes brief seeds and seed passes only. The behavioral model's universe
   is `public_paths` under the config's public roots (1,534 declarations on the pilot, Measured
   2026-09-24), and its scan follows parameters into any release function.
-- **Gold reference.** The skill's reviewed capability families are used **only to evaluate**
+- **Gold reference.** The retained central reviewed capability families are used **only to evaluate**
   ([§12](sections/validation-and-evaluation.md#section-12)). Nothing under `.claude/skills/` is
-  ever a compiler input: acquisition fetches its own pinned artifacts even when identical bytes
-  exist in a skill cache. Gold scores are a record of brief retrieval; techniques are judged by
+  ever a compiler input; neither is the central evaluation-data store. Acquisition fetches its own
+  pinned artifacts even when identical bytes exist in the reference cache. Gold scores are a record of brief retrieval; techniques are judged by
   the structured evaluation (§9.8), and the gold never tunes parameters.
 - **One version.** `scripts/check_gold.py` (`just gold`, the applicable evaluation-policy leaf) fails when the
-  skill's install line or resolved release versions differ from `libraries/fastmcp`.
+  central reference install line or resolved release versions differ from `libraries/fastmcp`.
 - **Freezes.** The analytics config, the analytics and selection parameters in code and the
   variant policies are frozen by digest in `eval/gold/analytics-freeze.json`; `just gold` fails on
   an edit. Any edit needs a new ADR that names the gold its author has seen, recorded as the
@@ -259,7 +273,7 @@ messages convey context. Resource savings and broader workflow effectiveness rem
 - **Serving** runs FastMCP from the project's own environment; that environment is never an
   analysis input.
 
-> Decision: ADR-0071, ADR-0117
+> Decision: ADR-0193, ADR-0071, ADR-0117
 
 <a id="section-1-5"></a>
 
@@ -346,7 +360,12 @@ own their detailed contracts. ADRs record decisions and alternatives. Reviews pr
 evidence, while the active plan owns current disposition of scheduled findings. STATUS links to
 that owner. Acceptance, implementation and verification remain distinct facts.
 
-> Decision: ADR-0040, ADR-0093, ADR-0130
+The binding now separates a living diagnostic audit from solution review, requested
+recommendation reassessment and claimed-completion assessment (ADR-0193). The operator selects
+the solution focus. Recommendation audits revise the principal with recoverable provenance;
+completion audits correct the same owning plan. Ordinary implementation does not initiate them.
+
+> Decision: ADR-0193, ADR-0040, ADR-0093, ADR-0130
 
 **Implemented test-review guidance, 2026-10-11.** Requested causal reviews start from test
 observations and investigate the relevant code, contracts, tests and execution conditions.

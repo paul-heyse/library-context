@@ -1,104 +1,92 @@
 ---
 name: plan-design-review
-description: Plan a design review around the user's goal, grounded in the repository's design-review skills and principles.
+description: Prepare a solution-oriented design review from the refreshed audit and the operator's chosen library and principle focus, leaving investigation and conclusions to reviewer judgment.
 ---
 
 # Plan a design review
 
-Prepare an inquiry capable of producing an independent, well-supported judgment. Treat the
-user's description as the goal and build on any approach already supplied. Choose the
-questions, context and division of reasoning that will make the review productive; leave its
-conclusions and document structure responsive to what is discovered.
+Prepare an inquiry that can produce a well-supported correction, a useful comparison of
+alternatives or a reason to retain the existing design. Build on the operator's intended outcome
+and incoming hypotheses. The refreshed audit supplies the starting diagnostic account; preparation
+concentrates on questions that could change the preferred solution.
 
-Load [design-review](../design-review/SKILL.md) and discover the applicable principles,
-profiles and binding through repository instructions and `standard.toml`. Those sources own
-the assessment criteria and output contract. Explore enough current context to make the
-approach specific, distinguishing implementation, current rules and proposed design. The review
-is grounded only in the standard and the functional target (design-review, Grounding); ADRs,
-rulings and other rules are current design it may overturn.
-The considerations below guide attention, not required stages or an exhaustive checklist.
+Load [design-review](../design-review/SKILL.md) for the assessment contract and its routes to the
+standard, profiles and binding. Before a new engagement, use
+[design-principle-audit](../design-principle-audit/SKILL.md) to refresh the broad account. An audit
+already refreshed for this engagement can be consumed through preparation and review while its
+baseline remains applicable; reconcile intervening source or standard changes before relying on
+it. Record which audit revision informs the review. Loading these criteria for plan authoring or
+discussing this process does not itself start a review or audit.
 
-## Frame questions that could change the judgment
+## Preserve the operator's focus
 
-Use the design principles together with the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
-before settling material physical organization, interfaces, preparation, assurance or lifecycle
-choices. Select relevant patterns and address material mismatches while the design remains easy
-to change; qualitative reasoning is sufficient, without an exhaustive checklist or cost proof.
+The operator selects the review type and its incoming focus:
 
-Identify what the review should help someone decide and which uncertainties could materially
-affect that decision. Consider plausible explanations and what evidence would support or
-undermine them. Prior findings are useful leads; keep the inquiry open to an adequate existing
-design, a different underlying cause, or a sound diagnosis with an unsuitable proposed remedy.
+| Type | Library scope | Principle scope |
+|---|---|---|
+| Holistic, unconstrained | Open | Broad |
+| Library targeted | Named libraries or capabilities | Broad |
+| Principle focused | Open | Named principles or concerns |
+| Combined | Named libraries or capabilities | Named principles or concerns |
 
-Prepare revealing questions about the intended capabilities and credible changes, rather than
-settling the verdict during preparation. Where alternatives or library capabilities matter,
-identify the semantic or integration question a comparison would resolve. The selected design
-standard and the functional target remain the basis for judgment; do not drop a question because
-a current rule appears to settle it.
+Resolve the selection from the request and conversation; clarify it when unspecified rather than
+choosing a type for the operator. The reviewer chooses depth, methods and decomposition within
+that focus. Tier and effort describe the review's breadth and uncertainty separately from this
+choice. Library focus is a strong investigation hypothesis; adoption remains a judgment.
+Principle focus directs solution depth while relevant semantic and correctness guarantees still
+constrain remedies. Encountered out-of-focus problems may inform the audit without automatically
+expanding the solution review.
 
-Where execution fit matters, qualitatively assess a brief workload premise from functional intent and ask
-which physical choices determine necessary work, access paths, crossings, working set, reuse,
-assurance and transaction/recovery scope. Compare composed library capabilities, not only isolated
-components. Select revealing growth, skew, concurrency or failure scenarios. Static evidence may
-settle a structural defect; reserve measurement for quantitative claims or a premise that needs it.
-Explain tradeoffs in plain language; this assessment requires no numerical estimates, cost models,
-runtime accounting or formal cost proofs. Such mechanisms need a separate functional or operational
-requirement. This extends existing questions and scope; it adds no checklist, standing review or artifact.
+## Frame questions that could change the design
 
-## Choose breadth and depth deliberately
+Consider which audit findings might share a cause or admit a composed correction, and which have
+separate obligations. Prior diagnoses remain open to challenge; an adequate existing boundary,
+a different explanation or an unsuitable suggested remedy are all possible conclusions.
 
-Establish enough context to recognize relevant responsibilities, semantic owners, suppliers
-and consumers so an isolated component does not stand in for its interactions. Concentrate
-deeper investigation where a disputed assumption, consequential boundary or revealing scenario
-could change the assessment. Choose early investigation for its ability to resolve uncertainty
-that other inquiries depend on.
+Explore the intended capabilities and credible changes that make alternatives revealing. Which
+responsibility or representation deserves reconsideration? What can a consumer stop interpreting?
+Which existing strengths constrain a correction? Where could a library own a complete capability
+rather than replace isolated functions while leaving duplicated machinery around it?
 
-Let the question shape an assignment. A component boundary may be useful; another inquiry may
-need to follow a responsibility across several components. Consider what separate local reviews
-could leave unexamined between them. Adapt the investigation as evidence changes, making
-material coverage limits visible without silently narrowing the user's requested scope.
+Use available [library overviews](../../../docs/libraries/README.md) for orientation, then Context7
+and primary sources for consequential details. Compare composed semantics, integration burden and
+execution fit at the applicable versions. An overview is a source of ideas, not proof of fit.
+The selected standard and functional target govern judgment; current ADRs and rules describe
+design the review may propose changing.
 
-Further investigation should answer a material question. Existing evidence or source inspection
-may suffice; scenarios, probes or specialist advice help when uncertainty warrants them.
-Preparing the review requires neither exhaustive mapping nor a new probe or second assessment.
+Where execution fit matters, select revealing operations and growth, skew, concurrency or failure
+premises. Consider necessary work, access paths, crossings, working set, reuse and recovery
+qualitatively. Source reasoning may settle a structural mismatch; quantitative claims need
+measurements. No cost model, mandatory probe or benchmark campaign follows.
 
-## Provide context without prescribing the verdict
+## Organize inquiry around consequential uncertainty
 
-Give a reviewer the functional target, relevant requirements, the applicable standard, the
-baseline and known uncertainty. Explain why references matter and distinguish facts, proposals
-and previous judgments. Present ADRs, rulings and other rules as the current design, not as
-constraints on the judgment, and ask for the review's rule impacts. Include relevant contrary evidence. Supply source pointers
-that support independent examination; workers may follow discovered dependencies beyond them.
+Establish enough current context to recognize semantic owners, contracts and adjacent consumers.
+Direct deeper investigation toward assumptions whose resolution changes dependent reasoning or
+the comparison of remedies. Follow responsibilities across components when a local assessment
+would miss their interaction. Make material coverage limits visible within the chosen focus.
 
-For example, the reasoning portion of a brief might say:
+Give a reviewer the functional target, selected focus, audit revision, relevant evidence and
+uncertainty. Distinguish inspected facts, prior judgments, proposals and accepted current design.
+Explain why references matter and include contrary evidence. Source pointers support independent
+examination; they are not a search fence or a preferred verdict.
 
-> Assess whether request interpretation remains consistent across interactive and batch entry
-> points. Section X owns the intended semantics; these modules implement the two paths. An
-> earlier review suspected duplicated policy, but that diagnosis remains to be assessed.
-> Consider legitimate differences as well as inconsistencies, including shared failure behavior.
+Use the [shared coordination contract](../../../.agents/roles/README.md) when bounded code research,
+library investigation or independent assessment improves the inquiry. No roster or fixed sequence
+is needed. Keep one principal reviewer able to reconcile shared premises, conflicting remedies
+and boundary gaps rather than concatenating local assessments.
 
-Use the [shared agent roles and coordination contract](../../../.agents/roles/README.md) for
-assignment mechanics, permissions and evidence handling. Delegate bounded preparation or
-independent assessment when it improves the inquiry; no roster or fixed sequence is required.
-Keep the eventual reviewer's judgment independent.
+## Present an adaptable approach
 
-## Anticipate reconciliation and begin when ready
+Explain the consequential solution questions, investigation priorities, assumptions and scope in
+the conversation. No separate durable preparation document is required. Investigation assignments
+need not become the published structure; design-review owns the resulting argument and report.
 
-Consider which inquiries share assumptions and which interactions need attention across
-assignments. Leave the principal reviewer room to reconcile evidence and judgments at those
-boundaries; separate local assessments may depend on incompatible premises. A disagreement
-may call for a focused follow-up inquiry. Preserve independent judgments and their evidence
-limits rather than forcing agreement.
+Preparation is sufficient when useful solution investigation can begin and consequential
+uncertainty has a route. Leave conclusions responsive to evidence. Follow the operator's boundary
+between preparation and conducting the review; remediation remains separately authorized work.
 
-Investigation assignments need not dictate the published structure. The design-review skill
-owns how the principal review, findings and recommendations are expressed.
-
-Present an adaptable approach in the conversation, explaining consequential scope choices,
-investigation priorities, assumptions and coverage limits. Use the available planning interface
-when useful; no separate durable preparation document is required by default. Ask only for
-information that materially changes the work.
-
-The approach is ready when useful investigation can begin, consequential uncertainties have
-a route, and further preparation depends on evidence the review itself will produce. Preparing
-the review need not settle its judgment. Follow the user's boundary between planning and
-conducting the review; remediation remains separately authorized work.
+A requested [recommendation audit](../design-review-audit/SKILL.md) can reassess the completed
+review before planning. Carry the selected focus and input baselines into that handoff; it
+produces net changes and an integrated review, without a second preparation artifact or automatic
+new broad audit. Do not insert this as an unrequested self-review stage.

@@ -367,12 +367,15 @@ def rewrite_links(
             if reference["local"]:
                 tag = re.sub(r"\s" + attr + r'="[^"]*"', "", tag, count=1)
                 tag = (
-                    tag[:-1]
-                    + ' title="Local capability reference; available in the operator checkout" '
+                    tag[:-1] + ' title="Inactive central library-skill reference; '
+                    'retained outside agent discovery" '
                     'class="local-reference">'
                 )
                 if attr == "href":
-                    tag += '<span class="local-reference-label">[local reference] </span>'
+                    tag += (
+                        '<span class="local-reference-label">'
+                        "[inactive central library-skill reference] </span>"
+                    )
                 continue
             checked(root, relative)
             # Renderer files and already published paths need no source transport.
@@ -532,7 +535,7 @@ def git_context(root: Path) -> dict:
 
 def reference_identity(root: Path, relative: Path) -> dict:
     if local_skill(root, root / relative):
-        return {"local": True, "source": relative.as_posix(), "kind": "local"}
+        return {"local": True, "source": relative.as_posix(), "kind": "inactive-library-skill"}
     checked(root, relative)
     source = relative
     if source.suffix == ".html" and checked(root, source.with_suffix(".md")).is_file():

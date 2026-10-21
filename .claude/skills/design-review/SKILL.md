@@ -1,9 +1,8 @@
 ---
 name: design-review
-description: Review architecture or a bounded implementation through explicit domain models, expected change scenarios, ownership, contracts, composition and local reasoning. Apply the layered standard, compare library fit and total complexity, and produce an evidence-grounded review. Use for architecture decisions, design reviews and architectural code audits.
+description: Develop and assess design corrections from the refreshed audit within the operator-selected library and principle focus. Compare alternatives against the layered standard and functional target, preserving independent judgment and evidence limits.
 allowed-tools: Read, Glob, Grep, Bash, Write, Edit, Agent
 user-invocable: true
-model-baseline: claude-5 (2026-08)
 ---
 
 # Design review
@@ -15,7 +14,21 @@ scoped semantic authority, explicit structure, local reasoning and execution fit
 implemented behavior wherever domain meaning is established or interpreted (core §1, FP-04, A2).
 
 Apply this assessment during a requested design review or a review due at the repository's
-declared cadence. Ordinary implementation work does not itself initiate a domain-model review.
+declared cadence. Before a new engagement, refresh the broad diagnostic account through
+[design-principle-audit](../design-principle-audit/SKILL.md), including on direct review invocation.
+Preparation and review can consume the same refreshed audit while its source/standard baseline
+remains applicable; reconcile intervening changes before relying on it. Record the audit revision
+consumed. Loading this skill as assessment criteria during plan creation or execution does not
+initiate a formal review or audit. Ordinary implementation uses its plan and architectural owners.
+
+A requested [recommendation audit](../design-review-audit/SKILL.md) normally continues this
+engagement using its still-applicable baseline; it does not automatically start a second broad
+principle audit. The audit skill owns reassessment and integrated revision of a completed review.
+
+The audit supplies a challengeable diagnosis. Concentrate the review on developing and comparing
+corrections, preserving useful strengths, and discovering opportunities within the operator's
+focus. Inspect decisive current sources; refine a diagnosis or return additional baseline findings
+to the audit when evidence warrants it. The audit does not limit permissible improvements.
 
 ## Load the standard
 
@@ -57,8 +70,13 @@ review lists the rules its recommendations would change (see Identify rule impac
 - **purpose:** always `target`, the best architecture serving the functional outcome; the tier
   sets breadth only. The template's `conformance` purpose is not used: whether an implementation
   matches its accepted design belongs to implementation review.
-- **scenarios/focus:** expected changes, foundations or domain concerns to emphasize. Focus never
-  hides an encountered in-scope defect.
+- **review focus:** the operator selects holistic/unconstrained, library-targeted,
+  principle-focused or combined. Resolve it from the conversation; clarify an unspecified choice
+  rather than choosing for the operator. Library focus names capabilities to investigate, not
+  required adoption. Principle focus directs solution depth; relevant guarantees still constrain
+  remedies. Record encountered out-of-focus problems without automatically expanding the review.
+- **scenarios/depth:** choose revealing changes and uncertainty within that selected focus.
+  Tier and depth do not replace the operator's choice.
 - **slug:** infer from the subject when omitted.
 
 Start from task routes and the relevant architectural section owners, expanding on a concrete
@@ -105,13 +123,24 @@ question about ownership, behavior or change remains unresolved; no complete flo
    working set, enforcement frequency, transaction/recovery scope and total operator/developer
    machinery. A module or semantic kind need not impose an execution stage or storage object.
 
+   **Capability orientation.** Available [library overviews](../../../docs/libraries/README.md)
+   can reveal complete capabilities and advanced features worth investigating. Follow Context7
+   and primary-source routes for consequential details at the resolved version. Retained central
+   skill references and old utilization entries, where available, are optional historical leads;
+   neither implies current qualification, required adoption or catalog maintenance.
+
 5. **Independent judgments.** Settle A1–A4 from scenario evidence, G1–G8 and profile gates from
    their own evidence, and applicable foundation/supporting-rule verdicts. A2 requires both an
    adequate domain model and behavior governed by its authorities. A4 needs a qualitative assessment of a credible execution
    route for a workload premise drawn from functional intent: relevant operations, input size/skew,
    growth, concurrency/deployment and resource envelope. Use relevant growth/failure scenarios;
-   safe refusal or bounded output alone does not establish fit. Unresolved stays unresolved.
-6. **Actionable findings and disposition.** Group by structural cause. Name a concrete semantic
+   safe refusal or bounded output alone does not establish fit. Use relevant companion heuristics
+   when comparing composed alternatives and assessing A4; retain existing lenses, principle IDs
+   and independent gate judgments. Unresolved stays unresolved.
+6. **Actionable findings and disposition.** Preserve audit finding IDs and cite their consumed
+   revision rather than renaming or copying an existing diagnosis into a second ledger. Additional
+   review findings retain their own stable identities and links to related audit observations.
+   Group by structural cause. Name a concrete semantic
    failure or architectural consequence, owner, correction and closure evidence. Link the single
    location owning current status. Follow the template's decision rules.
 
@@ -134,13 +163,12 @@ mechanisms only for a separate concrete functional or operational requirement. Q
 performance/capacity claims still require measurements; semantic correctness obligations remain.
 Qualitative assessment of execution structure can establish avoidable amplification before measurement. No speed claim
 is needed for an A4 defect; quantitative speed/capacity claims still require measurements. Do not
-narrow the workload to convenient fixtures or turn these lenses into a standing audit/checklist.
-Static review of documentation, source and types can be sufficient, including for library
-features and fit. The reviewing agent decides whether complexity, criticality or unresolved
-uncertainty warrants creating and running a probe. No review tier or kind requires probes or
-an evidence folder merely because it is a review. When probes are useful, follow repository
-storage conventions and acceptance timing. Implementation acceptance checks and the evidence
-needed for Tested/Measured claims still apply.
+narrow the workload to convenient fixtures or turn these lenses into an exhaustive checklist for ordinary edits.
+Static review of documentation, source and types can suffice, including for library fit. The
+reviewer judges whether complexity, criticality or unresolved uncertainty warrants a probe. No
+review tier or kind requires probes or an evidence folder solely because it is a review.
+Implementation acceptance checks and Tested/Measured evidence still apply; follow repository
+storage conventions and acceptance timing when probes help.
 
 When probes produce raw captures or derived evidence, follow
 [workspace storage](../../../docs/workspace-storage.md): establish a run/profile owner and named
@@ -259,6 +287,13 @@ Focused design advice during plan creation can instead be incorporated in the pl
 replace a formal review due under the binding. A request to discuss or revise this process does not itself require
 an additional review artifact. Close with scope, A1–A4, gates, material findings, rule impacts, bounded decision,
 enclosing architectural status and path. Distinguish review acceptance from release qualification.
+
+When the operator requests a second assessment of recommendations before planning, use
+[design-review-audit](../design-review-audit/SKILL.md): publish a net-change companion and an
+integrated, newly attributed review at the same principal path, preserving the input in Git.
+This is a distinct deliberate assessment, not an automatic self-audit of every review. A delegated
+auditor's revised judgment is published as theirs rather than silently changing the first
+reviewer's opinion. Existing plans retain accepted scope and scheduled-finding ownership.
 
 ## Failure modes
 

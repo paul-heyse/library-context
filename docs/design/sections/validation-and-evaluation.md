@@ -223,7 +223,9 @@ research progress, with its existing unanswered targets and truth criteria.
   increment 5, when targets are written before anything runs.
 
 **Gold scoring** ([§1.4](../DESIGN.md#section-1-4)) records brief retrieval against the
-`fastmcp` skill's reviewed families, which are evaluation-only and never tune parameters. The
+retained central FastMCP reviewed families, which are evaluation-only and never tune parameters.
+`scripts/gold_reference.py` resolves this existing source directly; missing data is not_run,
+and no agent discovery, synchronization or automatic rebuild is involved. The
 extract `eval/gold/fastmcp-4.0.5.json` records each family's operations, task aliases and static
 evidence spans. Matcher version 2 (`scripts/gold_match.py`) resolves identity to the declaration node: a gold operation resolves by exact
 path equality against served `public_paths`, with no fuzzy fallback; a class operation matches

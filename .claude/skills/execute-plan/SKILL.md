@@ -18,6 +18,12 @@ Delegated workers use their brief and relevant owners and may follow discovered 
 Preserve concurrent work; distinguish accepted decisions, implemented prerequisites and proposals.
 Prior receipts retain their original date and scope.
 
+The refreshed design principle audit belongs to a new design-review engagement, not routine plan authoring or
+execution. Use the plan's source findings and relevant architectural owners; loading review
+criteria for a consequential question does not start a broad principle audit. Preserve audit/source-review
+identities and the one scheduled-disposition owner without copying the audit's account into
+another mutable ledger.
+
 Carry out delegated assignments under the [shared coordination contract](../../../.agents/roles/README.md).
 Keep affected workers informed when shared assumptions or dependencies change. The coordinator
 retains responsibility for design decisions, integration and acceptance; delegation remains
@@ -37,8 +43,8 @@ user input only when a material scope or authorization decision requires it.
 
 Implement prerequisites before work that requires them, and integrate contributions with
 their adjacent consumers. Complete the plan's applicable migration, preservation and retirement
-obligations as part of delivering the target. Follow the repository's library-skill and
-documentation routes when library behavior matters. A completed assignment does not by itself
+obligations as part of delivering the target. Follow the repository's overview, Context7 and
+primary-source research routes when library behavior matters. A completed assignment does not by itself
 establish accepted integrated scope.
 
 Follow the binding's
@@ -66,6 +72,13 @@ Report actual commands and outcomes (`passed`, `failed`, `blocked` with its prer
 Keep proposed, implemented, tested and measured claims distinct, date verified claims, and
 retain composite or partial qualification boundaries. Close findings only with evidence for
 their stated obligation; preserve source-review IDs and their single disposition owner.
+
+For a requested or explicitly planned dedicated assessment of scope claimed complete, use
+[plan-completion-audit](../plan-completion-audit/SKILL.md). Reconstruct the accepted obligations
+across packages and consumers, and reconcile the same plan's completion claims and next work.
+This complements ordinary implementation review without recurring per-slice audits. Audit
+authorization alone does not authorize repairs; when repairs are already within the execution
+assignment, continue that authorized scope and update the plan against the resulting evidence.
 
 Follow repository commit policy within the task's authorization. Use [handoff](../handoff/SKILL.md)
 when the work changes what is true.

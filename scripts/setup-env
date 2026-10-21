@@ -8,7 +8,6 @@ case "$mode" in core|native|vllm|docs) ;; *) echo 'usage: bash scripts/setup-env
 unset VIRTUAL_ENV UV_NO_SYNC
 export UV_PROJECT_ENVIRONMENT=.venv
 just sync tools
-just skills-sync
 case "$mode" in
     core) ;;
     native) just sync native ;;

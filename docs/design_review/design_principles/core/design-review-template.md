@@ -341,3 +341,15 @@ gaps and conflicting recommendations before stating the combined judgment; prese
 disagreement and its effect on the decision when the evidence does not settle it.
 
 The conclusion names the next architectural decision or implementation step and its owner.
+
+## Audit input and revision provenance
+
+Where the local binding calls for diagnostic input, identify the consumed audit revision,
+source baseline and operator-selected focus. The diagnosis is challengeable; solution reasoning
+can refine it and add supported findings while preserving their identities.
+
+Recommendation audits account for each original recommendation separately from finding IDs,
+publish net changes in a companion and integrate the resulting argument into the principal
+review. Preserve recoverable input, newly attributed judgment and dated evidence. Reconcile
+synthesis, alternatives, dependencies, architectural judgments, gates and rule impacts;
+the principal remains a clean planning input rather than a record of reviewer debate.

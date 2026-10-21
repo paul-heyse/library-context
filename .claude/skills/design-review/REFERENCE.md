@@ -1,6 +1,7 @@
 # Design review — reference
 
-Companion to [SKILL.md](SKILL.md). Lenses and calibration examples that have repeatedly
+Companion to [SKILL.md](SKILL.md); the audit skill can also consult its diagnostic calibration
+without initiating a solution review. Lenses and calibration examples that have repeatedly
 turned up real defects. None is a required step. Foundation and rule IDs refer to the core design
 principles; profile lenses live in the profile's own skill.
 

@@ -37,7 +37,9 @@ profile names none.
    Reconstruct it from the subject; invented cells are unresolved decisions.
 3. **Analysis record columns in slot 4** for every projection, analysis or synthesis stage.
 4. **Code-intelligence journeys in slot 5**, chosen by relevance. In a target-purpose review the
-   workloads in the profile's functional target are in scope even when current plans exclude them.
+   workloads relevant to the selected subject and operator focus remain eligible even when current
+   plans exclude them. Do not silently expand a focused review to every profile workload or
+   waive a guarantee the proposed correction relies on.
 5. **Architectural consequences of domain changes:** distinguish instances, bindings,
    compositions, policies, domain concepts and mechanisms. Assess the meanings and owned
    operations behind the facts and relations in the review scope.

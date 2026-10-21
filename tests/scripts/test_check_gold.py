@@ -40,3 +40,28 @@ def test_the_repository_library_reads() -> None:
     requirement, release, locked = gold.library_pins(gold.LIBRARY)
     assert requirement.startswith("fastmcp[") and requirement.endswith("==4.0.5")
     assert all(locked[d] == "4.0.5" for d in release)
+
+
+def test_central_reference_root_honors_explicit_store(tmp_path, monkeypatch) -> None:
+    from gold_reference import reference_root
+
+    monkeypatch.setenv("LIBRARY_SKILLS_ROOT", str(tmp_path / "central"))
+    assert reference_root() == tmp_path / "central/skills/fastmcp"
+    assert not (tmp_path / "central").exists()
+
+
+def test_missing_central_reference_is_not_run(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(gold, "SKILL", tmp_path / "absent")
+    assert gold.main() == 0
+    assert "not_run" in capsys.readouterr().out
+    assert not (tmp_path / "absent").exists()
+
+
+def test_missing_reference_catalog_does_not_rebuild(tmp_path, monkeypatch, capsys) -> None:
+    import gold_extract
+
+    monkeypatch.setattr(gold_extract, "CATALOG", tmp_path / "absent/catalog.json")
+    monkeypatch.setattr(gold_extract, "EXTRACT", tmp_path / "out.json")
+    assert gold_extract.main(["--check"]) == 0
+    assert "not_run" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()

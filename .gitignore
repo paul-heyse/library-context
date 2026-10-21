@@ -35,3 +35,8 @@ __pycache__/
 
 # Personal direnv overrides
 /.envrc.local
+
+# Audit process skills
+!/.claude/skills/design-principle-audit/
+!/.claude/skills/design-review-audit/
+!/.claude/skills/plan-completion-audit/

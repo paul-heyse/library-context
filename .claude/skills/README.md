@@ -4,7 +4,7 @@ Architecture, planning and consequential implementation choices use the design p
 together with the [Heuristics for Efficient Architecture](../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md).
 Consult relevant patterns early, before physical choices become expensive to change.
 
-Two kinds live here. Both are visible to Codex through the `.agents/skills` symlink.
+Active process skills are visible to Codex through `.agents/skills`. Retained central library references are inactive.
 
 ## Process skills (tracked in this repo)
 
@@ -12,6 +12,9 @@ Workflows for building this repository. A skill is added when a workflow has act
 
 | Skill | Use |
 |---|---|
+| [`design-principle-audit/`](design-principle-audit/SKILL.md) | Refresh the broad persisted diagnosis before a new design-review engagement |
+| [`design-review-audit/`](design-review-audit/SKILL.md) | Reassess recommendations and omissions; publish net changes and an integrated principal review |
+| [`plan-completion-audit/`](plan-completion-audit/SKILL.md) | Assess claimed scope and correct the same owning plan |
 | [`adr/`](adr/SKILL.md) | Record or supersede a decision; amend the owning architectural section in the same commit |
 | [`plan-design-review/`](plan-design-review/SKILL.md) | Plan an approach to the user's review goal, using the existing design-review skills and standard |
 | [`design-review/`](design-review/SKILL.md) | Review explicit domain models, ownership, contracts, change scenarios and qualitative workload execution fit against the layered design standard (`docs/design_review/design_principles/standard.toml`); cadence in the library-context binding |
@@ -51,19 +54,21 @@ roles supply reusable capabilities. The coordinator selects useful delegation an
 integration and acceptance. Planning skills do not themselves switch runtime modes, and no hook
 is needed.
 
-## Library capability skills (shared live copies)
+The broad [diagnostic account](../../docs/design_review/audit/README.md) precedes a new design-review
+engagement. The operator selects holistic, library-targeted, principle-focused or combined focus.
+Recommendation audits are deliberate requested boundaries: the companion records editorial
+changes and the integrated principal is the planning input. Completion audits update the same
+plan. Ordinary implementation, test review and handoff do not automatically initiate these audits.
 
-`.config/library-skills.toml` selects the shared library skills for both runtimes.
-Run `just skills-sync` after changing it; `just skills-check` checks the links. Each selected
-folder links to `~/.local/share/library-skills/skills/<name>` (or `LIBRARY_SKILLS_ROOT`).
-Edit the shared copy to improve it for every selecting repo. Process skills above stay local.
-Each library skill retains its pinned references, lookup scripts, evidence and build inputs.
-Silence in an index is not evidence of absence.
+## Inactive central library-skill references
 
-Check a skill's pinned profile against the locked version (`uv.lock`/`Cargo.lock`) before transferring a claim. `python-analyzers`
-indexes pyrefly 1.4.0-dev.3 (with its embedded ruff 0.0.14), ruff 0.16.10 (crates 0.0.16) and ty crates 0.0.16; the workspace
-links those versions, with the holds and fork patches recorded in [Pins](../../docs/pins.md). The shared skill carries no
-library-context layer; repository usage belongs to the acquisition/extraction owner.
+These central sources remain historical references, not active skills. They are no longer
+selected, synchronized, discovered or required here. Existing plans may retain their references;
+do not refresh those plans merely for this transition. Central sources remain intact outside
+this repository. Descriptions/evidence below retain their original version and date limits.
+Use optional [library overviews](../../docs/libraries/README.md), Context7 and primary sources.
+FastMCP's separately owned gold evaluation data still reads its central source directly; that
+reference consumer does not activate an agent skill or initiate synchronization.
 
 | Repository | Indexes | Built from |
 |---|---|---|

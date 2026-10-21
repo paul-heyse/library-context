@@ -16,6 +16,17 @@ reference review (design or test review) or existing plan and explore enough cur
 architectural context to make the approach specific. The considerations below guide attention,
 not required stages or an exhaustive investigation sequence.
 
+The refreshed design principle audit belongs to a new design-review engagement, not routine plan authoring or
+execution. Use the plan's source findings and relevant architectural owners; loading review
+criteria for a consequential question does not start a broad principle audit. Preserve audit/source-review
+identities and the one scheduled-disposition owner without copying the audit's account into
+another mutable ledger.
+
+When a recommendation audit has revised the source review, use its integrated principal as the
+planning input and record the consumed revision. Consult the net-change companion for a material
+rationale or unresolved issue; it is not a second set of recommendations to reconcile. Do not
+silently expand an accepted plan because a newer review proposes a different target.
+
 ## Separate obligations from open design choices
 
 Establish what the source material supplies: the problem to solve, guarantees to preserve,

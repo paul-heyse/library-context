@@ -2,7 +2,7 @@
 
 Every declared dependency is pinned exactly in its manifest, and the lockfiles hold the rest (AGENTS.md,
 Dependencies). This page lists the holds, meaning pins that should not be bumped casually, each with
-its reason and when to revisit it. It also lists toolchains and the library-skill deltas. A pinned
+its reason and when to revisit it. It also lists toolchains and historical library-reference deltas. A pinned
 dependency without a row can be bumped when the work calls for it (the `pin-check` skill).
 
 `just deps` fails a declared Cargo dependency that is not `=x.y.z` or a git `rev`
@@ -110,9 +110,16 @@ given there is a pin and needs a row here. Python retains `.python-version`; iso
 tests use pytest from `uv.lock`. Qualification is `just docs-test` plus `just docs-check`
 ([publishing operations](publishing.md)).
 
-## Library skills for the catalog's adjacent crates (built 2026-09-29)
+## Inactive library-reference profiles (built 2026-09-29)
 
-Shared skills (`.config/library-skills.toml`, `~/.local/share/library-skills/skills/<name>`), each
+Historical hold rationales and dated evidence below remain in force at their stated scope.
+References to a library skill identify inactive source material; they do not instruct agents to
+select, synchronize, discover or maintain a skill. Changes to held dependencies still follow
+their existing revisit conditions and applicable version evidence.
+
+
+Inactive central references (`~/.local/share/library-skills/skills/<name>`), no longer
+selected, synchronized or discovered here, each
 pinned to the crate versions below. Check a claim against the locked version (`Cargo.lock`/`uv.lock`)
 and the resolved features before transferring it: skills index a **named profile**, and the
 workspace-hack crate (cargo-hakari) widens some features in our resolved graph.

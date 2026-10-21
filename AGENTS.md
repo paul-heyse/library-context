@@ -81,8 +81,8 @@ The [documentation task routes and repository map](docs/README.md) identify owne
 | Attribute slow Rust compilation | `just compile-profile doctor`, then `just compile-profile record --focus cpg-core -- cargo nextest run …` (or `--focus workspace`/a package). Use `status RUN`, `report RUN` and `view RUN --kind sampled\|compiler\|hotspot`. This reuses `just runs` ownership and preserves ordinary compiler/test parallelism. Wrap fixture-backed foreground recordings with `just fixture -- just compile-profile record …`; a background recording must own a longer-lived fixture. `just compile-profile-tools check\|sync` owns the exact analysis readers outside the product workspace. |
 | Complete ordinary test scope | `just test-all` runs all default-feature workspace Rust tests, Python tests, representative native/MCP journeys and doc/compile-fail controls through the existing readiness and fixture owners, keep-going. `--print` previews coverage/prerequisites; `--live` follows logs. Coverage accounts for Cargo targets and pytest files; ignored/maintenance/historical controls and optional-feature requirements are reported separately. `just verify --rerun RUN` repeats only outstanding boundaries. No service installation, migration, restart or environment sync is implicit; `--restart-service` explicitly adds the drained MCP restart check. |
 | At functional scope completion | Affected controls and applicable non-functional leaves once. `just qualify` (assembled: the same complete ordinary test scope plus keep-going Clippy and leaves) runs only when the plan STATUS names calls for it, or for a shared model/receipt/trust/transport change (ADR-0126). |
-| Environment preparation | `just sync tools` (dev tools; never builds the native extension), `just sync native` (the full locked sync and native extension; a no-op while current) or `just sync vllm`. `just ready` runs after a dependency, toolchain or skill-selection change, or an environment-shaped failure, in any checkout: it selects that checkout's own `.venv`, then links skills, syncs native once and reports. A blocked verification names its repair route (ADR-0134). |
-| Generated outputs | `just fresh [output…]` reports `clean`/`stale`/`heuristic`/`not_run` for Hakari, docs publication inputs, the ADR index, skill links, formatting, gold and insta, read-only, with each output's regenerate command |
+| Environment preparation | `just sync tools` (dev tools; never builds the native extension), `just sync native` (the full locked sync and native extension; a no-op while current) or `just sync vllm`. `just ready` runs after a dependency, toolchain or process-skill change, or an environment-shaped failure, in any checkout: it selects that checkout's own `.venv`, then syncs native once and reports. A blocked verification names its repair route (ADR-0134). |
+| Generated outputs | `just fresh [output…]` reports `clean`/`stale`/`heuristic`/`not_run` for Hakari, docs publication inputs, the ADR index, formatting, gold and insta, read-only, with each output's regenerate command |
 | Workspace storage | `just storage inventory`, `plan [ID…]` and `status [ID…]` observe owner-directed lifecycle state; `apply ID…`/`sweep [ID…]` recheck release, cleanup, consumer holds, grace and references before effects. Follow [workspace storage](docs/workspace-storage.md) for retention, explicit host registration, archives and protected boundaries within library-context and its worktrees. Legacy adoption does not authorize deletion; warm/native caches and current acquisition/environment inputs remain protected. |
 | End of a turn that changed files | The root agent runs `just turn-end`: ADR index, `build-features`, formatting. When the tree holds another agent's uncommitted work, use `just turn-end --paths P…` or `--staged`. It formats only those paths and reports any skipped step for a later whole-tree run (ADR-0134). Subagents don't run it. |
 | Parallel work | Concurrent commands may share one stable checkout when their effects do not conflict. For an independent revision or conflicting mutable state, such as another agent's uncommitted edits, use `just worktree NAME [--ref R] [--carry PATH…] [--build-dir shared\|own]`, and `just worktree-remove NAME`, which refuses dirty or unintegrated work without `--force`. |
@@ -94,8 +94,7 @@ The [documentation task routes and repository map](docs/README.md) identify owne
 | Documentation changes | `just docs-test` for publisher/resolver changes; `just docs-check` for affected publication. First run: `just bootstrap-docs`; preview: `just docs-serve`. No product gate solely for docs. |
 | Tools present? | `just doctor`, or `just ready` |
 
-Prepare core tools with `bash scripts/setup-env`, which uses `just sync tools` and
-`just skills-sync`. Choose `native`, `vllm` or `docs` explicitly for those existing owners;
+Prepare core tools with `bash scripts/setup-env`, which uses `just sync tools`. Choose `native`, `vllm` or `docs` explicitly for those existing owners;
 core preparation does not build the native extension. Review `.envrc`, then `direnv allow`
 in each checkout. Activation uses `build_environment.py --shell`, preserves checkout/build
 normalization and `UV_NO_SYNC=1`, and never synchronizes packages. Ignored `.envrc.local`
@@ -158,39 +157,23 @@ Ordinary verification never creates a scratch fallback. The lifecycle coordinato
   - name the move in the commit.
 
   No wholesale re-resolve (`uv lock --upgrade`, bare `cargo update`) unless the operator asks.
-- **Holds go in `docs/pins.md`.** A version that must not be bumped casually gets a row with its reason and when to revisit it (the `pin-check` skill). Examples: a parity oracle, golden output, a known breakage, a library skill's profile. The analyzer forks, families, toolchain and the analysed `libraries/*` keep their own rules.
+- **Holds go in `docs/pins.md`.** A version that must not be bumped casually gets a row with its reason and when to revisit it (the `pin-check` skill). Examples: a parity oracle, golden output, a known breakage, a reference profile. The analyzer forks, families, toolchain and the analysed `libraries/*` keep their own rules.
 
-### Library skills
+### Library documentation
 
-Select library skills in `.config/library-skills.toml`, then run `just ready`; `just skills-check` inspects them. The gitignored `.claude/skills/<name>` links expose one live copy per skill, from `~/.local/share/library-skills/skills/`, to both Codex and Claude Code. Improvements there reach every selecting repo; process skills remain local. Set `LIBRARY_SKILLS_ROOT` if the shared store is elsewhere. A new worktree gets its links from `just ready`.
+Available [library overviews](docs/libraries/README.md) offer optional first-pass awareness of
+functional and advanced capabilities. They are orientation, not current-version API qualification.
+Context7 is the first documentation lookup, followed by primary documentation, GitHub or installed
+sources when consequential details remain. Check applicability against the relevant lockfile and
+source acquisition owner. An absent overview or empty search is not evidence a capability is absent.
 
-The library capability skills under `.claude/skills/` are pinned, offline indexes, and helpful references for finding and understanding library functionality in depth:
-- `datafusion` (DataFusion, Arrow, object_store)
-- `rust-graphs`: petgraph plus rustworkx-core, leiden-rs, graphops and others. It covers which library to use, how to reach it from a petgraph graph, and each one's silent failures.
-- `python-analyzers`:
-  - pinned to pyrefly 1.4.0-dev.3 (with its embedded ruff 0.0.14), ruff 0.16.10 / crates 0.0.16, the ty 0.0.16 crates and salsa 0.28.5;
-  - covers ty in full beside pyrefly and ruff;
-  - maps every code fact the three tools output (`show facts`).
-
-  Check `docs/pins.md` and the acquisition/extraction owner before transferring a claim. The shared skill has no project overlay.
-- `rust-reasoning`: biodivine-lib-bdd, OxiDD, z3 0.21.1 on Z3 5.1.0, ascent, datafrog and fcars. It covers the condition kernel, full z3 capability coverage, Datalog fixpoints and the FCA oracle.
-- `python-oracles` (Pysa, CrossHair, Hypothesis with `sys.monitoring`, bytecode: independent cross-checks of the facts)
-- `rust-code-model` (rustdoc JSON, ra_ap_* syntax/HIR/project model, MIR and dataflow, cargo metadata)
-- `ast-grep-ripgrep` (structural and regex search/rewrite)
-- `datafusion-tracing` (DataFusion planning, execution and object-store spans)
-- `salsa`: indexed at 0.28.4, while the workspace pins 0.28.5, so check before transferring a claim.
-- `pydantic` (2.13.5 / pydantic-core 2.46.5)
-- `pyo3` (pyo3 0.29.2 and pyo3-async-runtimes 0.29.0)
-- `serde-arrow`: serde_arrow 0.15.1, `arrow-59` profile. The Arrow major must equal the Arrow crates we pin.
-- `fixedbitset` (0.5.7, petgraph's own dependency)
-- `typer-rich` (Typer 0.27.2 with its vendored Click, Rich 15.0.0)
-- `neo4j-surrealdb`: the Neo4j Python driver 6.3.1 and SurrealDB 3.3 (Rust SDK/core, SurrealQL, GQL)
-- `pyomo-and-solvers` (Pyomo 6.10.1, HiGHS, PySCIPOpt, cyipopt and native solvers)
-- `fastmcp`: must match `libraries/fastmcp` (`scripts/check_gold.py` checks this). It is also the **gold reference for evaluation**, so its capability families are never a compiler input (DESIGN §1.4).
-
-The shared vLLM skill is a discovery lead at 0.30.0, while the isolated service uses custom 0.30.1rc1.dev286+g3d5f4d4cd.sm120.r2. Do not transfer its pinned contracts or enable it as an exact match without checking the installed source for the selected API. No service upgrade is implied.
-
-For a library no selected skill covers (e.g. the Qwen embedding models or LanceDB), **Context7 is the first stop**. The Context7 MCP server needs a reconnect after its API key changes. Check a skill's version against the locked version (`uv.lock`/`Cargo.lock`) before transferring a claim. An empty search result is not evidence that a capability is absent.
+[Central library-skill references](.claude/skills/README.md#inactive-central-library-skill-references)
+remain inactive historical context: no selection, synchronization, discovery or required reading.
+Existing plans may still name them; do not refresh plans merely for this transition. The isolated
+vLLM service retains its custom version; no service upgrade is implied. FastMCP's gold evaluation
+data remains a separate reference consumer, resolved directly from the central source by
+`scripts/gold_reference.py`. It is evaluation-only, never a compiler input or an active agent skill;
+missing data is not_run and is not fetched, rebuilt or synchronized automatically.
 
 ## Testing rules
 
@@ -228,7 +211,16 @@ It is not a validation of the existing test scope. Long journeys, whole families
 
 - **Write an ADR** (the `adr` skill) when a change alters a §B decision, chooses between real alternatives, or would surprise a future session. Amend the owning architectural section in the same commit. To pivot, supersede the old ADR; accepted ADRs are immutable.
 - **Keep a current working set** (ADR-0042). Update the owner whose meaning changed instead of appending history. When a plan, review, evidence folder or ADR loses its last current consumer, carry its surviving obligations forward and delete it; Git holds it ([historical recovery](docs/README.md#historical-recovery)).
-- **Design reviews** use `design-review` and its declared profiles, usually through the `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence and tier/purpose selection (ADR-0040/0093). Review depth follows impact and uncertainty. Execution fit is a qualitative assessment of material tradeoffs: it needs no numerical cost models, runtime accounting or proof machinery, but quantitative performance claims still need measurement.
+- **Design principle audits** use `design-principle-audit` before a new design-review engagement;
+  the [living account](docs/design_review/audit/README.md) holds baseline diagnosis and the binding
+  owns freshness. Ordinary implementation and the separate test-review workflow do not initiate it.
+- **Recommendation audits** use `design-review-audit` at requested or explicitly planned boundaries:
+  publish a [net-change companion](docs/design_review/reviews/audits/README.md) and revise the principal
+  review in place, preserving its exact input in Git and attributing the new judgment.
+- **Completion audits** use `plan-completion-audit` for scope claimed complete; update the same
+  owning plan's conclusion, package state, findings and next work. Separate implementation,
+  qualification and benefit claims. These audits are not recurring per-slice gates or repair authorization.
+- **Design reviews** use `design-review` and its declared profiles, usually through the `design-reviewer` subagent. The binding's **Reviews in this repository** section owns cadence and tier/purpose selection (ADR-0040/0093). The operator selects holistic, library-targeted, principle-focused or combined focus; clarify an unspecified choice. Review depth follows impact and uncertainty. Execution fit is a qualitative assessment of material tradeoffs: it needs no numerical cost models, runtime accounting or proof machinery, but quantitative performance claims still need measurement.
 - **Test reviews** use `plan-test-review` to prepare the inquiry and `execute-test-review` to investigate and write the report. Test observations guide code review, probes, research and other useful investigation across production, tests and execution conditions. The [binding](docs/design_review/design_principles/binding/library-context.md#test-reviews) owns the report route; structure and supporting material follow reviewer judgment. Remediation is separate.
 - **Review evidence.**
   - Static review of documentation, source and types can be sufficient, including for library features and fit.
@@ -255,7 +247,8 @@ Use subagents when independent coverage, context isolation, distinct capabilitie
 
 Follow the [shared roles and coordination contract](.agents/roles/README.md) (ADR-0171), including operator-selected Codex model inheritance and role effort guidance. The root agent owns design, integration and acceptance, and chooses the roles and decomposition that serve the task.
 
-`library-research` may write new dated folders under `docs/design_review/evidence/` (adding their Index row) and the shared library skill its brief assigns; [its contract](.agents/roles/library-research.md) bounds those writes (ADR-0113).
+`library-research` may write assigned new dated evidence folders with their README and scratch; its
+[contract](.agents/roles/library-research.md) bounds those writes. Central skill stores are outside this repository's write scope.
 
 ## Git
 

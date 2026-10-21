@@ -1,4 +1,4 @@
-"""Recognize optional local capability references from the existing skill directory."""
+"""Recognize retained inactive central library-skill reference identities."""
 
 import re
 import subprocess
@@ -18,10 +18,12 @@ def local_skill(root: Path, path: Path) -> bool:
         if index.exists()
         else set()
     )
+    # Existing checkouts may still have a central symlink; Git cannot inspect beyond it.
+    # The retained index also recognizes inactive references after discovery links are removed.
     entry = Path(*relative.parts[:3])
-    ignored = entry if (root / entry).is_symlink() else relative
+    asked = entry if (root / entry).is_symlink() else relative
     return (
         relative.parts[2] in names
-        and subprocess.run(["git", "check-ignore", "-q", "--", str(ignored)], cwd=root).returncode
+        and subprocess.run(["git", "check-ignore", "-q", "--", str(asked)], cwd=root).returncode
         == 0
     )

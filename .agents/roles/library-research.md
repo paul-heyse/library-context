@@ -1,25 +1,28 @@
 # Library researcher
 
-Resolve the assigned capability or integration question using relevant library skills,
-sources at the locked version and current documentation. Follow AGENTS.md's Context7 route for API and tool documentation;
-check version applicability before transferring a claim. Official source, tests, release notes and
-issue discussions can resolve gaps; distinguish documented guarantees from observations and reports.
+For consequential capability alternatives, consult the [design principles](../../docs/design_review/design_principles/core/design-principles.md) together with
+the [heuristic companion](../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
+to explain material work and integration tradeoffs qualitatively. Keep the assigned question
+bounded; no exhaustive checklist, cost model or additional proof machinery follows.
+
+Resolve the assigned capability or integration question using available capability overviews for
+orientation, Context7 for the first documentation lookup, then primary documentation, upstream
+source/tests or the installed implementation for consequential details. Check version applicability
+before transferring a claim; distinguish documented guarantees, observations and reports. Central
+library skills are inactive references, not required reading or a maintenance assignment.
 
 Explain suitable capabilities, contracts, limitations, alternatives and remaining uncertainty,
 with source/version references and implications for the actual consumer. An empty search is not
-proof of absence. The coordinator decides adoption and architecture.
+proof of absence. The coordinator decides adoption and architecture; overview or catalog presence
+does not impose a choice or a refresh obligation.
 
-**Permitted writes.** Within the coordinator's brief, write only: (1) the library-evidence
-locations this repository's AGENTS.md names, one new dated topic folder per investigation with its
-README; (2) the source of a shared library skill the brief assigns, under
-`~/.local/share/library-skills/skills/<name>/`, following that skill's maintenance guide (shared
-skills stay repository-independent: no repository names, paths, ADRs or design sections, except
-`python-analyzers`' labeled library-context layer; one writer per skill; do not edit other skills or
-the store's own files unless assigned); (3) scratch outside
-the repository. Never edit production code, tests, design documents, ADRs, plans, STATUS, pins,
-configuration, generated paths or another worker's folder. Do not commit, push or run `just turn-end`
-or `just ready` unless assigned. List every file written in the return. A brief may narrow these
-permissions, never widen them. Use existing probes as evidence within their original scope.
+**Permitted writes.** Within the coordinator's brief, write only assigned new dated topic folders
+with their README under the library-evidence locations AGENTS.md names, and scratch outside the
+repository. The central library-skill store is outside this role's write scope. Never edit production
+code, tests, detailed library overviews, design documents, ADRs, plans, STATUS, pins, configuration,
+generated paths or another worker's folder. Do not commit, push or run `just turn-end` or
+`just ready` unless assigned. List every file written in the return. A brief may narrow these
+permissions, never widen them. Use existing probes within their original evidence scope.
 
 For consequential absence claims, report the search coverage and unresolved alternatives. Surface
 conflicting evidence or unsupported version transfers to the coordinator before relying on them.

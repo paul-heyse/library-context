@@ -1,11 +1,12 @@
 """Keep the gold reference and the analysis on one FastMCP (ADR-0013, DESIGN §1.4, §12).
 
-The `fastmcp` skill (the gold reference, evaluation only) and `libraries/fastmcp` (what the
+The retained central FastMCP data (the gold reference, evaluation only) and
+`libraries/fastmcp` (what the
 compiler analyzes) must name the same install line and resolve the release distributions to the
 same versions. Otherwise gold scores compare different code.
 
 Usage: check_gold.py   Exit 0 when they agree, 1 on a mismatch, 0 with `not_run` when the skill is
-absent (it is local, not in the repo).
+absent (it is central reference data, not a discovered agent skill).
 """
 
 from __future__ import annotations
@@ -16,9 +17,11 @@ import sys
 import tomllib
 from pathlib import Path
 
+from gold_reference import reference_root
+
 ROOT = Path(__file__).resolve().parent.parent
 LIBRARY = ROOT / "libraries" / "fastmcp"
-SKILL = ROOT / ".claude" / "skills" / "fastmcp" / "build" / "manifests"
+SKILL = reference_root() / "build" / "manifests"
 
 
 def library_pins(library: Path) -> tuple[str, list[str], dict[str, str]]:
@@ -53,8 +56,8 @@ def problems(library: Path, manifests: Path) -> list[str]:
 
 
 def main() -> int:
-    if not (SKILL / "fastmcp.json").exists():
-        print("gold: not_run (the fastmcp skill is not installed)")
+    if not all((SKILL / name).is_file() for name in ("fastmcp.json", "resolved.json")):
+        print("gold: not_run (the central FastMCP evaluation manifests are unavailable)")
         return 0
     found = problems(LIBRARY, SKILL)
     # The analytics config is frozen since the first use of gold against compiled output
@@ -80,6 +83,9 @@ def main() -> int:
     # The committed extract the evaluation scores against is the skill's (DESIGN §12).
     import gold_extract
 
+    if not gold_extract.CATALOG.is_file():
+        print("gold: not_run (the central FastMCP evaluation catalog is unavailable)")
+        return 0
     catalog = json.loads(gold_extract.CATALOG.read_text(encoding="utf-8"))
     text = gold_extract.render(gold_extract.extract(catalog))
     if not gold_extract.EXTRACT.exists() or gold_extract.EXTRACT.read_text("utf-8") != text:

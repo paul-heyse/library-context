@@ -1,6 +1,6 @@
 """Extract the gold families the evaluation scores against (DESIGN §1.4, §12; ADR-0013).
 
-Reads the `fastmcp` skill's capability catalog (the gold reference: evaluation only, never a
+Reads the retained central FastMCP capability catalog (the gold reference: evaluation only, never a
 compiler input) and writes a small committed extract: per family, its id, title,
 `authoring_sha256`, operations, task aliases and static-evidence source spans (site-relative
 path, lines, hashes). `check_gold.py` fails when the committed extract is stale.
@@ -15,8 +15,10 @@ import json
 import sys
 from pathlib import Path
 
+from gold_reference import reference_root
+
 ROOT = Path(__file__).resolve().parent.parent
-CATALOG = ROOT / ".claude" / "skills" / "fastmcp" / "content" / "capabilities" / "catalog.json"
+CATALOG = reference_root() / "content" / "capabilities" / "catalog.json"
 EXTRACT = ROOT / "eval" / "gold" / "fastmcp-4.0.5.json"
 SOURCES = "content/sources/"
 
@@ -65,6 +67,9 @@ def render(value: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
+    if not CATALOG.is_file():
+        print("gold: not_run (the central FastMCP evaluation catalog is unavailable)")
+        return 0
     text = render(extract(json.loads(CATALOG.read_text(encoding="utf-8"))))
     if "--check" in argv:
         if not EXTRACT.exists() or EXTRACT.read_text(encoding="utf-8") != text:

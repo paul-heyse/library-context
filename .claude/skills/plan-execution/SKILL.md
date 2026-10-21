@@ -20,6 +20,12 @@ establish what exists. Preserve concurrent work and distinguish implemented scop
 decisions and proposals. The following principles guide attention; they are not required stages
 or another plan template.
 
+The refreshed design principle audit belongs to a new design-review engagement, not routine plan authoring or
+execution. Use the plan's source findings and relevant architectural owners; loading review
+criteria for a consequential question does not start a broad principle audit. Preserve audit/source-review
+identities and the one scheduled-disposition owner without copying the audit's account into
+another mutable ledger.
+
 ## Allocate advance thought by consequence
 
 Use the design principles and [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
@@ -105,6 +111,12 @@ integration obligations. Inspect decisive evidence and reconcile contributions b
 the combined result. Local completion and enclosing qualification establish different claims;
 handoffs do not create additional qualification gates.
 
+If a dedicated claimed-completion assessment is requested or explicitly included in the approach,
+use [plan-completion-audit](../plan-completion-audit/SKILL.md). Give it the accepted scope and
+identifiable implementation baseline, including adjacent consumers and cross-package obligations.
+Its conclusion corrects the existing plan in place and distinguishes implementation from
+qualification and benefit evidence. It is not an automatic review of every package or handoff.
+
 Follow `AGENTS.md` for verification scope and timing, generation, formatting and hook ownership.
 Use focused checks during implementation and reserve integrated qualification for the boundary
 specified by repository policy.
@@ -122,7 +134,11 @@ Follow the repository binding's
 The foundation assessment belongs to [create-plan](../create-plan/SKILL.md); ordinary execution
 does not repeat it or initiate recurring architecture or domain-model reviews. Reopen a
 consequential question when new evidence warrants it. Library questions follow the repository's
-capability-skill and documentation routes.
+overview, Context7 and primary-source research routes. Assess material execution tradeoffs qualitatively
+and explain them in plain language. This design consideration requires no numerical estimates,
+cost models, estimators, runtime accounting, execution-planning machinery, instrumentation, formal
+cost proofs or additional proof artifacts; such mechanisms need a separate concrete functional or
+operational requirement. Quantitative claims still need measurements; correctness obligations remain.
 
 Present material sequencing choices, assumptions and unresolved prerequisites in the conversation.
 Use the available planning interface when useful. The approach is sufficiently detailed when

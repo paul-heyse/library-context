@@ -29,9 +29,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from gold_reference import reference_root
+
 ROOT = Path(__file__).resolve().parent.parent
 STATES = ("clean", "stale", "heuristic", "not_run")
-GOLD_SKILL = ROOT / ".claude" / "skills" / "fastmcp" / "build" / "manifests"
+GOLD_SKILL = reference_root() / "build" / "manifests"
 INSTA_NOT_RUN = "confirmed only by running the owning tests with INSTA_UPDATE=no"
 
 
@@ -464,22 +466,6 @@ def adr_index(runner: Runner, root: Path = ROOT) -> Freshness:
     )
 
 
-def skills(runner: Runner, root: Path = ROOT) -> Freshness:
-    regenerate = "just skills-sync"
-    argv = (sys.executable, str(root / "scripts" / "library_skills.py"), "--check")
-    ran = runner(argv)
-    text = (ran.stdout + ran.stderr).strip()
-    if "are not installed" in text:
-        return Freshness("skills", "not_run", regenerate, "the shared skill store is absent")
-    if ran.returncode == 0:
-        return Freshness("skills", "clean", regenerate, "selected links match")
-    if ran.returncode == 1:
-        return Freshness(
-            "skills", "stale", regenerate, "skill links differ", details=text.splitlines()
-        )
-    return _failed("skills", regenerate, argv, ran)
-
-
 def rust_fmt(runner: Runner, root: Path = ROOT) -> Freshness:
     regenerate = "just fmt"
     argv = ("cargo", "fmt", "--check", "--message-format", "short")
@@ -515,10 +501,13 @@ def python_fmt(runner: Runner, root: Path = ROOT) -> Freshness:
 def gold(runner: Runner, root: Path = ROOT, skill: Path = GOLD_SKILL) -> Freshness:
     regenerate = (
         "uv run --no-project --offline --no-python-downloads python scripts/gold_extract.py "
-        "for the extract; a pin mismatch needs libraries/fastmcp and the fastmcp skill aligned"
+        "for the extract; a pin mismatch needs libraries/fastmcp and the central FastMCP "
+        "evaluation reference aligned"
     )
     if not (skill / "fastmcp.json").exists():
-        return Freshness("gold", "not_run", regenerate, "the fastmcp skill is not installed")
+        return Freshness(
+            "gold", "not_run", regenerate, "the central FastMCP evaluation reference is unavailable"
+        )
     argv = (sys.executable, str(root / "scripts" / "check_gold.py"))
     ran = runner(argv)
     lines = [line for line in ran.stdout.splitlines() if line.strip()]
@@ -604,7 +593,6 @@ CHECKS: dict[str, Callable[..., Freshness | list[Freshness]]] = {
     "hakari": hakari,
     "docs": docs,
     "adr-index": adr_index,
-    "skills": skills,
     "rust-fmt": rust_fmt,
     "python-fmt": python_fmt,
     "gold": gold,

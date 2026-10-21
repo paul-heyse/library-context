@@ -18,6 +18,18 @@ instructions and `standard.toml`. Preserve the reference material's relevant obl
 reconsidering assumptions when current evidence or the intended capabilities warrant a different
 approach. Distinguish the implemented baseline, accepted decisions and proposed changes.
 
+The refreshed design principle audit belongs to a new design-review engagement, not routine plan authoring or
+execution. Use the plan's source findings and relevant architectural owners; loading review
+criteria for a consequential question does not start a broad principle audit. Preserve audit/source-review
+identities and the one scheduled-disposition owner without copying the audit's account into
+another mutable ledger.
+
+If [design-review-audit](../design-review-audit/SKILL.md) has revised the reference review,
+consume the integrated principal and identify its revision. The companion explains changed
+recommendations and unresolved choices; it is not another progress ledger or a competing target.
+An audited recommendation remains a proposal, including its rule impacts. Existing accepted
+plans retain their scope until a change is authorized.
+
 ## Assess the foundations the plan will use
 
 Use the design principles together with the [Heuristics for Efficient Architecture](../../../docs/design_review/design_principles/core/efficient-architecture-heuristics.md)
@@ -73,8 +85,8 @@ where an extension would be expressed, what it would reuse and what should remai
 These scenarios clarify the reason for a boundary; they need not expand implementation scope.
 
 Explain consequential decisions through their benefits, costs and assumptions. Consider library
-capabilities and alternatives where they affect the design, using the repository's capability
-skills and documentation routes. Preserve enough rationale for an implementer to recognize
+capabilities and alternatives where they affect the design, using the repository's overview, Context7 and primary-source
+research routes. Preserve enough rationale for an implementer to recognize
 evidence that would reopen a decision. Relate an expected benefit to its mechanism and workload
 or conditions, and qualitatively assess material integration, lifecycle and maintenance obligations.
 Quantitative benefits need a baseline and measurement route; unmeasured benefits remain hypotheses.

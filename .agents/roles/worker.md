@@ -6,7 +6,7 @@ Consult relevant patterns before committing to a physical mechanism; reuse settl
 without repeating a general review or whole-list assessment.
 
 Use applicable instructions already supplied in context; if AGENTS.md is absent, load it before
-acting. Load the common and assigned role contracts once, plus relevant workflow or library skills.
+acting. Load the common and assigned role contracts once, plus relevant process skills and the repository's library documentation routes.
 The root's general startup tour is not repeated by workers: use the brief and relevant owners,
 following additional dependencies when evidence requires it. All permission, preservation and test
 rules still apply; named files are not a restriction on necessary read-only investigation. The coordinator's

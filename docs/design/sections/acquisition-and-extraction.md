@@ -127,7 +127,8 @@ never `.pth`).
   count). **Tested** by unit tests over METADATA; observed on FastMCP (the three first-party
   distributions) and `attrs`, 2026-09-22.
 - Upgrading is: edit the pin, `uv lock --project libraries/<name> --upgrade-package <dist>`,
-  review the lock diff, `lctx compile <name>`. For FastMCP the skill moves with it
+  review the lock diff, `lctx compile <name>`. For FastMCP, re-establish the matching evaluation
+  reference version before reporting gold results; inactive agent references do not move automatically
   ([§1.4](../DESIGN.md#section-1-4)).
 
 **Context.** The context records:

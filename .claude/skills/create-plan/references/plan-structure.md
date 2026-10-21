@@ -6,7 +6,7 @@ Technical design may need several subject-specific documents, while a small plan
 most of the outline into a few paragraphs and a work table. Choose content for the understanding
 it gives the reader; the same explanation need not appear under multiple headings.
 
-Identify the reference review or parent plan, inspected baseline and date, and the plan's
+Identify the reference review or parent plan, any consumed audit revision, inspected baseline and date, and the plan's
 evidence status near the beginning. Explain which document owns architecture, sequencing or
 finding disposition where those responsibilities are split. An approved design remains distinct
 from implemented or verified behavior.
@@ -149,3 +149,17 @@ complete, link the evidence owner, and state the enclosing package's remaining w
 completion does not automatically close a finding shared with other packages or establish full
 system qualification. Update affected links and dependency descriptions when the design changes,
 and move enduring meaning to its established owner before retiring the plan under local policy.
+
+## Completion audit and current claims
+
+When a dedicated [completion audit](../../plan-completion-audit/SKILL.md) is performed, maintain
+its current conclusion in this same plan, with date, inspected source baseline, claimed scope and
+evidence limits. Explain what is functionally delivered, what required qualification remains and
+what benefit measurements are required or deliberately deferred. Connect gaps to their existing
+package/finding owners and actionable next scope, preserving stable identities.
+
+Reconcile completion summaries, package state and finding disposition rather than leaving a
+new audit section to contradict earlier “complete” claims. For a series, the coordinator owns
+the combined conclusion and affected supporting plans hold local details. Keep receipts dated
+and immutable; Git retains earlier accounts. This section is created when an audit is performed,
+not as a mandatory placeholder or another register in every plan.

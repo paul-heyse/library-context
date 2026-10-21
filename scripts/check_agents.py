@@ -23,6 +23,9 @@ PROCESS_SKILLS = (
     "adr",
     "create-plan",
     "execute-plan",
+    "design-principle-audit",
+    "design-review-audit",
+    "plan-completion-audit",
     "design-review",
     "design-review-code-intelligence",
     "plan-design-review",
@@ -71,7 +74,7 @@ def check(root: Path) -> list[str]:
     if not link.is_symlink() or link.resolve() != (root / ".claude" / "skills").resolve():
         problems.append(".agents/skills must be a symlink to ../.claude/skills")
 
-    for skill_md in sorted((root / ".claude" / "skills").glob("*/SKILL.md")):
+    for skill_md in (root / ".claude" / "skills" / name / "SKILL.md" for name in PROCESS_SKILLS):
         match = re.search(r"^name:\s*(\S+)", skill_md.read_text(), re.M)
         if not match or match.group(1) != skill_md.parent.name:
             problems.append(f"{skill_md.relative_to(root)}: `name` must equal its directory")

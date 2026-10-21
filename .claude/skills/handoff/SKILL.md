@@ -6,7 +6,9 @@ description: Update STATUS.md from the actual tree after work changes the projec
 # Handoff
 
 Keep STATUS.md within 120 lines. It is a current checkpoint; the architectural collection owns architecture, ADRs own
-rationale, reviews own dated evidence and the active plan owns scheduled findings' current status.
+rationale, the design principle audit owns baseline diagnosis, reviews own solution reasoning and dated evidence,
+and the active plan owns scheduled findings' current status. Ordinary handoff does not refresh the
+diagnostic audit; link to its owner only when the checkpoint depends on it.
 The binding defines disposition transfer and closure. Link to that owner rather than maintaining
 another mutable finding list. Replace the checkpoint rather than appending a session narrative;
 keep a dated receipt only while it bounds a current claim, with its original date and scope.
@@ -22,6 +24,11 @@ keep a dated receipt only while it bounds a current claim, with its original dat
   commands only when due and within scope.
 - Current plan disposition rows and review conclusions. Distinguish the bounded slice judgment,
   enclosing architectural status and remaining integrated acceptance.
+  If a recommendation or completion audit was performed, use the integrated review or corrected
+  owning plan for the current conclusion. Link the companion only when its net changes matter
+  to the checkpoint; do not copy editorial dispositions into execution status. Handoff does not
+  initiate either audit automatically.
+
 - For generated output and diagnostics, retain the object/run IDs, named consumer and required
   local/replay/report capability in their existing owner. Follow
   [workspace storage](../../../docs/workspace-storage.md) when releasing completed consumers;

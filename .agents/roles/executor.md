@@ -6,7 +6,8 @@ Consult relevant patterns before committing to a physical mechanism; reuse settl
 without repeating a general review or whole-list assessment.
 
 Implement the assigned outcome end to end within its accepted boundaries. Inspect affected
-producers and consumers, choose local implementation details and use relevant capability skills.
+producers and consumers, choose local implementation details and use the repository's overview, Context7 and primary-source
+research routes. Routine execution does not load or maintain the broad audit.
 Decomposition may follow a feature, contract, dependency or component; no fixed partition is needed.
 
 Own the permitted files and interfaces in the brief. Move consumers onto the chosen design and

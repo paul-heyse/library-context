@@ -24,7 +24,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 | Implement the graph-native replacement | [Coordinator](plans/graph-native-pivot-plan_2026-10-05.md) → its model/compiler, SurrealDB realization, native serving and projection plans; the two nominated target/capability reviews are its design basis |
 | Build the differentiated API/evidence product | [Target design §14](design/sections/api-and-evidence-product.md) → [current PR0–PR6 queue](plans/behavioral-model-forward-plan_2026-09-24.md#30-consolidated-execution) |
 | Deploy native persistence or serving | [Graph-native coordinator](plans/graph-native-pivot-plan_2026-10-05.md) → [native realization plan](plans/graph-native-surrealdb-realization-plan_2026-10-05.md) and [serving plan](plans/graph-native-serving-plan_2026-10-05.md); these implemented native consumers follow the user-accepted compiler stage; targeted receipts are in the coordinator |
-| Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md); for library fit, start from the [local capability skills](../.claude/skills/README.md) |
+| Review a design or implementation | [Review skill](../.claude/skills/design-review/SKILL.md) → [repository binding](design_review/design_principles/binding/library-context.md); for library fit, start from the [optional library overviews](libraries/README.md) |
 | Review test failures and their structural causes | [Plan the inquiry](../.claude/skills/plan-test-review/SKILL.md) → [conduct the test review](../.claude/skills/execute-test-review/SKILL.md) and its [flexible report guidance](../.claude/skills/execute-test-review/references/test-review-structure.md); [binding](design_review/design_principles/binding/library-context.md#test-reviews) supplies location and finding lifecycle |
 | Improve stored and active state together | [Holistic state-management plan](plans/holistic-state-management-plan_2026-10-10.md) integrates closure/access, audit drainage, lifecycle/selected backup, compiler lifetimes and charged serving state. The [SurrealDB architecture companion](plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) integrates its [source review](design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md): complete recoverable migration, shared catalog preparation, selective typed/search access, lifecycle sets and nine capability avenues. Coordinator §8 owns scheduled finding dispositions; §9.1 owns actual receipts |
 | Pivot testing, validation or oracles | [STATUS](../STATUS.md) names the current verification boundary and its owning plan; commands are in [AGENTS.md, Commands](../AGENTS.md#commands) (`just verify`, `just fixture`, ADR-0134) |
@@ -57,6 +57,16 @@ Paths in this reference table are relative to the repository root.
 | `third_party/` | `pyrefly-<ver>.patch`: the one commit our Pyrefly fork adds to the upstream tag (ADR-0117, `docs/pins.md`) |
 | `scripts/` | `adr.py`, `design_sections.py` and `docs.py` (documentation), `check_family.py`, `check_agents.py`, and gold/eval scripts |
 | `rules/`, `rule-tests/` | ast-grep rules. They grow only from design-review findings |
+
+## Audit and library routes
+
+| Task | Start here |
+|---|---|
+| Audit principle alignment | [Audit skill](../.claude/skills/design-principle-audit/SKILL.md) → [living diagnosis](design_review/audit/README.md) |
+| Develop design solutions | [Prepare review](../.claude/skills/plan-design-review/SKILL.md) → refreshed audit and operator-selected focus |
+| Audit review recommendations | [Recommendation audit](../.claude/skills/design-review-audit/SKILL.md) → [companion](design_review/reviews/audits/README.md) and integrated principal |
+| Audit claimed plan completion | [Completion audit](../.claude/skills/plan-completion-audit/SKILL.md) → same owning plan |
+| Research library capabilities | Optional [overviews](libraries/README.md) → Context7 and primary sources at applicable versions |
 
 ## Authority and search
 

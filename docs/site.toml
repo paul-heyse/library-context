@@ -50,9 +50,18 @@ include = ["docs/design_review/evidence/**/README.md"]
 scope = "Reference"
 [[collections]]
 title = "Process"
-include = [".claude/skills/README.md", ".claude/skills/adr/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/plan-test-review/*.md", ".claude/skills/execute-test-review/**/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
+include = [".claude/skills/README.md", ".agents/roles/*.md", ".claude/skills/adr/*.md", ".claude/skills/design-principle-audit/**/*.md", ".claude/skills/design-review-audit/*.md", ".claude/skills/plan-completion-audit/*.md", ".claude/skills/plan-design-review/*.md", ".claude/skills/plan-creation/*.md", ".claude/skills/create-plan/**/*.md", ".claude/skills/plan-execution/*.md", ".claude/skills/execute-plan/*.md", ".claude/skills/design-review/*.md", ".claude/skills/design-review-code-intelligence/*.md", ".claude/skills/plan-test-review/*.md", ".claude/skills/execute-test-review/**/*.md", ".claude/skills/handoff/*.md", ".claude/skills/pin-check/*.md", ".claude/agents/*.md"]
 scope = "Current"
 [[collections]]
 title = "Libraries"
 include = ["libraries/README.md"]
+scope = "Reference"
+
+[[collections]]
+title = "Design principle audit"
+include = ["docs/design_review/audit/**/*.md"]
+scope = "Reference"
+[[collections]]
+title = "Library overviews"
+include = ["docs/libraries/**/*.md"]
 scope = "Reference"

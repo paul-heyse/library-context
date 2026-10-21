@@ -354,7 +354,7 @@ def test_formatting_reports_files_and_never_formats(tmp_path: Path) -> None:
 def test_gold_without_its_skill_is_not_run_and_runs_nothing(tmp_path: Path) -> None:
     fake = Fake({})
     result = freshness.gold(fake, tmp_path, skill=tmp_path / "absent")
-    assert result.state == "not_run" and "not installed" in result.reason
+    assert result.state == "not_run" and "unavailable" in result.reason
     assert fake.calls == []
 
 
@@ -364,19 +364,15 @@ def test_gold_states_follow_check_gold(tmp_path: Path) -> None:
     (skill / "fastmcp.json").write_text("{}")
     ok = Ran(0, "gold: ok (agree)\n", "")
     assert freshness.gold(Fake({"check_gold": ok}), tmp_path, skill).state == "clean"
-    said = Ran(0, "gold: not_run (the fastmcp skill is not installed)\n", "")
+    said = Ran(0, "gold: not_run (the central FastMCP evaluation reference is unavailable)\n", "")
     assert freshness.gold(Fake({"check_gold": said}), tmp_path, skill).state == "not_run"
     drift = Ran(1, "gold: fastmcp: skill 4.0.4, uv.lock 4.0.5\n", "")
     stale = freshness.gold(Fake({"check_gold": drift}), tmp_path, skill)
     assert stale.state == "stale" and stale.details == ["gold: fastmcp: skill 4.0.4, uv.lock 4.0.5"]
 
 
-def test_skills_states(tmp_path: Path) -> None:
-    assert freshness.skills(Fake({"library_skills": CLEAN}), tmp_path).state == "clean"
-    differ = Ran(1, "link fastmcp: missing\n", "")
-    assert freshness.skills(Fake({"library_skills": differ}), tmp_path).state == "stale"
-    absent = Ran(1, "", "Shared library skills are not installed at /x")
-    assert freshness.skills(Fake({"library_skills": absent}), tmp_path).state == "not_run"
+def test_default_freshness_has_no_retired_skill_sync() -> None:
+    assert "skills" not in freshness.select([])
 
 
 def test_adr_index_compares_without_writing(tmp_path: Path, monkeypatch) -> None:

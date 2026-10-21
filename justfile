@@ -1,6 +1,6 @@
 # The only command surface agents need. `just` lists recipes.
 # Check recipes do not edit source; tests may create their own data.
-# `fmt`, `skills-sync`, `build-features` and `adr new|supersede|index` edit the
+# `fmt`, `build-features` and `adr new|supersede|index` edit the
 # working tree. Agents run scoped contract families and applicable leaves. Two bundles, each
 # keeping going after a failure: `turn-end` at the end of a turn that changed files, and `ready`
 # after an environment change.
@@ -12,7 +12,7 @@ default:
     @just --list
 
 turn_end_steps := "adr-index build-features fmt"
-ready_steps := "skills-sync _sync-native doctor-check _ready-report"
+ready_steps := "_sync-native doctor-check _ready-report"
 
 # End of a turn that changed files: regenerate the ADR index and Hakari crate, and format.
 # `just turn-end --paths P…` or `--staged` scopes this to the turn's own paths when the tree holds
@@ -21,11 +21,11 @@ ready_steps := "skills-sync _sync-native doctor-check _ready-report"
 turn-end *args:
     @if [ "$#" -eq 0 ]; then just _bundle turn-end "{{ turn_end_steps }}"; else uv run --no-project --offline --no-python-downloads python scripts/maintenance.py turn-end "$@"; fi
 
-# Run after a dependency, toolchain or skill-selection change, or an environment-shaped failure,
+# Run after a dependency, toolchain or process-skill change, or an environment-shaped failure,
 # in any checkout. It selects this checkout's own `.venv` (replacing, and reporting, an inherited
 # UV_PROJECT_ENVIRONMENT or VIRTUAL_ENV) and reports the interpreter, extension import origin,
 # build dir and locks.
-# Select this checkout's env, skill links, `sync native` once, doctor check, then the report
+# Select this checkout's env, `sync native` once, doctor check, then the report
 ready:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -74,14 +74,6 @@ _bundle name steps:
       exit 1
     fi
     echo "{{ name }}: all passed"
-
-# Apply the shared library-skill selection for Codex and Claude Code
-skills-sync:
-    python3 scripts/library_skills.py
-
-# Check selected library links without changing files
-skills-check:
-    python3 scripts/library_skills.py --check
 
 # `--select FAMILY[:BOUNDARY]` (repeatable) with `--nextest-args "…"`/`--pytest-args "…"` scoped
 # to the preceding selection; `--print` (static), `--list` (builds), `--rerun RUN`, `--live`.
@@ -233,7 +225,7 @@ gold:
     uv run --no-project --offline --no-python-downloads python scripts/check_gold.py
 
 # Read-only freshness of generated outputs: clean | stale | heuristic | not_run, with each
-# regenerate command (never invoked). Outputs: hakari docs adr-index skills rust-fmt python-fmt fmt gold insta
+# regenerate command (never invoked). Outputs: hakari docs adr-index rust-fmt python-fmt fmt gold insta
 [positional-arguments]
 fresh *args:
     @uv run --no-project --offline --no-python-downloads python scripts/freshness.py "$@"

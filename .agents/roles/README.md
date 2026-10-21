@@ -83,6 +83,9 @@ can resolve the uncertainty directly. A configuration edit does not change an al
 
 | Workflow | Typical contribution |
 |---|---|
+| Design principle audit | Read-only contributors establish baseline diagnoses; one coordinator reconciles and publishes the living collection |
+| Recommendation audit | A fresh design reviewer returns net changes and the complete integrated review for coordinator publication |
+| Plan-completion audit | A read-only implementation reviewer inspects accepted scope and returns corrections to the same owning plan |
 | Review planning and design review | Mappers and library researchers establish evidence; a fresh design reviewer forms the architectural judgment |
 | Test-review planning and execution | Code and library investigation, functional diagnosis and independent design judgment inform one integrated causal assessment |
 | Plan preparation and creation | Evidence workers inform options and the integral foundation assessment; focused design advice addresses consequential questions; one author assembles the document |
@@ -95,3 +98,6 @@ switch the runtime into Plan mode. No extra planning artifact or hook is require
 Configuration references, consulted 2026-10-14:
 [Codex custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents) and
 [Claude custom subagents](https://code.claude.com/docs/en/sub-agents).
+
+These audits are deliberate assessment boundaries. Ordinary execution, test review and handoff do
+not automatically initiate them; no extra roles or recurring hooks are required.
